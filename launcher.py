@@ -73,6 +73,8 @@ class MinecraftLauncher:
         import minecraft_launcher_lib
         self._mcllib = minecraft_launcher_lib
         self.options = minecraft_launcher_lib.utils.generate_test_options()
+        self.options["launcherName"] = "MCL"
+        self.options["launcherVersion"] = "3.2"
 
         self.current_max = 0
 
@@ -303,6 +305,10 @@ class MinecraftLauncher:
             # ── JVM 参数优化 ──
             minecraft_command = self._optimize_jvm_args(minecraft_command)
 
+            # ── 设置启动器名称 ──
+            # 替换 --versionType 参数值，使游戏标题界面左下角显示 "Minecraft x.x.x/MCL"
+            minecraft_command = self._set_launcher_brand(minecraft_command)
+
             logger.info("正在启动游戏...")
             # 使用 Popen 非阻塞启动，捕获 stdout 以便检测游戏窗口
             self._game_process = subprocess.Popen(
@@ -393,6 +399,21 @@ class MinecraftLauncher:
             logger.info(f"JVM 优化参数: {jvm_opts}")
 
         return optimized
+
+    def _set_launcher_brand(self, command: List[str]) -> List[str]:
+        """
+        设置启动器品牌标识
+
+        替换 --versionType 参数值，使游戏标题界面左下角显示
+        如 "Minecraft 1.21.1/MCL" 而非默认的 "Minecraft 1.21.1/release"
+        """
+        brand = f"{self.options.get('launcherName', 'MCL')}/{self.options.get('launcherVersion', '3.2')}"
+        for i, arg in enumerate(command):
+            if arg == "--versionType" and i + 1 < len(command):
+                command[i + 1] = brand
+                logger.info(f"启动器品牌标识: --versionType {brand}")
+                break
+        return command
 
     @staticmethod
     def _parse_memory_string(s: str) -> int:

@@ -21,20 +21,25 @@ def get_current_version():
 
 def update_version(new_version):
     """更新所有文件中的版本号"""
-    files = {
-        "pyproject.toml": r'version\s*=\s*["\']([^"\']+)["\']',
-        "package.json": r'"version":\s*"([^"]+)"',
-    }
+    # (文件路径, 正则模式, 替换模板)
+    files = [
+        ("pyproject.toml", r'version\s*=\s*["\']([^"\']+)["\']', 'version = "{v}"'),
+        ("package.json", r'"version":\s*"([^"]+)"', '"version": "{v}"'),
+        ("launcher.py", r'(self\.options\["launcherVersion"\]\s*=\s*)"[^"]*"', r'\1"{v}"'),
+    ]
     
-    for file_path, pattern in files.items():
+    for file_path, pattern, replacement in files:
         path = Path(file_path)
         if not path.exists():
             continue
             
         content = path.read_text(encoding='utf-8')
-        new_content = re.sub(pattern, f'version = "{new_version}"' if file_path.endswith('.toml') else f'"version": "{new_version}"', content)
-        path.write_text(new_content, encoding='utf-8')
-        print(f"✅ 已更新 {file_path}")
+        new_content = re.sub(pattern, replacement.format(v=new_version), content)
+        if new_content != content:
+            path.write_text(new_content, encoding='utf-8')
+            print(f"✅ 已更新 {file_path}")
+        else:
+            print(f"⏭️  {file_path} 无需更新")
 
 
 def main():
