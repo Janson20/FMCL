@@ -178,9 +178,12 @@ def download_forge(version: str, num_threads: int = 4, mirror=None) -> str:
         forge_url = None
 
         # 优先使用镜像源获取下载链接
+        from_mirror = False
         if mirror and mirror.enabled:
             logger.info(f"正在通过 BMCLAPI 获取 Forge {version} 下载链接")
             forge_url = mirror.get_forge_download_url(version)
+            if forge_url:
+                from_mirror = True
 
         # 镜像源获取失败时回退到 forgepy
         if not forge_url:
@@ -194,8 +197,8 @@ def download_forge(version: str, num_threads: int = 4, mirror=None) -> str:
         if not forge_url:
             raise RuntimeError(f"无法获取 Forge {version} 的下载链接")
 
-        # 镜像源URL重写
-        if mirror and mirror.enabled:
+        # 仅对非镜像源URL进行重写（官方URL -> 镜像URL）
+        if mirror and mirror.enabled and not from_mirror:
             forge_url = mirror.rewrite_url(forge_url)
 
         logger.info(f"Forge 下载地址: {forge_url}")
