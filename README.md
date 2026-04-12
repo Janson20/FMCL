@@ -224,7 +224,7 @@ python main.py
 
 ```
 MCL/
-├── main.py                # 主程序入口，日志配置、语言设置、UI 创建、线程管理
+├── main.py                # 主程序入口，延迟导入优化、日志配置、UI 创建、线程管理
 ├── launcher.py            # 启动器核心逻辑
 │   ├── 环境检查与初始化
 │   ├── 版本安装（原版 + 模组加载器）
@@ -283,6 +283,7 @@ main.py
 | UI 框架 | CustomTkinter | 现代 Tkinter 封装，深色主题 |
 | Minecraft 库 | minecraft-launcher-lib | 版本安装、启动命令生成 |
 | 镜像源 | BMCLAPI (bangbang93) | 国内加速下载 |
+| 启动优化 | 延迟导入 + 后台初始化 | 窗口先显示，核心后台加载 |
 | 拖拽支持 | tkinterdnd2 | 文件拖拽安装资源 |
 | 日志 | logzero | 轻量级日志框架 |
 | HTTP | requests | API 请求与文件下载 |

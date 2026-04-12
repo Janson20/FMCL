@@ -7,6 +7,7 @@ v1.3 - add ui
 v1.4 - add mouse detect
 v2.0 - refactor: modular architecture, improved error handling
 v3.0 - modern UI with CustomTkinter, multi-threaded operations
+v3.1 - perf: lazy imports, deferred heavy initialization
 """
 
 import re
@@ -14,13 +15,10 @@ import sys
 import threading
 import time
 
-import customtkinter as ctk
 import logzero
 from logzero import logger
 
 from config import config
-from launcher import MinecraftLauncher
-from ui import ModernApp
 
 
 def set_chinese_language():
@@ -63,6 +61,9 @@ def detect_mouse_move():
     鼠标位置检测功能(调试用)
     持续记录鼠标位置到文件
     """
+    # 延迟导入 pyautogui，避免启动时 0.08s 的导入开销
+    import pyautogui
+
     pos_file = config.base_dir / "pos.txt"
 
     try:
@@ -71,7 +72,6 @@ def detect_mouse_move():
 
             while True:
                 try:
-                    import pyautogui
                     x, y = pyautogui.position()
                     position_str = f"{str(x).rjust(5)} , {str(y).rjust(5)}"
 
@@ -96,7 +96,7 @@ def main():
         setup_logging()
 
         logger.info("=" * 60)
-        logger.info("Minecraft Launcher v3.0 启动")
+        logger.info("Minecraft Launcher v3.1 启动")
         logger.info("=" * 60)
 
         # 确保目录存在
@@ -105,22 +105,57 @@ def main():
         # 设置游戏语言为中文
         set_chinese_language()
 
-        # 创建启动器实例
-        launcher = MinecraftLauncher(config)
-
-        # 启动鼠标检测线程(守护线程,主程序退出时自动结束)
-        mouse_thread = threading.Thread(target=detect_mouse_move, daemon=True)
-        mouse_thread.start()
+        # ── 延迟导入：只在需要时才加载重量级模块 ──
+        # customtkinter (~0.14s) 和 launcher/minecraft_launcher_lib (~0.16s)
+        # 延迟导入 launcher 模块，避免模块加载阶段就触发 minecraft_launcher_lib 的导入
+        import customtkinter as ctk
 
         # 设置CustomTkinter主题
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
 
-        # 创建并运行现代化UI
-        app = ModernApp(launcher.get_callbacks())
-        # 同步镜像源开关状态
-        if "get_mirror_enabled" in launcher.get_callbacks():
-            app.mirror_var.set(launcher.get_callbacks()["get_mirror_enabled"]())
+        # 延迟导入 UI 模块
+        from ui import ModernApp
+
+        # ── 先创建 UI，让用户尽快看到窗口 ──
+        # 传入一个空的 callbacks 字典，稍后在后台线程中替换
+        app = ModernApp({})
+
+        app.set_status("正在初始化启动器核心...", "loading")
+
+        # ── 在后台线程中初始化启动器核心 ──
+        # minecraft_launcher_lib (~0.16s) 和 mirror patch 的导入在这里完成
+        def _init_launcher():
+            from launcher import MinecraftLauncher
+            launcher = MinecraftLauncher(config)
+
+            # 在主线程中更新 UI 的 callbacks
+            app.after(0, _on_launcher_ready, launcher)
+
+        def _on_launcher_ready(launcher):
+            """Launcher 初始化完成回调（主线程执行）"""
+            callbacks = launcher.get_callbacks()
+
+            # 更新 UI 回调
+            app.callbacks = callbacks
+
+            # 同步镜像源开关状态
+            if "get_mirror_enabled" in callbacks:
+                app.mirror_var.set(callbacks["get_mirror_enabled"]())
+
+            app.set_status("启动器就绪", "success")
+
+            # 启动环境初始化流程
+            app._on_app_ready()
+
+        # 启动后台初始化线程
+        init_thread = threading.Thread(target=_init_launcher, daemon=True)
+        init_thread.start()
+
+        # 启动鼠标检测线程(守护线程,主程序退出时自动结束)
+        mouse_thread = threading.Thread(target=detect_mouse_move, daemon=True)
+        mouse_thread.start()
+
         app.protocol("WM_DELETE_WINDOW", app.on_closing)
         app.mainloop()
 
