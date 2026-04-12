@@ -4,6 +4,7 @@
 镜像规则参考: https://bmclapi2.bangbang93.com
 """
 import json
+import os
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
@@ -45,6 +46,10 @@ MIRROR_URLS = {
         "https://files.minecraftforge.net/maven",
         "https://bmclapi2.bangbang93.com/maven",
     ),
+    "forge_maven_direct": (
+        "https://maven.minecraftforge.net",
+        "https://bmclapi2.bangbang93.com/maven",
+    ),
     # Fabric
     "fabric_meta": (
         "https://meta.fabricmc.net",
@@ -82,6 +87,7 @@ URL_REPLACE_RULES: List[tuple] = [
     MIRROR_URLS["assets"],
     MIRROR_URLS["libraries"],
     MIRROR_URLS["forge_maven"],
+    MIRROR_URLS["forge_maven_direct"],
     MIRROR_URLS["fabric_meta"],
     MIRROR_URLS["fabric_maven"],
     MIRROR_URLS["neoforge_forge"],
@@ -287,10 +293,17 @@ class MirrorSource:
 
     def patch_minecraft_launcher_lib(self):
         """
-        猴子补丁: 替换 minecraft_launcher_lib 内部的 Mojang URL
-        使其使用镜像源进行下载
+        猴子补丁: 替换 minecraft_launcher_lib 内部硬编码的官方 URL
+        使其使用 BMCLAPI 镜像源进行下载
 
         需要在调用任何安装函数之前调用此方法
+
+        补丁覆盖范围:
+        - mojang_api: MOJANG_API_URL, VERSION_MANIFEST_URL, VERSION_MANIFEST_V2_URL, JAVA_RUNTIME_URL
+        - install: libraries fallback URL, assets URL, version_manifest_v2 URL
+        - mod_loader/_forge: _MAVEN_METADATA_URL, Forge.get_installer_url()
+        - mod_loader/_fabric: Fabric 实例的 _maven_url, _game_url, _loader_url
+        - mod_loader/_neoforge: _API_URL, Neoforge.get_installer_url()
         """
         if not self.enabled:
             logger.info("镜像源未启用，使用官方源")
@@ -298,42 +311,36 @@ class MirrorSource:
 
         try:
             import minecraft_launcher_lib
-            from minecraft_launcher_lib import mojang_api
 
-            # 替换 mojang_api 模块中的 URL 常量
-            if hasattr(mojang_api, 'MOJANG_API_URL'):
-                original = mojang_api.MOJANG_API_URL
-                mojang_api.MOJANG_API_URL = "https://bmclapi2.bangbang93.com"
-                logger.info(f"已替换 MOJANG_API_URL: {original} -> {mojang_api.MOJANG_API_URL}")
-
-            # 替换 version_manifest URL
-            if hasattr(mojang_api, 'VERSION_MANIFEST_URL'):
-                original = mojang_api.VERSION_MANIFEST_URL
-                mojang_api.VERSION_MANIFEST_URL = MIRROR_URLS["version_manifest"]
-                logger.info(f"已替换 VERSION_MANIFEST_URL: {original} -> {mojang_api.VERSION_MANIFEST_URL}")
-
-            if hasattr(mojang_api, 'VERSION_MANIFEST_V2_URL'):
-                original = mojang_api.VERSION_MANIFEST_V2_URL
-                mojang_api.VERSION_MANIFEST_V2_URL = MIRROR_URLS["version_manifest_v2"]
-                logger.info(f"已替换 VERSION_MANIFEST_V2_URL")
-
-            # 替换 Java 运行时 URL
-            if hasattr(mojang_api, 'JAVA_RUNTIME_URL'):
-                original = mojang_api.JAVA_RUNTIME_URL
-                mojang_api.JAVA_RUNTIME_URL = MIRROR_URLS["java_runtime"][1]
-                logger.info(f"已替换 JAVA_RUNTIME_URL")
-
-            # 替换 libraries URL - 在 install 模块中
+            # ── 1. mojang_api 模块 (v7.x 及更早版本) ──
             try:
-                from minecraft_launcher_lib import install as _install
-                if hasattr(_install, 'LIBRARIES_URL'):
-                    _install.LIBRARIES_URL = "https://bmclapi2.bangbang93.com/maven/"
-                    logger.info("已替换 LIBRARIES_URL")
-            except (ImportError, AttributeError):
+                from minecraft_launcher_lib import mojang_api
+
+                if hasattr(mojang_api, 'MOJANG_API_URL'):
+                    mojang_api.MOJANG_API_URL = "https://bmclapi2.bangbang93.com"
+                    logger.info(f"已替换 MOJANG_API_URL")
+                if hasattr(mojang_api, 'VERSION_MANIFEST_URL'):
+                    mojang_api.VERSION_MANIFEST_URL = MIRROR_URLS["version_manifest"]
+                    logger.info(f"已替换 VERSION_MANIFEST_URL")
+                if hasattr(mojang_api, 'VERSION_MANIFEST_V2_URL'):
+                    mojang_api.VERSION_MANIFEST_V2_URL = MIRROR_URLS["version_manifest_v2"]
+                    logger.info(f"已替换 VERSION_MANIFEST_V2_URL")
+                if hasattr(mojang_api, 'JAVA_RUNTIME_URL'):
+                    mojang_api.JAVA_RUNTIME_URL = MIRROR_URLS["java_runtime"][1]
+                    logger.info(f"已替换 JAVA_RUNTIME_URL")
+            except ImportError:
+                # v8.0+ 已移除 mojang_api 模块，URL 在 install.py 和 _helper.py 中硬编码
+                # 通过 _patch_install_module 和 _patch_helper_module 处理
                 pass
 
-            # 替换 mod_loader 模块中的 URL 常量 (v8.0+)
+            # ── 2. install 模块硬编码 URL ──
+            self._patch_install_module()
+
+            # ── 3. mod_loader 子模块 ──
             self._patch_mod_loader_module()
+
+            # ── 4. _helper 模块中的 version_manifest 缓存 ──
+            self._patch_helper_module()
 
             logger.info("✅ minecraft_launcher_lib 镜像源补丁已应用")
 
@@ -342,43 +349,137 @@ class MirrorSource:
         except Exception as e:
             logger.error(f"应用镜像源补丁失败: {e}")
 
+    def _patch_install_module(self):
+        """修补 install 模块中硬编码的 URL
+
+        核心策略: 全局 patch _helper.download_file，所有下载都会经过 URL 重写
+        """
+        try:
+            from minecraft_launcher_lib import _helper
+
+            # 全局 patch download_file — 这是所有文件下载的底层函数
+            _original_download_file = _helper.download_file
+
+            def _patched_download_file(url, *args, **kwargs):
+                rewritten_url = self.rewrite_url(url)
+                return _original_download_file(rewritten_url, *args, **kwargs)
+
+            _helper.download_file = _patched_download_file
+            logger.info("已全局修补 _helper.download_file (URL 重写)")
+
+            # 全局 patch install_minecraft_version 中 requests.get 的 version_manifest URL
+            from minecraft_launcher_lib import install as _install
+            _original_install_minecraft_version = _install.install_minecraft_version
+
+            def _patched_install_minecraft_version(version, minecraft_directory, callback=None):
+                """重写 version_manifest_v2 请求 URL"""
+                if callback is None:
+                    callback = {}
+                if isinstance(minecraft_directory, os.PathLike):
+                    minecraft_directory = str(minecraft_directory)
+
+                _original_requests_get = _install.requests.get
+
+                def _patched_requests_get(url, *args, **kwargs):
+                    rewritten_url = self.rewrite_url(url)
+                    return _original_requests_get(rewritten_url, *args, **kwargs)
+
+                _install.requests.get = _patched_requests_get
+                try:
+                    _original_install_minecraft_version(version, minecraft_directory, callback)
+                finally:
+                    _install.requests.get = _original_requests_get
+
+            _install.install_minecraft_version = _patched_install_minecraft_version
+            logger.info("已修补 install_minecraft_version (version_manifest URL 重写)")
+
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"修补 install 模块跳过: {e}")
+
     def _patch_mod_loader_module(self):
         """为 mod_loader 模块中的各子模块应用镜像源补丁"""
         try:
-            import minecraft_launcher_lib
-
-            # Fabric mod_loader 子模块
+            # ── Forge ──
             try:
-                from minecraft_launcher_lib.mod_loader import _fabric as _fabric_mod
-                if hasattr(_fabric_mod, 'FABRIC_MAVEN_URL'):
-                    _fabric_mod.FABRIC_MAVEN_URL = "https://bmclapi2.bangbang93.com/maven/"
-                    logger.info("已替换 _fabric.FABRIC_MAVEN_URL")
-                if hasattr(_fabric_mod, 'FABRIC_META_URL'):
-                    _fabric_mod.FABRIC_META_URL = "https://bmclapi2.bangbang93.com/fabric-meta"
-                    logger.info("已替换 _fabric.FABRIC_META_URL")
-            except (ImportError, AttributeError):
-                pass
+                from minecraft_launcher_lib.mod_loader._forge import Forge, _MAVEN_METADATA_URL
+                import minecraft_launcher_lib.mod_loader._forge as _forge_mod
 
-            # Forge mod_loader 子模块
-            try:
-                from minecraft_launcher_lib.mod_loader import _forge as _forge_mod
-                if hasattr(_forge_mod, 'FORGE_MAVEN_URL'):
-                    _forge_mod.FORGE_MAVEN_URL = "https://bmclapi2.bangbang93.com/maven/"
-                    logger.info("已替换 _forge.FORGE_MAVEN_URL")
-            except (ImportError, AttributeError):
-                pass
+                # 替换模块级变量
+                _forge_mod._MAVEN_METADATA_URL = "https://bmclapi2.bangbang93.com/maven/net/minecraftforge/forge/maven-metadata.xml"
+                logger.info(f"已替换 _forge._MAVEN_METADATA_URL")
 
-            # NeoForge mod_loader 子模块
+                # Monkey-patch get_installer_url 方法
+                _original_get_installer_url = Forge.get_installer_url
+
+                def _patched_forge_get_installer_url(self_forge, minecraft_version, loader_version):
+                    original_url = _original_get_installer_url(self_forge, minecraft_version, loader_version)
+                    return self.rewrite_url(original_url)
+
+                Forge.get_installer_url = _patched_forge_get_installer_url
+                logger.info("已修补 Forge.get_installer_url (URL 重写)")
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"修补 Forge 模块跳过: {e}")
+
+            # ── Fabric ──
             try:
-                from minecraft_launcher_lib.mod_loader import _neoforge as _neoforge_mod
-                if hasattr(_neoforge_mod, 'NEOFORGE_MAVEN_URL'):
-                    _neoforge_mod.NEOFORGE_MAVEN_URL = "https://bmclapi2.bangbang93.com/maven/"
-                    logger.info("已替换 _neoforge.NEOFORGE_MAVEN_URL")
-            except (ImportError, AttributeError):
-                pass
+                from minecraft_launcher_lib.mod_loader._fabric import Fabric
+
+                # 获取 Fabric 单例实例并替换实例变量
+                try:
+                    from minecraft_launcher_lib.mod_loader import get_mod_loader
+                    fabric_instance = get_mod_loader("fabric")
+                    fabric_instance._maven_url = "https://bmclapi2.bangbang93.com/maven/net/fabricmc/fabric-installer"
+                    fabric_instance._game_url = "https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/game"
+                    fabric_instance._loader_url = "https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/loader"
+                    logger.info("已替换 Fabric 实例 URL (maven/game/loader)")
+                except Exception as e:
+                    logger.debug(f"替换 Fabric 实例 URL 失败: {e}")
+
+                # download_file 已全局 patch，无需再局部 patch Fabric.install
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"修补 Fabric 模块跳过: {e}")
+
+            # ── NeoForge ──
+            try:
+                from minecraft_launcher_lib.mod_loader._neoforge import Neoforge
+
+                # 注意: _API_URL 不替换，BMCLAPI 不镜像此 API 格式
+                # 版本列表仍然从官方 maven.neoforged.net 获取
+
+                # Monkey-patch get_installer_url 方法
+                # BMCLAPI NeoForge 下载路径: /neoforge/version/{version}/download/installer.jar
+                _original_neoforge_get_installer_url = Neoforge.get_installer_url
+
+                def _patched_neoforge_get_installer_url(self_neoforge, minecraft_version, loader_version):
+                    # 使用 BMCLAPI 专用 NeoForge 下载接口
+                    return f"https://bmclapi2.bangbang93.com/neoforge/version/{loader_version}/download/installer.jar"
+
+                Neoforge.get_installer_url = _patched_neoforge_get_installer_url
+                logger.info("已修补 NeoForge.get_installer_url (BMCLAPI 专用下载接口)")
+
+                # download_file 已全局 patch，无需再局部 patch NeoForge.install
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"修补 NeoForge 模块跳过: {e}")
 
         except ImportError:
             pass
+
+    def _patch_helper_module(self):
+        """修补 _helper 模块中的请求缓存，确保镜像 URL 被正确使用"""
+        try:
+            from minecraft_launcher_lib import _helper
+
+            # Monkey-patch get_requests_response_cache 以重写 URL
+            _original_get_cache = _helper.get_requests_response_cache
+
+            def _patched_get_cache(url):
+                rewritten_url = self.rewrite_url(url)
+                return _original_get_cache(rewritten_url)
+
+            _helper.get_requests_response_cache = _patched_get_cache
+            logger.info("已修补 _helper.get_requests_response_cache (URL 重写)")
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"修补 _helper 模块跳过: {e}")
 
     def get_mirror_name(self) -> str:
         """获取当前镜像源名称"""
