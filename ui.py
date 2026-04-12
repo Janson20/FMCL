@@ -25,6 +25,7 @@ COLORS = {
     "accent_hover": "#ff6b81",
     "success": "#2ecc71",
     "warning": "#f39c12",
+    "error": "#e74c3c",
     "text_primary": "#ffffff",
     "text_secondary": "#a0a0b0",
     "card_bg": "#1e2a4a",
@@ -223,7 +224,7 @@ class ModernApp(ctk.CTk):
         self.version_list_frame = list_frame
         self.version_buttons: List[Dict[str, Any]] = []
 
-        # 底部启动按钮
+        # 底部启动/结束按钮
         launch_frame = ctk.CTkFrame(panel, fg_color="transparent", height=50)
         launch_frame.pack(fill=ctk.X, padx=15, pady=(0, 12))
         launch_frame.pack_propagate(False)
@@ -237,7 +238,21 @@ class ModernApp(ctk.CTk):
             hover_color=COLORS["accent_hover"],
             command=self._on_launch,
         )
-        self.launch_btn.pack(fill=ctk.X)
+        self.launch_btn.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
+
+        self.kill_btn = ctk.CTkButton(
+            launch_frame,
+            text="⏹",
+            width=50,
+            height=40,
+            font=ctk.CTkFont(size=16),
+            fg_color=COLORS["error"],
+            hover_color="#c0392b",
+            text_color=COLORS["text_primary"],
+            command=self._on_kill_game,
+        )
+        self.kill_btn.pack(side=ctk.RIGHT, padx=(8, 0))
+        self.kill_btn.configure(state=ctk.DISABLED)
 
         self.selected_version: Optional[str] = None
 
@@ -693,6 +708,30 @@ class ModernApp(ctk.CTk):
             "success" if enabled else "info"
         )
 
+    def _on_kill_game(self):
+        """强制结束游戏进程"""
+        if "kill_game_process" in self.callbacks:
+            success = self.callbacks["kill_game_process"]()
+            if success:
+                self.set_status("游戏进程已强制结束", "warning")
+            else:
+                self.set_status("没有正在运行的游戏进程", "info")
+            self.kill_btn.configure(state=ctk.DISABLED)
+
+    def _watch_game_exit(self):
+        """监控游戏进程退出（后台线程），退出时通知主线程禁用 kill 按钮"""
+        if "get_game_process" not in self.callbacks:
+            return
+
+        proc = self.callbacks["get_game_process"]()
+        if proc is None:
+            return
+
+        # 等待进程退出（阻塞）
+        proc.wait()
+        logger.info("游戏进程已退出")
+        self._task_queue.put(("game_exited", None))
+
     def _watch_game_stdout(self):
         """监控游戏进程 stdout，检测到游戏窗口出现后通知主线程最小化（后台线程）"""
         if "get_game_process" not in self.callbacks:
@@ -923,8 +962,10 @@ class ModernApp(ctk.CTk):
             version_id, success = data
             if success:
                 self.set_status(f"{version_id} 已启动，等待游戏窗口...", "loading")
+                self.kill_btn.configure(state=ctk.NORMAL)
                 if self.minimize_var.get():
                     self._run_in_thread(self._watch_game_stdout)
+                self._run_in_thread(self._watch_game_exit)
             else:
                 self.set_status(f"{version_id} 启动失败", "error")
             self.launch_btn.configure(state=ctk.NORMAL)
@@ -936,6 +977,9 @@ class ModernApp(ctk.CTk):
         elif task_type == "game_window_detected":
             self.set_status("游戏窗口已出现，启动器已最小化", "success")
             self.iconify()
+
+        elif task_type == "game_exited":
+            self.kill_btn.configure(state=ctk.DISABLED)
 
         elif task_type == "progress_update":
             current, total, status = data
