@@ -154,6 +154,10 @@ def main():
             # 启动环境初始化流程
             app._on_app_ready()
 
+            # 启动时自动检查更新（后台静默）
+            if config.auto_check_update:
+                threading.Thread(target=app._check_update, args=(True,), daemon=True).start()
+
         # 启动后台初始化线程
         init_thread = threading.Thread(target=_init_launcher, daemon=True)
         init_thread.start()
