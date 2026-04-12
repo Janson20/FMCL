@@ -283,12 +283,21 @@ class MinecraftLauncher:
                     logger.error(f"版本未安装: {version_id}")
                     return False
 
+            # 版本隔离：为模组加载器版本设置 gameDirectory
+            # 游戏会从 gameDirectory 读取 mods、config 等资源
+            options = dict(self.options)
+            if self._has_mod_loader(target_version):
+                version_game_dir = os.path.join(self.minecraft_dir, "versions", target_version)
+                os.makedirs(version_game_dir, exist_ok=True)
+                options["gameDirectory"] = version_game_dir
+                logger.info(f"版本隔离已启用: gameDirectory={version_game_dir}")
+
             # 获取启动命令
             logger.info(f"正在生成启动命令: {target_version}")
             minecraft_command = self._mcllib.command.get_minecraft_command(
                 target_version,
                 self.minecraft_dir,
-                self.options
+                options
             )
 
             # ── JVM 参数优化 ──
@@ -312,6 +321,12 @@ class MinecraftLauncher:
         except Exception as e:
             logger.error(f"启动游戏失败: {str(e)}")
             return False
+
+    @staticmethod
+    def _has_mod_loader(version_id: str) -> bool:
+        """判断版本是否安装了模组加载器（需要版本隔离）"""
+        v = version_id.lower()
+        return any(loader in v for loader in ("forge", "fabric", "neoforge"))
 
     def _optimize_jvm_args(self, command: List[str]) -> List[str]:
         """
