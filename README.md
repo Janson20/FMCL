@@ -23,6 +23,7 @@
 - **Fabric** - 轻量级模组加载器
 - **NeoForge** - Forge 的社区分支
 - 安装模组加载器时自动安装原版 Minecraft，无需重复操作
+- **版本隔离**：安装了模组加载器的版本自动启用版本隔离，游戏从 `.minecraft/versions/{版本名}/` 读取 mods、config 等资源，各版本互不干扰
 
 ### 🧩 Modrinth 模组浏览与安装
 - 集成 [Modrinth](https://modrinth.com/) API，在线搜索和安装模组
@@ -272,7 +273,7 @@ MCL/
 │   ├── 环境检查与初始化
 │   ├── 版本安装（原版 + 模组加载器）
 │   ├── 版本删除
-│   ├── 游戏启动（JVM 参数优化 + 模糊匹配版本 ID）
+│   ├── 游戏启动（JVM 参数优化 + 模糊匹配版本 ID + 版本隔离）
 │   ├── 并发文件校验（ThreadPoolExecutor）
 │   └── 镜像源管理
 ├── ui.py                  # CustomTkinter 现代化 UI
