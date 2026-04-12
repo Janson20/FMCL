@@ -10,7 +10,7 @@ API 文档: https://docs.modrinth.com/api/
 - 下载模组 jar 文件到 mods 目录
 """
 
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Set, Tuple
 from pathlib import Path
 
 import requests
@@ -19,6 +19,10 @@ from logzero import logger
 
 MODRINTH_API_BASE = "https://api.modrinth.com/v2"
 MODRINTH_USER_AGENT = "MCL-MinecraftLauncher/1.0 (github.com/Janson20/MCL)"
+
+# 缓存：每个 major 版本对应的所有 minor 版本号集合
+# 如 {16: {0,1,2,3,4,5}, 20: {0,1,2,3,4,5,6}, 21: {0,1,2,...,11}}
+_all_game_versions_cache: Optional[Dict[int, Set[int]]] = None
 
 
 def _get_headers() -> Dict[str, str]:
@@ -120,13 +124,15 @@ def get_mod_versions(
     Returns:
         版本信息列表，每个版本包含 id, name, version_number, files 等
     """
+    import json as _json
+
     params: Dict = {}
 
     if game_version:
-        params["game_versions"] = f'["{game_version}"]'
+        params["game_versions"] = _json.dumps([game_version])
 
     if mod_loader:
-        params["loaders"] = f'["{mod_loader}"]'
+        params["loaders"] = _json.dumps([mod_loader])
 
     try:
         resp = requests.get(
@@ -138,7 +144,10 @@ def get_mod_versions(
         resp.raise_for_status()
         versions = resp.json()
 
-        logger.info(f"获取模组 {project_id} 版本列表: {len(versions)} 个")
+        logger.info(
+            f"获取模组 {project_id} 版本列表: {len(versions)} 个 "
+            f"(game_version={game_version}, loader={mod_loader})"
+        )
         return versions
 
     except requests.exceptions.RequestException as e:
@@ -197,6 +206,53 @@ def download_mod(
     except Exception as e:
         logger.error(f"下载模组失败: {e}")
         return False, str(e)
+
+
+def _fetch_all_game_versions() -> Dict[int, Set[int]]:
+    """
+    从 Modrinth API 获取所有正式版游戏版本列表，按 major 分组
+
+    Returns:
+        {major: {minor1, minor2, ...}} 字典
+        如 {16: {0,1,2,3,4,5}, 20: {0,1,2,3,4,5,6}}
+    """
+    global _all_game_versions_cache
+
+    if _all_game_versions_cache is not None:
+        return _all_game_versions_cache
+
+    try:
+        resp = requests.get(
+            f"{MODRINTH_API_BASE}/tag/game_version",
+            headers=_get_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        # 只取 release 版本
+        releases = [v["version"] for v in data if v.get("version_type") == "release"]
+
+        cache: Dict[int, Set[int]] = {}
+        for v in releases:
+            parts = v.split(".")
+            try:
+                if len(parts) == 2 and parts[0] == "1":
+                    major, minor = int(parts[1]), 0
+                    cache.setdefault(major, set()).add(minor)
+                elif len(parts) >= 3 and parts[0] == "1":
+                    major, minor = int(parts[1]), int(parts[2])
+                    cache.setdefault(major, set()).add(minor)
+            except (ValueError, IndexError):
+                continue
+
+        _all_game_versions_cache = cache
+        logger.debug(f"已缓存游戏版本列表: {len(cache)} 个 major 版本")
+        return cache
+
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"获取游戏版本列表失败，将使用回退逻辑: {e}")
+        return {}
 
 
 def parse_mod_loader_from_version(version_id: str) -> Optional[str]:
@@ -278,3 +334,108 @@ def parse_game_version_from_version(version_id: str) -> Optional[str]:
         return match.group(1)
 
     return None
+
+
+def compress_game_versions(versions: List[str]) -> str:
+    """
+    将游戏版本列表压缩为简洁的展示字符串
+
+    规则 (基于 Modrinth 完整版本列表判断是否覆盖全版本):
+    - 同一 major 下覆盖了所有 minor 版本 → 1.X.x
+      如 1.16 有 0~5，模组支持全部 → "1.16.x"
+    - 同一 major 下连续但不完整 → 用范围
+      如 1.20 有 0~6，模组只支持 0,1,2 → "1.20-1.20.2"
+    - 孤立版本原样显示，如 [1.21] → "1.21"
+
+    Args:
+        versions: 游戏版本号列表 (如 ["1.16", "1.16.1", ..., "1.21"])
+
+    Returns:
+        压缩后的版本展示字符串
+    """
+    if not versions:
+        return ""
+
+    # 获取 Modrinth 完整版本列表作为参考
+    all_versions = _fetch_all_game_versions()
+
+    # 解析版本号为 (major, minor) 元组，1.X → (X, 0), 1.X.Y → (X, Y)
+    def _parse(v: str):
+        parts = v.split(".")
+        try:
+            if len(parts) == 2 and parts[0] == "1":
+                return (int(parts[1]), 0)
+            elif len(parts) >= 3 and parts[0] == "1":
+                return (int(parts[1]), int(parts[2]))
+        except (ValueError, IndexError):
+            pass
+        return None
+
+    # 按 major 分组
+    groups: Dict[int, List[int]] = {}  # major -> [minor, ...]
+    for v in versions:
+        parsed = _parse(v)
+        if parsed is None:
+            continue
+        major, minor = parsed
+        groups.setdefault(major, []).append(minor)
+
+    # 对每个 major 组生成展示文本
+    parts = []
+    for major in sorted(groups.keys()):
+        minor_vals = sorted(set(groups[major]))
+        # 该 major 在 Modrinth 上所有已知的 minor 版本
+        all_minors = all_versions.get(major, set())
+
+        # 找连续段
+        segments: List[List[int]] = []
+        current_seg = [minor_vals[0]]
+        for i in range(1, len(minor_vals)):
+            if minor_vals[i] == minor_vals[i - 1] + 1:
+                current_seg.append(minor_vals[i])
+            else:
+                segments.append(current_seg)
+                current_seg = [minor_vals[i]]
+        segments.append(current_seg)
+
+        for seg in segments:
+            prefix = f"1.{major}"
+            if len(seg) == 1:
+                if seg[0] == 0:
+                    parts.append(prefix)
+                else:
+                    parts.append(f"{prefix}.{seg[0]}")
+            elif all_minors and set(seg) == all_minors:
+                # 覆盖了该 major 下所有已知 minor 版本 → 用 .x
+                parts.append(f"{prefix}.x")
+            else:
+                # 连续但不完整，用范围
+                start = f"{prefix}.{seg[0]}" if seg[0] != 0 else prefix
+                end = f"{prefix}.{seg[-1]}"
+                parts.append(f"{start}-{end}")
+
+    # 合并连续的 .x 结果：1.16.x, 1.17.x, 1.18.x, 1.19.x → 1.16.x-1.19.x
+    merged: List[str] = []
+    i = 0
+    while i < len(parts):
+        if parts[i].endswith(".x"):
+            start_major = int(parts[i].rstrip(".x").split(".")[-1])
+            end_major = start_major
+            j = i + 1
+            while j < len(parts) and parts[j].endswith(".x"):
+                next_major = int(parts[j].rstrip(".x").split(".")[-1])
+                if next_major == end_major + 1:
+                    end_major = next_major
+                    j += 1
+                else:
+                    break
+            if end_major > start_major:
+                merged.append(f"1.{start_major}.x-1.{end_major}.x")
+            else:
+                merged.append(parts[i])
+            i = j
+        else:
+            merged.append(parts[i])
+            i += 1
+
+    return ", ".join(merged)
