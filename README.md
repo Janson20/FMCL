@@ -392,6 +392,7 @@ chore: 构建/工具变动
 | 游戏启动失败 | 确保已安装 Java 运行时 |
 | macOS 提示无法验证开发者 | `xattr -cr MCL.app` 移除隔离属性 |
 | Windows 杀毒误报 | 添加到杀毒软件排除列表 |
+| Windows 异常退出 | 尝试以管理员权限运行程序 |
 | 依赖安装失败 | `pip install -r requirements.txt --force-reinstall` |
 
 ---
