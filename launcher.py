@@ -144,13 +144,13 @@ class MinecraftLauncher:
             logger.error(f"获取已安装版本失败: {str(e)}")
             return []
 
-    def install_version(self, version_id: str, install_forge: bool = False) -> bool:
+    def install_version(self, version_id: str, mod_loader: str = "无") -> bool:
         """
         安装Minecraft版本
 
         Args:
             version_id: 版本ID
-            install_forge: 是否安装Forge
+            mod_loader: 模组加载器 ("无", "Forge", "Fabric", "NeoForge")
 
         Returns:
             是否安装成功
@@ -164,15 +164,22 @@ class MinecraftLauncher:
                 logger.error(f"无效的版本ID: {version_id}")
                 return False
 
-            # 安装Forge
-            if install_forge:
-                logger.info(f"正在下载 Forge {version_id}")
-                forge_file = download_forge(
+            # 安装模组加载器
+            if mod_loader and mod_loader != "无":
+                from downloader import download_mod_loader
+                logger.info(f"正在下载 {mod_loader} {version_id}")
+                loader_file = download_mod_loader(
+                    mod_loader,
                     version_id,
                     num_threads=self.config.download_threads,
-                    mirror=self._mirror
+                    mirror=self._mirror,
+                    minecraft_dir=self.minecraft_dir,
+                    callback=self._get_callback(),
                 )
-                logger.info(f"安装程序下载成功: {forge_file}")
+                if loader_file:
+                    logger.info(f"{mod_loader} 安装完成: {loader_file}")
+                else:
+                    logger.info(f"{mod_loader} 安装流程完成")
 
             # 安装Minecraft版本
             logger.info(f"正在安装 Minecraft {version_id}")

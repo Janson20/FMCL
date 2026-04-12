@@ -60,3 +60,5 @@ mcl_*_amd64/
 *.tmp
 *.bak
 *.orig
+*.dat
+/logs

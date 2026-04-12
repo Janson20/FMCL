@@ -2,7 +2,7 @@
 import os
 import threading
 import time
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict
 from pathlib import Path
 
 import requests
@@ -169,7 +169,7 @@ def download_forge(version: str, num_threads: int = 4, mirror=None) -> str:
     Args:
         version: Minecraft版本
         num_threads: 线程数
-        mirror: 镜像源实例 (MirrorSource)，为None时使用forgepy
+        mirror: 镜像源实例 (MirrorSource)
 
     Returns:
         下载的文件名
@@ -208,3 +208,103 @@ def download_forge(version: str, num_threads: int = 4, mirror=None) -> str:
     except Exception as e:
         logger.error(f"下载 Forge 失败: {str(e)}")
         raise
+
+
+def download_fabric(version: str, num_threads: int = 4, mirror=None,
+                    minecraft_dir: str = None, callback: Dict[str, Callable] = None) -> Optional[str]:
+    """
+    安装指定版本的Fabric Loader
+
+    Args:
+        version: Minecraft版本
+        num_threads: 线程数
+        mirror: 镜像源实例
+        minecraft_dir: Minecraft目录
+        callback: 安装回调
+
+    Returns:
+        None (Fabric通过minecraft_launcher_lib直接安装)
+    """
+    try:
+        import minecraft_launcher_lib
+
+        logger.info(f"正在安装 Fabric Loader {version}")
+
+        # 使用 minecraft_launcher_lib 安装 Fabric
+        minecraft_launcher_lib.fabric.install_fabric(
+            version,
+            minecraft_dir,
+            callback=callback
+        )
+
+        logger.info(f"Fabric Loader {version} 安装成功")
+        return None
+
+    except Exception as e:
+        logger.error(f"安装 Fabric 失败: {str(e)}")
+        raise
+
+
+def download_neoforge(version: str, num_threads: int = 4, mirror=None,
+                      minecraft_dir: str = None, callback: Dict[str, Callable] = None) -> Optional[str]:
+    """
+    安装指定版本的NeoForge
+
+    Args:
+        version: Minecraft版本
+        num_threads: 线程数
+        mirror: 镜像源实例
+        minecraft_dir: Minecraft目录
+        callback: 安装回调
+
+    Returns:
+        None (NeoForge通过minecraft_launcher_lib直接安装)
+    """
+    try:
+        import minecraft_launcher_lib
+
+        logger.info(f"正在安装 NeoForge {version}")
+
+        # 使用 minecraft_launcher_lib 安装 NeoForge
+        minecraft_launcher_lib.neoforge.install_neoforge(
+            version,
+            minecraft_dir,
+            callback=callback
+        )
+
+        logger.info(f"NeoForge {version} 安装成功")
+        return None
+
+    except Exception as e:
+        logger.error(f"安装 NeoForge 失败: {str(e)}")
+        raise
+
+
+def download_mod_loader(loader: str, version: str, num_threads: int = 4,
+                        mirror=None, minecraft_dir: str = None,
+                        callback: Dict[str, Callable] = None) -> Optional[str]:
+    """
+    统一的模组加载器下载/安装入口
+
+    Args:
+        loader: 加载器类型 ("Forge", "Fabric", "NeoForge")
+        version: Minecraft版本
+        num_threads: 线程数
+        mirror: 镜像源实例
+        minecraft_dir: Minecraft目录
+        callback: 安装回调
+
+    Returns:
+        下载的文件名或None
+    """
+    if loader == "Forge":
+        return download_forge(version, num_threads=num_threads, mirror=mirror)
+    elif loader == "Fabric":
+        return download_fabric(version, num_threads=num_threads, mirror=mirror,
+                               minecraft_dir=minecraft_dir, callback=callback)
+    elif loader == "NeoForge":
+        return download_neoforge(version, num_threads=num_threads, mirror=mirror,
+                                 minecraft_dir=minecraft_dir, callback=callback)
+    else:
+        logger.warning(f"未知的模组加载器: {loader}")
+        return None
