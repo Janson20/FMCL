@@ -1,6 +1,7 @@
 """现代化UI界面模块 - 基于 CustomTkinter"""
 import threading
 import queue
+import tkinter.messagebox as messagebox
 from typing import List, Dict, Optional, Callable, Any
 
 import customtkinter as ctk
@@ -259,7 +260,20 @@ class ModernApp(ctk.CTk):
             dropdown_fg_color=COLORS["bg_medium"],
             dropdown_hover_color=COLORS["bg_light"],
         )
-        self.modloader_menu.pack(fill=ctk.X, padx=15, pady=(5, 12))
+        self.modloader_menu.pack(fill=ctk.X, padx=15, pady=(5, 5))
+
+        # 模组加载器提示
+        self.modloader_hint = ctk.CTkLabel(
+            panel,
+            text="",
+            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            text_color=COLORS["warning"],
+            wraplength=260,
+            justify=ctk.LEFT,
+        )
+        self.modloader_hint.pack(padx=15, anchor=ctk.W, pady=(0, 10))
+        self.modloader_var.trace_add("write", self._on_modloader_change)
+        self._on_modloader_change()
 
         # 安装按钮
         self.install_btn = ctk.CTkButton(
@@ -440,7 +454,7 @@ class ModernApp(ctk.CTk):
 
             btn = ctk.CTkButton(
                 btn_frame,
-                text=f"  🎮 {ver}",
+                text=f"  {ver}",
                 font=ctk.CTkFont(family="Microsoft YaHei", size=13),
                 fg_color="transparent",
                 hover_color=COLORS["bg_light"],
@@ -448,7 +462,21 @@ class ModernApp(ctk.CTk):
                 anchor=ctk.W,
                 command=lambda v=ver: self._select_version(v),
             )
-            btn.pack(fill=ctk.BOTH, expand=True, padx=5, pady=3)
+            btn.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=3)
+
+            # 删除按钮
+            del_btn = ctk.CTkButton(
+                btn_frame,
+                text="X",
+                width=30,
+                height=28,
+                font=ctk.CTkFont(family="Microsoft YaHei", size=12, weight="bold"),
+                fg_color="transparent",
+                hover_color=COLORS["accent"],
+                text_color=COLORS["text_secondary"],
+                command=lambda v=ver: self._on_delete_version(v),
+            )
+            del_btn.pack(side=ctk.RIGHT, padx=(0, 5))
 
             self.version_buttons.append({"frame": btn_frame, "version": ver})
 
@@ -571,6 +599,31 @@ class ModernApp(ctk.CTk):
         self.version_entry.insert(0, clean_id)
         self.set_status(f"已选择版本: {clean_id}", "info")
 
+    def _on_modloader_change(self, *args):
+        """模组加载器选项变更回调"""
+        loader = self.modloader_var.get()
+        if loader and loader != "无":
+            self.modloader_hint.configure(
+                text=f"提示: 安装 {loader} 会同时安装原版 Minecraft，两者均可独立启动"
+            )
+        else:
+            self.modloader_hint.configure(text="")
+
+    def _on_delete_version(self, version: str):
+        """删除版本按钮回调"""
+        if not messagebox.askyesno("确认删除", f"确定要删除版本 {version} 吗？\n此操作不可恢复。"):
+            return
+        self.set_status(f"正在删除 {version}...", "loading")
+        self._run_in_thread(self._remove_version, version)
+
+    def _remove_version(self, version_id: str):
+        """删除版本（后台线程）"""
+        try:
+            success, vid = self.callbacks["remove_version"](version_id)
+            self._task_queue.put(("remove_done", (vid, success)))
+        except Exception as e:
+            self._task_queue.put(("remove_error", str(e)))
+
     # ─── 事件处理 ─────────────────────────────────────────────
 
     def _on_mirror_toggle(self):
@@ -613,18 +666,25 @@ class ModernApp(ctk.CTk):
             self._task_queue.put(("init_error", str(e)))
 
     def _refresh_versions(self):
-        """刷新版本列表"""
-        self.set_status("正在刷新版本列表...", "loading")
-        self._run_in_thread(self._load_versions)
+        """刷新版本列表：先加载已安装版本，再异步加载可用版本"""
+        self.set_status("正在加载已安装版本...", "loading")
+        self._run_in_thread(self._load_installed_versions)
 
-    def _load_versions(self):
-        """加载版本列表（后台线程）"""
+    def _load_installed_versions(self):
+        """加载已安装版本（后台线程，本地操作无需网络）"""
         try:
             installed = self.callbacks["get_installed_versions"]()
-            available = self.callbacks["get_available_versions"]()
-            self._task_queue.put(("versions_loaded", (installed, available)))
+            self._task_queue.put(("installed_loaded", installed))
         except Exception as e:
             self._task_queue.put(("load_error", str(e)))
+
+    def _load_available_versions(self):
+        """加载可用版本列表（后台线程，需要网络）"""
+        try:
+            available = self.callbacks["get_available_versions"]()
+            self._task_queue.put(("available_loaded", available))
+        except Exception as e:
+            self._task_queue.put(("available_load_error", str(e)))
 
     def _on_install(self):
         """安装按钮回调"""
@@ -696,15 +756,32 @@ class ModernApp(ctk.CTk):
         elif task_type == "init_error":
             self.set_status(f"初始化失败: {data}", "error")
 
-        elif task_type == "versions_loaded":
-            installed, available = data
+        elif task_type == "installed_loaded":
+            installed = data
             self._render_installed_versions(installed)
+            self.set_status(
+                f"已安装 {len(installed)} 个版本 | 正在获取可用版本...",
+                "loading"
+            )
+            # 异步加载可用版本列表（可能因网络失败）
+            self._run_in_thread(self._load_available_versions)
+
+        elif task_type == "available_loaded":
+            available = data
             self._render_available_versions(available)
             release_count = len([v for v in available if v.get("type") == "release"])
             snapshot_count = len([v for v in available if v.get("type") == "snapshot"])
+            installed_count = len([b["version"] for b in self.version_buttons])
             self.set_status(
-                f"已安装 {len(installed)} 个 | 正式版 {release_count} 个 | 测试版 {snapshot_count} 个",
+                f"已安装 {installed_count} 个 | 正式版 {release_count} 个 | 测试版 {snapshot_count} 个",
                 "success"
+            )
+
+        elif task_type == "available_load_error":
+            installed_count = len([b["version"] for b in self.version_buttons])
+            self.set_status(
+                f"已安装 {installed_count} 个 | 可用版本列表获取失败（离线模式）",
+                "warning"
             )
 
         elif task_type == "load_error":
@@ -724,6 +801,19 @@ class ModernApp(ctk.CTk):
         elif task_type == "install_error":
             self.set_status(f"安装错误: {data}", "error")
             self._set_buttons_enabled(True)
+
+        elif task_type == "remove_done":
+            version_id, success = data
+            if success:
+                self.set_status(f"{version_id} 已删除", "success")
+                if self.selected_version == version_id:
+                    self.selected_version = None
+                self._refresh_versions()
+            else:
+                self.set_status(f"{version_id} 删除失败", "error")
+
+        elif task_type == "remove_error":
+            self.set_status(f"删除错误: {data}", "error")
 
         elif task_type == "launch_done":
             version_id, success = data

@@ -122,6 +122,10 @@ class MirrorSource:
         if not self.enabled:
             return url
 
+        # Java runtime API 不走镜像 (BMCLAPI 此端点 SSL 不稳定)
+        if "/v1/products/java-runtime/" in url:
+            return url
+
         for official_prefix, mirror_prefix in URL_REPLACE_RULES:
             if url.startswith(official_prefix):
                 rewritten = url.replace(official_prefix, mirror_prefix, 1)
@@ -342,7 +346,7 @@ class MirrorSource:
             # ── 4. _helper 模块中的 version_manifest 缓存 ──
             self._patch_helper_module()
 
-            logger.info("✅ minecraft_launcher_lib 镜像源补丁已应用")
+            logger.info("minecraft_launcher_lib 镜像源补丁已应用")
 
         except ImportError:
             logger.warning("minecraft_launcher_lib 未安装，跳过补丁")
