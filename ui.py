@@ -47,8 +47,8 @@ class ModernApp(ctk.CTk):
 
         # 窗口配置
         self.title("MCL - Minecraft Launcher")
-        self.geometry("960x760")
-        self.minsize(860, 700)
+        self.geometry("960x860")
+        self.minsize(860, 800)
         self.configure(fg_color=COLORS["bg_dark"])
 
         # 居中显示
@@ -66,7 +66,7 @@ class ModernApp(ctk.CTk):
     def _center_window(self):
         """窗口居中"""
         self.update_idletasks()
-        w, h = 960, 760
+        w, h = 960, 860
         x = (self.winfo_screenwidth() - w) // 2
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -546,24 +546,30 @@ class ModernApp(ctk.CTk):
             ).pack(pady=10)
             return
 
-        for ver in display_versions:
-            ver_id = ver.get("id", "Unknown")
-            ver_type = ver.get("type", "")
+        for i in range(0, len(display_versions), 2):
+            row_frame = ctk.CTkFrame(self.available_list_frame, fg_color="transparent", height=28)
+            row_frame.pack(fill=ctk.X, pady=1)
+            row_frame.pack_propagate(False)
 
-            type_icon = "📦" if ver_type == "release" else "🔬"
+            for j in range(2):
+                if i + j < len(display_versions):
+                    ver = display_versions[i + j]
+                    ver_id = ver.get("id", "Unknown")
+                    ver_type = ver.get("type", "")
+                    type_icon = "📦" if ver_type == "release" else "🔬"
 
-            btn = ctk.CTkButton(
-                self.available_list_frame,
-                text=f"{type_icon} {ver_id}",
-                font=ctk.CTkFont(family="Microsoft YaHei", size=12),
-                fg_color="transparent",
-                hover_color=COLORS["bg_light"],
-                text_color=COLORS["text_primary"],
-                anchor=ctk.W,
-                height=28,
-                command=lambda v=ver_id: self._quick_select_version(v),
-            )
-            btn.pack(fill=ctk.X, pady=1)
+                    btn = ctk.CTkButton(
+                        row_frame,
+                        text=f"{type_icon} {ver_id}",
+                        font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+                        fg_color="transparent",
+                        hover_color=COLORS["bg_light"],
+                        text_color=COLORS["text_primary"],
+                        anchor=ctk.W,
+                        height=26,
+                        command=lambda v=ver_id: self._quick_select_version(v),
+                    )
+                    btn.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(0, 2))
 
     def _on_prev_page(self):
         """上一页"""
