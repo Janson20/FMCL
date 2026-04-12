@@ -404,9 +404,9 @@ class MirrorSource:
                 from minecraft_launcher_lib.mod_loader._forge import Forge, _MAVEN_METADATA_URL
                 import minecraft_launcher_lib.mod_loader._forge as _forge_mod
 
-                # 替换模块级变量
-                _forge_mod._MAVEN_METADATA_URL = "https://bmclapi2.bangbang93.com/maven/net/minecraftforge/forge/maven-metadata.xml"
-                logger.info(f"已替换 _forge._MAVEN_METADATA_URL")
+                # 注意: _MAVEN_METADATA_URL 不替换，保留官方源用于版本查询
+                # BMCLAPI 的 maven-metadata.xml 可能不是最新的，导致新版本(如1.21)查询失败
+                # 只有实际下载文件时才需要镜像源加速 (通过 get_installer_url 重写)
 
                 # Monkey-patch get_installer_url 方法
                 _original_get_installer_url = Forge.get_installer_url
@@ -465,21 +465,15 @@ class MirrorSource:
             pass
 
     def _patch_helper_module(self):
-        """修补 _helper 模块中的请求缓存，确保镜像 URL 被正确使用"""
-        try:
-            from minecraft_launcher_lib import _helper
+        """修补 _helper 模块中的请求缓存
 
-            # Monkey-patch get_requests_response_cache 以重写 URL
-            _original_get_cache = _helper.get_requests_response_cache
-
-            def _patched_get_cache(url):
-                rewritten_url = self.rewrite_url(url)
-                return _original_get_cache(rewritten_url)
-
-            _helper.get_requests_response_cache = _patched_get_cache
-            logger.info("已修补 _helper.get_requests_response_cache (URL 重写)")
-        except (ImportError, AttributeError) as e:
-            logger.debug(f"修补 _helper 模块跳过: {e}")
+        注意: 不再重写 get_requests_response_cache 的 URL。
+        该函数被 Forge/Fabric/NeoForge 用于版本查询 API（如 maven-metadata.xml），
+        这些查询应该走官方源以确保数据及时性。BMCLAPI 镜像的元数据可能滞后，
+        导致新版本（如 1.21）查询失败。
+        文件下载已通过 _patch_install_module 中的 download_file 补丁处理。
+        """
+        pass
 
     def get_mirror_name(self) -> str:
         """获取当前镜像源名称"""
