@@ -557,6 +557,14 @@ def parse_game_version_from_version(version_id: str) -> Optional[str]:
                 return f"1.{major}.{minor}"
 
         # 回退：尝试标准格式 {mc_version}-neoforge-{loader_version}
+        # 优先尝试新格式 (YY.D.H，YY >= 26)
+        new_match = re.search(r"(\d{2,}\.\d+(?:\.\d+)*)", version_id)
+        if new_match:
+            candidate = new_match.group(1)
+            parts = candidate.split(".")
+            if len(parts) >= 2 and int(parts[0]) >= 26:
+                return candidate
+        # 回退旧格式 (1.X.Y)
         match = re.search(r"(1\.\d+(?:\.\d+)*)", version_id)
         if match:
             return match.group(1)
@@ -564,14 +572,31 @@ def parse_game_version_from_version(version_id: str) -> Optional[str]:
         return None
 
     # Fabric 格式: fabric-loader-0.15.11-1.20.4 或 fabric-loader-0.16.9-1.21.4
-    # 游戏版本在最后一个 1.X.X 位置
+    # 也支持新格式: fabric-loader-0.16.0-26.1.1
+    # 游戏版本在最后一个版本号位置
     if "fabric" in version_lower:
+        # 优先尝试新格式 (YY.D.H，YY >= 26)
+        new_matches = re.findall(r"(\d{2,}\.\d+(?:\.\d+)*)", version_id)
+        if new_matches:
+            candidate = new_matches[-1]
+            parts = candidate.split(".")
+            if len(parts) >= 2 and int(parts[0]) >= 26:
+                return candidate
+        # 回退旧格式 (1.X.Y)
         matches = re.findall(r"(1\.\d+(?:\.\d+)*)", version_id)
         if matches:
             return matches[-1]
 
-    # Forge 格式: 1.20.4-forge-49.0.26
-    # 游戏版本在第一个 1.X.X 位置
+    # Forge 格式: 1.20.4-forge-49.0.26 或 26.1-forge-1.0.0
+    # 新格式以版本号开头时已在上方第 524 行处理，此处为回退
+    # 优先尝试新格式 (YY.D.H，YY >= 26)
+    new_match = re.search(r"(\d{2,}\.\d+(?:\.\d+)*)", version_id)
+    if new_match:
+        candidate = new_match.group(1)
+        parts = candidate.split(".")
+        if len(parts) >= 2 and int(parts[0]) >= 26:
+            return candidate
+    # 回退旧格式 (1.X.Y)
     match = re.search(r"(1\.\d+(?:\.\d+)*)", version_id)
     if match:
         return match.group(1)

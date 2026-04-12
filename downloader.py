@@ -5,9 +5,9 @@
 mod_loader.install() 会在原版未安装时自动安装原版。
 
 安装后生成的版本ID格式：
-  - Forge:    {mc_version}-forge-{forge_version}  (如 "1.20.4-forge-49.0.26")
-  - Fabric:   fabric-loader-{loader_version}-{mc_version}  (如 "fabric-loader-0.15.11-1.20.4")
-  - NeoForge: {mc_version}-neoforge-{neoforge_version}  (如 "1.20.4-neoforge-20.4.234")
+  - Forge:    {mc_version}-forge-{forge_version}  (如 "1.20.4-forge-49.0.26" 或 "26.1-forge-1.0.0")
+  - Fabric:   fabric-loader-{loader_version}-{mc_version}  (如 "fabric-loader-0.15.11-1.20.4" 或 "fabric-loader-0.16.0-26.1.1")
+  - NeoForge: {mc_version}-neoforge-{neoforge_version}  (如 "1.20.4-neoforge-20.4.234" 或 "26.1-neoforge-1.0.0")
 """
 import asyncio
 import os
@@ -299,7 +299,7 @@ def install_mod_loader(
 
     Args:
         loader: 加载器类型 ("Forge", "Fabric", "NeoForge")
-        version: Minecraft版本 (如 "1.20.4")
+        version: Minecraft版本 (如 "1.20.4" 或 "26.1")
         minecraft_dir: Minecraft目录
         num_threads: 线程数 (未使用，保留兼容)
         mirror: 镜像源实例 (未使用，由 patch 控制)
@@ -308,7 +308,7 @@ def install_mod_loader(
 
     Returns:
         (installed_version_id, loader_version) 元组
-        installed_version_id: 安装后的完整版本ID (如 "1.20.4-forge-49.0.26")
+        installed_version_id: 安装后的完整版本ID (如 "1.20.4-forge-49.0.26" 或 "26.1-forge-1.0.0")
         loader_version: 加载器版本号 (如 "49.0.26")
 
     Raises:
