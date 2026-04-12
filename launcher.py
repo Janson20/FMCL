@@ -462,6 +462,8 @@ class MinecraftLauncher:
             "set_minimize_on_game_launch": self.set_minimize_on_game_launch,
             "get_minimize_on_game_launch": self.get_minimize_on_game_launch,
             "get_game_process": self.get_game_process,
+            "kill_game_process": self.kill_game_process,
+            "is_game_running": self.is_game_running,
         }
 
     def verify_installed_version(self, version_id: str, max_workers: int = 4) -> Dict[str, Any]:
@@ -536,6 +538,22 @@ class MinecraftLauncher:
     def get_game_process(self) -> Optional[subprocess.Popen]:
         """获取当前游戏进程对象（用于监控 stdout）"""
         return getattr(self, "_game_process", None)
+
+    def kill_game_process(self) -> bool:
+        """强制结束游戏进程"""
+        proc = getattr(self, "_game_process", None)
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+            logger.info("已强制结束游戏进程")
+            self._game_process = None
+            return True
+        logger.warning("没有正在运行的游戏进程")
+        return False
+
+    def is_game_running(self) -> bool:
+        """检查游戏进程是否正在运行"""
+        proc = getattr(self, "_game_process", None)
+        return proc is not None and proc.poll() is None
 
     def set_mirror_enabled(self, enabled: bool) -> None:
         """设置镜像源启用状态"""
