@@ -192,13 +192,13 @@ class MinecraftLauncher:
         - 有模组加载器: mod_loader.install() 会自动先装原版再装loader
 
         Args:
-            version_id: 版本ID (如 "1.20.4")
+            version_id: 版本ID (如 "1.20.4" 或 "26.1")
             mod_loader: 模组加载器 ("无", "Forge", "Fabric", "NeoForge")
 
         Returns:
             (是否成功, 安装后的版本ID) 元组
             安装原版时返回 version_id
-            安装模组加载器时返回 loader 创建的版本ID (如 "1.20.4-forge-49.0.26")
+            安装模组加载器时返回 loader 创建的版本ID (如 "1.20.4-forge-49.0.26" 或 "26.1-forge-1.0.0")
         """
         try:
             # 检查版本是否有效 — 用 set 实现 O(1) 查找
@@ -250,7 +250,7 @@ class MinecraftLauncher:
         - 启动后: 主动 GC 释放启动器内存
 
         Args:
-            version_id: 版本ID (可以是原版ID如 "1.20.4"，也可以是loader版本ID如 "1.20.4-forge-49.0.26")
+            version_id: 版本ID (可以是原版ID如 "1.20.4"，也可以是loader版本ID如 "1.20.4-forge-49.0.26" 或 "26.1-forge-1.0.0")
             minimize_after: 启动后是否最小化启动器窗口（由 UI 侧监控游戏日志实现）
 
         Returns:
@@ -269,7 +269,12 @@ class MinecraftLauncher:
             else:
                 # 尝试模糊匹配：用户可能选了原版ID，但实际安装的是loader版本
                 # 例如用户选 "1.20.4"，但安装的是 "1.20.4-forge-49.0.26"
-                matches = [v for v in installed_versions if v.startswith(version_id)]
+                # 使用精确前缀匹配：版本ID完全相同 或 以 "版本ID-" 开头
+                # 避免新格式下 "26.1" 错误匹配 "26.1.1" (旧格式无此问题)
+                matches = [
+                    v for v in installed_versions
+                    if v == version_id or v.startswith(version_id + "-")
+                ]
                 if len(matches) == 1:
                     target_version = matches[0]
                     logger.info(f"模糊匹配: {version_id} -> {target_version}")
@@ -405,7 +410,7 @@ class MinecraftLauncher:
         设置启动器品牌标识
 
         替换 --versionType 参数值，使游戏标题界面左下角显示
-        如 "Minecraft 1.21.1/MCL" 而非默认的 "Minecraft 1.21.1/release"
+        如 "Minecraft 1.21.1/MCL" 或 "Minecraft 26.1/MCL" 而非默认的 "Minecraft 1.21.1/release"
         """
         brand = f"{self.options.get('launcherName', 'MCL')}/{self.options.get('launcherVersion', '3.2')}"
         for i, arg in enumerate(command):
@@ -449,7 +454,7 @@ class MinecraftLauncher:
         删除 versions/{version_id}/ 目录和 versions/{version_id}.json 文件。
 
         Args:
-            version_id: 版本ID (如 "1.20.4" 或 "1.20.4-forge-49.0.26")
+            version_id: 版本ID (如 "1.20.4" 或 "1.20.4-forge-49.0.26" 或 "26.1")
 
         Returns:
             (是否成功, 版本ID) 元组

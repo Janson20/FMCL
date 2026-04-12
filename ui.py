@@ -301,7 +301,7 @@ class ModernApp(ctk.CTk):
             font=ctk.CTkFont(family="Microsoft YaHei", size=13),
             fg_color=COLORS["bg_medium"],
             border_color=COLORS["card_border"],
-            placeholder_text="例如: 1.20.4",
+            placeholder_text="例如: 1.20.4 或 26.1",
         )
         self.version_entry.pack(fill=ctk.X, padx=15, pady=(5, 10))
 

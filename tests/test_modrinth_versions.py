@@ -92,6 +92,16 @@ class TestParseGameVersionFromVersion:
         from modrinth import parse_game_version_from_version
         assert parse_game_version_from_version("26.1.1-fabric-0.16.0") == "26.1.1"
 
+    def test_new_format_fabric_loader_prefix(self):
+        """测试 fabric-loader- 开头的新格式版本 (不以 MC 版本号开头)"""
+        from modrinth import parse_game_version_from_version
+        assert parse_game_version_from_version("fabric-loader-0.16.0-26.1.1") == "26.1.1"
+
+    def test_new_format_fabric_loader_prefix_major(self):
+        """测试 fabric-loader- 开头的新格式主版本"""
+        from modrinth import parse_game_version_from_version
+        assert parse_game_version_from_version("fabric-loader-0.16.0-26.1") == "26.1"
+
     def test_new_format_snapshot(self):
         from modrinth import parse_game_version_from_version
         assert parse_game_version_from_version("26.1-snapshot-1") == "26.1"
