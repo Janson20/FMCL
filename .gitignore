@@ -9,7 +9,6 @@ main.dist/
 *.egg-info
 *.log
 *.xml
-*.spec
 pos.txt
 
 # Virtual environments
