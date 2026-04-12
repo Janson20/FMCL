@@ -1320,13 +1320,12 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             justify=ctk.CENTER,
         )
 
-        # 资源列表（可滚动）
+        # 资源列表（可滚动）- 初始不pack，由_refresh_current_list管理
         self._list_frame = ctk.CTkScrollableFrame(
             self._drop_frame,
             fg_color="transparent",
             scrollbar_button_color=COLORS["bg_light"],
         )
-        self._list_frame.pack(fill=ctk.BOTH, expand=True)
 
         # 底部状态栏
         self._status_label = ctk.CTkLabel(
@@ -1413,6 +1412,12 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         current_type = self._tab_var.get()
         resource_dir = self._get_resource_dir(current_type)
 
+        logger.info(f"刷新资源列表: type={current_type}, dir={resource_dir}, exists={resource_dir.exists()}")
+
+        # 先隐藏两个区域
+        self._empty_label.pack_forget()
+        self._list_frame.pack_forget()
+
         # 清空列表
         for w in self._list_frame.winfo_children():
             w.destroy()
@@ -1424,13 +1429,14 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         # 获取资源文件列表
         items = self._scan_resources(resource_dir, current_type)
+        logger.info(f"扫描到 {len(items)} 个资源")
 
         if not items:
             self._empty_label.pack(fill=ctk.BOTH, expand=True)
             self._set_status(f"{RESOURCE_TYPES[current_type]['label']} 文件夹为空")
             return
 
-        self._empty_label.pack_forget()
+        self._list_frame.pack(fill=ctk.BOTH, expand=True)
 
         for item in items:
             self._create_resource_item(item, current_type)
@@ -1441,9 +1447,11 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         """扫描资源目录"""
         items = []
         try:
+            entries = list(resource_dir.iterdir())
+            logger.info(f"目录 {resource_dir} 共有 {len(entries)} 个条目")
             if resource_type == "saves":
                 # 地图是文件夹
-                for entry in sorted(resource_dir.iterdir()):
+                for entry in sorted(entries):
                     if entry.is_dir() and not entry.name.startswith("."):
                         # 检查是否是有效的地图存档
                         level_dat = entry / "level.dat"
@@ -1456,15 +1464,19 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             else:
                 # 模组/资源包/光影是文件
                 ext_filter = RESOURCE_TYPES[resource_type]["extensions"]
-                for entry in sorted(resource_dir.iterdir()):
-                    if entry.is_file() and entry.suffix.lower() in ext_filter:
+                for entry in sorted(entries):
+                    if not entry.is_file():
+                        continue
+                    # 检查文件扩展名：支持 .jar 和 .jar.disabled 等格式
+                    is_disabled = entry.suffix.lower() == ".disabled"
+                    actual_ext = entry.suffixes[-2].lower() if is_disabled and len(entry.suffixes) >= 2 else entry.suffix.lower()
+                    if actual_ext in ext_filter or entry.suffix.lower() in ext_filter:
                         # 文件大小
                         try:
                             size = entry.stat().st_size
                             size_str = self._format_size(size)
                         except Exception:
                             size_str = "?"
-                        is_disabled = entry.suffix.lower() == ".disabled"
                         items.append({
                             "name": entry.name,
                             "path": str(entry),
