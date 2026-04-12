@@ -8,38 +8,38 @@ on:
 permissions:
   contents: write
 
+env:
+  # 使用Node.js 24
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build ${{ matrix.os }}-${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false  # 即使某个构建失败，其他也继续
       matrix:
         include:
           # Windows
           - os: windows-latest
             arch: amd64
             platform: win
-            suffix: '.exe'
           # macOS Intel
-          - os: macos-latest
+          - os: macos-13  # 使用macos-13确保Intel芯片
             arch: amd64
             platform: mac
-            suffix: ''
           # macOS ARM (Apple Silicon)
           - os: macos-latest
             arch: arm64
             platform: mac
-            suffix: ''
           # Linux AMD64
           - os: ubuntu-latest
             arch: amd64
             platform: linux
-            suffix: ''
           # Linux ARM64
           - os: ubuntu-latest
             arch: arm64
             platform: linux
-            suffix: ''
 
     steps:
       - name: Checkout code
@@ -50,9 +50,29 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install system dependencies (Linux)
+        if: matrix.platform == 'linux'
         run: |
-          python -m pip install --upgrade pip
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            zlib1g-dev \
+            libncurses5-dev \
+            libgdbm-dev \
+            libnss3-dev \
+            libssl-dev \
+            libreadline-dev \
+            libffi-dev \
+            libsqlite3-dev \
+            libbz2-dev \
+            liblzma-dev \
+            tk-dev \
+            uuid-dev \
+            xvfb
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
           pip install pyinstaller
           pip install -r requirements.txt
 
@@ -63,21 +83,24 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
           ARCH: ${{ matrix.arch }}
 
-      - name: Package artifact
+      - name: Package artifact (Windows)
+        if: matrix.platform == 'win'
         run: |
           cd dist
-          if [ "${{ matrix.platform }}" = "win" ]; then
-            7z a -tzip ../MCL-${{ matrix.platform }}-${{ matrix.arch }}.zip *
-          else
-            zip -r ../MCL-${{ matrix.platform }}-${{ matrix.arch }}.zip *
-          fi
-        shell: bash
+          7z a -tzip ../MCL-${{ matrix.platform }}-${{ matrix.arch }}.zip *
+
+      - name: Package artifact (Unix)
+        if: matrix.platform != 'win'
+        run: |
+          cd dist
+          zip -r ../MCL-${{ matrix.platform }}-${{ matrix.arch }}.zip *
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: MCL-${{ matrix.platform }}-${{ matrix.arch }}
           path: MCL-${{ matrix.platform }}-${{ matrix.arch }}.zip
+          retention-days: 7
 
   release:
     name: Create Release
@@ -93,6 +116,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: MCL-*
+          merge-multiple: false
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release_files
+          find artifacts -name "*.zip" -exec cp {} release_files/ \;
+          ls -la release_files/
 
       - name: Generate changelog
         id: changelog
@@ -114,7 +145,7 @@ jobs:
           
           # Features
           FEATURES=$(echo "$COMMITS" | grep -i "^- feat" || true)
-          if [ ! -z "$FEATURES" ]; then
+          if [ -n "$FEATURES" ]; then
             echo "### ✨ New Features" >> CHANGELOG.md
             echo "$FEATURES" | sed 's/^- feat(\(.*\)): /- [\1] /' | sed 's/^- feat: /- /' >> CHANGELOG.md
             echo "" >> CHANGELOG.md
@@ -122,7 +153,7 @@ jobs:
           
           # Bug fixes
           FIXES=$(echo "$COMMITS" | grep -i "^- fix" || true)
-          if [ ! -z "$FIXES" ]; then
+          if [ -n "$FIXES" ]; then
             echo "### 🐛 Bug Fixes" >> CHANGELOG.md
             echo "$FIXES" | sed 's/^- fix(\(.*\)): /- [\1] /' | sed 's/^- fix: /- /' >> CHANGELOG.md
             echo "" >> CHANGELOG.md
@@ -130,7 +161,7 @@ jobs:
           
           # Improvements
           IMPROVEMENTS=$(echo "$COMMITS" | grep -iE "^- (refactor|perf|docs|style)" || true)
-          if [ ! -z "$IMPROVEMENTS" ]; then
+          if [ -n "$IMPROVEMENTS" ]; then
             echo "### 💡 Improvements" >> CHANGELOG.md
             echo "$IMPROVEMENTS" >> CHANGELOG.md
             echo "" >> CHANGELOG.md
@@ -138,7 +169,7 @@ jobs:
           
           # Other changes
           OTHER=$(echo "$COMMITS" | grep -ivE "^- (feat|fix|refactor|perf|docs|style)" || true)
-          if [ ! -z "$OTHER" ]; then
+          if [ -n "$OTHER" ]; then
             echo "### 📝 Other Changes" >> CHANGELOG.md
             echo "$OTHER" >> CHANGELOG.md
             echo "" >> CHANGELOG.md
@@ -155,15 +186,20 @@ jobs:
           echo "| Linux | x64 | [MCL-linux-amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-linux-amd64.zip) |" >> CHANGELOG.md
           echo "| Linux | ARM64 | [MCL-linux-arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-linux-arm64.zip) |" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
-          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ github.ref_name }}" >> CHANGELOG.md
+          
+          if [ -n "$PREV_TAG" ]; then
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ github.ref_name }}" >> CHANGELOG.md
+          fi
           
           cat CHANGELOG.md
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/MCL-*/*.zip
+          files: release_files/*.zip
           body_path: CHANGELOG.md
           generate_release_notes: false
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

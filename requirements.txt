@@ -5,4 +5,3 @@ logzero>=1.7.0
 pyautogui>=0.9.53
 tqdm>=4.64.0
 keyboard>=0.13.5
-pyinstaller>=6.0.0

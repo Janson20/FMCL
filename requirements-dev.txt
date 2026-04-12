@@ -1,0 +1,16 @@
+# 开发依赖
+-r requirements.txt
+
+# 构建工具
+pyinstaller>=6.0.0
+build>=1.0.0
+
+# 代码质量
+flake8>=7.0.0
+mypy>=1.8.0
+black>=24.0.0
+isort>=5.13.0
+
+# 测试
+pytest>=8.0.0
+pytest-cov>=4.1.0

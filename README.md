@@ -194,7 +194,26 @@ perf: 性能优化
 
 详见：[CONTRIBUTING.md](CONTRIBUTING.md)
 
+## 故障排除
+
+遇到问题？查看 [故障排除指南](docs/TROUBLESHOOTING.md)
+
+常见问题：
+- **构建失败**: 确保安装了所有系统依赖
+- **macOS签名问题**: 使用 `xattr -cr MCL.app` 移除隔离属性
+- **Windows杀毒误报**: 添加到排除列表或使用代码签名
+- **依赖问题**: 重新安装依赖 `pip install -r requirements.txt --force-reinstall`
+
 ## Changelog / 更新日志
+
+### v2.0.1
+- 🐛 Fixed GitHub Actions build failures
+- 🐛 Fixed Node.js 20 deprecation warnings
+- 🐛 Fixed Linux build missing dependencies
+- 🐛 Fixed macOS Intel/ARM architecture detection
+- ✨ Added quick fix tool (`make fix`)
+- ✨ Added comprehensive troubleshooting guide
+- 📚 Improved build configuration and documentation
 
 ### v2.0
 - 🎉 Complete refactoring with modular architecture
@@ -204,6 +223,8 @@ perf: 性能优化
 - ✨ Added proper error handling and logging
 - ✨ Added type hints for better code quality
 - ✨ Improved configuration management
+- ✨ Added multi-platform CI/CD pipeline
+- ✨ Added automatic release workflow
 - 📚 Updated documentation
 
 ### v1.4 and earlier
@@ -211,6 +232,8 @@ perf: 性能优化
 - Forge support
 - Mouse detection
 - UI improvements
+
+**构建修复详情**: 查看 [BUILD_FIXES.md](docs/BUILD_FIXES.md)
 
 ## License / 许可证
 
