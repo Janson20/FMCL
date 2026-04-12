@@ -1,5 +1,6 @@
 """Minecraft启动器核心模块"""
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -235,6 +236,44 @@ class MinecraftLauncher:
             logger.error(f"启动游戏失败: {str(e)}")
             return False
 
+    def remove_version(self, version_id: str) -> Tuple[bool, str]:
+        """
+        删除已安装的版本
+
+        删除 versions/{version_id}/ 目录和 versions/{version_id}.json 文件。
+
+        Args:
+            version_id: 版本ID (如 "1.20.4" 或 "1.20.4-forge-49.0.26")
+
+        Returns:
+            (是否成功, 版本ID) 元组
+        """
+        try:
+            versions_dir = self.config.get_versions_dir()
+            version_dir = versions_dir / version_id
+            version_json = versions_dir / f"{version_id}.json"
+
+            if not version_dir.exists() and not version_json.exists():
+                logger.error(f"版本未安装: {version_id}")
+                return False, version_id
+
+            # 删除版本目录
+            if version_dir.exists():
+                shutil.rmtree(str(version_dir))
+                logger.info(f"已删除版本目录: {version_dir}")
+
+            # 删除版本JSON文件
+            if version_json.exists():
+                version_json.unlink()
+                logger.info(f"已删除版本JSON: {version_json}")
+
+            logger.info(f"版本 {version_id} 删除成功")
+            return True, version_id
+
+        except Exception as e:
+            logger.error(f"删除版本失败: {str(e)}")
+            return False, version_id
+
     def get_callbacks(self) -> Dict[str, Callable]:
         """获取供UI调用的回调函数字典"""
         return {
@@ -242,6 +281,7 @@ class MinecraftLauncher:
             "get_available_versions": self.get_available_versions,
             "get_installed_versions": self.get_installed_versions,
             "install_version": self.install_version,
+            "remove_version": self.remove_version,
             "launch_game": self.launch_game,
             "set_mirror_enabled": self.set_mirror_enabled,
             "get_mirror_enabled": self.get_mirror_enabled,
