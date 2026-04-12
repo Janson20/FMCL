@@ -39,7 +39,13 @@ jobs:
       - name: Build Windows Installer
         run: |
           $version = "${{ github.ref_name }}" -replace '^v', ''
-          makensis /DVERSION=$version installer.nsi
+          $nsisPath = "C:\Program Files (x86)\NSIS\makensis.exe"
+          if (Test-Path $nsisPath) {
+            & $nsisPath "/DVERSION=$version" installer.nsi
+          } else {
+            $nsisPath = "C:\Program Files\NSIS\makensis.exe"
+            & $nsisPath "/DVERSION=$version" installer.nsi
+          }
         shell: pwsh
 
       - name: Upload artifact
@@ -51,7 +57,7 @@ jobs:
 
   build-macos-intel:
     name: Build macOS Intel DMG
-    runs-on: macos-13
+    runs-on: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -160,7 +166,8 @@ jobs:
             libxkbcommon0 \
             libgbm1 \
             dpkg-dev \
-            fakeroot
+            fakeroot \
+            libfuse2
 
       - name: Install Python dependencies
         run: |
@@ -180,18 +187,14 @@ jobs:
           VERSION="${VERSION#v}"
           ARCHITECTURE="amd64"
           PKG_NAME="mcl_${VERSION}_${ARCHITECTURE}"
-          
-          # Create DEB package structure
+
           mkdir -p ${PKG_NAME}/DEBIAN
           mkdir -p ${PKG_NAME}/usr/local/bin
           mkdir -p ${PKG_NAME}/usr/share/applications
-          mkdir -p ${PKG_NAME}/usr/share/icons/hicolor/256x256/apps
-          
-          # Copy executable
+
           cp dist/MCL ${PKG_NAME}/usr/local/bin/mcl
           chmod +x ${PKG_NAME}/usr/local/bin/mcl
-          
-          # Create desktop entry
+
           cat > ${PKG_NAME}/usr/share/applications/mcl.desktop << EOF
           [Desktop Entry]
           Name=MCL
@@ -202,8 +205,7 @@ jobs:
           Type=Application
           Categories=Game;
           EOF
-          
-          # Create control file
+
           cat > ${PKG_NAME}/DEBIAN/control << EOF
           Package: mcl
           Version: ${VERSION}
@@ -216,8 +218,7 @@ jobs:
           Section: games
           Priority: optional
           EOF
-          
-          # Build DEB
+
           fakeroot dpkg-deb --build ${PKG_NAME}
           mv ${PKG_NAME}.deb MCL-${VERSION}-linux-amd64.deb
 
@@ -225,32 +226,31 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          
-          # Download appimagetool
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
-          chmod +x appimagetool
-          
+
+          # Download and extract appimagetool (avoids FUSE requirement)
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool.AppImage
+          chmod +x appimagetool.AppImage
+          ./appimagetool.AppImage --appimage-extract
+          APPIMAGETOOL="$(pwd)/squashfs-root/AppRun"
+
           # Create AppDir structure
           mkdir -p MCL.AppDir/usr/bin
           mkdir -p MCL.AppDir/usr/share/applications
           mkdir -p MCL.AppDir/usr/share/icons/hicolor/256x256/apps
-          
-          # Copy executable
+
           cp dist/MCL MCL.AppDir/usr/bin/mcl
           chmod +x MCL.AppDir/usr/bin/mcl
-          
-          # Create AppRun
-          cat > MCL.AppDir/AppRun << 'EOF'
+
+          cat > MCL.AppDir/AppRun << 'APPEOF'
           #!/bin/sh
           SELF=$(readlink -f "$0")
           HERE=${SELF%/*}
           export PATH="${HERE}/usr/bin:${PATH}"
           export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
           exec "${HERE}/usr/bin/mcl" "$@"
-          EOF
+          APPEOF
           chmod +x MCL.AppDir/AppRun
-          
-          # Create desktop entry
+
           cat > MCL.AppDir/mcl.desktop << EOF
           [Desktop Entry]
           Name=MCL
@@ -261,9 +261,9 @@ jobs:
           Type=Application
           Categories=Game;
           EOF
-          
-          # Build AppImage
-          ./appimagetool MCL.AppDir MCL-${VERSION}-x86_64.AppImage
+
+          # Build AppImage using extracted tool
+          "$APPIMAGETOOL" MCL.AppDir MCL-${VERSION}-x86_64.AppImage
 
       - name: Upload DEB artifact
         uses: actions/upload-artifact@v4
@@ -305,47 +305,47 @@ jobs:
         id: changelog
         run: |
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          
+
           if [ -z "$PREV_TAG" ]; then
             COMMITS=$(git log --pretty=format:"- %s" --reverse)
           else
             COMMITS=$(git log $PREV_TAG..HEAD --pretty=format:"- %s" --reverse)
           fi
-          
+
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          
+
           echo "## 🚀 What's Changed" > CHANGELOG.md
           echo "" >> CHANGELOG.md
-          
+
           FEATURES=$(echo "$COMMITS" | grep -i "^- feat" || true)
           if [ -n "$FEATURES" ]; then
             echo "### ✨ New Features" >> CHANGELOG.md
             echo "$FEATURES" | sed 's/^- feat(\(.*\)): /- [\1] /' | sed 's/^- feat: /- /' >> CHANGELOG.md
             echo "" >> CHANGELOG.md
           fi
-          
+
           FIXES=$(echo "$COMMITS" | grep -i "^- fix" || true)
           if [ -n "$FIXES" ]; then
             echo "### 🐛 Bug Fixes" >> CHANGELOG.md
             echo "$FIXES" | sed 's/^- fix(\(.*\)): /- [\1] /' | sed 's/^- fix: /- /' >> CHANGELOG.md
             echo "" >> CHANGELOG.md
           fi
-          
+
           IMPROVEMENTS=$(echo "$COMMITS" | grep -iE "^- (refactor|perf|docs|style)" || true)
           if [ -n "$IMPROVEMENTS" ]; then
             echo "### 💡 Improvements" >> CHANGELOG.md
             echo "$IMPROVEMENTS" >> CHANGELOG.md
             echo "" >> CHANGELOG.md
           fi
-          
+
           OTHER=$(echo "$COMMITS" | grep -ivE "^- (feat|fix|refactor|perf|docs|style)" || true)
           if [ -n "$OTHER" ]; then
             echo "### 📝 Other Changes" >> CHANGELOG.md
             echo "$OTHER" >> CHANGELOG.md
             echo "" >> CHANGELOG.md
           fi
-          
+
           echo "### 📦 Downloads" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
           echo "| Platform | File |" >> CHANGELOG.md
@@ -356,11 +356,11 @@ jobs:
           echo "| Linux DEB | [MCL-${VERSION}-linux-amd64.deb](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-${VERSION}-linux-amd64.deb) |" >> CHANGELOG.md
           echo "| Linux AppImage | [MCL-${VERSION}-x86_64.AppImage](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-${VERSION}-x86_64.AppImage) |" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
-          
+
           if [ -n "$PREV_TAG" ]; then
             echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ github.ref_name }}" >> CHANGELOG.md
           fi
-          
+
           cat CHANGELOG.md
 
       - name: Create Release

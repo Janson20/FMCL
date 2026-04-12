@@ -99,6 +99,9 @@ if platform == 'win':
 
 elif platform == 'mac':
     # macOS: 单文件 EXE + BUNDLE 为 .app
+    # 注意: target_arch 必须与实际 Python 安装架构一致，不能用 universal2
+    # 因为 pip 安装的 .so 文件不是 fat binary
+    mac_target_arch = 'arm64' if arch == 'arm64' else 'x86_64'
     exe = EXE(
         pyz,
         a.scripts,
@@ -116,7 +119,7 @@ elif platform == 'mac':
         console=False,
         disable_windowed_traceback=False,
         argv_emulation=True,
-        target_arch='universal2' if arch == 'arm64' else 'x86_64',
+        target_arch=mac_target_arch,
         codesign_identity=None,
         entitlements_file=None,
     )
