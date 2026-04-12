@@ -35,7 +35,7 @@ class ModernApp(ctk.CTk):
                 - check_environment: 检查环境
                 - get_available_versions: 获取可用版本
                 - get_installed_versions: 获取已安装版本
-                - install_version: 安装版本 (version_id, install_forge) -> bool
+                - install_version: 安装版本 (version_id, mod_loader) -> bool
                 - launch_game: 启动游戏 (version_id) -> bool
         """
         super().__init__()
@@ -238,18 +238,28 @@ class ModernApp(ctk.CTk):
         )
         self.version_entry.pack(fill=ctk.X, padx=15, pady=(5, 10))
 
-        # Forge 选项
-        self.forge_var = ctk.BooleanVar(value=False)
-        forge_cb = ctk.CTkCheckBox(
+        # 模组加载器选项
+        ctk.CTkLabel(
             panel,
-            text="同时安装 Forge",
-            variable=self.forge_var,
+            text="模组加载器:",
+            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            text_color=COLORS["text_secondary"],
+        ).pack(padx=15, anchor=ctk.W)
+
+        self.modloader_var = ctk.StringVar(value="无")
+        self.modloader_menu = ctk.CTkOptionMenu(
+            panel,
+            variable=self.modloader_var,
+            values=["无", "Forge", "Fabric", "NeoForge"],
+            height=35,
             font=ctk.CTkFont(family="Microsoft YaHei", size=13),
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            text_color=COLORS["text_primary"],
+            fg_color=COLORS["bg_medium"],
+            button_color=COLORS["bg_light"],
+            button_hover_color=COLORS["card_border"],
+            dropdown_fg_color=COLORS["bg_medium"],
+            dropdown_hover_color=COLORS["bg_light"],
         )
-        forge_cb.pack(padx=15, pady=(0, 12), anchor=ctk.W)
+        self.modloader_menu.pack(fill=ctk.X, padx=15, pady=(5, 12))
 
         # 安装按钮
         self.install_btn = ctk.CTkButton(
@@ -623,16 +633,17 @@ class ModernApp(ctk.CTk):
             self.set_status("请输入版本 ID", "error")
             return
 
-        install_forge = self.forge_var.get()
-        self.set_status(f"正在安装 {version_id}...", "loading")
+        mod_loader = self.modloader_var.get()
+        loader_text = f" + {mod_loader}" if mod_loader != "无" else ""
+        self.set_status(f"正在安装 {version_id}{loader_text}...", "loading")
         self._set_buttons_enabled(False)
 
-        self._run_in_thread(self._install_version, version_id, install_forge)
+        self._run_in_thread(self._install_version, version_id, mod_loader)
 
-    def _install_version(self, version_id: str, install_forge: bool):
+    def _install_version(self, version_id: str, mod_loader: str):
         """安装版本（后台线程）"""
         try:
-            result = self.callbacks["install_version"](version_id, install_forge)
+            result = self.callbacks["install_version"](version_id, mod_loader)
             self._task_queue.put(("install_done", (version_id, result)))
         except Exception as e:
             self._task_queue.put(("install_error", str(e)))
