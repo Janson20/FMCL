@@ -2237,16 +2237,16 @@ class ModBrowserWindow(ctk.CTkToplevel):
         # 底部标签：支持的加载器与版本
         categories = mod.get("categories", [])
         versions_display = mod.get("versions", [])
-        # 只显示最近3个版本
-        if len(versions_display) > 3:
-            versions_display = versions_display[:3]
         tag_parts = []
         if categories:
             loader_tags = [c for c in categories if c in ("forge", "fabric", "neoforge", "quilt")]
             if loader_tags:
                 tag_parts.append(" | ".join(l.capitalize() for l in loader_tags))
         if versions_display:
-            tag_parts.append(" | ".join(versions_display))
+            from modrinth import compress_game_versions
+            compressed = compress_game_versions(versions_display)
+            if compressed:
+                tag_parts.append(compressed)
 
         if tag_parts:
             tags_text = "  ·  ".join(tag_parts)
