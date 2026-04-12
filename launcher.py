@@ -74,7 +74,7 @@ class MinecraftLauncher:
         self._mcllib = minecraft_launcher_lib
         self.options = minecraft_launcher_lib.utils.generate_test_options()
         self.options["launcherName"] = "MCL"
-        self.options["launcherVersion"] = "3.2"
+        self.options["launcherVersion"] = "2.2.0"
 
         self.current_max = 0
 
