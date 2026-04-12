@@ -6,3 +6,4 @@ pyautogui>=0.9.53
 tqdm>=4.64.0
 keyboard>=0.13.5
 customtkinter>=5.2.0
+tkinterdnd2>=0.4.0
