@@ -143,6 +143,22 @@ class ModernApp(ctk.CTk):
         )
         mirror_switch.pack(side=ctk.RIGHT, padx=(10, 0))
 
+        # 游戏启动后最小化开关
+        self.minimize_var = ctk.BooleanVar(value=False)
+        minimize_switch = ctk.CTkSwitch(
+            header,
+            text="🔽 启动后最小化",
+            variable=self.minimize_var,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            fg_color=COLORS["accent"],
+            button_color=COLORS["text_primary"],
+            button_hover_color=COLORS["text_secondary"],
+            progress_color=COLORS["accent_hover"],
+            text_color=COLORS["text_secondary"],
+            command=self._on_minimize_toggle,
+        )
+        minimize_switch.pack(side=ctk.RIGHT, padx=(10, 0))
+
     def _build_content(self):
         """构建内容区域"""
         content = ctk.CTkFrame(self.main_frame, fg_color="transparent")
@@ -667,6 +683,64 @@ class ModernApp(ctk.CTk):
             # 测试连接
             self._run_in_thread(self._test_connection)
 
+    def _on_minimize_toggle(self):
+        """启动后最小化开关切换"""
+        enabled = self.minimize_var.get()
+        if "set_minimize_on_game_launch" in self.callbacks:
+            self.callbacks["set_minimize_on_game_launch"](enabled)
+        self.set_status(
+            f"游戏启动后最小化: {'已启用' if enabled else '已禁用'}",
+            "success" if enabled else "info"
+        )
+
+    def _watch_game_stdout(self):
+        """监控游戏进程 stdout，检测到游戏窗口出现后通知主线程最小化（后台线程）"""
+        if "get_game_process" not in self.callbacks:
+            return
+
+        proc = self.callbacks["get_game_process"]()
+        if proc is None or proc.stdout is None:
+            logger.warning("无法获取游戏进程 stdout")
+            return
+
+        marker = "Reloading ResourceManager:"
+        timeout = 120
+
+        import threading
+        import time
+
+        logger.info("开始监控游戏进程 stdout")
+
+        result = {"detected": False}
+
+        def _reader():
+            try:
+                for raw_line in proc.stdout:
+                    line = raw_line.decode("utf-8", errors="ignore")
+                    if marker in line:
+                        result["detected"] = True
+                        return
+            except Exception:
+                pass
+
+        reader_thread = threading.Thread(target=_reader, daemon=True)
+        reader_thread.start()
+
+        # 等待检测到标记或超时
+        start = time.time()
+        while time.time() - start < timeout and self._running:
+            if result["detected"]:
+                logger.info("检测到游戏窗口出现 (Reloading ResourceManager)")
+                self._task_queue.put(("game_window_detected", None))
+                return
+            if not reader_thread.is_alive() and not result["detected"]:
+                # 读线程退出但没检测到标记（进程可能已退出）
+                logger.info("游戏 stdout 已关闭，停止监控")
+                return
+            time.sleep(0.2)
+
+        logger.info(f"游戏 stdout 监控超时 ({timeout}s)，未检测到游戏窗口")
+
     def _test_connection(self):
         """测试当前镜像源连接（后台线程）"""
         if "test_mirror_connection" in self.callbacks:
@@ -752,7 +826,8 @@ class ModernApp(ctk.CTk):
     def _launch_game(self, version_id: str):
         """启动游戏（后台线程）"""
         try:
-            result = self.callbacks["launch_game"](version_id)
+            minimize = self.minimize_var.get()
+            result = self.callbacks["launch_game"](version_id, minimize_after=minimize)
             self._task_queue.put(("launch_done", (version_id, result)))
         except Exception as e:
             self._task_queue.put(("launch_error", str(e)))
@@ -847,7 +922,9 @@ class ModernApp(ctk.CTk):
         elif task_type == "launch_done":
             version_id, success = data
             if success:
-                self.set_status(f"{version_id} 已启动", "success")
+                self.set_status(f"{version_id} 已启动，等待游戏窗口...", "loading")
+                if self.minimize_var.get():
+                    self._run_in_thread(self._watch_game_stdout)
             else:
                 self.set_status(f"{version_id} 启动失败", "error")
             self.launch_btn.configure(state=ctk.NORMAL)
@@ -855,6 +932,10 @@ class ModernApp(ctk.CTk):
         elif task_type == "launch_error":
             self.set_status(f"启动错误: {data}", "error")
             self.launch_btn.configure(state=ctk.NORMAL)
+
+        elif task_type == "game_window_detected":
+            self.set_status("游戏窗口已出现，启动器已最小化", "success")
+            self.iconify()
 
         elif task_type == "progress_update":
             current, total, status = data
