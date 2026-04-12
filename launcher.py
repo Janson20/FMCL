@@ -3,13 +3,12 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Any
+from typing import List, Dict, Optional, Callable, Any, Tuple
 
 import minecraft_launcher_lib
 from logzero import logger
 
 from config import Config
-from downloader import download_forge
 from mirror import mirror, MirrorSource
 
 
@@ -17,12 +16,6 @@ class MinecraftLauncher:
     """Minecraft启动器类"""
 
     def __init__(self, config: Config):
-        """
-        初始化启动器
-
-        Args:
-            config: 配置对象
-        """
         self.config = config
         self.minecraft_dir = str(config.minecraft_dir)
         self.options = minecraft_launcher_lib.utils.generate_test_options()
@@ -83,7 +76,6 @@ class MinecraftLauncher:
             logger.info("正在下载最新正式版...")
 
             try:
-                # 优先使用镜像源获取最新版本号
                 if self._mirror.enabled:
                     latest = self._mirror.get_latest_version()
                     latest_release = latest.get("release", "")
@@ -107,12 +99,7 @@ class MinecraftLauncher:
             logger.info("文件夹检查完成")
 
     def get_available_versions(self) -> List[Dict[str, str]]:
-        """
-        获取可用版本列表
-
-        Returns:
-            版本列表
-        """
+        """获取可用版本列表"""
         try:
             versions = minecraft_launcher_lib.utils.get_available_versions(self.minecraft_dir)
             logger.info(f"获取到 {len(versions)} 个版本")
@@ -122,12 +109,7 @@ class MinecraftLauncher:
             return []
 
     def get_installed_versions(self) -> List[str]:
-        """
-        获取已安装的版本列表
-
-        Returns:
-            已安装版本ID列表
-        """
+        """获取已安装的版本列表"""
         try:
             versions_dir = self.config.get_versions_dir()
             if not versions_dir.exists():
@@ -144,16 +126,22 @@ class MinecraftLauncher:
             logger.error(f"获取已安装版本失败: {str(e)}")
             return []
 
-    def install_version(self, version_id: str, mod_loader: str = "无") -> bool:
+    def install_version(self, version_id: str, mod_loader: str = "无") -> Tuple[bool, str]:
         """
         安装Minecraft版本
 
+        安装逻辑：
+        - 无模组加载器: 仅安装原版 Minecraft
+        - 有模组加载器: mod_loader.install() 会自动先装原版再装loader
+
         Args:
-            version_id: 版本ID
+            version_id: 版本ID (如 "1.20.4")
             mod_loader: 模组加载器 ("无", "Forge", "Fabric", "NeoForge")
 
         Returns:
-            是否安装成功
+            (是否成功, 安装后的版本ID) 元组
+            安装原版时返回 version_id
+            安装模组加载器时返回 loader 创建的版本ID (如 "1.20.4-forge-49.0.26")
         """
         try:
             # 检查版本是否有效
@@ -162,46 +150,43 @@ class MinecraftLauncher:
 
             if version_id not in version_ids:
                 logger.error(f"无效的版本ID: {version_id}")
-                return False
+                return False, version_id
 
-            # 安装模组加载器
             if mod_loader and mod_loader != "无":
-                from downloader import download_mod_loader
-                logger.info(f"正在下载 {mod_loader} {version_id}")
-                loader_file = download_mod_loader(
-                    mod_loader,
-                    version_id,
+                # 安装模组加载器 (会自动安装原版)
+                from downloader import install_mod_loader
+                logger.info(f"正在安装 {mod_loader} for Minecraft {version_id}")
+                installed_version_id, loader_version = install_mod_loader(
+                    loader=mod_loader,
+                    version=version_id,
+                    minecraft_dir=self.minecraft_dir,
                     num_threads=self.config.download_threads,
                     mirror=self._mirror,
-                    minecraft_dir=self.minecraft_dir,
                     callback=self._get_callback(),
                 )
-                if loader_file:
-                    logger.info(f"{mod_loader} 安装完成: {loader_file}")
-                else:
-                    logger.info(f"{mod_loader} 安装流程完成")
-
-            # 安装Minecraft版本
-            logger.info(f"正在安装 Minecraft {version_id}")
-            minecraft_launcher_lib.install.install_minecraft_version(
-                version_id,
-                self.minecraft_dir,
-                callback=self._get_callback()
-            )
-
-            logger.info(f"Minecraft {version_id} 安装成功")
-            return True
+                logger.info(f"安装完成: {installed_version_id} (Loader: {mod_loader} {loader_version})")
+                return True, installed_version_id
+            else:
+                # 仅安装原版 Minecraft
+                logger.info(f"正在安装 Minecraft {version_id}")
+                minecraft_launcher_lib.install.install_minecraft_version(
+                    version_id,
+                    self.minecraft_dir,
+                    callback=self._get_callback()
+                )
+                logger.info(f"Minecraft {version_id} 安装成功")
+                return True, version_id
 
         except Exception as e:
             logger.error(f"安装版本失败: {str(e)}")
-            return False
+            return False, version_id
 
     def launch_game(self, version_id: str) -> bool:
         """
         启动游戏
 
         Args:
-            version_id: 版本ID
+            version_id: 版本ID (可以是原版ID如 "1.20.4"，也可以是loader版本ID如 "1.20.4-forge-49.0.26")
 
         Returns:
             是否启动成功
@@ -210,14 +195,32 @@ class MinecraftLauncher:
             # 检查版本是否已安装
             installed_versions = self.get_installed_versions()
 
-            if version_id not in installed_versions:
-                logger.error(f"版本未安装: {version_id}")
-                return False
+            # 精确匹配
+            if version_id in installed_versions:
+                target_version = version_id
+            else:
+                # 尝试模糊匹配：用户可能选了原版ID，但实际安装的是loader版本
+                # 例如用户选 "1.20.4"，但安装的是 "1.20.4-forge-49.0.26"
+                matches = [v for v in installed_versions if v.startswith(version_id)]
+                if len(matches) == 1:
+                    target_version = matches[0]
+                    logger.info(f"模糊匹配: {version_id} -> {target_version}")
+                elif len(matches) > 1:
+                    # 多个匹配，优先选择带 loader 的版本
+                    loader_matches = [v for v in matches if "-" in v and v != version_id]
+                    if loader_matches:
+                        target_version = loader_matches[0]
+                        logger.info(f"多个匹配，选择: {target_version}")
+                    else:
+                        target_version = matches[0]
+                else:
+                    logger.error(f"版本未安装: {version_id}")
+                    return False
 
             # 获取启动命令
-            logger.info(f"正在生成启动命令: {version_id}")
+            logger.info(f"正在生成启动命令: {target_version}")
             minecraft_command = minecraft_launcher_lib.command.get_minecraft_command(
-                version_id,
+                target_version,
                 self.minecraft_dir,
                 self.options
             )
@@ -233,12 +236,7 @@ class MinecraftLauncher:
             return False
 
     def get_callbacks(self) -> Dict[str, Callable]:
-        """
-        获取供UI调用的回调函数字典
-
-        Returns:
-            回调函数字典
-        """
+        """获取供UI调用的回调函数字典"""
         return {
             "check_environment": self.check_and_setup_environment,
             "get_available_versions": self.get_available_versions,
@@ -252,12 +250,7 @@ class MinecraftLauncher:
         }
 
     def set_mirror_enabled(self, enabled: bool) -> None:
-        """
-        设置镜像源启用状态
-
-        Args:
-            enabled: 是否启用镜像源
-        """
+        """设置镜像源启用状态"""
         self._mirror.enabled = enabled
         self.config.mirror_enabled = enabled
         self.config.save_config()

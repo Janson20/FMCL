@@ -35,7 +35,7 @@ class ModernApp(ctk.CTk):
                 - check_environment: 检查环境
                 - get_available_versions: 获取可用版本
                 - get_installed_versions: 获取已安装版本
-                - install_version: 安装版本 (version_id, mod_loader) -> bool
+                - install_version: 安装版本 (version_id, mod_loader) -> (bool, str)
                 - launch_game: 启动游戏 (version_id) -> bool
         """
         super().__init__()
@@ -643,8 +643,8 @@ class ModernApp(ctk.CTk):
     def _install_version(self, version_id: str, mod_loader: str):
         """安装版本（后台线程）"""
         try:
-            result = self.callbacks["install_version"](version_id, mod_loader)
-            self._task_queue.put(("install_done", (version_id, result)))
+            success, installed_version_id = self.callbacks["install_version"](version_id, mod_loader)
+            self._task_queue.put(("install_done", (version_id, installed_version_id, success)))
         except Exception as e:
             self._task_queue.put(("install_error", str(e)))
 
@@ -711,9 +711,10 @@ class ModernApp(ctk.CTk):
             self.set_status(f"加载失败: {data}", "error")
 
         elif task_type == "install_done":
-            version_id, success = data
+            version_id, installed_version_id, success = data
             if success:
-                self.set_status(f"{version_id} 安装成功!", "success")
+                display = installed_version_id if installed_version_id != version_id else version_id
+                self.set_status(f"{display} 安装成功!", "success")
                 self.version_entry.delete(0, ctk.END)
                 self._refresh_versions()
             else:

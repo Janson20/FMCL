@@ -1,12 +1,21 @@
-"""多线程下载模块"""
+"""模组加载器安装模块
+
+使用 minecraft_launcher_lib.mod_loader 统一安装 Forge/Fabric/NeoForge。
+安装顺序：先安装原版 Minecraft，再安装模组加载器。
+mod_loader.install() 会在原版未安装时自动安装原版。
+
+安装后生成的版本ID格式：
+  - Forge:    {mc_version}-forge-{forge_version}  (如 "1.20.4-forge-49.0.26")
+  - Fabric:   fabric-loader-{loader_version}-{mc_version}  (如 "fabric-loader-0.15.11-1.20.4")
+  - NeoForge: {mc_version}-neoforge-{neoforge_version}  (如 "1.20.4-neoforge-20.4.234")
+"""
 import os
 import threading
 import time
-from typing import Optional, Callable, Dict
+from typing import Optional, Callable, Dict, Tuple
 from pathlib import Path
 
 import requests
-from tqdm import tqdm
 from logzero import logger
 
 
@@ -14,13 +23,6 @@ class MultiThreadDownloader:
     """多线程下载器"""
 
     def __init__(self, num_threads: int = 4, chunk_size: int = 8192):
-        """
-        初始化下载器
-
-        Args:
-            num_threads: 线程数
-            chunk_size: 分块大小
-        """
         self.num_threads = num_threads
         self.chunk_size = chunk_size
         self.downloaded_bytes = 0
@@ -35,27 +37,14 @@ class MultiThreadDownloader:
         end_byte: int,
         part_number: int,
         filename: Path,
-        progress_bar: tqdm
+        progress_bar
     ) -> None:
-        """
-        下载文件的分段部分
-
-        Args:
-            url: 下载链接
-            start_byte: 起始字节
-            end_byte: 结束字节
-            part_number: 分段编号
-            filename: 文件名
-            progress_bar: 进度条对象
-        """
         headers = {'Range': f'bytes={start_byte}-{end_byte}'}
-
         try:
             response = requests.get(url, headers=headers, stream=True, timeout=30)
             response.raise_for_status()
 
             part_filename = f"{filename}.part{part_number}"
-
             with open(part_filename, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=self.chunk_size):
                     if chunk:
@@ -63,18 +52,11 @@ class MultiThreadDownloader:
                         with self.lock:
                             self.downloaded_bytes += len(chunk)
                             progress_bar.update(len(chunk))
-
         except Exception as e:
             logger.error(f"下载分段 {part_number} 失败: {str(e)}")
             raise
 
     def _merge_files(self, filename: Path) -> None:
-        """
-        合并分段文件
-
-        Args:
-            filename: 最终文件名
-        """
         try:
             with open(filename, 'wb') as outfile:
                 for i in range(self.num_threads):
@@ -83,38 +65,20 @@ class MultiThreadDownloader:
                         with open(part_filename, 'rb') as infile:
                             outfile.write(infile.read())
                         os.remove(part_filename)
-
             logger.info(f"文件合并成功: {filename}")
-
         except Exception as e:
             logger.error(f"合并文件失败: {str(e)}")
             raise
 
     def download(self, url: str, output_dir: Optional[str] = None) -> str:
-        """
-        下载文件
-
-        Args:
-            url: 下载链接
-            output_dir: 输出目录,默认为当前目录
-
-        Returns:
-            下载的文件名
-
-        Raises:
-            Exception: 下载失败时抛出异常
-        """
         try:
-            # 获取文件信息
             response = requests.head(url, timeout=10)
             response.raise_for_status()
 
             self.total_size = int(response.headers.get('Content-Length', 0))
-
             if self.total_size == 0:
                 raise ValueError("无法获取文件大小")
 
-            # 准备下载
             filename = Path(url.split('/')[-1])
             if output_dir:
                 filename = Path(output_dir) / filename
@@ -122,7 +86,7 @@ class MultiThreadDownloader:
             part_size = self.total_size // self.num_threads
             threads = []
 
-            # 创建进度条
+            from tqdm import tqdm
             progress_bar = tqdm(
                 total=self.total_size,
                 unit='B',
@@ -133,11 +97,9 @@ class MultiThreadDownloader:
             self.downloaded_bytes = 0
             self.start_time = time.time()
 
-            # 创建并启动下载线程
             for i in range(self.num_threads):
                 start_byte = i * part_size
                 end_byte = start_byte + part_size - 1 if i < self.num_threads - 1 else self.total_size - 1
-
                 thread = threading.Thread(
                     target=self._download_part,
                     args=(url, start_byte, end_byte, i, filename, progress_bar)
@@ -145,169 +107,86 @@ class MultiThreadDownloader:
                 threads.append(thread)
                 thread.start()
 
-            # 等待所有线程完成
             for thread in threads:
                 thread.join()
 
             progress_bar.close()
-
-            # 合并文件
             self._merge_files(filename)
-
             logger.info(f"文件下载成功: {filename}")
             return str(filename)
-
         except Exception as e:
             logger.error(f"下载失败: {str(e)}")
             raise
 
 
-def download_forge(version: str, num_threads: int = 4, mirror=None) -> str:
+# ─── 模组加载器安装 ──────────────────────────────────────────────
+
+# 模组加载器名称映射: 用户选择 -> minecraft_launcher_lib mod_loader ID
+MOD_LOADER_IDS = {
+    "Forge": "forge",
+    "Fabric": "fabric",
+    "NeoForge": "neoforge",
+}
+
+
+def install_mod_loader(
+    loader: str,
+    version: str,
+    minecraft_dir: str,
+    num_threads: int = 4,
+    mirror=None,
+    callback: Dict[str, Callable] = None,
+    java: str = None,
+) -> Tuple[str, str]:
     """
-    下载指定版本的Forge
-
-    Args:
-        version: Minecraft版本
-        num_threads: 线程数
-        mirror: 镜像源实例 (MirrorSource)
-
-    Returns:
-        下载的文件名
-    """
-    try:
-        forge_url = None
-
-        # 优先使用镜像源获取下载链接
-        from_mirror = False
-        if mirror and mirror.enabled:
-            logger.info(f"正在通过 BMCLAPI 获取 Forge {version} 下载链接")
-            forge_url = mirror.get_forge_download_url(version)
-            if forge_url:
-                from_mirror = True
-
-        # 镜像源获取失败时回退到 forgepy
-        if not forge_url:
-            try:
-                import forgepy
-                logger.info(f"正在通过 forgepy 获取 Forge {version} 下载链接")
-                forge_url = forgepy.GetLatestURL(version)
-            except ImportError:
-                logger.warning("forgepy 未安装")
-
-        if not forge_url:
-            raise RuntimeError(f"无法获取 Forge {version} 的下载链接")
-
-        # 仅对非镜像源URL进行重写（官方URL -> 镜像URL）
-        if mirror and mirror.enabled and not from_mirror:
-            forge_url = mirror.rewrite_url(forge_url)
-
-        logger.info(f"Forge 下载地址: {forge_url}")
-        downloader = MultiThreadDownloader(num_threads=num_threads)
-        filename = downloader.download(forge_url)
-
-        logger.info(f"Forge {version} 下载成功")
-        return filename
-
-    except Exception as e:
-        logger.error(f"下载 Forge 失败: {str(e)}")
-        raise
-
-
-def download_fabric(version: str, num_threads: int = 4, mirror=None,
-                    minecraft_dir: str = None, callback: Dict[str, Callable] = None) -> Optional[str]:
-    """
-    安装指定版本的Fabric Loader
-
-    Args:
-        version: Minecraft版本
-        num_threads: 线程数
-        mirror: 镜像源实例
-        minecraft_dir: Minecraft目录
-        callback: 安装回调
-
-    Returns:
-        None (Fabric通过minecraft_launcher_lib直接安装)
-    """
-    try:
-        import minecraft_launcher_lib
-
-        logger.info(f"正在安装 Fabric Loader {version}")
-
-        # 使用 minecraft_launcher_lib 安装 Fabric
-        minecraft_launcher_lib.fabric.install_fabric(
-            version,
-            minecraft_dir,
-            callback=callback
-        )
-
-        logger.info(f"Fabric Loader {version} 安装成功")
-        return None
-
-    except Exception as e:
-        logger.error(f"安装 Fabric 失败: {str(e)}")
-        raise
-
-
-def download_neoforge(version: str, num_threads: int = 4, mirror=None,
-                      minecraft_dir: str = None, callback: Dict[str, Callable] = None) -> Optional[str]:
-    """
-    安装指定版本的NeoForge
-
-    Args:
-        version: Minecraft版本
-        num_threads: 线程数
-        mirror: 镜像源实例
-        minecraft_dir: Minecraft目录
-        callback: 安装回调
-
-    Returns:
-        None (NeoForge通过minecraft_launcher_lib直接安装)
-    """
-    try:
-        import minecraft_launcher_lib
-
-        logger.info(f"正在安装 NeoForge {version}")
-
-        # 使用 minecraft_launcher_lib 安装 NeoForge
-        minecraft_launcher_lib.neoforge.install_neoforge(
-            version,
-            minecraft_dir,
-            callback=callback
-        )
-
-        logger.info(f"NeoForge {version} 安装成功")
-        return None
-
-    except Exception as e:
-        logger.error(f"安装 NeoForge 失败: {str(e)}")
-        raise
-
-
-def download_mod_loader(loader: str, version: str, num_threads: int = 4,
-                        mirror=None, minecraft_dir: str = None,
-                        callback: Dict[str, Callable] = None) -> Optional[str]:
-    """
-    统一的模组加载器下载/安装入口
+    安装模组加载器（会自动安装原版 Minecraft 如果未安装）
 
     Args:
         loader: 加载器类型 ("Forge", "Fabric", "NeoForge")
-        version: Minecraft版本
-        num_threads: 线程数
-        mirror: 镜像源实例
+        version: Minecraft版本 (如 "1.20.4")
         minecraft_dir: Minecraft目录
+        num_threads: 线程数 (未使用，保留兼容)
+        mirror: 镜像源实例 (未使用，由 patch 控制)
         callback: 安装回调
+        java: Java 可执行文件路径
 
     Returns:
-        下载的文件名或None
+        (installed_version_id, loader_version) 元组
+        installed_version_id: 安装后的完整版本ID (如 "1.20.4-forge-49.0.26")
+        loader_version: 加载器版本号 (如 "49.0.26")
+
+    Raises:
+        ValueError: 不支持的加载器类型
+        Exception: 安装失败
     """
-    if loader == "Forge":
-        return download_forge(version, num_threads=num_threads, mirror=mirror)
-    elif loader == "Fabric":
-        return download_fabric(version, num_threads=num_threads, mirror=mirror,
-                               minecraft_dir=minecraft_dir, callback=callback)
-    elif loader == "NeoForge":
-        return download_neoforge(version, num_threads=num_threads, mirror=mirror,
-                                 minecraft_dir=minecraft_dir, callback=callback)
-    else:
-        logger.warning(f"未知的模组加载器: {loader}")
-        return None
+    import minecraft_launcher_lib
+
+    loader_id = MOD_LOADER_IDS.get(loader)
+    if not loader_id:
+        raise ValueError(f"不支持的模组加载器: {loader}，支持: {list(MOD_LOADER_IDS.keys())}")
+
+    try:
+        logger.info(f"正在安装 {loader} for Minecraft {version}")
+
+        # 获取 ModLoader 实例
+        mod_loader = minecraft_launcher_lib.mod_loader.get_mod_loader(loader_id)
+
+        # 获取最新的 loader 版本
+        loader_version = mod_loader.get_latest_loader_version(version)
+        logger.info(f"最新 {loader} 版本: {loader_version}")
+
+        # 安装（mod_loader.install 会在原版未安装时自动安装原版）
+        installed_version_id = mod_loader.install(
+            minecraft_version=version,
+            minecraft_directory=minecraft_dir,
+            loader_version=loader_version,
+            callback=callback,
+            java=java,
+        )
+
+        logger.info(f"{loader} 安装成功: 版本ID={installed_version_id}, Loader版本={loader_version}")
+        return installed_version_id, loader_version
+
+    except Exception as e:
+        logger.error(f"安装 {loader} 失败: {str(e)}")
+        raise

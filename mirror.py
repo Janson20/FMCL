@@ -332,12 +332,53 @@ class MirrorSource:
             except (ImportError, AttributeError):
                 pass
 
+            # 替换 mod_loader 模块中的 URL 常量 (v8.0+)
+            self._patch_mod_loader_module()
+
             logger.info("✅ minecraft_launcher_lib 镜像源补丁已应用")
 
         except ImportError:
             logger.warning("minecraft_launcher_lib 未安装，跳过补丁")
         except Exception as e:
             logger.error(f"应用镜像源补丁失败: {e}")
+
+    def _patch_mod_loader_module(self):
+        """为 mod_loader 模块中的各子模块应用镜像源补丁"""
+        try:
+            import minecraft_launcher_lib
+
+            # Fabric mod_loader 子模块
+            try:
+                from minecraft_launcher_lib.mod_loader import _fabric as _fabric_mod
+                if hasattr(_fabric_mod, 'FABRIC_MAVEN_URL'):
+                    _fabric_mod.FABRIC_MAVEN_URL = "https://bmclapi2.bangbang93.com/maven/"
+                    logger.info("已替换 _fabric.FABRIC_MAVEN_URL")
+                if hasattr(_fabric_mod, 'FABRIC_META_URL'):
+                    _fabric_mod.FABRIC_META_URL = "https://bmclapi2.bangbang93.com/fabric-meta"
+                    logger.info("已替换 _fabric.FABRIC_META_URL")
+            except (ImportError, AttributeError):
+                pass
+
+            # Forge mod_loader 子模块
+            try:
+                from minecraft_launcher_lib.mod_loader import _forge as _forge_mod
+                if hasattr(_forge_mod, 'FORGE_MAVEN_URL'):
+                    _forge_mod.FORGE_MAVEN_URL = "https://bmclapi2.bangbang93.com/maven/"
+                    logger.info("已替换 _forge.FORGE_MAVEN_URL")
+            except (ImportError, AttributeError):
+                pass
+
+            # NeoForge mod_loader 子模块
+            try:
+                from minecraft_launcher_lib.mod_loader import _neoforge as _neoforge_mod
+                if hasattr(_neoforge_mod, 'NEOFORGE_MAVEN_URL'):
+                    _neoforge_mod.NEOFORGE_MAVEN_URL = "https://bmclapi2.bangbang93.com/maven/"
+                    logger.info("已替换 _neoforge.NEOFORGE_MAVEN_URL")
+            except (ImportError, AttributeError):
+                pass
+
+        except ImportError:
+            pass
 
     def get_mirror_name(self) -> str:
         """获取当前镜像源名称"""
