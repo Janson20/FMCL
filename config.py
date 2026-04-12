@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import logzero
+
 
 class Config:
     """启动器配置类"""

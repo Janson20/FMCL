@@ -14,8 +14,10 @@ pos.txt
 
 # Virtual environments
 .venv
-.gitgnore
+.gitignore
 .python-version
+*.lock
 
 # Minecraft Files
 .minecraft/
+uv.lock
