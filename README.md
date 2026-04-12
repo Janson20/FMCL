@@ -72,7 +72,7 @@
 
 | 依赖 | 说明 |
 |------|------|
-| Python 3.8+ | 运行启动器 |
+| Python 3.10+ | 运行启动器 |
 | Java 8+ | 运行 Minecraft（启动器会自动检测系统 Java） |
 
 ---
@@ -356,4 +356,4 @@ chore: 构建/工具变动
 
 ## 许可证
 
-[MIT License](LICENSE) - Copyright (c) 2024 MCL Team
+[MIT License](LICENSE) - Copyright (c) 2026 MCL Team
