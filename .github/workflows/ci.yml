@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  lint:
+    name: Lint Commit Messages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install commitlint
+        run: |
+          npm install -g @commitlint/cli @commitlint/config-conventional
+
+      - name: Create commitlint config
+        run: |
+          cat > commitlint.config.js << EOF
+          module.exports = {
+            extends: ['@commitlint/config-conventional'],
+            rules: {
+              'type-enum': [
+                2,
+                'always',
+                [
+                  'feat',
+                  'fix',
+                  'docs',
+                  'style',
+                  'refactor',
+                  'perf',
+                  'test',
+                  'build',
+                  'ci',
+                  'chore',
+                  'revert'
+                ]
+              ],
+              'subject-case': [0, 'always', 'lower-case']
+            }
+          };
+          EOF
+
+      - name: Lint commits
+        if: github.event_name == 'push'
+        run: |
+          npx commitlint --from HEAD~1 --to HEAD --verbose
+
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        python-version: ['3.8', '3.11']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check imports
+        run: |
+          python -c "import minecraft_launcher_lib"
+          python -c "import forgepy"
+          python -c "import logzero"
+          python -c "import pyautogui"
+
+      - name: Syntax check
+        run: |
+          python -m py_compile main.py
+          python -m py_compile config.py
+          python -m py_compile downloader.py
+          python -m py_compile launcher.py
+          python -m py_compile ui.py

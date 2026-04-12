@@ -1,0 +1,169 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Windows
+          - os: windows-latest
+            arch: amd64
+            platform: win
+            suffix: '.exe'
+          # macOS Intel
+          - os: macos-latest
+            arch: amd64
+            platform: mac
+            suffix: ''
+          # macOS ARM (Apple Silicon)
+          - os: macos-latest
+            arch: arm64
+            platform: mac
+            suffix: ''
+          # Linux AMD64
+          - os: ubuntu-latest
+            arch: amd64
+            platform: linux
+            suffix: ''
+          # Linux ARM64
+          - os: ubuntu-latest
+            arch: arm64
+            platform: linux
+            suffix: ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      - name: Build executable
+        run: |
+          pyinstaller build.spec --noconfirm
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+
+      - name: Package artifact
+        run: |
+          cd dist
+          if [ "${{ matrix.platform }}" = "win" ]; then
+            7z a -tzip ../MCL-${{ matrix.platform }}-${{ matrix.arch }}.zip *
+          else
+            zip -r ../MCL-${{ matrix.platform }}-${{ matrix.arch }}.zip *
+          fi
+        shell: bash
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MCL-${{ matrix.platform }}-${{ matrix.arch }}
+          path: MCL-${{ matrix.platform }}-${{ matrix.arch }}.zip
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREV_TAG" ]; then
+            # First release, get all commits
+            COMMITS=$(git log --pretty=format:"- %s" --reverse)
+          else
+            # Get commits since last tag
+            COMMITS=$(git log $PREV_TAG..HEAD --pretty=format:"- %s" --reverse)
+          fi
+          
+          # Generate changelog from conventional commits
+          echo "## 🚀 What's Changed" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          
+          # Features
+          FEATURES=$(echo "$COMMITS" | grep -i "^- feat" || true)
+          if [ ! -z "$FEATURES" ]; then
+            echo "### ✨ New Features" >> CHANGELOG.md
+            echo "$FEATURES" | sed 's/^- feat(\(.*\)): /- [\1] /' | sed 's/^- feat: /- /' >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+          
+          # Bug fixes
+          FIXES=$(echo "$COMMITS" | grep -i "^- fix" || true)
+          if [ ! -z "$FIXES" ]; then
+            echo "### 🐛 Bug Fixes" >> CHANGELOG.md
+            echo "$FIXES" | sed 's/^- fix(\(.*\)): /- [\1] /' | sed 's/^- fix: /- /' >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+          
+          # Improvements
+          IMPROVEMENTS=$(echo "$COMMITS" | grep -iE "^- (refactor|perf|docs|style)" || true)
+          if [ ! -z "$IMPROVEMENTS" ]; then
+            echo "### 💡 Improvements" >> CHANGELOG.md
+            echo "$IMPROVEMENTS" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+          
+          # Other changes
+          OTHER=$(echo "$COMMITS" | grep -ivE "^- (feat|fix|refactor|perf|docs|style)" || true)
+          if [ ! -z "$OTHER" ]; then
+            echo "### 📝 Other Changes" >> CHANGELOG.md
+            echo "$OTHER" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+          
+          # Add download links
+          echo "### 📦 Downloads" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "| Platform | Architecture | Download |" >> CHANGELOG.md
+          echo "|----------|--------------|----------|" >> CHANGELOG.md
+          echo "| Windows | x64 | [MCL-win-amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-win-amd64.zip) |" >> CHANGELOG.md
+          echo "| macOS | Intel | [MCL-mac-amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-mac-amd64.zip) |" >> CHANGELOG.md
+          echo "| macOS | Apple Silicon | [MCL-mac-arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-mac-arm64.zip) |" >> CHANGELOG.md
+          echo "| Linux | x64 | [MCL-linux-amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-linux-amd64.zip) |" >> CHANGELOG.md
+          echo "| Linux | ARM64 | [MCL-linux-arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-linux-arm64.zip) |" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ github.ref_name }}" >> CHANGELOG.md
+          
+          cat CHANGELOG.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/MCL-*/*.zip
+          body_path: CHANGELOG.md
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

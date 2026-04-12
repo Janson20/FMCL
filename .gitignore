@@ -16,8 +16,41 @@ pos.txt
 .venv
 .gitignore
 .python-version
+env/
+venv/
+ENV/
 *.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Node.js
+node_modules/
+
+# Test and coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
 
 # Minecraft Files
 .minecraft/
+
+# Build outputs
+*.exe
+*.app
+*.dmg
+*.deb
+*.rpm
+*.AppImage
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
 uv.lock

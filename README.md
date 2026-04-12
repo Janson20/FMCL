@@ -35,6 +35,20 @@ A feature-rich Minecraft launcher with multi-threaded download support, Forge in
 
 ## Installation / 安装
 
+### 从 Release 下载（推荐）
+
+前往 [Releases](https://github.com/Janson20/MCL/releases) 页面下载适合你平台的预编译版本：
+
+| Platform | Architecture | Download |
+|----------|--------------|----------|
+| Windows | x64 | `MCL-win-amd64.zip` |
+| macOS | Intel | `MCL-mac-amd64.zip` |
+| macOS | Apple Silicon | `MCL-mac-arm64.zip` |
+| Linux | x64 | `MCL-linux-amd64.zip` |
+| Linux | ARM64 | `MCL-linux-arm64.zip` |
+
+### 从源码安装
+
 1. Clone this repository  
    克隆本仓库
    ```bash
@@ -58,6 +72,16 @@ A feature-rich Minecraft launcher with multi-threaded download support, Forge in
    ```bash
    python main.py
    ```
+
+### 使用 Docker
+
+```bash
+# 构建镜像
+docker build -t mcl:latest .
+
+# 运行容器
+docker run -it --rm -v $(pwd)/.minecraft:/app/.minecraft mcl:latest
+```
 
 ## Usage / 使用方法
 
@@ -116,6 +140,59 @@ This project follows a modular architecture for better maintainability:
   用户界面组件和对话框
 - **main.py** - Application entry point and initialization  
   应用程序入口点和初始化
+
+## Development / 开发指南
+
+### 环境设置
+
+```bash
+# 安装Python依赖
+pip install -r requirements.txt
+
+# 安装Node.js依赖（用于Git hooks）
+npm install
+npm run prepare
+```
+
+### 本地构建
+
+```bash
+# 使用PyInstaller构建
+pyinstaller build.spec --noconfirm
+
+# 或使用Makefile
+make build
+```
+
+### 发布流程
+
+项目使用 GitHub Actions 自动构建和发布：
+
+1. 更新版本号（`pyproject.toml` 和 `package.json`）
+2. 提交变更：`git commit -m "chore: release v2.0.1"`
+3. 创建标签：`git tag v2.0.1`
+4. 推送：`git push origin main --tags`
+
+GitHub Actions 会自动：
+- ✅ 构建 Windows/macOS/Linux 的 AMD64 和 ARM64 版本
+- ✅ 根据约定式提交生成更新日志
+- ✅ 创建 Release 并上传构建文件
+
+详细文档：[SETUP.md](docs/SETUP.md)
+
+### 提交规范
+
+本项目使用 [约定式提交](https://www.conventionalcommits.org/) 规范：
+
+```bash
+feat: 添加新功能
+fix: 修复bug
+docs: 更新文档
+refactor: 重构代码
+perf: 性能优化
+```
+
+详见：[CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Changelog / 更新日志
 
