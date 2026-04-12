@@ -13,12 +13,11 @@ pos.txt
 
 # Virtual environments
 .venv
-.gitignore
 .python-version
 env/
 venv/
 ENV/
-*.lock
+uv.lock
 
 # IDE
 .vscode/
@@ -47,9 +46,17 @@ htmlcov/
 *.deb
 *.rpm
 *.AppImage
+MCL-Setup-*.exe
+MCL-*-mac-*.dmg
+MCL-*-linux-*.deb
+MCL-*-x86_64.AppImage
+
+# NSIS / installer temp
+dmg_temp/
+MCL.AppDir/
+mcl_*_amd64/
 
 # Temporary files
 *.tmp
 *.bak
 *.orig
-uv.lock

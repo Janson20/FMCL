@@ -1,19 +1,28 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller构建脚本 - 多平台支持"""
+"""PyInstaller 构建脚本 - 多平台支持"""
 
 import os
 import sys
 from pathlib import Path
 
-# 获取平台和架构
-platform = os.environ.get('PLATFORM', 'win')
+# 自动检测平台
+_platform = sys.platform
+if _platform == 'win32':
+    platform = 'win'
+elif _platform == 'darwin':
+    platform = 'mac'
+else:
+    platform = 'linux'
+
+# 支持环境变量覆盖
+platform = os.environ.get('PLATFORM', platform)
 arch = os.environ.get('ARCH', 'amd64')
 
 print(f"Building for platform: {platform}, arch: {arch}")
 
 block_cipher = None
 
-# 收集所有隐式导入
+# 通用隐式导入
 hidden_imports = [
     'minecraft_launcher_lib',
     'forgepy',
@@ -29,7 +38,7 @@ hidden_imports = [
     'PIL',
 ]
 
-# 根据平台添加特定导入
+# 平台特定导入
 if platform == 'win':
     hidden_imports.extend([
         'pywintypes',
@@ -42,14 +51,11 @@ elif platform == 'mac':
         'Foundation',
     ])
 
-# 收集数据文件（如果有）
-datas = []
-
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=datas,
+    datas=[],
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
@@ -67,8 +73,8 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-# 根据平台生成不同的可执行文件配置
 if platform == 'win':
+    # Windows: 单文件可执行文件 (NSIS 安装包会打包它)
     exe = EXE(
         pyz,
         a.scripts,
@@ -90,8 +96,9 @@ if platform == 'win':
         codesign_identity=None,
         entitlements_file=None,
     )
+
 elif platform == 'mac':
-    # macOS: 创建单个可执行文件
+    # macOS: 单文件 EXE + BUNDLE 为 .app
     exe = EXE(
         pyz,
         a.scripts,
@@ -103,18 +110,17 @@ elif platform == 'mac':
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
-        upx=False,  # macOS上UPX可能导致问题
+        upx=False,
         upx_exclude=[],
         runtime_tmpdir=None,
-        console=False,  # GUI应用
+        console=False,
         disable_windowed_traceback=False,
-        argv_emulation=True,  # macOS需要
+        argv_emulation=True,
         target_arch='universal2' if arch == 'arm64' else 'x86_64',
         codesign_identity=None,
         entitlements_file=None,
     )
-    
-    # 创建app bundle
+
     app = BUNDLE(
         exe,
         name='MCL.app',
@@ -123,12 +129,13 @@ elif platform == 'mac':
         info_plist={
             'NSPrincipalClass': 'NSApplication',
             'NSAppleScriptEnabled': False,
-            'CFBundleShortVersionString': '2.0.0',
-            'CFBundleVersion': '2.0.0',
+            'CFBundleShortVersionString': '2.0.2',
+            'CFBundleVersion': '2.0.2',
         },
     )
+
 else:
-    # Linux
+    # Linux: 单文件可执行文件
     exe = EXE(
         pyz,
         a.scripts,
@@ -139,7 +146,7 @@ else:
         name='MCL',
         debug=False,
         bootloader_ignore_signals=False,
-        strip=True,  # Linux上可以strip
+        strip=True,
         upx=True,
         upx_exclude=[],
         runtime_tmpdir=None,

@@ -29,72 +29,54 @@ A feature-rich Minecraft launcher with multi-threaded download support, Forge in
 
 ## Requirements / 需求
 
-- Python 3.7+  
-- Required packages (see `pyproject.toml`)  
-  所需包（见`pyproject.toml`）
+- Python 3.8+
+- Java (for running Minecraft)
 
 ## Installation / 安装
 
 ### 从 Release 下载（推荐）
 
-前往 [Releases](https://github.com/Janson20/MCL/releases) 页面下载适合你平台的预编译版本：
+前往 [Releases](https://github.com/Janson20/MCL/releases) 页面下载适合你平台的安装包：
 
-| Platform | Architecture | Download |
-|----------|--------------|----------|
-| Windows | x64 | `MCL-win-amd64.zip` |
-| macOS | Intel | `MCL-mac-amd64.zip` |
-| macOS | Apple Silicon | `MCL-mac-arm64.zip` |
-| Linux | x64 | `MCL-linux-amd64.zip` |
-| Linux | ARM64 | `MCL-linux-arm64.zip` |
+| Platform | Download |
+|----------|----------|
+| Windows | `MCL-Setup-x.x.x.exe` (安装包) |
+| macOS Intel | `MCL-x.x.x-mac-amd64.dmg` |
+| macOS Apple Silicon | `MCL-x.x.x-mac-arm64.dmg` |
+| Linux | `MCL-x.x.x-linux-amd64.deb` 或 `MCL-x.x.x-x86_64.AppImage` |
+
+#### 安装说明
+
+- **Windows**: 双击 `.exe` 安装包，按向导完成安装
+- **macOS**: 双击 `.dmg` 文件，将 MCL.app 拖入 Applications 文件夹。首次打开若提示"无法验证开发者"，请在系统设置 > 安全性与隐私中点击"仍要打开"，或运行 `xattr -cr /Applications/MCL.app`
+- **Linux DEB**: `sudo dpkg -i MCL-x.x.x-linux-amd64.deb`
+- **Linux AppImage**: `chmod +x MCL-x.x.x-x86_64.AppImage && ./MCL-x.x.x-x86_64.AppImage`
 
 ### 从源码安装
 
-1. Clone this repository  
-   克隆本仓库
+1. 克隆仓库
    ```bash
    git clone https://github.com/Janson20/MCL.git
    cd MCL
    ```
 
-2. Install dependencies using uv (recommended)  
-   使用 uv 安装依赖(推荐)
-   ```bash
-   uv sync
-   ```
-   Or using pip  
-   或使用 pip
+2. 安装依赖
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Run the launcher  
-   运行启动器
+3. 运行启动器
    ```bash
    python main.py
    ```
 
-### 使用 Docker
-
-```bash
-# 构建镜像
-docker build -t mcl:latest .
-
-# 运行容器
-docker run -it --rm -v $(pwd)/.minecraft:/app/.minecraft mcl:latest
-```
-
 ## Usage / 使用方法
 
-1. The launcher will automatically check and create necessary directories  
-   启动器会自动检查并创建必要的目录
-2. Choose whether to install a new version  
-   选择是否安装新版本
-3. Select a version from the list  
-   从列表中选择版本
-4. Optionally install Forge  
-   可选安装Forge
-5. Launch the selected version  
-   启动选定的版本
+1. 启动器会自动检查并创建必要的目录
+2. 选择是否安装新版本
+3. 从列表中选择版本
+4. 可选安装 Forge
+5. 启动选定的版本
 
 ## File Structure / 文件结构
 
@@ -108,48 +90,19 @@ docker run -it --rm -v $(pwd)/.minecraft:/app/.minecraft mcl:latest
 ├── ui.py                # UI components
 ├── main.py              # Main program entry
 ├── screen_shot.py       # Screenshot tool
+├── build.spec           # PyInstaller build config
+├── installer.nsi        # Windows NSIS installer script
 ├── latest.log           # Log file
 ├── pos.txt              # Mouse position log (debug)
 └── pyproject.toml       # Project configuration
 ```
-
-## Notes / 注意事项
-
-- First run will download the latest stable Minecraft version  
-  首次运行会下载最新的稳定版Minecraft
-- Forge installation requires manual execution of the downloaded installer  
-  Forge安装需要手动执行下载的安装程序
-- Logs are saved in `latest.log`  
-  日志保存在`latest.log`中
-- Screenshot tool can be activated with `Ctrl+Alt+T` (run `screen_shot.py` separately)  
-  截图工具可通过 `Ctrl+Alt+T` 激活(需单独运行 `screen_shot.py`)
-
-## Architecture / 架构说明
-
-This project follows a modular architecture for better maintainability:
-
-本项目采用模块化架构以提高可维护性:
-
-- **config.py** - Configuration management and path handling  
-  配置管理和路径处理
-- **downloader.py** - Multi-threaded download functionality  
-  多线程下载功能
-- **launcher.py** - Core launcher logic and game management  
-  核心启动器逻辑和游戏管理
-- **ui.py** - User interface components and dialogs  
-  用户界面组件和对话框
-- **main.py** - Application entry point and initialization  
-  应用程序入口点和初始化
 
 ## Development / 开发指南
 
 ### 环境设置
 
 ```bash
-# 安装Python依赖
 pip install -r requirements.txt
-
-# 安装Node.js依赖（用于Git hooks）
 npm install
 npm run prepare
 ```
@@ -157,16 +110,17 @@ npm run prepare
 ### 本地构建
 
 ```bash
-# 使用PyInstaller构建
-pyinstaller build.spec --noconfirm
-
-# 或使用Makefile
+# 构建 PyInstaller 可执行文件
 make build
+
+# 构建系统安装包 (按平台选择)
+make build-installer    # Windows (需要安装 NSIS)
+make build-dmg          # macOS
+make build-deb          # Linux DEB
+make build-appimage     # Linux AppImage
 ```
 
 ### 发布流程
-
-项目使用 GitHub Actions 自动构建和发布：
 
 1. 更新版本号（`pyproject.toml` 和 `package.json`）
 2. 提交变更：`git commit -m "chore: release v2.0.1"`
@@ -174,9 +128,10 @@ make build
 4. 推送：`git push origin main --tags`
 
 GitHub Actions 会自动：
-- ✅ 构建 Windows/macOS/Linux 的 AMD64 和 ARM64 版本
-- ✅ 根据约定式提交生成更新日志
-- ✅ 创建 Release 并上传构建文件
+- Windows: 构建 `.exe` 安装包 (NSIS)
+- macOS: 构建 `.dmg` 磁盘映像 (Intel + Apple Silicon)
+- Linux: 构建 `.deb` 和 `.AppImage` 安装包
+- 创建 Release 并上传所有安装包
 
 详细文档：[SETUP.md](docs/SETUP.md)
 
@@ -205,6 +160,12 @@ perf: 性能优化
 - **依赖问题**: 重新安装依赖 `pip install -r requirements.txt --force-reinstall`
 
 ## Changelog / 更新日志
+
+### v2.0.2
+- 🏗️ 重构构建流程：移除 Docker，改为构建系统原生安装包
+- 🪟 Windows: 使用 NSIS 生成 `.exe` 安装包
+- 🍎 macOS: 生成 `.dmg` 磁盘映像
+- 🐧 Linux: 生成 `.deb` 和 `.AppImage` 安装包
 
 ### v2.0.1
 - 🐛 Fixed GitHub Actions build failures

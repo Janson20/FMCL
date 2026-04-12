@@ -8,39 +8,10 @@ on:
 permissions:
   contents: write
 
-env:
-  # 使用Node.js 24
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
-  build:
-    name: Build ${{ matrix.os }}-${{ matrix.arch }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false  # 即使某个构建失败，其他也继续
-      matrix:
-        include:
-          # Windows
-          - os: windows-latest
-            arch: amd64
-            platform: win
-          # macOS Intel
-          - os: macos-13  # 使用macos-13确保Intel芯片
-            arch: amd64
-            platform: mac
-          # macOS ARM (Apple Silicon)
-          - os: macos-latest
-            arch: arm64
-            platform: mac
-          # Linux AMD64
-          - os: ubuntu-latest
-            arch: amd64
-            platform: linux
-          # Linux ARM64
-          - os: ubuntu-latest
-            arch: arm64
-            platform: linux
-
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -50,25 +21,45 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install system dependencies (Linux)
-        if: matrix.platform == 'linux'
+      - name: Install Python dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            zlib1g-dev \
-            libncurses5-dev \
-            libgdbm-dev \
-            libnss3-dev \
-            libssl-dev \
-            libreadline-dev \
-            libffi-dev \
-            libsqlite3-dev \
-            libbz2-dev \
-            liblzma-dev \
-            tk-dev \
-            uuid-dev \
-            xvfb
+          python -m pip install --upgrade pip setuptools wheel
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec --noconfirm
+        env:
+          PLATFORM: win
+          ARCH: amd64
+
+      - name: Install NSIS
+        run: choco install nsis -y
+
+      - name: Build Windows Installer
+        run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          makensis /DVERSION=$version installer.nsi
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MCL-windows-installer
+          path: MCL-Setup-*.exe
+          retention-days: 7
+
+  build-macos-intel:
+    name: Build macOS Intel DMG
+    runs-on: macos-13
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
       - name: Install Python dependencies
         run: |
@@ -76,35 +67,221 @@ jobs:
           pip install pyinstaller
           pip install -r requirements.txt
 
-      - name: Build executable
-        run: |
-          pyinstaller build.spec --noconfirm
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec --noconfirm
         env:
-          PLATFORM: ${{ matrix.platform }}
-          ARCH: ${{ matrix.arch }}
+          PLATFORM: mac
+          ARCH: amd64
 
-      - name: Package artifact (Windows)
-        if: matrix.platform == 'win'
+      - name: Create DMG
         run: |
-          cd dist
-          7z a -tzip ../MCL-${{ matrix.platform }}-${{ matrix.arch }}.zip *
-
-      - name: Package artifact (Unix)
-        if: matrix.platform != 'win'
-        run: |
-          cd dist
-          zip -r ../MCL-${{ matrix.platform }}-${{ matrix.arch }}.zip *
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          mkdir -p dmg_temp
+          cp -R dist/MCL.app dmg_temp/
+          ln -sf /Applications dmg_temp/Applications
+          hdiutil create -volname "MCL" -srcfolder dmg_temp -ov -format UDZO "MCL-${VERSION}-mac-amd64.dmg"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MCL-${{ matrix.platform }}-${{ matrix.arch }}
-          path: MCL-${{ matrix.platform }}-${{ matrix.arch }}.zip
+          name: MCL-mac-amd64
+          path: MCL-*-mac-amd64.dmg
+          retention-days: 7
+
+  build-macos-arm:
+    name: Build macOS Apple Silicon DMG
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec --noconfirm
+        env:
+          PLATFORM: mac
+          ARCH: arm64
+
+      - name: Create DMG
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          mkdir -p dmg_temp
+          cp -R dist/MCL.app dmg_temp/
+          ln -sf /Applications dmg_temp/Applications
+          hdiutil create -volname "MCL" -srcfolder dmg_temp -ov -format UDZO "MCL-${VERSION}-mac-arm64.dmg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MCL-mac-arm64
+          path: MCL-*-mac-arm64.dmg
+          retention-days: 7
+
+  build-linux:
+    name: Build Linux Packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            tk-dev \
+            uuid-dev \
+            xvfb \
+            libgtk-3-0 \
+            libnotify4 \
+            libnss3 \
+            libxss1 \
+            libxtst6 \
+            xdg-utils \
+            libatspi2.0-0 \
+            libdrm2 \
+            libxkbcommon0 \
+            libgbm1 \
+            dpkg-dev \
+            fakeroot
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install pyinstaller
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec --noconfirm
+        env:
+          PLATFORM: linux
+          ARCH: amd64
+
+      - name: Build DEB package
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          ARCHITECTURE="amd64"
+          PKG_NAME="mcl_${VERSION}_${ARCHITECTURE}"
+          
+          # Create DEB package structure
+          mkdir -p ${PKG_NAME}/DEBIAN
+          mkdir -p ${PKG_NAME}/usr/local/bin
+          mkdir -p ${PKG_NAME}/usr/share/applications
+          mkdir -p ${PKG_NAME}/usr/share/icons/hicolor/256x256/apps
+          
+          # Copy executable
+          cp dist/MCL ${PKG_NAME}/usr/local/bin/mcl
+          chmod +x ${PKG_NAME}/usr/local/bin/mcl
+          
+          # Create desktop entry
+          cat > ${PKG_NAME}/usr/share/applications/mcl.desktop << EOF
+          [Desktop Entry]
+          Name=MCL
+          Comment=Minecraft Launcher
+          Exec=/usr/local/bin/mcl
+          Icon=mcl
+          Terminal=false
+          Type=Application
+          Categories=Game;
+          EOF
+          
+          # Create control file
+          cat > ${PKG_NAME}/DEBIAN/control << EOF
+          Package: mcl
+          Version: ${VERSION}
+          Architecture: ${ARCHITECTURE}
+          Maintainer: MCL Team
+          Description: Minecraft Launcher
+           A feature-rich Minecraft launcher with multi-threaded
+           download support, Forge installation, and GUI version selection.
+          Depends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, libgbm1
+          Section: games
+          Priority: optional
+          EOF
+          
+          # Build DEB
+          fakeroot dpkg-deb --build ${PKG_NAME}
+          mv ${PKG_NAME}.deb MCL-${VERSION}-linux-amd64.deb
+
+      - name: Build AppImage
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          
+          # Download appimagetool
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          
+          # Create AppDir structure
+          mkdir -p MCL.AppDir/usr/bin
+          mkdir -p MCL.AppDir/usr/share/applications
+          mkdir -p MCL.AppDir/usr/share/icons/hicolor/256x256/apps
+          
+          # Copy executable
+          cp dist/MCL MCL.AppDir/usr/bin/mcl
+          chmod +x MCL.AppDir/usr/bin/mcl
+          
+          # Create AppRun
+          cat > MCL.AppDir/AppRun << 'EOF'
+          #!/bin/sh
+          SELF=$(readlink -f "$0")
+          HERE=${SELF%/*}
+          export PATH="${HERE}/usr/bin:${PATH}"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+          exec "${HERE}/usr/bin/mcl" "$@"
+          EOF
+          chmod +x MCL.AppDir/AppRun
+          
+          # Create desktop entry
+          cat > MCL.AppDir/mcl.desktop << EOF
+          [Desktop Entry]
+          Name=MCL
+          Comment=Minecraft Launcher
+          Exec=mcl
+          Icon=mcl
+          Terminal=false
+          Type=Application
+          Categories=Game;
+          EOF
+          
+          # Build AppImage
+          ./appimagetool MCL.AppDir MCL-${VERSION}-x86_64.AppImage
+
+      - name: Upload DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MCL-linux-deb
+          path: MCL-*-linux-amd64.deb
+          retention-days: 7
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MCL-linux-appimage
+          path: MCL-*-x86_64.AppImage
           retention-days: 7
 
   release:
     name: Create Release
-    needs: build
+    needs: [build-windows, build-macos-intel, build-macos-arm, build-linux]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -116,34 +293,31 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: MCL-*
           merge-multiple: false
 
       - name: Prepare release files
         run: |
           mkdir -p release_files
-          find artifacts -name "*.zip" -exec cp {} release_files/ \;
+          find artifacts -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" \) -exec cp {} release_files/ \;
           ls -la release_files/
 
       - name: Generate changelog
         id: changelog
         run: |
-          # Get previous tag
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           
           if [ -z "$PREV_TAG" ]; then
-            # First release, get all commits
             COMMITS=$(git log --pretty=format:"- %s" --reverse)
           else
-            # Get commits since last tag
             COMMITS=$(git log $PREV_TAG..HEAD --pretty=format:"- %s" --reverse)
           fi
           
-          # Generate changelog from conventional commits
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          
           echo "## 🚀 What's Changed" > CHANGELOG.md
           echo "" >> CHANGELOG.md
           
-          # Features
           FEATURES=$(echo "$COMMITS" | grep -i "^- feat" || true)
           if [ -n "$FEATURES" ]; then
             echo "### ✨ New Features" >> CHANGELOG.md
@@ -151,7 +325,6 @@ jobs:
             echo "" >> CHANGELOG.md
           fi
           
-          # Bug fixes
           FIXES=$(echo "$COMMITS" | grep -i "^- fix" || true)
           if [ -n "$FIXES" ]; then
             echo "### 🐛 Bug Fixes" >> CHANGELOG.md
@@ -159,7 +332,6 @@ jobs:
             echo "" >> CHANGELOG.md
           fi
           
-          # Improvements
           IMPROVEMENTS=$(echo "$COMMITS" | grep -iE "^- (refactor|perf|docs|style)" || true)
           if [ -n "$IMPROVEMENTS" ]; then
             echo "### 💡 Improvements" >> CHANGELOG.md
@@ -167,7 +339,6 @@ jobs:
             echo "" >> CHANGELOG.md
           fi
           
-          # Other changes
           OTHER=$(echo "$COMMITS" | grep -ivE "^- (feat|fix|refactor|perf|docs|style)" || true)
           if [ -n "$OTHER" ]; then
             echo "### 📝 Other Changes" >> CHANGELOG.md
@@ -175,16 +346,15 @@ jobs:
             echo "" >> CHANGELOG.md
           fi
           
-          # Add download links
           echo "### 📦 Downloads" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
-          echo "| Platform | Architecture | Download |" >> CHANGELOG.md
-          echo "|----------|--------------|----------|" >> CHANGELOG.md
-          echo "| Windows | x64 | [MCL-win-amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-win-amd64.zip) |" >> CHANGELOG.md
-          echo "| macOS | Intel | [MCL-mac-amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-mac-amd64.zip) |" >> CHANGELOG.md
-          echo "| macOS | Apple Silicon | [MCL-mac-arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-mac-arm64.zip) |" >> CHANGELOG.md
-          echo "| Linux | x64 | [MCL-linux-amd64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-linux-amd64.zip) |" >> CHANGELOG.md
-          echo "| Linux | ARM64 | [MCL-linux-arm64.zip](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-linux-arm64.zip) |" >> CHANGELOG.md
+          echo "| Platform | File |" >> CHANGELOG.md
+          echo "|----------|------|" >> CHANGELOG.md
+          echo "| Windows | [MCL-Setup-${VERSION}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-Setup-${VERSION}.exe) |" >> CHANGELOG.md
+          echo "| macOS Intel | [MCL-${VERSION}-mac-amd64.dmg](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-${VERSION}-mac-amd64.dmg) |" >> CHANGELOG.md
+          echo "| macOS Apple Silicon | [MCL-${VERSION}-mac-arm64.dmg](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-${VERSION}-mac-arm64.dmg) |" >> CHANGELOG.md
+          echo "| Linux DEB | [MCL-${VERSION}-linux-amd64.deb](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-${VERSION}-linux-amd64.deb) |" >> CHANGELOG.md
+          echo "| Linux AppImage | [MCL-${VERSION}-x86_64.AppImage](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/MCL-${VERSION}-x86_64.AppImage) |" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
           
           if [ -n "$PREV_TAG" ]; then
@@ -196,7 +366,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release_files/*.zip
+          files: release_files/*
           body_path: CHANGELOG.md
           generate_release_notes: false
           draft: false
