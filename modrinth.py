@@ -20,9 +20,14 @@ from logzero import logger
 MODRINTH_API_BASE = "https://api.modrinth.com/v2"
 MODRINTH_USER_AGENT = "MCL-MinecraftLauncher/1.0 (github.com/Janson20/MCL)"
 
-# 缓存：每个 major 版本对应的所有 minor 版本号集合
+# 缓存：旧格式版本号 {major: {minor1, minor2, ...}}
 # 如 {16: {0,1,2,3,4,5}, 20: {0,1,2,3,4,5,6}, 21: {0,1,2,...,11}}
-_all_game_versions_cache: Optional[Dict[int, Set[int]]] = None
+_legacy_versions_cache: Optional[Dict[int, Set[int]]] = None
+
+# 缓存：新格式版本号 (YY.D.H) {yy: {d1, d2, ...}}
+# 如 {26: {1, 2}, 27: {1}}
+# 每个热修复版本 {yy: {d: {h1, h2, ...}}}
+_new_versions_cache: Optional[Dict[int, Dict[int, Set[int]]]] = None
 
 
 def _get_headers() -> Dict[str, str]:
@@ -370,18 +375,49 @@ def install_mod_with_deps(
         return False, f"{mod_title} 安装失败: {result}", installed_names
 
 
+def _is_new_version_format(version: str) -> bool:
+    """
+    判断是否为新版本命名格式 (YY.D 或 YY.D.H)
+
+    新格式从 2026 年开始使用，版本号不以 "1." 开头。
+    旧格式: 1.X, 1.X.Y (如 1.21, 1.21.1)
+    新格式: YY.D, YY.D.H (如 26.1, 26.1.1)
+
+    Args:
+        version: 版本号字符串
+
+    Returns:
+        是否为新版本格式
+    """
+    if version.startswith("1."):
+        return False
+    parts = version.split(".")
+    if len(parts) < 2:
+        return False
+    # 新格式第一部分是两位年份，第二部分是更新序号
+    try:
+        yy = int(parts[0])
+        # 年份应在合理范围内 (26+)
+        return yy >= 26
+    except (ValueError, IndexError):
+        return False
+
+
 def _fetch_all_game_versions() -> Dict[int, Set[int]]:
     """
     从 Modrinth API 获取所有正式版游戏版本列表，按 major 分组
 
-    Returns:
-        {major: {minor1, minor2, ...}} 字典
-        如 {16: {0,1,2,3,4,5}, 20: {0,1,2,3,4,5,6}}
-    """
-    global _all_game_versions_cache
+    同时支持旧格式 (1.X.Y) 和新格式 (YY.D.H)：
+    - 旧格式返回 {major: {minor1, minor2, ...}} 如 {16: {0,1,2,3,4,5}}
+    - 新格式缓存到 _new_versions_cache: {yy: {d: {h1, h2, ...}}} 如 {26: {1: {0,1}}}
 
-    if _all_game_versions_cache is not None:
-        return _all_game_versions_cache
+    Returns:
+        {major: {minor1, minor2, ...}} 字典（旧格式）
+    """
+    global _legacy_versions_cache, _new_versions_cache
+
+    if _legacy_versions_cache is not None:
+        return _legacy_versions_cache
 
     try:
         resp = requests.get(
@@ -395,22 +431,40 @@ def _fetch_all_game_versions() -> Dict[int, Set[int]]:
         # 只取 release 版本
         releases = [v["version"] for v in data if v.get("version_type") == "release"]
 
-        cache: Dict[int, Set[int]] = {}
-        for v in releases:
-            parts = v.split(".")
-            try:
-                if len(parts) == 2 and parts[0] == "1":
-                    major, minor = int(parts[1]), 0
-                    cache.setdefault(major, set()).add(minor)
-                elif len(parts) >= 3 and parts[0] == "1":
-                    major, minor = int(parts[1]), int(parts[2])
-                    cache.setdefault(major, set()).add(minor)
-            except (ValueError, IndexError):
-                continue
+        legacy_cache: Dict[int, Set[int]] = {}
+        new_cache: Dict[int, Dict[int, Set[int]]] = {}
 
-        _all_game_versions_cache = cache
-        logger.debug(f"已缓存游戏版本列表: {len(cache)} 个 major 版本")
-        return cache
+        for v in releases:
+            if _is_new_version_format(v):
+                # 新格式: YY.D 或 YY.D.H
+                parts = v.split(".")
+                try:
+                    yy = int(parts[0])
+                    d = int(parts[1])
+                    h = int(parts[2]) if len(parts) >= 3 else 0
+                    new_cache.setdefault(yy, {}).setdefault(d, set()).add(h)
+                except (ValueError, IndexError):
+                    continue
+            else:
+                # 旧格式: 1.X 或 1.X.Y
+                parts = v.split(".")
+                try:
+                    if len(parts) == 2 and parts[0] == "1":
+                        major, minor = int(parts[1]), 0
+                        legacy_cache.setdefault(major, set()).add(minor)
+                    elif len(parts) >= 3 and parts[0] == "1":
+                        major, minor = int(parts[1]), int(parts[2])
+                        legacy_cache.setdefault(major, set()).add(minor)
+                except (ValueError, IndexError):
+                    continue
+
+        _legacy_versions_cache = legacy_cache
+        _new_versions_cache = new_cache
+        logger.debug(
+            f"已缓存游戏版本列表: {len(legacy_cache)} 个旧格式 major 版本, "
+            f"{len(new_cache)} 个新格式年份版本"
+        )
+        return legacy_cache
 
     except requests.exceptions.RequestException as e:
         logger.warning(f"获取游戏版本列表失败，将使用回退逻辑: {e}")
@@ -448,16 +502,43 @@ def parse_game_version_from_version(version_id: str) -> Optional[str]:
     - Fabric: fabric-loader-0.15.11-1.20.4
     - NeoForge: neoforge-20.6.139 (loader version 中 20.6 → 1.20.6)
     - NeoForge (带前缀): 1.20.6-neoforge-20.6.139
+    - 新格式: 26.1-forge-xxx, 26.1.1-fabric-xxx, 26.1-snapshot-1, 26.1-pre-1, 26.1-rc-1
+
+    新版本命名规则 (2026年起):
+    - 主要更新: YY.D (如 26.1)
+    - 热修复: YY.D.H (如 26.1.1)
+    - 快照: YY.D-snapshot-N (如 26.1-snapshot-1)
+    - 预发布版: YY.D-pre-N (如 26.1-pre-1)
+    - 发布候选: YY.D-rc-N (如 26.1-rc-1)
 
     Args:
         version_id: 版本 ID
 
     Returns:
-        游戏版本号 (如 "1.20.4") 或 None
+        游戏版本号 (如 "1.20.4", "26.1", "26.1.1") 或 None
     """
     import re
 
     version_lower = version_id.lower()
+
+    # ── 新格式版本处理 ──
+    # 新格式: YY.D 或 YY.D.H，后面可能跟 -forge-xxx, -fabric-xxx, -snapshot-N 等
+    # 匹配 YY.D.H- 或 YY.D- (YY >= 26)
+    new_format_match = re.match(r"^(\d{2,})\.(\d+)(?:\.(\d+))?", version_id)
+    if new_format_match:
+        yy_str = new_format_match.group(1)
+        d_str = new_format_match.group(2)
+        h_str = new_format_match.group(3)
+        try:
+            yy = int(yy_str)
+            if yy >= 26:  # 新格式年份从 26 开始
+                d = int(d_str)
+                if h_str is not None:
+                    return f"{yy}.{d}.{h_str}"
+                else:
+                    return f"{yy}.{d}"
+        except ValueError:
+            pass
 
     # NeoForge 特殊处理：版本 ID 可能是 neoforge-{loader_version}，没有 MC 版本前缀
     # loader_version 格式如 20.6.139，前两部分 20.6 对应 MC 1.20.6
@@ -503,14 +584,24 @@ def compress_game_versions(versions: List[str]) -> str:
     将游戏版本列表压缩为简洁的展示字符串
 
     规则 (基于 Modrinth 完整版本列表判断是否覆盖全版本):
+
+    旧格式 (1.X.Y):
     - 同一 major 下覆盖了所有 minor 版本 → 1.X.x
       如 1.16 有 0~5，模组支持全部 → "1.16.x"
     - 同一 major 下连续但不完整 → 用范围
       如 1.20 有 0~6，模组只支持 0,1,2 → "1.20-1.20.2"
     - 孤立版本原样显示，如 [1.21] → "1.21"
 
+    新格式 (YY.D.H):
+    - 同一 YY.D 下覆盖了所有 H 版本 → YY.D.x
+      如 26.1 有 0~3，模组支持全部 → "26.1.x"
+    - 同一 YY.D 下连续但不完整 → 用范围
+      如 26.1 有 0~3，模组只支持 0,1 → "26.1-26.1.1"
+    - 孤立版本原样显示，如 26.1 → "26.1"
+    - 连续的 YY.D.x 可合并为范围：26.1.x-26.3.x
+
     Args:
-        versions: 游戏版本号列表 (如 ["1.16", "1.16.1", ..., "1.21"])
+        versions: 游戏版本号列表 (如 ["1.16", "1.16.1", ..., "1.21", "26.1", "26.1.1"])
 
     Returns:
         压缩后的版本展示字符串
@@ -519,10 +610,10 @@ def compress_game_versions(versions: List[str]) -> str:
         return ""
 
     # 获取 Modrinth 完整版本列表作为参考
-    all_versions = _fetch_all_game_versions()
+    all_legacy_versions = _fetch_all_game_versions()
 
-    # 解析版本号为 (major, minor) 元组，1.X → (X, 0), 1.X.Y → (X, Y)
-    def _parse(v: str):
+    # 解析旧格式版本号为 (major, minor) 元组，1.X → (X, 0), 1.X.Y → (X, Y)
+    def _parse_legacy(v: str):
         parts = v.split(".")
         try:
             if len(parts) == 2 and parts[0] == "1":
@@ -533,21 +624,42 @@ def compress_game_versions(versions: List[str]) -> str:
             pass
         return None
 
-    # 按 major 分组
-    groups: Dict[int, List[int]] = {}  # major -> [minor, ...]
+    # 解析新格式版本号为 (yy, d, h) 元组，YY.D → (YY, D, 0), YY.D.H → (YY, D, H)
+    def _parse_new(v: str):
+        if not _is_new_version_format(v):
+            return None
+        parts = v.split(".")
+        try:
+            yy = int(parts[0])
+            d = int(parts[1])
+            h = int(parts[2]) if len(parts) >= 3 else 0
+            return (yy, d, h)
+        except (ValueError, IndexError):
+            return None
+
+    # 分离旧格式和新格式版本
+    legacy_versions = []
+    new_versions = []
     for v in versions:
-        parsed = _parse(v)
+        if _is_new_version_format(v):
+            new_versions.append(v)
+        else:
+            legacy_versions.append(v)
+
+    parts = []
+
+    # ── 处理旧格式版本 ──
+    legacy_groups: Dict[int, List[int]] = {}  # major -> [minor, ...]
+    for v in legacy_versions:
+        parsed = _parse_legacy(v)
         if parsed is None:
             continue
         major, minor = parsed
-        groups.setdefault(major, []).append(minor)
+        legacy_groups.setdefault(major, []).append(minor)
 
-    # 对每个 major 组生成展示文本
-    parts = []
-    for major in sorted(groups.keys()):
-        minor_vals = sorted(set(groups[major]))
-        # 该 major 在 Modrinth 上所有已知的 minor 版本
-        all_minors = all_versions.get(major, set())
+    for major in sorted(legacy_groups.keys()):
+        minor_vals = sorted(set(legacy_groups[major]))
+        all_minors = all_legacy_versions.get(major, set())
 
         # 找连续段
         segments: List[List[int]] = []
@@ -568,23 +680,21 @@ def compress_game_versions(versions: List[str]) -> str:
                 else:
                     parts.append(f"{prefix}.{seg[0]}")
             elif all_minors and set(seg) == all_minors:
-                # 覆盖了该 major 下所有已知 minor 版本 → 用 .x
                 parts.append(f"{prefix}.x")
             else:
-                # 连续但不完整，用范围
                 start = f"{prefix}.{seg[0]}" if seg[0] != 0 else prefix
                 end = f"{prefix}.{seg[-1]}"
                 parts.append(f"{start}-{end}")
 
-    # 合并连续的 .x 结果：1.16.x, 1.17.x, 1.18.x, 1.19.x → 1.16.x-1.19.x
+    # 合并连续的旧格式 .x 结果：1.16.x, 1.17.x → 1.16.x-1.17.x
     merged: List[str] = []
     i = 0
     while i < len(parts):
-        if parts[i].endswith(".x"):
+        if parts[i].endswith(".x") and parts[i].startswith("1."):
             start_major = int(parts[i].rstrip(".x").split(".")[-1])
             end_major = start_major
             j = i + 1
-            while j < len(parts) and parts[j].endswith(".x"):
+            while j < len(parts) and parts[j].endswith(".x") and parts[j].startswith("1."):
                 next_major = int(parts[j].rstrip(".x").split(".")[-1])
                 if next_major == end_major + 1:
                     end_major = next_major
@@ -600,4 +710,78 @@ def compress_game_versions(versions: List[str]) -> str:
             merged.append(parts[i])
             i += 1
 
-    return ", ".join(merged)
+    # ── 处理新格式版本 ──
+    new_groups: Dict[int, Dict[int, List[int]]] = {}  # yy -> {d: [h, ...]}
+    for v in new_versions:
+        parsed = _parse_new(v)
+        if parsed is None:
+            continue
+        yy, d, h = parsed
+        new_groups.setdefault(yy, {}).setdefault(d, []).append(h)
+
+    new_parts = []
+    for yy in sorted(new_groups.keys()):
+        d_vals = sorted(new_groups[yy].keys())
+
+        for d in d_vals:
+            h_vals = sorted(set(new_groups[yy][d]))
+            # 该 YY.D 下所有已知的 H 版本
+            all_h: Set[int] = set()
+            if _new_versions_cache and yy in _new_versions_cache and d in _new_versions_cache[yy]:
+                all_h = _new_versions_cache[yy][d]
+
+            if len(h_vals) == 1:
+                if h_vals[0] == 0:
+                    new_parts.append(f"{yy}.{d}")
+                else:
+                    new_parts.append(f"{yy}.{d}.{h_vals[0]}")
+            elif all_h and set(h_vals) == all_h:
+                new_parts.append(f"{yy}.{d}.x")
+            else:
+                # 连续热修复版本用范围
+                start = f"{yy}.{d}.{h_vals[0]}" if h_vals[0] != 0 else f"{yy}.{d}"
+                end = f"{yy}.{d}.{h_vals[-1]}"
+                new_parts.append(f"{start}-{end}")
+
+    # 合并连续的新格式 YY.D.x 结果：26.1.x, 26.2.x → 26.1.x-26.2.x
+    new_merged: List[str] = []
+    i = 0
+    while i < len(new_parts):
+        item = new_parts[i]
+        # 检查是否为新格式 .x 结尾
+        if item.endswith(".x") and not item.startswith("1."):
+            dot_parts = item.rstrip(".x").split(".")
+            if len(dot_parts) == 2:
+                try:
+                    start_yy, start_d = int(dot_parts[0]), int(dot_parts[1])
+                    end_yy, end_d = start_yy, start_d
+                    j = i + 1
+                    while j < len(new_parts):
+                        next_item = new_parts[j]
+                        if next_item.endswith(".x") and not next_item.startswith("1."):
+                            next_dot_parts = next_item.rstrip(".x").split(".")
+                            if len(next_dot_parts) == 2:
+                                next_yy, next_d = int(next_dot_parts[0]), int(next_dot_parts[1])
+                                if next_yy == end_yy and next_d == end_d + 1:
+                                    end_yy, end_d = next_yy, next_d
+                                    j += 1
+                                    continue
+                        break
+                    if end_d > start_d or end_yy > start_yy:
+                        new_merged.append(f"{start_yy}.{start_d}.x-{end_yy}.{end_d}.x")
+                    else:
+                        new_merged.append(item)
+                    i = j
+                except (ValueError, IndexError):
+                    new_merged.append(item)
+                    i += 1
+            else:
+                new_merged.append(item)
+                i += 1
+        else:
+            new_merged.append(item)
+            i += 1
+
+    # 合并旧格式和新格式结果
+    result = merged + new_merged
+    return ", ".join(result)
