@@ -26,6 +26,7 @@ def update_version(new_version):
         ("pyproject.toml", r'version\s*=\s*["\']([^"\']+)["\']', 'version = "{v}"'),
         ("package.json", r'"version":\s*"([^"]+)"', '"version": "{v}"'),
         ("launcher.py", r'(self\.options\["launcherVersion"\]\s*=\s*)"[^"]*"', r'\1"{v}"'),
+        ("updater.py", r'CURRENT_VERSION\s*=\s*"[^"]*"', 'CURRENT_VERSION = "{v}"'),
     ]
     
     for file_path, pattern, replacement in files:
