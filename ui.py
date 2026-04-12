@@ -755,7 +755,7 @@ class ModernApp(ctk.CTk):
         self._task_queue.put(("game_exited", None))
 
     def _watch_game_stdout(self):
-        """监控游戏进程 stdout，检测到游戏窗口出现后通知主线程最小化（后台线程）"""
+        """监控游戏进程 stdout，检测到游戏窗口出现后关闭管道以避免缓冲区满导致游戏卡顿（后台线程）"""
         if "get_game_process" not in self.callbacks:
             return
 
@@ -778,7 +778,7 @@ class ModernApp(ctk.CTk):
             try:
                 for raw_line in proc.stdout:
                     line = raw_line.decode("utf-8", errors="ignore")
-                    if marker in line:
+                    if not result["detected"] and marker in line:
                         result["detected"] = True
                         return
             except Exception:
@@ -791,16 +791,29 @@ class ModernApp(ctk.CTk):
         start = time.time()
         while time.time() - start < timeout and self._running:
             if result["detected"]:
-                logger.info("检测到游戏窗口出现 (Reloading ResourceManager)")
+                logger.info("检测到游戏窗口出现 (Reloading ResourceManager)，关闭 stdout 管道")
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
                 self._task_queue.put(("game_window_detected", None))
                 return
             if not reader_thread.is_alive() and not result["detected"]:
-                # 读线程退出但没检测到标记（进程可能已退出）
-                logger.info("游戏 stdout 已关闭，停止监控")
+                # 读线程退出但没检测到标记（进程可能已退出），关闭管道
+                logger.info("游戏 stdout 已关闭，释放管道")
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
                 return
             time.sleep(0.2)
 
-        logger.info(f"游戏 stdout 监控超时 ({timeout}s)，未检测到游戏窗口")
+        # 超时：关闭管道避免缓冲区问题
+        logger.info(f"游戏 stdout 监控超时 ({timeout}s)，关闭管道")
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
 
     def _test_connection(self):
         """测试当前镜像源连接（后台线程）"""
@@ -985,8 +998,8 @@ class ModernApp(ctk.CTk):
             if success:
                 self.set_status(f"{version_id} 已启动，等待游戏窗口...", "loading")
                 self.kill_btn.configure(state=ctk.NORMAL)
-                if self.minimize_var.get():
-                    self._run_in_thread(self._watch_game_stdout)
+                # 无论是否最小化都启动日志监控，检测到窗口后关闭管道避免缓冲区满导致游戏卡顿
+                self._run_in_thread(self._watch_game_stdout)
                 self._run_in_thread(self._watch_game_exit)
             else:
                 self.set_status(f"{version_id} 启动失败", "error")
@@ -997,8 +1010,11 @@ class ModernApp(ctk.CTk):
             self.launch_btn.configure(state=ctk.NORMAL)
 
         elif task_type == "game_window_detected":
-            self.set_status("游戏窗口已出现，启动器已最小化", "success")
-            self.iconify()
+            if self.minimize_var.get():
+                self.set_status("游戏窗口已出现，启动器已最小化", "success")
+                self.iconify()
+            else:
+                self.set_status("游戏已就绪", "success")
 
         elif task_type == "game_exited":
             self.kill_btn.configure(state=ctk.DISABLED)
