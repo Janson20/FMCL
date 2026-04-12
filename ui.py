@@ -1210,16 +1210,24 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         """获取当前版本的 .minecraft 目录"""
         if "get_minecraft_dir" in self.callbacks:
             return Path(self.callbacks["get_minecraft_dir"]())
-        # 回退：基于已安装版本查找
-        if "get_installed_versions" in self.callbacks:
-            return Path(".") / ".minecraft"
         return Path(".") / ".minecraft"
 
     def _get_resource_dir(self, resource_type: str) -> Path:
-        """获取指定资源类型的目录"""
+        """获取指定资源类型的目录，优先使用版本隔离目录"""
         mc_dir = self._get_minecraft_dir()
         folder_name: str = RESOURCE_TYPES[resource_type]["folder"]
-        return mc_dir / folder_name
+
+        # 版本隔离：如果 .minecraft/versions/{版本名}/ 存在，则使用隔离目录
+        version_base = mc_dir / "versions" / self.version_id
+        if version_base.exists():
+            version_dir = version_base / folder_name
+            logger.info(f"使用版本隔离目录: {version_dir}")
+            return version_dir
+
+        # 回退：全局 .minecraft/{folder}/
+        global_dir = mc_dir / folder_name
+        logger.info(f"使用全局目录: {global_dir}")
+        return global_dir
 
     def _build_ui(self):
         """构建界面"""
@@ -1585,25 +1593,91 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             resource_dir.mkdir(parents=True, exist_ok=True)
 
             src = Path(src_path)
-            dst = resource_dir / src.name
 
-            if dst.exists():
-                logger.warning(f"资源已存在: {dst}")
-                self._set_status(f"文件已存在: {src.name}")
-                return False
-
-            if resource_type == "saves" and src.is_dir():
-                # 地图存档是文件夹，直接复制
-                shutil.copytree(str(src), str(dst))
+            if resource_type == "saves":
+                return self._install_save(src, resource_dir)
             else:
+                dst = resource_dir / src.name
+                if dst.exists():
+                    logger.warning(f"资源已存在: {dst}")
+                    self._set_status(f"文件已存在: {src.name}")
+                    return False
                 shutil.copy2(str(src), str(dst))
-
-            logger.info(f"资源安装成功: {src.name} -> {dst}")
-            return True
+                logger.info(f"资源安装成功: {src.name} -> {dst}")
+                return True
 
         except Exception as e:
             logger.error(f"安装资源失败: {e}")
             self._set_status(f"安装失败: {e}")
+            return False
+
+    def _install_save(self, src: Path, saves_dir: Path) -> bool:
+        """安装地图存档：支持zip自动解压和文件夹直接复制"""
+        import zipfile
+
+        if src.is_dir():
+            # 文件夹直接复制到 saves/地图名/
+            dst = saves_dir / src.name
+            if dst.exists():
+                logger.warning(f"地图已存在: {dst}")
+                self._set_status(f"地图已存在: {src.name}")
+                return False
+            shutil.copytree(str(src), str(dst))
+            logger.info(f"地图安装成功(文件夹): {src.name} -> {dst}")
+            return True
+
+        elif src.suffix.lower() == ".zip":
+            # zip 文件解压到 saves/地图名/ 下
+            # 地图名 = zip 文件名去掉扩展名
+            map_name = src.stem
+            dst = saves_dir / map_name
+            if dst.exists():
+                logger.warning(f"地图已存在: {dst}")
+                self._set_status(f"地图已存在: {map_name}")
+                return False
+
+            with zipfile.ZipFile(str(src), "r") as zf:
+                namelist = zf.namelist()
+                # 检查zip内部结构：可能是直接包含level.dat，也可能有一层包装目录
+                # 情况1: zip内顶层就有 level.dat -> 解压到 saves/地图名/
+                # 情况2: zip内有一个子目录包含 level.dat -> 解压该子目录到 saves/地图名/
+                top_entries = [n for n in namelist if "/" not in n.rstrip("/") or n.count("/") == 0]
+                has_root_level_dat = any(n == "level.dat" for n in namelist)
+
+                if has_root_level_dat:
+                    # 直接解压所有内容到 dst
+                    zf.extractall(str(dst))
+                else:
+                    # 查找包含 level.dat 的子目录
+                    level_dat_entries = [n for n in namelist if n.endswith("level.dat")]
+                    if level_dat_entries:
+                        # 取 level.dat 所在的子目录名
+                        sub_dir = level_dat_entries[0].rsplit("level.dat", 1)[0].rstrip("/")
+                        # 解压该子目录的内容到 dst
+                        for member in zf.namelist():
+                            if member.startswith(sub_dir + "/"):
+                                # 去掉子目录前缀，提取到 dst
+                                relative = member[len(sub_dir) + 1:]
+                                if not relative:
+                                    continue
+                                target = dst / relative
+                                if member.endswith("/"):
+                                    target.mkdir(parents=True, exist_ok=True)
+                                else:
+                                    target.parent.mkdir(parents=True, exist_ok=True)
+                                    with zf.open(member) as src_file:
+                                        with open(str(target), "wb") as dst_file:
+                                            dst_file.write(src_file.read())
+                    else:
+                        # 没找到 level.dat，直接全部解压
+                        zf.extractall(str(dst))
+
+            logger.info(f"地图安装成功(zip): {src.name} -> {dst}")
+            return True
+
+        else:
+            logger.warning(f"不支持的地图格式: {src.suffix}")
+            self._set_status(f"不支持的地图格式: {src.suffix}")
             return False
 
     def _select_file_install(self):
