@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+main.build/
+main.dist/
+*.egg-info
+*.log
+*.xml
+*.spec
+pos.txt
+
+# Virtual environments
+.venv
+.gitgnore
+.python-version
+
+# Minecraft Files
+.minecraft/

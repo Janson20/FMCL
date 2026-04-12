@@ -1,0 +1,22 @@
+[project]
+name = "mcl"
+version = "1.4.0"
+description = "A feature-rich Minecraft launcher with multi-threaded download support, Forge installation, and GUI version selection"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "minecraft-launcher-lib>=0.9",
+    "forgepy>=1.0",
+    "requests>=2.28.0",
+    "logzero>=1.7.0",
+    "pyautogui>=0.9.53",
+    "tqdm>=4.64.0",
+    "keyboard>=0.13.5",
+]
+
+[project.scripts]
+mcl = "main:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.meta"
