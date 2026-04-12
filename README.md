@@ -24,6 +24,15 @@
 - **NeoForge** - Forge 的社区分支
 - 安装模组加载器时自动安装原版 Minecraft，无需重复操作
 
+### 🧩 Modrinth 模组浏览与安装
+- 集成 [Modrinth](https://modrinth.com/) API，在线搜索和安装模组
+- 安装了模组加载器的版本自动显示 🧩 按钮，一键打开模组浏览器
+- 自动识别游戏版本和模组加载器类型（Forge/Fabric/NeoForge），精准筛选兼容模组
+- 支持关键词搜索，窗口打开时自动加载热门模组列表
+- 分页浏览搜索结果，支持翻页查看更多模组
+- 一键安装：自动获取兼容版本并下载到 `mods/` 目录
+- 支持版本隔离：自动将模组安装到对应版本的独立目录
+
 ### 📦 资源管理
 - 支持模组、资源包、地图、光影四种资源类型
 - 拖拽安装：将文件直接拖入窗口即可安装
@@ -72,8 +81,8 @@
 │  ─────────────────────────── │  ──────────────────────      │
 │  ┌────────────────────────┐  │  版本 ID:  [1.20.4      ]   │
 │  │ 1.20.4            [X]  │  │  模组加载器: [无      ▼]     │
-│  │ 1.20.4-forge-49.0 [X]  │  │  提示: 安装 Forge 会同时... │
-│  │ fabric-loader-0.15 [X] │  │  [📥 安装版本]              │
+│  │ 1.20.4-forge-49.0🧩[X] │  │  提示: 安装 Forge 会同时... │
+│  │ fabric-loader-0.15🧩[X]│  │  [📥 安装版本]              │
 │  │                        │  │                              │
 │  │                        │  │  📋 快速选择                 │
 │  │                        │  │  ──────────────────          │
@@ -235,6 +244,20 @@ python main.py
 
 > 💡 支持版本隔离模式：若 `.minecraft/versions/{版本名}/` 目录存在，资源将安装到版本独立目录下；否则使用全局 `.minecraft/` 目录。
 
+#### Modrinth 模组浏览与安装
+
+安装了模组加载器（Forge/Fabric/NeoForge）的版本会在版本列表中显示 🧩 按钮，点击即可打开 Modrinth 模组浏览器。
+
+**功能说明：**
+
+- 🔍 **关键词搜索**：在搜索框中输入模组名称或关键词，按回车或点击搜索
+- 📋 **热门模组**：窗口打开时自动加载当前版本和加载器兼容的热门模组列表
+- 🏷️ **自动筛选**：自动识别游戏版本和加载器类型，只显示兼容的模组
+- 📄 **分页浏览**：使用「上一页」「下一页」按钮翻页查看更多模组
+- 📥 **一键安装**：点击模组右侧的「安装」按钮，自动下载兼容版本到 `mods/` 目录
+
+> 💡 模组浏览器会自动将模组安装到版本隔离目录（如 `.minecraft/versions/1.20.4-forge-49.0.26/mods/`）或全局 `mods/` 目录。
+
 ---
 
 ## 项目结构
@@ -252,12 +275,18 @@ MCL/
 ├── ui.py                  # CustomTkinter 现代化 UI
 │   ├── ModernApp          # 主窗口（双栏布局 + 状态栏）
 │   ├── ResourceManagerWindow  # 资源管理窗口（模组/资源包/地图/光影）
+│   ├── ModBrowserWindow   # Modrinth 模组浏览与安装窗口
 │   ├── VersionSelectorDialog  # 版本选择弹出对话框
 │   └── 辅助函数           # show_confirmation / show_alert
 ├── downloader.py          # 多线程下载器 & 异步批量下载 & 模组加载器安装
 │   ├── MultiThreadDownloader  # 多线程分段下载 + 文件合并
 │   ├── AsyncBatchDownloader   # asyncio + aiohttp 异步并发下载
 │   └── install_mod_loader # Forge/Fabric/NeoForge 统一安装
+├── modrinth.py            # Modrinth API 集成
+│   ├── search_mods        # 搜索模组（关键词 + 版本/加载器筛选）
+│   ├── get_mod_versions   # 获取模组版本列表
+│   ├── download_mod       # 下载模组文件
+│   └── 版本解析工具       # 从版本 ID 解析加载器/游戏版本
 ├── mirror.py              # BMCLAPI 国内镜像源模块
 │   ├── MirrorSource       # 镜像源管理器（URL 重写缓存）
 │   ├── URL 重写规则       # 官方 URL -> BMCLAPI 映射（前缀长度排序）
@@ -290,7 +319,8 @@ main.py
   │   ├── mirror.py (镜像源)
   │   └── downloader.py (下载器 & 模组加载器)
   └── ui.py (界面)
-      └── launcher.get_callbacks() (通过回调与核心逻辑交互)
+      ├── launcher.get_callbacks() (通过回调与核心逻辑交互)
+      └── modrinth.py (Modrinth 模组搜索与安装)
 ```
 
 ---
@@ -311,6 +341,7 @@ main.py
 | 拖拽支持 | tkinterdnd2 | 文件拖拽安装资源 |
 | 日志 | logzero | 轻量级日志框架 |
 | HTTP | requests | API 请求与文件下载 |
+| 模组搜索 | Modrinth API V2 | 在线搜索和安装模组 |
 | 下载 | 多线程分段下载 | 大文件并行下载加速 |
 | 截图 | pyautogui + keyboard | 区域截图 + 快捷键监听 |
 | 构建打包 | PyInstaller + NSIS | 可执行文件 + Windows 安装包 |
