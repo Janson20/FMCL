@@ -1,6 +1,6 @@
 {
   "name": "mcl",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A feature-rich Minecraft launcher with multi-threaded download support, Forge installation, and GUI version selection",
   "private": true,
   "scripts": {
