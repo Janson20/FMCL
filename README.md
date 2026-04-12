@@ -391,6 +391,16 @@ GitHub Actions 会自动：
 
 详见：[CONTRIBUTING.md](CONTRIBUTING.md) | [SETUP.md](docs/SETUP.md)
 
+### CI 测试
+
+项目使用 GitHub Actions 进行持续集成（仅 Linux）：
+
+- **Lint**: flake8 代码检查
+- **Type Check**: mypy 类型检查
+- **Test**: pytest 运行测试（使用 xvfb 虚拟显示支持 GUI 依赖）
+
+CI 在 `main` 分支的 push 和 pull request 时自动触发。
+
 ### 提交规范
 
 本项目使用 [约定式提交](https://www.conventionalcommits.org/)：
