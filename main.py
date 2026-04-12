@@ -9,6 +9,7 @@ v2.0 - refactor: modular architecture, improved error handling
 v3.0 - modern UI with CustomTkinter, multi-threaded operations
 """
 
+import re
 import sys
 import threading
 import time
@@ -20,6 +21,34 @@ from logzero import logger
 from config import config
 from launcher import MinecraftLauncher
 from ui import ModernApp
+
+
+def set_chinese_language():
+    """
+    启动时自动将 .minecraft/options.txt 中的语言设置改为中文
+    查找 lang: 开头的行，将其改为 lang:zh_cn
+    """
+    options_file = config.minecraft_dir / "options.txt"
+
+    if not options_file.exists():
+        logger.info("options.txt 不存在，跳过语言设置")
+        return
+
+    try:
+        content = options_file.read_text(encoding="utf-8")
+        new_content, count = re.subn(r"^lang:.*$", "lang:zh_cn", content, flags=re.MULTILINE)
+
+        if count > 0:
+            options_file.write_text(new_content, encoding="utf-8")
+            logger.info("已将游戏语言设置为中文 (zh_cn)")
+        else:
+            # 文件中没有 lang: 行，追加到末尾
+            with open(options_file, "a", encoding="utf-8") as f:
+                f.write("\nlang:zh_cn")
+            logger.info("options.txt 中未找到 lang 配置，已追加 lang:zh_cn")
+
+    except Exception as e:
+        logger.error(f"设置游戏语言失败: {e}")
 
 
 def setup_logging():
@@ -72,6 +101,9 @@ def main():
 
         # 确保目录存在
         config.ensure_directories()
+
+        # 设置游戏语言为中文
+        set_chinese_language()
 
         # 创建启动器实例
         launcher = MinecraftLauncher(config)
