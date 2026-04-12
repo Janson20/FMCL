@@ -2298,61 +2298,38 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._run_in_thread(self._install_mod, project_id, title)
 
     def _install_mod(self, project_id: str, title: str):
-        """安装模组（后台线程）"""
-        from modrinth import get_mod_versions, download_mod
+        """安装模组（后台线程，含依赖自动安装）"""
+        from modrinth import install_mod_with_deps
 
         try:
-            # 获取模组版本
-            versions = get_mod_versions(
+            if not self._game_version or not self._mod_loader:
+                self.after(0, self._set_status, "无法确定游戏版本或加载器类型")
+                return
+
+            mods_dir = self._get_mods_dir()
+
+            success, result, installed_names = install_mod_with_deps(
                 project_id,
                 game_version=self._game_version,
                 mod_loader=self._mod_loader,
+                mods_dir=mods_dir,
+                status_callback=lambda msg: self.after(0, self._set_status, msg),
             )
 
-            if not versions:
-                self.after(0, self._set_status, f"{title} 没有兼容的版本")
-                return
-
-            # 选择第一个兼容版本
-            version = versions[0]
-            files = version.get("files", [])
-
-            # 找到主文件 (primary)
-            primary_file = None
-            for f in files:
-                if f.get("primary", False):
-                    primary_file = f
-                    break
-
-            # 如果没有主文件，取第一个
-            if not primary_file and files:
-                primary_file = files[0]
-
-            if not primary_file:
-                self.after(0, self._set_status, f"{title} 没有可下载的文件")
-                return
-
-            download_url = primary_file.get("url", "")
-            filename = primary_file.get("filename", f"{title}.jar")
-
-            if not download_url:
-                self.after(0, self._set_status, f"{title} 下载链接无效")
-                return
-
-            # 获取 mods 目录
-            mods_dir = self._get_mods_dir()
-
-            # 下载模组
-            self.after(0, self._set_status, f"正在下载 {filename}...")
-
-            success, result = download_mod(download_url, mods_dir, filename)
-
             if success:
-                self.after(0, self._set_status, f"✅ {title} 安装成功!")
-                logger.info(f"模组安装成功: {title} -> {result}")
+                if len(installed_names) > 1:
+                    deps = ", ".join(installed_names[:-1])
+                    self.after(
+                        0,
+                        self._set_status,
+                        f"✅ {title} 及依赖安装成功! (依赖: {deps})",
+                    )
+                else:
+                    self.after(0, self._set_status, f"✅ {title} 安装成功!")
+                logger.info(f"模组安装成功: {installed_names} -> {result}")
             else:
-                self.after(0, self._set_status, f"❌ {title} 安装失败: {result}")
-                logger.error(f"模组安装失败: {title} - {result}")
+                self.after(0, self._set_status, f"❌ {result}")
+                logger.error(f"模组安装失败: {result}")
 
         except Exception as e:
             error_msg = str(e)

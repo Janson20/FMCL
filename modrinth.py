@@ -208,6 +208,168 @@ def download_mod(
         return False, str(e)
 
 
+def get_project_info(project_id: str) -> Optional[Dict]:
+    """
+    获取 Modrinth 项目基本信息
+
+    Args:
+        project_id: Modrinth 项目 ID
+
+    Returns:
+        项目信息字典，包含 title, id 等；失败返回 None
+    """
+    try:
+        resp = requests.get(
+            f"{MODRINTH_API_BASE}/project/{project_id}",
+            headers=_get_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"获取项目信息失败 {project_id}: {e}")
+        return None
+
+
+def install_mod_with_deps(
+    project_id: str,
+    game_version: str,
+    mod_loader: str,
+    mods_dir: str,
+    installed_files: Optional[set] = None,
+    status_callback=None,
+) -> Tuple[bool, str, List[str]]:
+    """
+    安装模组及其 required 依赖（递归）
+
+    对于每个 required 依赖：
+    - 如果依赖有指定 version_id，直接使用该版本
+    - 否则按 game_version + mod_loader 查找兼容版本
+    - 如果找不到兼容版本（如只有 Fabric 版本但需要 NeoForge），跳过该依赖
+    - embedded 类型依赖已内嵌，不单独安装
+    - incompatible 类型依赖跳过
+
+    Args:
+        project_id: Modrinth 项目 ID
+        game_version: 游戏版本 (如 "1.20.6")
+        mod_loader: 模组加载器 (如 "neoforge")
+        mods_dir: mods 目录路径
+        installed_files: 已安装/已处理的 project_id 集合（防止循环依赖）
+        status_callback: 状态回调函数，接受 str 参数
+
+    Returns:
+        (是否成功, 结果消息, 安装的模组名称列表) 元组
+    """
+    if installed_files is None:
+        installed_files = set()
+
+    # 防止循环依赖
+    if project_id in installed_files:
+        return True, "已安装", []
+
+    installed_files.add(project_id)
+
+    installed_names: List[str] = []
+
+    # 获取项目信息（用于显示名称）
+    project_info = get_project_info(project_id)
+    mod_title = project_info.get("title", project_id) if project_info else project_id
+
+    # 获取兼容版本
+    versions = get_mod_versions(
+        project_id,
+        game_version=game_version,
+        mod_loader=mod_loader,
+    )
+
+    if not versions:
+        logger.warning(f"模组 {mod_title} 没有兼容的版本 ({game_version}+{mod_loader})")
+        return False, f"{mod_title} 没有兼容的版本", []
+
+    version = versions[0]
+    files = version.get("files", [])
+
+    # 找主文件
+    primary_file = None
+    for f in files:
+        if f.get("primary", False):
+            primary_file = f
+            break
+    if not primary_file and files:
+        primary_file = files[0]
+
+    if not primary_file:
+        return False, f"{mod_title} 没有可下载的文件", []
+
+    download_url = primary_file.get("url", "")
+    filename = primary_file.get("filename", f"{mod_title}.jar")
+
+    if not download_url:
+        return False, f"{mod_title} 下载链接无效", []
+
+    # 先处理 required 依赖（递归安装）
+    dependencies = version.get("dependencies", [])
+    skipped_deps: List[str] = []
+
+    for dep in dependencies:
+        dep_type = dep.get("dependency_type", "")
+        dep_project_id = dep.get("project_id")
+
+        # embedded 依赖已内嵌，incompatible 依赖不应安装
+        if dep_type in ("embedded", "incompatible"):
+            continue
+
+        # 只处理 required 依赖（optional 跳过）
+        if dep_type != "required":
+            continue
+
+        if not dep_project_id:
+            continue
+
+        # 如果依赖已处理过，跳过
+        if dep_project_id in installed_files:
+            continue
+
+        # 尝试安装依赖
+        if status_callback:
+            status_callback(f"正在安装依赖 {dep_project_id}...")
+
+        dep_success, dep_msg, dep_names = install_mod_with_deps(
+            dep_project_id,
+            game_version=game_version,
+            mod_loader=mod_loader,
+            mods_dir=mods_dir,
+            installed_files=installed_files,
+            status_callback=status_callback,
+        )
+
+        if dep_success:
+            installed_names.extend(dep_names)
+        else:
+            # 依赖安装失败（如没有兼容版本），记录跳过
+            dep_info = get_project_info(dep_project_id)
+            dep_name = dep_info.get("title", dep_project_id) if dep_info else dep_project_id
+            skipped_deps.append(dep_name)
+            logger.warning(
+                f"跳过依赖 {dep_name}: {dep_msg}"
+            )
+
+    # 下载模组本身
+    if status_callback:
+        status_callback(f"正在下载 {filename}...")
+
+    success, result = download_mod(download_url, mods_dir, filename)
+
+    if success:
+        installed_names.append(mod_title)
+        msg = f"{mod_title} 安装成功"
+        if skipped_deps:
+            msg += f"（跳过不兼容依赖: {', '.join(skipped_deps)}）"
+        return True, msg, installed_names
+    else:
+        return False, f"{mod_title} 安装失败: {result}", installed_names
+
+
 def _fetch_all_game_versions() -> Dict[int, Set[int]]:
     """
     从 Modrinth API 获取所有正式版游戏版本列表，按 major 分组
