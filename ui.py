@@ -128,6 +128,19 @@ class ModernApp(ctk.CTk):
         )
         refresh_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
+        # 检查更新按钮
+        self.update_btn = ctk.CTkButton(
+            header,
+            text="⬆ 更新",
+            width=90,
+            height=35,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_check_update,
+        )
+        self.update_btn.pack(side=ctk.RIGHT, padx=(10, 0))
+
         # 镜像源开关
         self.mirror_var = ctk.BooleanVar(value=True)
         mirror_switch = ctk.CTkSwitch(
@@ -828,6 +841,161 @@ class ModernApp(ctk.CTk):
             except Exception as e:
                 self._task_queue.put(("connection_fail", str(e)))
 
+    # ─── 更新检查 ─────────────────────────────────────────────
+
+    def _on_check_update(self):
+        """检查更新按钮回调"""
+        self.set_status("正在检查更新...", "loading")
+        self.update_btn.configure(state=ctk.DISABLED)
+        self._run_in_thread(self._check_update)
+
+    def _check_update(self, silent: bool = False):
+        """
+        检查更新（后台线程）
+
+        Args:
+            silent: 是否静默模式（无新版本时不提示）
+        """
+        try:
+            from updater import check_for_update
+            release_info = check_for_update()
+
+            if release_info:
+                self._task_queue.put(("update_available", (release_info["version"], release_info.get("body", ""))))
+            elif not silent:
+                self._task_queue.put(("update_no_new", None))
+
+        except Exception as e:
+            if not silent:
+                self._task_queue.put(("update_check_error", str(e)))
+
+        finally:
+            # 恢复按钮状态
+            self.after(0, lambda: self.update_btn.configure(state=ctk.NORMAL))
+
+    def _show_update_dialog(self, version: str, body: str):
+        """显示更新可用对话框"""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("发现新版本")
+        dialog.geometry("500x350")
+        dialog.configure(fg_color=COLORS["bg_dark"])
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # 居中
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() - 500) // 2
+        y = (dialog.winfo_screenheight() - 350) // 2
+        dialog.geometry(f"500x350+{x}+{y}")
+
+        # 标题
+        ctk.CTkLabel(
+            dialog,
+            text=f"⬆ 发现新版本: {version}",
+            font=ctk.CTkFont(family="Microsoft YaHei", size=18, weight="bold"),
+            text_color=COLORS["accent"],
+        ).pack(pady=(20, 10))
+
+        # 更新日志
+        changelog_frame = ctk.CTkScrollableFrame(
+            dialog,
+            fg_color=COLORS["bg_medium"],
+            height=160,
+        )
+        changelog_frame.pack(fill=ctk.BOTH, expand=True, padx=20, pady=(0, 10))
+
+        display_text = body if body else "暂无更新日志"
+        ctk.CTkLabel(
+            changelog_frame,
+            text=display_text,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            text_color=COLORS["text_primary"],
+            wraplength=440,
+            justify=ctk.LEFT,
+            anchor=ctk.W,
+        ).pack(fill=ctk.BOTH, expand=True, padx=5, pady=5)
+
+        # 按钮
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=(0, 20))
+
+        def on_update():
+            dialog.grab_release()
+            dialog.destroy()
+            self._start_update_download()
+
+        def on_skip():
+            dialog.grab_release()
+            dialog.destroy()
+            self.set_status(f"已跳过更新 {version}", "info")
+
+        ctk.CTkButton(
+            btn_frame,
+            text="立即更新",
+            width=120,
+            height=38,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=14, weight="bold"),
+            fg_color=COLORS["success"],
+            hover_color="#27ae60",
+            command=on_update,
+        ).pack(side=ctk.LEFT, padx=10)
+
+        ctk.CTkButton(
+            btn_frame,
+            text="稍后再说",
+            width=120,
+            height=38,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            fg_color=COLORS["bg_medium"],
+            hover_color=COLORS["card_border"],
+            command=on_skip,
+        ).pack(side=ctk.LEFT, padx=10)
+
+    def _start_update_download(self):
+        """开始下载并安装更新"""
+        self.set_status("正在准备下载更新...", "loading")
+        self.progress_bar.set(0)
+        self._run_in_thread(self._do_update)
+
+    def _do_update(self):
+        """执行更新下载与安装（后台线程）"""
+        try:
+            from updater import check_for_update, find_suitable_asset, download_update, install_update
+
+            # 重新检查获取 release 信息
+            release_info = check_for_update()
+            if not release_info:
+                self._task_queue.put(("update_check_error", "未找到新版本"))
+                return
+
+            # 查找适合当前平台的安装包
+            asset = find_suitable_asset(release_info["assets"])
+            if not asset:
+                self._task_queue.put(("update_download_error", "未找到适合当前平台的安装包"))
+                return
+
+            # 下载
+            def _progress(downloaded: int, total: int):
+                self._task_queue.put(("update_download_progress", (downloaded, total)))
+
+            file_path = download_update(asset, progress_callback=_progress)
+            if not file_path:
+                self._task_queue.put(("update_download_error", "下载失败"))
+                return
+
+            self._task_queue.put(("update_download_done", None))
+
+            # 安装
+            success = install_update(file_path)
+            if success:
+                self._task_queue.put(("update_install_started", None))
+            else:
+                self._task_queue.put(("update_download_error", "启动安装程序失败"))
+
+        except Exception as e:
+            logger.error(f"更新失败: {e}")
+            self._task_queue.put(("update_download_error", str(e)))
+
     def _on_app_ready(self):
         """应用初始化完成（由外部调用触发）"""
         self._launcher_ready = True
@@ -1032,6 +1200,34 @@ class ModernApp(ctk.CTk):
 
         elif task_type == "connection_fail":
             self.set_status(f"镜像源连接失败: {data}", "warning")
+
+        elif task_type == "update_available":
+            version, body = data
+            self._show_update_dialog(version, body)
+
+        elif task_type == "update_no_new":
+            self.set_status("当前已是最新版本", "success")
+
+        elif task_type == "update_check_error":
+            self.set_status(f"检查更新失败: {data}", "warning")
+
+        elif task_type == "update_download_progress":
+            downloaded, total = data
+            if total > 0:
+                self.progress_bar.set(downloaded / total)
+                self.progress_label.configure(text=f"{downloaded // (1024*1024)}MB / {total // (1024*1024)}MB")
+
+        elif task_type == "update_download_done":
+            self.set_status("下载完成，正在启动安装程序...", "success")
+
+        elif task_type == "update_download_error":
+            self.set_status(f"更新下载失败: {data}", "error")
+            self.progress_bar.set(0)
+            self.progress_label.configure(text="")
+
+        elif task_type == "update_install_started":
+            self.set_status("安装程序已启动，即将退出当前程序...", "success")
+            self.after(2000, self.on_closing)
 
     # ─── 工具方法 ─────────────────────────────────────────────
 

@@ -71,13 +71,20 @@
 - 启动时自动将 `.minecraft/options.txt` 中的语言设置修改为 `zh_cn`
 - 确保首次启动游戏时即为中文界面，无需手动切换
 
+### ⬆ 自动更新
+- 启动时自动从 GitHub Release 检查新版本（可配置开关）
+- 发现新版本时弹出更新对话框，展示版本号和更新日志
+- 自动识别当前平台，下载对应的安装包（Windows NSIS / macOS DMG / Linux AppImage）
+- 下载完成后自动执行静默安装（Windows 使用 `/S` 参数），安装程序启动后自动退出当前程序
+- 也可手动点击顶栏「⬆ 更新」按钮检查更新
+
 ---
 
 ## 界面预览
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  ⛏ MCL   Minecraft Launcher   🔽 启动后最小化  🇨🇳 国内镜像  🔄 刷新  │
+│  ⛏ MCL   Minecraft Launcher   🔽 启动后最小化  🇨🇳 国内镜像  ⬆ 更新  🔄 刷新  │
 ├──────────────────────────────┬──────────────────────────────┤
 │  📦 已安装版本  ⚙  3 个版本 │  📥 安装新版本               │
 │  ─────────────────────────── │  ──────────────────────      │
@@ -293,6 +300,11 @@ MCL/
 │   ├── install_mod_with_deps  # 安装模组及依赖（递归）
 │   ├── 版本解析工具       # 从版本 ID 解析加载器/游戏版本（含 NeoForge 特殊处理）
 │   └── 版本压缩展示       # 智能压缩版本列表（基于 Modrinth 完整版本判断全版本覆盖）
+├── updater.py             # 自动更新模块
+│   ├── check_for_update   # 从 GitHub Release 检查新版本
+│   ├── find_suitable_asset # 根据平台匹配安装包
+│   ├── download_update    # 下载更新安装包（带进度回调）
+│   └── install_update     # 执行静默安装（/S 参数）
 ├── mirror.py              # BMCLAPI 国内镜像源模块
 │   ├── MirrorSource       # 镜像源管理器（URL 重写缓存）
 │   ├── URL 重写规则       # 官方 URL -> BMCLAPI 映射（前缀长度排序）
@@ -324,9 +336,11 @@ main.py
   ├── launcher.py (核心逻辑)
   │   ├── mirror.py (镜像源)
   │   └── downloader.py (下载器 & 模组加载器)
-  └── ui.py (界面)
-      ├── launcher.get_callbacks() (通过回调与核心逻辑交互)
-      └── modrinth.py (Modrinth 模组搜索与安装)
+  ├── ui.py (界面)
+  │   ├── launcher.get_callbacks() (通过回调与核心逻辑交互)
+  │   ├── modrinth.py (Modrinth 模组搜索与安装)
+  │   └── updater.py (自动更新)
+  └── updater.py (自动更新 - GitHub Release)
 ```
 
 ---
@@ -350,6 +364,7 @@ main.py
 | 模组搜索 | Modrinth API V2 | 在线搜索和安装模组 |
 | 下载 | 多线程分段下载 | 大文件并行下载加速 |
 | 截图 | pyautogui + keyboard | 区域截图 + 快捷键监听 |
+| 自动更新 | GitHub Release API | 版本检查 + 静默安装 |
 | 构建打包 | PyInstaller + NSIS | 可执行文件 + Windows 安装包 |
 | CI/CD | GitHub Actions | 多平台自动构建与发布 |
 | 提交规范 | Husky + Commitlint | 约定式提交自动校验 |
@@ -364,7 +379,8 @@ main.py
 {
   "mirror_enabled": true,
   "download_threads": 4,
-  "minimize_on_game_launch": false
+  "minimize_on_game_launch": false,
+  "auto_check_update": true
 }
 ```
 
@@ -373,6 +389,7 @@ main.py
 | `mirror_enabled` | bool | `true` | 是否启用 BMCLAPI 国内镜像 |
 | `download_threads` | int | `4` | 多线程下载的线程数 |
 | `minimize_on_game_launch` | bool | `false` | 游戏启动后是否最小化启动器窗口 |
+| `auto_check_update` | bool | `true` | 启动时是否自动检查更新 |
 
 ---
 

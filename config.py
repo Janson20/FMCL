@@ -38,6 +38,7 @@ class Config:
     # 默认配置
     DEFAULT_MIRROR_ENABLED = True
     DEFAULT_MINIMIZE_ON_GAME_LAUNCH = False
+    DEFAULT_AUTO_CHECK_UPDATE = True
 
     def __init__(self, base_dir: Optional[str] = None):
         """
@@ -61,6 +62,9 @@ class Config:
         # 启动行为配置
         self.minimize_on_game_launch = self.DEFAULT_MINIMIZE_ON_GAME_LAUNCH
 
+        # 更新配置
+        self.auto_check_update = self.DEFAULT_AUTO_CHECK_UPDATE
+
         # 日志配置
         self.log_level = logzero.INFO
 
@@ -82,8 +86,10 @@ class Config:
                 self.download_threads = data["download_threads"]
             if "minimize_on_game_launch" in data:
                 self.minimize_on_game_launch = data["minimize_on_game_launch"]
+            if "auto_check_update" in data:
+                self.auto_check_update = data["auto_check_update"]
 
-            logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}")
+            logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}")
 
         except Exception as e:
             logger.error(f"加载配置文件失败: {e}")
@@ -95,6 +101,7 @@ class Config:
                 "mirror_enabled": self.mirror_enabled,
                 "download_threads": self.download_threads,
                 "minimize_on_game_launch": self.minimize_on_game_launch,
+                "auto_check_update": self.auto_check_update,
             }
             with open(self.config_file, "w", encoding="utf-8") as f:
                 f.write(_json_dumps(data, indent=2, ensure_ascii=False))
@@ -112,7 +119,7 @@ class Config:
         return self.minecraft_dir / "versions"
 
     def __repr__(self) -> str:
-        return f"Config(base_dir={self.base_dir}, minecraft_dir={self.minecraft_dir}, mirror={'ON' if self.mirror_enabled else 'OFF'}, minimize={'ON' if self.minimize_on_game_launch else 'OFF'})"
+        return f"Config(base_dir={self.base_dir}, minecraft_dir={self.minecraft_dir}, mirror={'ON' if self.mirror_enabled else 'OFF'}, minimize={'ON' if self.minimize_on_game_launch else 'OFF'}, auto_update={'ON' if self.auto_check_update else 'OFF'})"
 
 
 # 全局配置实例
