@@ -145,6 +145,10 @@ def main():
             if "get_mirror_enabled" in callbacks:
                 app.mirror_var.set(callbacks["get_mirror_enabled"]())
 
+            # 同步最小化开关状态
+            if "get_minimize_on_game_launch" in callbacks:
+                app.minimize_var.set(callbacks["get_minimize_on_game_launch"]())
+
             app.set_status("启动器就绪", "success")
 
             # 启动环境初始化流程

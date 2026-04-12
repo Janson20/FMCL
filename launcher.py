@@ -245,11 +245,11 @@ class MinecraftLauncher:
 
         优化点:
         - JVM 参数: 使用 G1GC、固定堆内存（避免动态扩展开销）
-        - 启动后: 主动 GC 释放启动器内存，可选最小化窗口
+        - 启动后: 主动 GC 释放启动器内存
 
         Args:
             version_id: 版本ID (可以是原版ID如 "1.20.4"，也可以是loader版本ID如 "1.20.4-forge-49.0.26")
-            minimize_after: 启动后是否最小化启动器窗口
+            minimize_after: 启动后是否最小化启动器窗口（由 UI 侧监控游戏日志实现）
 
         Returns:
             是否启动成功
@@ -295,8 +295,13 @@ class MinecraftLauncher:
             minecraft_command = self._optimize_jvm_args(minecraft_command)
 
             logger.info("正在启动游戏...")
-            # 使用 Popen 非阻塞启动，避免 subprocess.run 卡住启动器
-            _proc = subprocess.Popen(minecraft_command)
+            # 使用 Popen 非阻塞启动，捕获 stdout 以便检测游戏窗口
+            self._game_process = subprocess.Popen(
+                minecraft_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+            )
 
             # ── 启动后内存释放 ──
             self._release_memory_after_launch()
@@ -454,6 +459,9 @@ class MinecraftLauncher:
             "get_mirror_name": self.get_mirror_name,
             "get_minecraft_dir": self.get_minecraft_dir,
             "verify_installed_version": self.verify_installed_version,
+            "set_minimize_on_game_launch": self.set_minimize_on_game_launch,
+            "get_minimize_on_game_launch": self.get_minimize_on_game_launch,
+            "get_game_process": self.get_game_process,
         }
 
     def verify_installed_version(self, version_id: str, max_workers: int = 4) -> Dict[str, Any]:
@@ -525,6 +533,10 @@ class MinecraftLauncher:
         """获取 .minecraft 目录路径"""
         return str(self.config.minecraft_dir)
 
+    def get_game_process(self) -> Optional[subprocess.Popen]:
+        """获取当前游戏进程对象（用于监控 stdout）"""
+        return getattr(self, "_game_process", None)
+
     def set_mirror_enabled(self, enabled: bool) -> None:
         """设置镜像源启用状态"""
         self._mirror.enabled = enabled
@@ -540,6 +552,16 @@ class MinecraftLauncher:
     def get_mirror_enabled(self) -> bool:
         """获取镜像源启用状态"""
         return self._mirror.enabled
+
+    def set_minimize_on_game_launch(self, enabled: bool) -> None:
+        """设置游戏启动后是否最小化启动器"""
+        self.config.minimize_on_game_launch = enabled
+        self.config.save_config()
+        logger.info(f"游戏启动后最小化: {'已启用' if enabled else '已禁用'}")
+
+    def get_minimize_on_game_launch(self) -> bool:
+        """获取游戏启动后是否最小化启动器"""
+        return self.config.minimize_on_game_launch
 
     def test_mirror_connection(self) -> bool:
         """测试当前镜像源连接"""
