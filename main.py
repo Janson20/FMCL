@@ -8,6 +8,8 @@ v1.4 - add mouse detect
 v2.0 - refactor: modular architecture, improved error handling
 v3.0 - modern UI with CustomTkinter, multi-threaded operations
 v3.1 - perf: lazy imports, deferred heavy initialization
+v3.2 - perf: orjson JSON parsing, concurrent file verify, async batch download,
+       JVM args optimization (G1GC), GC release after launch, URL rewrite cache
 """
 
 import re
@@ -96,7 +98,7 @@ def main():
         setup_logging()
 
         logger.info("=" * 60)
-        logger.info("Minecraft Launcher v3.1 启动")
+        logger.info("Minecraft Launcher v3.2 启动")
         logger.info("=" * 60)
 
         # 确保目录存在

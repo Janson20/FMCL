@@ -9,10 +9,11 @@ mod_loader.install() 会在原版未安装时自动安装原版。
   - Fabric:   fabric-loader-{loader_version}-{mc_version}  (如 "fabric-loader-0.15.11-1.20.4")
   - NeoForge: {mc_version}-neoforge-{neoforge_version}  (如 "1.20.4-neoforge-20.4.234")
 """
+import asyncio
 import os
 import threading
 import time
-from typing import Optional, Callable, Dict, Tuple
+from typing import Optional, Callable, Dict, Tuple, List
 from pathlib import Path
 
 import requests
@@ -117,6 +118,161 @@ class MultiThreadDownloader:
         except Exception as e:
             logger.error(f"下载失败: {str(e)}")
             raise
+
+
+# ─── 异步并发下载器 ─────────────────────────────────────────────
+
+class AsyncBatchDownloader:
+    """
+    异步并发下载器 — 基于 asyncio + aiohttp
+
+    适用于批量下载大量小文件（如游戏资源、库文件），
+    单线程内通过协程并发处理数百个下载任务，
+    效率远高于同步逐个下载或传统多线程下载。
+
+    用法:
+        downloader = AsyncBatchDownloader(max_concurrent=20)
+        tasks = [
+            ("https://example.com/file1.jar", "/path/to/file1.jar"),
+            ("https://example.com/file2.jar", "/path/to/file2.jar"),
+        ]
+        results = downloader.run(tasks)
+    """
+
+    def __init__(self, max_concurrent: int = 20, chunk_size: int = 65536):
+        """
+        Args:
+            max_concurrent: 最大并发下载数
+            chunk_size: 下载块大小（字节）
+        """
+        self.max_concurrent = max_concurrent
+        self.chunk_size = chunk_size
+
+    def run(
+        self,
+        tasks: List[Tuple[str, str]],
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    ) -> Dict[str, bool]:
+        """
+        同步接口：在后台运行异步下载
+
+        Args:
+            tasks: [(url, 保存路径)] 列表
+            progress_callback: 进度回调 (已完成, 总数, 当前文件名)
+
+        Returns:
+            {保存路径: 是否成功} 字典
+        """
+        try:
+            import aiohttp
+        except ImportError:
+            logger.warning("aiohttp 未安装，回退到同步逐个下载")
+            return self._sync_fallback(tasks, progress_callback)
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 如果已在 asyncio 事件循环中（如 Qt 集成场景），用线程运行
+                result = [None]
+                error = [None]
+
+                def _run():
+                    try:
+                        result[0] = asyncio.run(self._async_download_all(tasks, progress_callback))
+                    except Exception as e:
+                        error[0] = e
+
+                t = threading.Thread(target=_run, daemon=True)
+                t.start()
+                t.join()
+                if error[0]:
+                    raise error[0]
+                return result[0]
+            else:
+                return loop.run_until_complete(
+                    self._async_download_all(tasks, progress_callback)
+                )
+        except RuntimeError:
+            return asyncio.run(self._async_download_all(tasks, progress_callback))
+
+    async def _async_download_all(
+        self,
+        tasks: List[Tuple[str, str]],
+        progress_callback: Optional[Callable[[int, int, str], None]],
+    ) -> Dict[str, bool]:
+        """异步下载所有文件"""
+        import aiohttp
+
+        results: Dict[str, bool] = {}
+        semaphore = asyncio.Semaphore(self.max_concurrent)
+        total = len(tasks)
+        done = [0]  # 用列表以便闭包修改
+
+        async def _download_one(session: aiohttp.ClientSession, url: str, save_path: str):
+            async with semaphore:
+                try:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                        if resp.status != 200:
+                            logger.warning(f"下载失败 (HTTP {resp.status}): {url}")
+                            return save_path, False
+
+                        # 确保目标目录存在
+                        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+
+                        with open(save_path, "wb") as f:
+                            async for chunk in resp.content.iter_chunked(self.chunk_size):
+                                f.write(chunk)
+
+                    done[0] += 1
+                    if progress_callback:
+                        progress_callback(done[0], total, Path(save_path).name)
+                    return save_path, True
+
+                except Exception as e:
+                    logger.debug(f"下载异常 {url}: {e}")
+                    done[0] += 1
+                    return save_path, False
+
+        connector = aiohttp.TCPConnector(limit=self.max_concurrent, limit_per_host=5)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            coros = [_download_one(session, url, path) for url, path in tasks]
+            download_results = await asyncio.gather(*coros, return_exceptions=True)
+
+        for item in download_results:
+            if isinstance(item, Exception):
+                logger.debug(f"下载任务异常: {item}")
+                continue
+            path, success = item
+            results[path] = success
+
+        success_count = sum(1 for v in results.values() if v)
+        logger.info(f"异步下载完成: {success_count}/{total} 成功")
+        return results
+
+    def _sync_fallback(
+        self,
+        tasks: List[Tuple[str, str]],
+        progress_callback: Optional[Callable[[int, int, str], None]],
+    ) -> Dict[str, bool]:
+        """无 aiohttp 时的同步回退"""
+        results: Dict[str, bool] = {}
+        total = len(tasks)
+        for i, (url, save_path) in enumerate(tasks):
+            try:
+                Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+                resp = requests.get(url, timeout=30)
+                resp.raise_for_status()
+                with open(save_path, "wb") as f:
+                    f.write(resp.content)
+                results[save_path] = True
+            except Exception as e:
+                logger.debug(f"同步下载失败 {url}: {e}")
+                results[save_path] = False
+
+            if progress_callback:
+                progress_callback(i + 1, total, Path(save_path).name)
+
+        return results
 
 
 # ─── 模组加载器安装 ──────────────────────────────────────────────

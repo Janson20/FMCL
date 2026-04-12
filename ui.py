@@ -1,6 +1,5 @@
 """现代化UI界面模块 - 基于 CustomTkinter"""
 import os
-import shutil
 import threading
 import queue
 import tkinter.messagebox as messagebox
@@ -1589,6 +1588,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _install_resource(self, src_path: str, resource_type: str) -> bool:
         """安装资源文件到对应目录"""
+        import shutil  # 延迟导入：仅资源管理窗口使用
         try:
             resource_dir = self._get_resource_dir(resource_type)
             resource_dir.mkdir(parents=True, exist_ok=True)
@@ -1614,6 +1614,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _install_save(self, src: Path, saves_dir: Path) -> bool:
         """安装地图存档：支持zip自动解压和文件夹直接复制"""
+        import shutil  # 延迟导入
         import zipfile
 
         if src.is_dir():
@@ -1724,6 +1725,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _delete_resource(self, path: str, name: str):
         """删除资源"""
+        import shutil  # 延迟导入
+
         if not messagebox.askyesno("确认删除", f"确定要删除 {name} 吗？"):
             return
 
