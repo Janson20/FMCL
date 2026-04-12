@@ -287,7 +287,12 @@ class MinecraftLauncher:
             "get_mirror_enabled": self.get_mirror_enabled,
             "test_mirror_connection": self.test_mirror_connection,
             "get_mirror_name": self.get_mirror_name,
+            "get_minecraft_dir": self.get_minecraft_dir,
         }
+
+    def get_minecraft_dir(self) -> str:
+        """获取 .minecraft 目录路径"""
+        return str(self.config.minecraft_dir)
 
     def set_mirror_enabled(self, enabled: bool) -> None:
         """设置镜像源启用状态"""
