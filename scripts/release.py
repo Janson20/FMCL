@@ -72,13 +72,17 @@ def main():
     
     # 创建tag
     print(f"\n🏷️  创建tag v{new_version}...")
-    subprocess.run(['git', 'tag', f'v{new_version}'])
-    
-    print("\n✅ 发布准备完成！")
-    print("\n接下来的步骤:")
-    print(f"1. 推送提交: git push origin main")
-    print(f"2. 推送tag: git push origin v{new_version}")
-    print("3. GitHub Actions 将自动构建并发布 Release")
+    subprocess.run(['git', 'tag', f'v{new_version}'], check=True)
+
+    # 推送提交
+    print("\n🚀 推送提交...")
+    subprocess.run(['git', 'push', 'origin', 'main'], check=True)
+
+    # 推送tag
+    print(f"🚀 推送tag v{new_version}...")
+    subprocess.run(['git', 'push', 'origin', f'v{new_version}'], check=True)
+
+    print("\n✅ 发布完成！GitHub Actions 将自动构建并发布 Release。")
 
 
 if __name__ == "__main__":
