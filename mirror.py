@@ -251,10 +251,11 @@ class MirrorSource:
                 return None
 
             # BMCLAPI Forge安装器下载链接
+            # URL格式: /maven/net/minecraftforge/forge/{mcversion}-{forgeversion}/forge-{mcversion}-{forgeversion}-installer.jar
+            full_version = f"{mc_version}-{forge_version}"
             download_url = (
                 f"https://bmclapi2.bangbang93.com/maven/net/minecraftforge/forge/"
-                f"{mc_version}-{forge_version}-{mc_version}/"
-                f"forge-{mc_version}-{forge_version}-{mc_version}-installer.jar"
+                f"{full_version}/forge-{full_version}-installer.jar"
             )
             logger.info(f"Forge下载链接: {download_url}")
             return download_url
