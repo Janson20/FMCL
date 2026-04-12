@@ -196,29 +196,9 @@ jobs:
           cp dist/MCL ${PKG_NAME}/usr/local/bin/mcl
           chmod +x ${PKG_NAME}/usr/local/bin/mcl
 
-          cat > ${PKG_NAME}/usr/share/applications/mcl.desktop << 'DEBEOF'
-[Desktop Entry]
-Name=MCL
-Comment=Minecraft Launcher
-Exec=/usr/local/bin/mcl
-Icon=mcl
-Terminal=false
-Type=Application
-Categories=Game;
-DEBEOF
+          printf '[Desktop Entry]\nName=MCL\nComment=Minecraft Launcher\nExec=/usr/local/bin/mcl\nIcon=mcl\nTerminal=false\nType=Application\nCategories=Game;\n' > ${PKG_NAME}/usr/share/applications/mcl.desktop
 
-          cat > ${PKG_NAME}/DEBIAN/control << DEBEOF
-Package: mcl
-Version: ${VERSION}
-Architecture: ${ARCHITECTURE}
-Maintainer: MCL Team
-Description: Minecraft Launcher
- A feature-rich Minecraft launcher with multi-threaded
- download support, Forge installation, and GUI version selection.
-Depends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, libgbm1
-Section: games
-Priority: optional
-DEBEOF
+          printf 'Package: mcl\nVersion: %s\nArchitecture: %s\nMaintainer: MCL Team\nDescription: Minecraft Launcher\n A feature-rich Minecraft launcher with multi-threaded\n download support, Forge installation, and GUI version selection.\nDepends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, libgbm1\nSection: games\nPriority: optional\n' "$VERSION" "$ARCHITECTURE" > ${PKG_NAME}/DEBIAN/control
 
           fakeroot dpkg-deb --build ${PKG_NAME}
           mv ${PKG_NAME}.deb MCL-${VERSION}-linux-amd64.deb
@@ -243,42 +223,26 @@ DEBEOF
           chmod +x MCL.AppDir/usr/bin/mcl
 
           # Generate a placeholder icon using pure Python (no PIL dependency)
-          python3 << 'PYEOF'
-import struct, zlib
-def create_png(width, height, r, g, b):
-    def chunk(ctype, data):
-        c = ctype + data
-        return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
-    raw = b''
-    for y in range(height):
-        raw += b'\x00' + bytes([r, g, b]) * width
-    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
-png = create_png(256, 256, 74, 105, 132)
-for p in ['MCL.AppDir/mcl.png', 'MCL.AppDir/usr/share/icons/hicolor/256x256/apps/mcl.png', 'MCL.AppDir/.DirIcon']:
-    with open(p, 'wb') as f:
-        f.write(png)
-PYEOF
+          python3 -c "
+          import struct, zlib
+          def create_png(width, height, r, g, b):
+              def chunk(ctype, data):
+                  c = ctype + data
+                  return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+              raw = b''
+              for y in range(height):
+                  raw += b'\x00' + bytes([r, g, b]) * width
+              return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
+          png = create_png(256, 256, 74, 105, 132)
+          for p in ['MCL.AppDir/mcl.png', 'MCL.AppDir/usr/share/icons/hicolor/256x256/apps/mcl.png', 'MCL.AppDir/.DirIcon']:
+              with open(p, 'wb') as f:
+                  f.write(png)
+          "
 
-          cat > MCL.AppDir/AppRun << 'APPEOF'
-#!/bin/sh
-SELF=$(readlink -f "$0")
-HERE=${SELF%/*}
-export PATH="${HERE}/usr/bin:${PATH}"
-export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
-exec "${HERE}/usr/bin/mcl" "$@"
-APPEOF
+          printf '#!/bin/sh\nSELF=$(readlink -f "$0")\nHERE=${SELF%%/*}\nexport PATH="${HERE}/usr/bin:${PATH}"\nexport LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"\nexec "${HERE}/usr/bin/mcl" "$@"\n' > MCL.AppDir/AppRun
           chmod +x MCL.AppDir/AppRun
 
-          cat > MCL.AppDir/mcl.desktop << 'APPEOF'
-[Desktop Entry]
-Name=MCL
-Comment=Minecraft Launcher
-Exec=mcl
-Icon=mcl
-Terminal=false
-Type=Application
-Categories=Game;
-APPEOF
+          printf '[Desktop Entry]\nName=MCL\nComment=Minecraft Launcher\nExec=mcl\nIcon=mcl\nTerminal=false\nType=Application\nCategories=Game;\n' > MCL.AppDir/mcl.desktop
 
           # Build AppImage using extracted tool
           NO_STRIP=1 "$APPIMAGETOOL" MCL.AppDir MCL-${VERSION}-x86_64.AppImage
