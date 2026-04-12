@@ -1,11 +1,35 @@
 """配置文件管理模块"""
-import json
 import os
 from pathlib import Path
 from typing import Optional
 
 import logzero
 from logzero import logger
+
+# 高性能 JSON 解析：orjson 比 stdlib json 快 3-10 倍
+try:
+    import orjson as _json_mod
+
+    def _json_loads(data: bytes | str):
+        return _json_mod.loads(data)
+
+    def _json_dumps(obj, indent: int = 2, ensure_ascii: bool = False) -> str:
+        # orjson.dumps 返回 bytes，需解码
+        opts = _json_mod.OPT_INDENT_2 if indent == 2 else 0
+        if not ensure_ascii:
+            opts |= _json_mod.OPT_NON_STR_KEYS
+        return _json_mod.dumps(obj, option=opts).decode("utf-8")
+
+except ImportError:
+    import json as _json_mod  # type: ignore[no-redef]
+
+    def _json_loads(data: bytes | str):
+        if isinstance(data, bytes):
+            data = data.decode("utf-8")
+        return _json_mod.loads(data)
+
+    def _json_dumps(obj, indent: int = 2, ensure_ascii: bool = False) -> str:
+        return _json_mod.dumps(obj, indent=indent, ensure_ascii=ensure_ascii)
 
 
 class Config:
@@ -45,8 +69,8 @@ class Config:
             return
 
         try:
-            with open(self.config_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            with open(self.config_file, "rb") as f:
+                data = _json_loads(f.read())
 
             if "mirror_enabled" in data:
                 self.mirror_enabled = data["mirror_enabled"]
@@ -66,7 +90,7 @@ class Config:
                 "download_threads": self.download_threads,
             }
             with open(self.config_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+                f.write(_json_dumps(data, indent=2, ensure_ascii=False))
             logger.info("配置已保存")
         except Exception as e:
             logger.error(f"保存配置文件失败: {e}")

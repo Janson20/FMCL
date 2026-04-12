@@ -1,11 +1,14 @@
 import tkinter as tk
 from tkinter import Canvas, Button
-import pyautogui
-import keyboard
 import threading
+
 
 class ScreenshotTool:
     def __init__(self, root):
+        # 延迟导入 pyautogui，避免启动时 0.08s+ 的导入开销
+        import pyautogui
+        self._pyautogui = pyautogui
+
         self.root = root
         self.root.title("截图工具")
         self.root.attributes("-fullscreen", True)  # 全屏显示
@@ -45,7 +48,7 @@ class ScreenshotTool:
             x2 = max(self.start_x, self.end_x)
             y2 = max(self.start_y, self.end_y)
 
-            screenshot = pyautogui.screenshot(region=(x1, y1, x2 - x1, y2 - y1))
+            screenshot = self._pyautogui.screenshot(region=(x1, y1, x2 - x1, y2 - y1))
             screenshot.save("screenshot.png")
             self.root.quit()
 
@@ -55,6 +58,9 @@ def start_screenshot_tool():
     root.mainloop()
 
 def listen_for_hotkey():
+    # 延迟导入 keyboard，避免启动时不必要的导入开销
+    import keyboard
+
     # 监听 Ctrl+Alt+T 快捷键
     keyboard.add_hotkey("ctrl+alt+t", start_screenshot_tool)
     print("按下 Ctrl+Alt+T 启动截图工具...")

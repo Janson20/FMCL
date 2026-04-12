@@ -3,13 +3,27 @@
 基于 bangbang93 的 BMCLAPI 镜像服务，提供国内加速下载支持。
 镜像规则参考: https://bmclapi2.bangbang93.com
 """
-import json
 import os
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 import requests
 from logzero import logger
+
+# 高性能 JSON 解析
+try:
+    import orjson as _json_mod
+
+    def _json_loads(data):
+        return _json_mod.loads(data)
+
+except ImportError:
+    import json as _json_mod  # type: ignore[no-redef]
+
+    def _json_loads(data):
+        if isinstance(data, bytes):
+            data = data.decode("utf-8")
+        return _json_mod.loads(data)
 
 
 # ─── BMCLAPI 镜像地址映射 ──────────────────────────────────────────
@@ -109,9 +123,12 @@ class MirrorSource:
         self._session = requests.Session()
         self._session.timeout = 15
 
+        # URL 重写缓存：避免对同一 URL 重复匹配规则
+        self._url_cache: Dict[str, str] = {}
+
     def rewrite_url(self, url: str) -> str:
         """
-        将官方URL转换为镜像URL
+        将官方URL转换为镜像URL（带缓存）
 
         Args:
             url: 原始URL
@@ -122,16 +139,34 @@ class MirrorSource:
         if not self.enabled:
             return url
 
+        # 缓存命中
+        cached = self._url_cache.get(url)
+        if cached is not None:
+            return cached
+
         # Java runtime API 不走镜像 (BMCLAPI 此端点 SSL 不稳定)
         if "/v1/products/java-runtime/" in url:
+            self._url_cache[url] = url
             return url
 
-        for official_prefix, mirror_prefix in URL_REPLACE_RULES:
+        # 按前缀长度降序排列，优先匹配更精确的规则
+        # 缓存排序结果避免重复排序
+        _sorted_rules = getattr(self.__class__, '_sorted_rules', None)
+        if _sorted_rules is None:
+            _sorted_rules = sorted(URL_REPLACE_RULES, key=lambda r: len(r[0]), reverse=True)
+            self.__class__._sorted_rules = _sorted_rules
+
+        for official_prefix, mirror_prefix in _sorted_rules:
             if url.startswith(official_prefix):
                 rewritten = url.replace(official_prefix, mirror_prefix, 1)
                 logger.debug(f"镜像URL替换: {url} -> {rewritten}")
+                # 限制缓存大小，防止内存泄漏
+                if len(self._url_cache) > 10000:
+                    self._url_cache.clear()
+                self._url_cache[url] = rewritten
                 return rewritten
 
+        self._url_cache[url] = url
         return url
 
     def rewrite_version_json_urls(self, data: Dict[str, Any]) -> Dict[str, Any]:
