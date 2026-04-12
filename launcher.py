@@ -2,15 +2,13 @@
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Any, Tuple
 
-import minecraft_launcher_lib
 from logzero import logger
 
 from config import Config
-from mirror import mirror, MirrorSource
+from mirror import MirrorSource
 
 
 class MinecraftLauncher:
@@ -19,7 +17,12 @@ class MinecraftLauncher:
     def __init__(self, config: Config):
         self.config = config
         self.minecraft_dir = str(config.minecraft_dir)
+
+        # 延迟导入 minecraft_launcher_lib，避免模块加载阶段的阻塞
+        import minecraft_launcher_lib
+        self._mcllib = minecraft_launcher_lib
         self.options = minecraft_launcher_lib.utils.generate_test_options()
+
         self.current_max = 0
 
         # UI回调 (可选,用于进度更新)
@@ -83,11 +86,11 @@ class MinecraftLauncher:
                     if latest_release:
                         logger.info(f"从镜像源获取最新版本: {latest_release}")
                     else:
-                        latest_release = minecraft_launcher_lib.utils.get_latest_version()["release"]
+                        latest_release = self._mcllib.utils.get_latest_version()["release"]
                 else:
-                    latest_release = minecraft_launcher_lib.utils.get_latest_version()["release"]
+                    latest_release = self._mcllib.utils.get_latest_version()["release"]
 
-                minecraft_launcher_lib.install.install_minecraft_version(
+                self._mcllib.install.install_minecraft_version(
                     latest_release,
                     self.minecraft_dir,
                     callback=self._get_callback()
@@ -102,7 +105,7 @@ class MinecraftLauncher:
     def get_available_versions(self) -> List[Dict[str, str]]:
         """获取可用版本列表"""
         try:
-            versions = minecraft_launcher_lib.utils.get_available_versions(self.minecraft_dir)
+            versions = self._mcllib.utils.get_available_versions(self.minecraft_dir)
             logger.info(f"获取到 {len(versions)} 个版本")
             return versions
         except Exception as e:
@@ -170,7 +173,7 @@ class MinecraftLauncher:
             else:
                 # 仅安装原版 Minecraft
                 logger.info(f"正在安装 Minecraft {version_id}")
-                minecraft_launcher_lib.install.install_minecraft_version(
+                self._mcllib.install.install_minecraft_version(
                     version_id,
                     self.minecraft_dir,
                     callback=self._get_callback()
@@ -220,7 +223,7 @@ class MinecraftLauncher:
 
             # 获取启动命令
             logger.info(f"正在生成启动命令: {target_version}")
-            minecraft_command = minecraft_launcher_lib.command.get_minecraft_command(
+            minecraft_command = self._mcllib.command.get_minecraft_command(
                 target_version,
                 self.minecraft_dir,
                 self.options

@@ -53,6 +53,7 @@ class ModernApp(ctk.CTk):
         self.callbacks = launcher_callbacks
         self._task_queue = queue.Queue()
         self._running = True
+        self._launcher_ready = False  # 标记 launcher 是否初始化完成
 
         # 窗口配置
         self.title("MCL - Minecraft Launcher")
@@ -69,8 +70,7 @@ class ModernApp(ctk.CTk):
         # 启动队列轮询
         self._poll_queue()
 
-        # 初始化
-        self.after(100, self._on_app_ready)
+        # 注意：初始化不再自动触发，由外部调用 _on_app_ready() 启动
 
     def _center_window(self):
         """窗口居中"""
@@ -682,7 +682,8 @@ class ModernApp(ctk.CTk):
                 self._task_queue.put(("connection_fail", str(e)))
 
     def _on_app_ready(self):
-        """应用初始化完成"""
+        """应用初始化完成（由外部调用触发）"""
+        self._launcher_ready = True
         self.set_status("正在初始化环境...", "loading")
         self._run_in_thread(self._init_environment)
 
