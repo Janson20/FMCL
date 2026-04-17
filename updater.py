@@ -23,7 +23,7 @@ from logzero import logger
 
 # GitHub 仓库信息
 GITHUB_OWNER = "Janson20"
-GITHUB_REPO = "MCL"
+GITHUB_REPO = "FMCL"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 
 # 当前版本（从 pyproject.toml 读取）
@@ -157,14 +157,14 @@ def _get_platform_asset_pattern() -> Optional[str]:
     machine = platform.machine().lower()
 
     if system == "windows":
-        # Windows: MCL-Setup-x.x.x.exe
+        # Windows: FMCL-Setup-x.x.x.exe
         return "Setup-"
     elif system == "darwin":
         if "arm" in machine or "aarch" in machine:
-            # macOS Apple Silicon: MCL-x.x.x-mac-arm64.dmg
+            # macOS Apple Silicon: FMCL-x.x.x-mac-arm64.dmg
             return "-mac-arm64.dmg"
         else:
-            # macOS Intel: MCL-x.x.x-mac-amd64.dmg
+            # macOS Intel: FMCL-x.x.x-mac-amd64.dmg
             return "-mac-amd64.dmg"
     elif system == "linux":
         # Linux: 优先 AppImage，其次 deb
@@ -247,7 +247,7 @@ def download_update(
 
     try:
         # 保存到临时目录
-        tmp_dir = tempfile.mkdtemp(prefix="mcl_update_")
+        tmp_dir = tempfile.mkdtemp(prefix="fmcl_update_")
         save_path = os.path.join(tmp_dir, filename)
 
         logger.info(f"开始下载更新: {filename}")

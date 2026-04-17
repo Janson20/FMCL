@@ -73,7 +73,7 @@ class MinecraftLauncher:
         import minecraft_launcher_lib
         self._mcllib = minecraft_launcher_lib
         self.options = minecraft_launcher_lib.utils.generate_test_options()
-        self.options["launcherName"] = "MCL"
+        self.options["launcherName"] = "FMCL"
         self.options["launcherVersion"] = "2.2.2"
 
         self.current_max = 0
@@ -311,7 +311,7 @@ class MinecraftLauncher:
             minecraft_command = self._optimize_jvm_args(minecraft_command)
 
             # ── 设置启动器名称 ──
-            # 替换 --versionType 参数值，使游戏标题界面左下角显示 "Minecraft x.x.x/MCL"
+            # 替换 --versionType 参数值，使游戏标题界面左下角显示 "Minecraft x.x.x/FMCL"
             minecraft_command = self._set_launcher_brand(minecraft_command)
 
             logger.info("正在启动游戏...")
@@ -410,9 +410,9 @@ class MinecraftLauncher:
         设置启动器品牌标识
 
         替换 --versionType 参数值，使游戏标题界面左下角显示
-        如 "Minecraft 1.21.1/MCL" 或 "Minecraft 26.1/MCL" 而非默认的 "Minecraft 1.21.1/release"
+        如 "Minecraft 1.21.1/FMCL" 或 "Minecraft 26.1/FMCL" 而非默认的 "Minecraft 1.21.1/release"
         """
-        brand = f"{self.options.get('launcherName', 'MCL')}/{self.options.get('launcherVersion', '3.2')}"
+        brand = f"{self.options.get('launcherName', 'FMCL')}/{self.options.get('launcherVersion', '3.2')}"
         for i, arg in enumerate(command):
             if arg == "--versionType" and i + 1 < len(command):
                 command[i + 1] = brand

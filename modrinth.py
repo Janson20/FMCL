@@ -18,7 +18,7 @@ from logzero import logger
 
 
 MODRINTH_API_BASE = "https://api.modrinth.com/v2"
-MODRINTH_USER_AGENT = "MCL-MinecraftLauncher/1.0 (github.com/Janson20/MCL)"
+MODRINTH_USER_AGENT = "FMCL-MinecraftLauncher/1.0 (github.com/Janson20/FMCL)"
 
 # 缓存：旧格式版本号 {major: {minor1, minor2, ...}}
 # 如 {16: {0,1,2,3,4,5}, 20: {0,1,2,3,4,5,6}, 21: {0,1,2,...,11}}

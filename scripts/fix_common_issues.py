@@ -35,8 +35,8 @@ def fix_permissions():
     # Linux/macOS
     if sys.platform != 'win32':
         run_command("chmod +x scripts/*.py", "设置脚本执行权限")
-        if Path("dist/MCL").exists():
-            run_command("chmod +x dist/MCL", "设置可执行文件权限")
+        if Path("dist/FMCL").exists():
+            run_command("chmod +x dist/FMCL", "设置可执行文件权限")
     
     # 修复.minecraft目录权限
     minecraft_dir = Path(".minecraft")
@@ -84,8 +84,8 @@ def fix_macos_issues():
     print("\n🍎 修复macOS问题...")
     
     # 移除隔离属性
-    if Path("dist/MCL.app").exists():
-        run_command("xattr -cr dist/MCL.app", "移除应用隔离属性")
+    if Path("dist/FMCL.app").exists():
+        run_command("xattr -cr dist/FMCL.app", "移除应用隔离属性")
     
     # 安装Xcode命令行工具
     run_command("xcode-select --install", "安装Xcode命令行工具")
@@ -132,7 +132,7 @@ def check_java():
 def main():
     """主函数"""
     print("=" * 60)
-    print("MCL 快速修复工具")
+    print("FMCL 快速修复工具")
     print("=" * 60)
     
     print("\n可用选项:")

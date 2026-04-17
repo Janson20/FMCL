@@ -5,8 +5,8 @@
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/Janson20/MCL.git
-cd MCL
+git clone https://github.com/Janson20/FMCL.git
+cd FMCL
 ```
 
 ### 2. 安装依赖
@@ -105,7 +105,7 @@ make release VERSION=2.0.1
 ### 构建镜像
 
 ```bash
-docker build -t mcl:latest .
+docker build -t fmcl:latest .
 ```
 
 ### 运行容器
@@ -113,7 +113,7 @@ docker build -t mcl:latest .
 ```bash
 docker run -it --rm \
   -v $(pwd)/.minecraft:/app/.minecraft \
-  mcl:latest
+  fmcl:latest
 ```
 
 ## 提交规范
@@ -143,7 +143,7 @@ pip install -r requirements.txt
 在 Linux/macOS 上，可能需要添加执行权限：
 
 ```bash
-chmod +x dist/MCL
+chmod +x dist/FMCL
 ```
 
 ### Windows Defender 误报
@@ -156,5 +156,5 @@ Windows 可能会误报可执行文件为病毒。这是 PyInstaller 打包的�
 ## 获取帮助
 
 - 📖 [文档](README.md)
-- 🐛 [问题反馈](https://github.com/Janson20/MCL/issues)
-- 💬 [讨论区](https://github.com/Janson20/MCL/discussions)
+- 🐛 [问题反馈](https://github.com/Janson20/FMCL/issues)
+- 💬 [讨论区](https://github.com/Janson20/FMCL/discussions)

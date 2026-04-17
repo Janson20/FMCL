@@ -204,7 +204,7 @@ make install-dev
 PLATFORM=win ARCH=amd64 pyinstaller build.spec --noconfirm
 
 # 3. 测试运行
-./dist/MCL
+./dist/FMCL
 ```
 
 ### 测试 GitHub Actions
@@ -290,5 +290,5 @@ git push origin v2.0.1
 ## 需要帮助？
 
 - 📖 [故障排除指南](docs/TROUBLESHOOTING.md)
-- 🐛 [提交Issue](https://github.com/YOUR_USERNAME/MCL/issues)
-- 💬 [社区讨论](https://github.com/YOUR_USERNAME/MCL/discussions)
+- 🐛 [提交Issue](https://github.com/Janson20/FMCL/issues)
+- 💬 [社区讨论](https://github.com/Janson20/FMCL/discussions)

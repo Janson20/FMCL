@@ -47,15 +47,15 @@ htmlcov/
 *.deb
 *.rpm
 *.AppImage
-MCL-Setup-*.exe
-MCL-*-mac-*.dmg
-MCL-*-linux-*.deb
-MCL-*-x86_64.AppImage
+FMCL-Setup-*.exe
+FMCL-*-mac-*.dmg
+FMCL-*-linux-*.deb
+FMCL-*-x86_64.AppImage
 
 # NSIS / installer temp
 dmg_temp/
-MCL.AppDir/
-mcl_*_amd64/
+FMCL.AppDir/
+fmcl_*_amd64/
 
 # Temporary files
 *.tmp
