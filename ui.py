@@ -1679,6 +1679,138 @@ class ModernApp(ctk.CTk):
         about.bind('<Return>', lambda e: about.destroy())
         about.focus_set()
 
+    # ── 崩溃类型检测 ──────────────────────────────────────────────
+
+    CRASH_TYPES = [
+        {
+            "name": "Mixin 错误",
+            "icon": "\U0001f9ec",
+            "required": ["org.spongepowered.asm.mixin"],
+            "optional": ["mixin apply for mod", ".mixins.json"],
+            "cause": "优化类模组（如 Sodium、OptiFine）在修改游戏底层代码时注入失败，可能因目标代码不存在、签名不匹配或版本错误。",
+            "advice": "检查崩溃报告中 .mixins.json 前的模组名，更新或移除该模组。",
+        },
+        {
+            "name": "模组加载异常",
+            "icon": "\u26a0\ufe0f",
+            "required": ["Mod Loading has failed", "net.minecraftforge.fml.LoadingFailedException"],
+            "optional": ["Could not execute entrypoint stage"],
+            "cause": "某个模组初始化失败（配置文件错误、注册表溢出等）。",
+            "advice": "查看崩溃报告中 Suspected Mod 字段或 Mod List 中标记为 E 的模组，更新或移除该模组。",
+        },
+        {
+            "name": "依赖缺失/版本错误",
+            "icon": "\U0001f517",
+            "required": ["ClassNotFoundException", "NoClassDefFoundError", "NoSuchMethodError", "NoSuchFieldError"],
+            "optional": ["Missing mod", "Requires", "depends"],
+            "cause": "缺少必需的模组、模组版本与游戏或其他模组不兼容，或 API 版本不匹配。",
+            "advice": "安装缺失的依赖模组，或更新相关模组到兼容版本。",
+        },
+        {
+            "name": "模组冲突",
+            "icon": "\u2694\ufe0f",
+            "required": ["Exception caught during firing event: null"],
+            "optional": ["conflict", "incompatible", "already registered", "Duplicate"],
+            "cause": "两个或多个模组同时修改同一游戏内容，或模组之间不兼容。",
+            "advice": "查看 Suspected Mods 字段，逐个禁用可疑模组定位冲突来源。",
+        },
+        {
+            "name": "内存溢出",
+            "icon": "\U0001f4be",
+            "required": ["java.lang.OutOfMemoryError"],
+            "optional": ["Unable to allocate", "heap space", "Metaspace", "GC overhead limit exceeded"],
+            "cause": "分配给 Minecraft 的内存不足、内存泄漏（通常由模组引起）或数据集过大。",
+            "advice": "在启动器设置中增加最大内存分配（建议 4-8GB），或检查是否有模组导致内存泄漏。",
+        },
+        {
+            "name": "渲染与图形错误",
+            "icon": "\U0001f3a8",
+            "required": ["OpenGL"],
+            "optional": ["GL error", "Shader", "Tesselator", "Rendering", "GPU", "Driver"],
+            "cause": "显卡驱动问题、过时的 OpenGL 版本、着色器编译错误或显卡不兼容。",
+            "advice": "更新显卡驱动，移除或更新光影/渲染优化模组，确保显卡支持所需 OpenGL 版本。",
+        },
+        {
+            "name": "线程与并发错误",
+            "icon": "\U0001f9f5",
+            "required": ["ConcurrentModificationException"],
+            "optional": ["Deadlock", "Thread stuck", "Wait timed out"],
+            "cause": "模组在多线程环境下未正确处理同步。",
+            "advice": "更新相关模组，或尝试移除最近添加的模组。",
+        },
+        {
+            "name": "网络同步错误",
+            "icon": "\U0001f310",
+            "required": ["Connection refused"],
+            "optional": ["Read timed out", "Packet handler", "NetworkManager"],
+            "cause": "模组自定义网络包未正确注册、数据结构不一致或网络环境不稳定。",
+            "advice": "检查网络连接，更新涉及网络功能的模组。",
+        },
+        {
+            "name": "世界生成错误",
+            "icon": "\U0001f5fa\ufe0f",
+            "required": ["World Generation"],
+            "optional": ["Chunk Loading", "Structure", "Biome", "Feature"],
+            "cause": "模组的生物群系、结构或特征注册错误、生成算法有 bug，或与其他修改世界生成的模组冲突。",
+            "advice": "更新涉及世界生成的模组，或创建新世界测试。",
+        },
+        {
+            "name": "服务端/客户端逻辑错误",
+            "icon": "\U0001f9e9",
+            "required": ["Integrated Server"],
+            "optional": ["Dedicated Server", "Logic error"],
+            "cause": "模组未正确区分逻辑客户端与逻辑服务器，导致数据不同步。",
+            "advice": "更新相关模组，检查模组是否支持当前游戏版本。",
+        },
+        {
+            "name": "Java 虚拟机崩溃",
+            "icon": "\U0001f4a5",
+            "required": ["SIGSEGV", "EXCEPTION_ACCESS_VIOLATION"],
+            "optional": ["Problematic frame", "fatal error"],
+            "cause": "Java 版本不兼容、JVM 参数错误、本地代码崩溃（通常由模组触发）或硬件/驱动问题。",
+            "advice": "更换兼容的 Java 版本，检查 JVM 参数，更新显卡驱动。",
+        },
+    ]
+
+    def _diagnose_crash(self, crash_files: dict) -> list:
+        """根据崩溃日志内容分析崩溃类型，返回匹配到的崩溃类型列表"""
+        # 收集所有可用的日志文本
+        text_parts = []
+
+        for key in ("crash_report", "game_log", "debug_log", "jvm_crash_log"):
+            path = crash_files.get(key)
+            if path and os.path.exists(path):
+                try:
+                    for enc in ("utf-8", "gbk", "latin-1"):
+                        try:
+                            text_parts.append(Path(path).read_text(enc, errors="ignore"))
+                            break
+                        except (UnicodeDecodeError, UnicodeError):
+                            continue
+                except Exception:
+                    pass
+
+        combined_text = "\n".join(text_parts)
+        if not combined_text.strip():
+            return []
+
+        matched = []
+        for crash_type in self.CRASH_TYPES:
+            required_hits = sum(1 for kw in crash_type["required"] if kw in combined_text)
+            optional_hits = sum(1 for kw in crash_type["optional"] if kw in combined_text)
+            if required_hits > 0:
+                matched.append({
+                    "name": crash_type["name"],
+                    "icon": crash_type["icon"],
+                    "cause": crash_type["cause"],
+                    "advice": crash_type["advice"],
+                    "score": required_hits + optional_hits * 0.5,
+                })
+
+        # 按匹配得分降序排列
+        matched.sort(key=lambda x: x["score"], reverse=True)
+        return matched[:3]  # 最多返回前 3 个最可能的崩溃类型
+
     def _show_crash_dialog(self, exit_code: int, crash_files: dict):
         """显示崩溃提示对话框"""
         import tkinter as tk
@@ -1695,8 +1827,14 @@ class ModernApp(ctk.CTk):
         dialog.transient(self)
         dialog.grab_set()
 
-        # 窗口尺寸与居中
-        w, h = 440, 280
+        # 诊断崩溃类型
+        diagnoses = self._diagnose_crash(crash_files)
+
+        # 窗口尺寸根据诊断结果动态调整
+        w = 440
+        h_base = 290
+        h_diag = min(len(diagnoses), 3) * 62 if diagnoses else 0
+        h = h_base + h_diag
         dialog.geometry(f"{w}x{h}")
         dialog.update_idletasks()
         x = (dialog.winfo_screenwidth() - w) // 2
@@ -1744,8 +1882,26 @@ class ModernApp(ctk.CTk):
         # 分隔线
         tk.Frame(dialog, bg='#0f3460', height=1).place(x=pad, y=pad + 68, width=w - 2 * pad)
 
-        # 按钮区域
-        btn_y = pad + 90
+        # 诊断结果区域
+        diag_y = pad + 78
+        if diagnoses:
+            for i, diag in enumerate(diagnoses):
+                y = diag_y + i * 62
+                # 背景框
+                diag_frame = tk.Frame(dialog, bg='#16213e', highlightbackground='#0f3460', highlightthickness=1)
+                diag_frame.place(x=pad, y=y, width=w - 2 * pad, height=56)
+                # 标题行
+                tk.Label(diag_frame, text=f"{diag['icon']} {diag['name']}",
+                         font=('Microsoft YaHei', 10, 'bold'), fg='#e94560', bg='#16213e').pack(
+                    anchor='w', padx=10, pady=(6, 0))
+                # 建议（单行截断）
+                advice_text = diag['advice']
+                if len(advice_text) > 48:
+                    advice_text = advice_text[:47] + "…"
+                tk.Label(diag_frame, text=f"💡 {advice_text}",
+                         font=('Microsoft YaHei', 9), fg='#8899aa', bg='#16213e').pack(
+                    anchor='w', padx=10, pady=(2, 0))
+        btn_y = diag_y + h_diag + 8
         btn_h = 38
 
         def _open_crash_report():
