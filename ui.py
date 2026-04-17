@@ -56,6 +56,7 @@ class ModernApp(ctk.CTk):
         self._task_queue = queue.Queue()
         self._running = True
         self._launcher_ready = False  # 标记 launcher 是否初始化完成
+        self._current_skin_path: Optional[str] = None  # 当前皮肤路径
 
         # 窗口配置
         self.title("FMCL - Fusion Minecraft Launcher")
@@ -143,37 +144,22 @@ class ModernApp(ctk.CTk):
         )
         self.update_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
-        # 镜像源开关
-        self.mirror_var = ctk.BooleanVar(value=True)
-        mirror_switch = ctk.CTkSwitch(
+        # 启动器设置按钮（最右边）
+        settings_btn = ctk.CTkButton(
             header,
-            text="🇨🇳 国内镜像",
-            variable=self.mirror_var,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
-            fg_color=COLORS["accent"],
-            button_color=COLORS["text_primary"],
-            button_hover_color=COLORS["text_secondary"],
-            progress_color=COLORS["accent_hover"],
-            text_color=COLORS["text_secondary"],
-            command=self._on_mirror_toggle,
+            text="⚙ 设置",
+            width=90,
+            height=35,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._open_launcher_settings,
         )
-        mirror_switch.pack(side=ctk.RIGHT, padx=(10, 0))
+        settings_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
-        # 游戏启动后最小化开关
-        self.minimize_var = ctk.BooleanVar(value=False)
-        minimize_switch = ctk.CTkSwitch(
-            header,
-            text="🔽 启动后最小化",
-            variable=self.minimize_var,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
-            fg_color=COLORS["accent"],
-            button_color=COLORS["text_primary"],
-            button_hover_color=COLORS["text_secondary"],
-            progress_color=COLORS["accent_hover"],
-            text_color=COLORS["text_secondary"],
-            command=self._on_minimize_toggle,
-        )
-        minimize_switch.pack(side=ctk.RIGHT, padx=(10, 0))
+        # 保留设置变量（供内部使用）
+        self.minimize_var = ctk.BooleanVar(value=self.callbacks.get("get_minimize_on_game_launch", lambda: False)())
+        self.mirror_var = ctk.BooleanVar(value=self.callbacks.get("get_mirror_enabled", lambda: True)())
 
     def _build_content(self):
         """构建内容区域"""
@@ -218,12 +204,6 @@ class ModernApp(ctk.CTk):
             placeholder_text="输入角色名",
         )
         self.player_name_entry.pack(fill=ctk.X, padx=12, pady=(0, 5))
-
-        # 从配置加载角色名
-        if "get_player_name" in self.callbacks:
-            saved_name = self.callbacks["get_player_name"]()
-            if saved_name:
-                self.player_name_var.set(saved_name)
 
         self.player_name_entry.bind("<FocusOut>", self._on_player_name_change)
 
@@ -282,14 +262,6 @@ class ModernApp(ctk.CTk):
             command=self._on_remove_skin,
         )
         self._skin_remove_btn.pack(side=ctk.RIGHT)
-
-        # 加载已保存的皮肤信息
-        self._current_skin_path: Optional[str] = None
-        if "get_skin_path" in self.callbacks:
-            saved_skin = self.callbacks["get_skin_path"]()
-            if saved_skin and os.path.exists(saved_skin):
-                self._current_skin_path = saved_skin
-                self._update_skin_preview(saved_skin)
 
         # ── 启动器日志 ──
         ctk.CTkLabel(
@@ -788,7 +760,35 @@ class ModernApp(ctk.CTk):
             )
             btn.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=3)
 
-            # 安装模组按钮（仅模组加载器版本显示）
+            # 删除按钮（最右边）
+            del_btn = ctk.CTkButton(
+                btn_frame,
+                text="X",
+                width=30,
+                height=28,
+                font=ctk.CTkFont(family="Microsoft YaHei", size=12, weight="bold"),
+                fg_color="transparent",
+                hover_color=COLORS["accent"],
+                text_color=COLORS["text_secondary"],
+                command=lambda v=ver: self._on_delete_version(v),
+            )
+            del_btn.pack(side=ctk.RIGHT, padx=(0, 5))
+
+            # 版本设置按钮
+            settings_btn = ctk.CTkButton(
+                btn_frame,
+                text="⚙",
+                width=30,
+                height=28,
+                font=ctk.CTkFont(size=14),
+                fg_color="transparent",
+                hover_color=COLORS["bg_light"],
+                text_color=COLORS["text_secondary"],
+                command=lambda v=ver: self._open_resource_manager_for_version(v),
+            )
+            settings_btn.pack(side=ctk.RIGHT, padx=(0, 2))
+
+            # 安装模组按钮（仅模组加载器版本显示，最左边）
             if has_loader:
                 mod_btn = ctk.CTkButton(
                     btn_frame,
@@ -802,20 +802,6 @@ class ModernApp(ctk.CTk):
                     command=lambda v=ver: self._open_mod_browser(v),
                 )
                 mod_btn.pack(side=ctk.RIGHT, padx=(0, 2))
-
-            # 删除按钮
-            del_btn = ctk.CTkButton(
-                btn_frame,
-                text="X",
-                width=30,
-                height=28,
-                font=ctk.CTkFont(family="Microsoft YaHei", size=12, weight="bold"),
-                fg_color="transparent",
-                hover_color=COLORS["accent"],
-                text_color=COLORS["text_secondary"],
-                command=lambda v=ver: self._on_delete_version(v),
-            )
-            del_btn.pack(side=ctk.RIGHT, padx=(0, 5))
 
             self.version_buttons.append({"frame": btn_frame, "version": ver})
 
@@ -970,29 +956,6 @@ class ModernApp(ctk.CTk):
             self._task_queue.put(("remove_error", str(e)))
 
     # ─── 事件处理 ─────────────────────────────────────────────
-
-    def _on_mirror_toggle(self):
-        """镜像源开关切换"""
-        enabled = self.mirror_var.get()
-        if "set_mirror_enabled" in self.callbacks:
-            self.callbacks["set_mirror_enabled"](enabled)
-            name = self.callbacks.get("get_mirror_name", lambda: "未知")()
-            self.set_status(
-                f"已切换到: {name}",
-                "success" if enabled else "warning"
-            )
-            # 测试连接
-            self._run_in_thread(self._test_connection)
-
-    def _on_minimize_toggle(self):
-        """启动后最小化开关切换"""
-        enabled = self.minimize_var.get()
-        if "set_minimize_on_game_launch" in self.callbacks:
-            self.callbacks["set_minimize_on_game_launch"](enabled)
-        self.set_status(
-            f"游戏启动后最小化: {'已启用' if enabled else '已禁用'}",
-            "success" if enabled else "info"
-        )
 
     def _on_kill_game(self):
         """强制结束游戏进程"""
@@ -1250,9 +1213,25 @@ class ModernApp(ctk.CTk):
     def _on_app_ready(self):
         """应用初始化完成（由外部调用触发）"""
         self._launcher_ready = True
+        # 重新加载用户设置
+        self._reload_user_settings()
         # 启动日志轮询
         if self._log_capture_active:
             self._poll_log_buffer()
+
+    def _reload_user_settings(self):
+        """重新加载用户设置（callbacks 设置后调用）"""
+        # 加载角色名
+        if "get_player_name" in self.callbacks:
+            saved_name = self.callbacks["get_player_name"]()
+            if saved_name:
+                self.player_name_var.set(saved_name)
+        # 加载皮肤路径
+        if "get_skin_path" in self.callbacks:
+            saved_skin = self.callbacks["get_skin_path"]()
+            if saved_skin and os.path.exists(saved_skin):
+                self._current_skin_path = saved_skin
+                self._update_skin_preview(saved_skin)
         self.set_status("正在初始化环境...", "loading")
         self._run_in_thread(self._init_environment)
 
@@ -1525,6 +1504,14 @@ class ModernApp(ctk.CTk):
             self.set_status("请先选择一个版本", "error")
             return
         ResourceManagerWindow(self, self.selected_version, self.callbacks)
+
+    def _open_resource_manager_for_version(self, version_id: str):
+        """为指定版本打开资源管理窗口"""
+        ResourceManagerWindow(self, version_id, self.callbacks)
+
+    def _open_launcher_settings(self):
+        """打开启动器设置窗口"""
+        LauncherSettingsWindow(self, self.callbacks)
 
     def _open_mod_browser(self, version_id: str):
         """打开模组浏览窗口（从 Modrinth 搜索安装模组）"""
@@ -2384,6 +2371,127 @@ class ResourceManagerWindow(ctk.CTkToplevel):
     def _set_status(self, text: str):
         """更新状态栏"""
         self._status_label.configure(text=text)
+
+
+class LauncherSettingsWindow(ctk.CTkToplevel):
+    """启动器设置窗口"""
+
+    def __init__(self, parent, callbacks: Dict[str, Callable]):
+        super().__init__(fg_color=COLORS["bg_dark"])
+        self.callbacks = callbacks
+        self.parent = parent
+
+        self.title("启动器设置")
+        self.geometry("450x320")
+        self.resizable(False, False)
+        self.grab_set()
+
+        self._build_ui()
+
+    def _build_ui(self):
+        """构建设置界面"""
+        container = ctk.CTkFrame(self, fg_color="transparent")
+        container.pack(fill=ctk.BOTH, expand=True, padx=20, pady=20)
+
+        # 标题
+        title = ctk.CTkLabel(
+            container,
+            text="⚙ 启动器设置",
+            font=ctk.CTkFont(family="Microsoft YaHei", size=18, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        title.pack(anchor=ctk.W, pady=(0, 20))
+
+        # 启动后最小化开关
+        minimize_frame = ctk.CTkFrame(container, fg_color="transparent")
+        minimize_frame.pack(fill=ctk.X, pady=10)
+
+        minimize_label = ctk.CTkLabel(
+            minimize_frame,
+            text="🔽 启动后最小化",
+            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            text_color=COLORS["text_primary"],
+        )
+        minimize_label.pack(side=ctk.LEFT)
+
+        self.minimize_var = ctk.BooleanVar(value=self.callbacks.get("get_minimize_on_game_launch", lambda: False)())
+        minimize_switch = ctk.CTkSwitch(
+            minimize_frame,
+            text="",
+            variable=self.minimize_var,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            fg_color=COLORS["accent"],
+            button_color=COLORS["text_primary"],
+            button_hover_color=COLORS["text_secondary"],
+            progress_color=COLORS["accent_hover"],
+            text_color=COLORS["text_primary"],
+            command=self._on_minimize_toggle,
+        )
+        minimize_switch.pack(side=ctk.RIGHT)
+
+        # 国内镜像源开关
+        mirror_frame = ctk.CTkFrame(container, fg_color="transparent")
+        mirror_frame.pack(fill=ctk.X, pady=10)
+
+        mirror_label = ctk.CTkLabel(
+            mirror_frame,
+            text="🇨🇳 使用国内镜像源",
+            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            text_color=COLORS["text_primary"],
+        )
+        mirror_label.pack(side=ctk.LEFT)
+
+        self.mirror_var = ctk.BooleanVar(value=self.callbacks.get("get_mirror_enabled", lambda: True)())
+        mirror_switch = ctk.CTkSwitch(
+            mirror_frame,
+            text="",
+            variable=self.mirror_var,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            fg_color=COLORS["accent"],
+            button_color=COLORS["text_primary"],
+            button_hover_color=COLORS["text_secondary"],
+            progress_color=COLORS["accent_hover"],
+            text_color=COLORS["text_primary"],
+            command=self._on_mirror_toggle,
+        )
+        mirror_switch.pack(side=ctk.RIGHT)
+
+        # 关闭按钮
+        close_btn = ctk.CTkButton(
+            container,
+            text="关闭",
+            width=120,
+            height=36,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self.destroy,
+        )
+        close_btn.pack(pady=(30, 0))
+
+    def _on_minimize_toggle(self):
+        """启动后最小化开关切换"""
+        enabled = self.minimize_var.get()
+        if "set_minimize_on_game_launch" in self.callbacks:
+            self.callbacks["set_minimize_on_game_launch"](enabled)
+        # 同步主窗口变量
+        self.parent.minimize_var.set(enabled)
+        self.parent.set_status(
+            f"游戏启动后最小化: {'已启用' if enabled else '已禁用'}",
+            "success" if enabled else "info"
+        )
+
+    def _on_mirror_toggle(self):
+        """镜像源开关切换"""
+        enabled = self.mirror_var.get()
+        if "set_mirror_enabled" in self.callbacks:
+            self.callbacks["set_mirror_enabled"](enabled)
+        # 同步主窗口变量
+        self.parent.mirror_var.set(enabled)
+        self.parent.set_status(
+            f"国内镜像源: {'已启用' if enabled else '已禁用'}",
+            "success" if enabled else "info"
+        )
 
 
 class ModBrowserWindow(ctk.CTkToplevel):
