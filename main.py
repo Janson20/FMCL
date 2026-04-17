@@ -1,4 +1,4 @@
-"""Minecraft Launcher - 主程序入口
+"""Fusion Minecraft Launcher - 主程序入口
 Update Log:
 v1.0 - start project
 v1.1 - add forge install
@@ -98,7 +98,7 @@ def main():
         setup_logging()
 
         logger.info("=" * 60)
-        logger.info("Minecraft Launcher v3.2 启动")
+        logger.info("Fusion Minecraft Launcher v3.2 启动")
         logger.info("=" * 60)
 
         # 确保目录存在

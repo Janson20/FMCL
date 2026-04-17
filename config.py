@@ -39,6 +39,7 @@ class Config:
     DEFAULT_MIRROR_ENABLED = True
     DEFAULT_MINIMIZE_ON_GAME_LAUNCH = False
     DEFAULT_AUTO_CHECK_UPDATE = True
+    DEFAULT_PLAYER_NAME = "Steve"
 
     def __init__(self, base_dir: Optional[str] = None):
         """
@@ -65,6 +66,10 @@ class Config:
         # 更新配置
         self.auto_check_update = self.DEFAULT_AUTO_CHECK_UPDATE
 
+        # 玩家配置
+        self.player_name = self.DEFAULT_PLAYER_NAME
+        self.skin_path: Optional[str] = None
+
         # 日志配置
         self.log_level = logzero.INFO
 
@@ -88,8 +93,12 @@ class Config:
                 self.minimize_on_game_launch = data["minimize_on_game_launch"]
             if "auto_check_update" in data:
                 self.auto_check_update = data["auto_check_update"]
+            if "player_name" in data:
+                self.player_name = data["player_name"]
+            if "skin_path" in data:
+                self.skin_path = data["skin_path"]
 
-            logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}")
+            logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}")
 
         except Exception as e:
             logger.error(f"加载配置文件失败: {e}")
@@ -102,6 +111,8 @@ class Config:
                 "download_threads": self.download_threads,
                 "minimize_on_game_launch": self.minimize_on_game_launch,
                 "auto_check_update": self.auto_check_update,
+                "player_name": self.player_name,
+                "skin_path": self.skin_path,
             }
             with open(self.config_file, "w", encoding="utf-8") as f:
                 f.write(_json_dumps(data, indent=2, ensure_ascii=False))

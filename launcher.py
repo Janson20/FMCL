@@ -299,6 +299,11 @@ class MinecraftLauncher:
                 options["gameDirectory"] = version_game_dir
                 logger.info(f"版本隔离已启用: gameDirectory={version_game_dir}")
 
+            # 设置自定义玩家名
+            if self.config.player_name and self.config.player_name != "Steve":
+                options["username"] = self.config.player_name
+                options["playerName"] = self.config.player_name
+
             # 获取启动命令
             logger.info(f"正在生成启动命令: {target_version}")
             minecraft_command = self._mcllib.command.get_minecraft_command(
@@ -505,7 +510,29 @@ class MinecraftLauncher:
             "get_game_process": self.get_game_process,
             "kill_game_process": self.kill_game_process,
             "is_game_running": self.is_game_running,
+            "get_player_name": self.get_player_name,
+            "set_player_name": self.set_player_name,
+            "get_skin_path": self.get_skin_path,
+            "set_skin_path": self.set_skin_path,
         }
+
+    def get_player_name(self) -> str:
+        """获取自定义玩家名"""
+        return self.config.player_name
+
+    def set_player_name(self, name: str) -> None:
+        """设置自定义玩家名"""
+        self.config.player_name = name
+        self.config.save_config()
+
+    def get_skin_path(self) -> Optional[str]:
+        """获取自定义皮肤路径"""
+        return self.config.skin_path
+
+    def set_skin_path(self, path: Optional[str]) -> None:
+        """设置自定义皮肤路径"""
+        self.config.skin_path = path
+        self.config.save_config()
 
     def verify_installed_version(self, version_id: str, max_workers: int = 4) -> Dict[str, Any]:
         """
