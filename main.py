@@ -12,6 +12,7 @@ v3.2 - perf: orjson JSON parsing, concurrent file verify, async batch download,
        JVM args optimization (G1GC), GC release after launch, URL rewrite cache
 """
 
+import os
 import re
 import sys
 import threading
@@ -21,6 +22,58 @@ import logzero
 from logzero import logger
 
 from config import config
+
+
+def _get_icon_path():
+    """获取图标路径（兼容开发环境和 PyInstaller 打包）"""
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, 'icon.ico')
+
+
+def _create_splash(ctk):
+    """创建启动画面 - 屏幕中央展示图标，加载完成后关闭"""
+    splash = ctk.CTkToplevel()
+    splash.overrideredirect(True)
+    splash.attributes('-topmost', True)
+    splash.configure(fg_color='#1a1a2e')
+
+    # 窗口尺寸
+    w, h = 320, 320
+    splash.geometry(f"{w}x{h}")
+    splash.update_idletasks()  # 让窗口实际渲染后再计算居中位置
+
+    # 始终居中于屏幕（兼容多显示器和 DPI 缩放）
+    sw = splash.winfo_screenwidth()
+    sh = splash.winfo_screenheight()
+    x = (sw - w) // 2
+    y = (sh - h) // 2
+    splash.geometry(f"+{x}+{y}")
+
+    # 加载图标
+    icon_path = _get_icon_path()
+    if os.path.exists(icon_path):
+        try:
+            from PIL import Image as PILImage
+            icon_img = ctk.CTkImage(PILImage.open(icon_path), size=(128, 128))
+            ctk.CTkLabel(splash, image=icon_img, text='').place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
+        except Exception:
+            ctk.CTkLabel(splash, text='\u26cf', font=ctk.CTkFont(size=64)).place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
+    else:
+        ctk.CTkLabel(splash, text='\u26cf', font=ctk.CTkFont(size=64)).place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
+
+    # 标题文字
+    ctk.CTkLabel(
+        splash, text='FMCL', font=ctk.CTkFont(family='Microsoft YaHei', size=20, weight='bold'),
+        text_color='#a0a0b0',
+    ).place(relx=0.5, rely=0.65, anchor=ctk.CENTER)
+
+    # 加载提示
+    ctk.CTkLabel(
+        splash, text='Loading...', font=ctk.CTkFont(size=12),
+        text_color='#666680',
+    ).place(relx=0.5, rely=0.76, anchor=ctk.CENTER)
+
+    return splash
 
 
 def set_chinese_language():
@@ -122,6 +175,13 @@ def main():
         # ── 先创建 UI，让用户尽快看到窗口 ──
         # 传入一个空的 callbacks 字典，稍后在后台线程中替换
         app = ModernApp({})
+        app.withdraw()  # 先隐藏主窗口，等启动画面结束后再显示
+
+        # 创建启动画面
+        splash = _create_splash(ctk)
+        splash_start = time.time()
+        _launcher_result = {}  # 线程安全存储 launcher 实例
+        _launcher_ready = threading.Event()
 
         app.set_status("正在初始化启动器核心...", "loading")
 
@@ -130,12 +190,32 @@ def main():
         def _init_launcher():
             from launcher import MinecraftLauncher
             launcher = MinecraftLauncher(config)
+            _launcher_result['launcher'] = launcher
+            _launcher_ready.set()
+            app.after(0, _try_dismiss_splash)
 
-            # 在主线程中更新 UI 的 callbacks
-            app.after(0, _on_launcher_ready, launcher)
+        def _try_dismiss_splash():
+            """尝试关闭启动画面：需同时满足 1 秒和加载完成"""
+            if not _launcher_ready.is_set():
+                return
+            elapsed = time.time() - splash_start
+            remaining = max(0, 1.0 - elapsed)
+            if remaining > 0:
+                splash.after(int(remaining * 1000), _dismiss_splash)
+            else:
+                _dismiss_splash()
+
+        def _dismiss_splash():
+            """关闭启动画面，显示主窗口"""
+            try:
+                splash.destroy()
+            except Exception:
+                pass
+            _on_launcher_ready(_launcher_result['launcher'])
 
         def _on_launcher_ready(launcher):
             """Launcher 初始化完成回调（主线程执行）"""
+            app.deiconify()  # 显示主窗口
             callbacks = launcher.get_callbacks()
 
             # 更新 UI 回调
