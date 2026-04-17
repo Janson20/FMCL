@@ -23,7 +23,7 @@ print(f"Building for platform: {platform}, arch: {arch}")
 block_cipher = None
 
 # 图标路径
-icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon.ico')
+icon_path = os.path.join(os.getcwd(), 'icon.ico')
 
 # 通用隐式导入
 hidden_imports = [

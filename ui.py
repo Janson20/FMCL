@@ -1,6 +1,8 @@
 """现代化UI界面模块 - 基于 CustomTkinter"""
 import os
 import io
+import re
+import sys
 import logging
 import threading
 import queue
@@ -33,6 +35,16 @@ COLORS = {
     "card_bg": "#1e2a4a",
     "card_border": "#2d3a5c",
 }
+
+
+def _get_fmcl_version():
+    """从 updater.py 获取 FMCL 版本号"""
+    try:
+        from updater import get_current_version
+        return get_current_version()
+    except Exception:
+        pass
+    return 'unknown'
 
 
 class ModernApp(ctk.CTk):
@@ -144,7 +156,7 @@ class ModernApp(ctk.CTk):
         )
         self.update_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
-        # 启动器设置按钮（最右边）
+        # 启动器设置按钮
         settings_btn = ctk.CTkButton(
             header,
             text="⚙ 设置",
@@ -156,6 +168,19 @@ class ModernApp(ctk.CTk):
             command=self._open_launcher_settings,
         )
         settings_btn.pack(side=ctk.RIGHT, padx=(10, 0))
+
+        # 关于按钮（winver 风格）
+        about_btn = ctk.CTkButton(
+            header,
+            text="ℹ 关于",
+            width=80,
+            height=35,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._show_about,
+        )
+        about_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
         # 保留设置变量（供内部使用）
         self.minimize_var = ctk.BooleanVar(value=self.callbacks.get("get_minimize_on_game_launch", lambda: False)())
@@ -1508,6 +1533,80 @@ class ModernApp(ctk.CTk):
     def _open_resource_manager_for_version(self, version_id: str):
         """为指定版本打开资源管理窗口"""
         ResourceManagerWindow(self, version_id, self.callbacks)
+
+    def _show_about(self):
+        """显示关于对话框（winver 风格）"""
+        import tkinter as tk
+        import platform
+
+        about = tk.Toplevel(self)
+        about.title("关于 FMCL")
+        about.resizable(False, False)
+        about.attributes('-topmost', True)
+        about.configure(bg='#1a1a2e')
+        about.transient(self)
+        about.grab_set()
+
+        # 窗口尺寸与居中
+        w, h = 460, 340
+        about.geometry(f"{w}x{h}")
+        about.update_idletasks()
+        x = (about.winfo_screenwidth() - w) // 2
+        y = (about.winfo_screenheight() - h) // 2
+        about.geometry(f"+{x}+{y}")
+
+        pad = 30
+
+        # 左侧 logo
+        icon_path = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__))), 'icon.ico')
+        icon_frame = tk.Frame(about, bg='#1a1a2e')
+        icon_frame.place(x=pad, y=pad, width=80, height=80)
+        if os.path.exists(icon_path):
+            try:
+                from PIL import Image as PILImage, ImageTk
+                pil_img = PILImage.open(icon_path).resize((80, 80), PILImage.LANCZOS)
+                tk_img = ImageTk.PhotoImage(pil_img)
+                tk.Label(icon_frame, image=tk_img, bg='#1a1a2e').pack()
+                about._icon_ref = tk_img  # 防止 GC
+            except Exception:
+                tk.Label(icon_frame, text='\u26cf', font=('Segoe UI', 36), fg='#e94560', bg='#1a1a2e').pack()
+        else:
+            tk.Label(icon_frame, text='\u26cf', font=('Segoe UI', 36), fg='#e94560', bg='#1a1a2e').pack()
+
+        # 右侧标题信息
+        info_frame = tk.Frame(about, bg='#1a1a2e')
+        info_frame.place(x=pad + 90, y=pad)
+
+        tk.Label(info_frame, text='FMCL', font=('Segoe UI', 20, 'bold'), fg='#ffffff', bg='#1a1a2e').pack(anchor='w')
+        tk.Label(info_frame, text='Fusion Minecraft Launcher', font=('Segoe UI', 10), fg='#a0a0b0', bg='#1a1a2e').pack(anchor='w')
+
+        # 分隔线
+        tk.Frame(about, bg='#2d3a5c', height=1).place(x=pad, y=pad + 90, width=w - 2 * pad)
+
+        # 系统信息
+        info_items = [
+            ('版本', _get_fmcl_version()),
+            ('Python', platform.python_version()),
+            ('系统', f'{platform.system()} {platform.release()}'),
+            ('架构', platform.machine()),
+        ]
+        y_pos = pad + 110
+        for label, value in info_items:
+            tk.Label(about, text=label, font=('Microsoft YaHei', 10), fg='#a0a0b0', bg='#1a1a2e', width=6, anchor='e').place(x=pad, y=y_pos)
+            tk.Label(about, text=value, font=('Microsoft YaHei', 10), fg='#ffffff', bg='#1a1a2e', anchor='w').place(x=pad + 55, y=y_pos)
+            y_pos += 28
+
+        # 底部关闭按钮
+        close_btn = ctk.CTkButton(
+            about, text='确定', width=80, height=32,
+            font=ctk.CTkFont(family='Microsoft YaHei', size=12),
+            fg_color='#0f3460', hover_color='#2d3a5c',
+            command=about.destroy,
+        )
+        close_btn.place(x=w - pad - 80, y=h - pad - 32)
+
+        about.bind('<Return>', lambda e: about.destroy())
+        about.focus_set()
 
     def _open_launcher_settings(self):
         """打开启动器设置窗口"""
