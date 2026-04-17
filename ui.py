@@ -1,5 +1,7 @@
 """现代化UI界面模块 - 基于 CustomTkinter"""
 import os
+import io
+import logging
 import threading
 import queue
 import tkinter.messagebox as messagebox
@@ -57,8 +59,8 @@ class ModernApp(ctk.CTk):
 
         # 窗口配置
         self.title("FMCL - Fusion Minecraft Launcher")
-        self.geometry("960x860")
-        self.minsize(860, 800)
+        self.geometry("1200x860")
+        self.minsize(1060, 800)
         self.configure(fg_color=COLORS["bg_dark"])
 
         # 居中显示
@@ -75,7 +77,7 @@ class ModernApp(ctk.CTk):
     def _center_window(self):
         """窗口居中"""
         self.update_idletasks()
-        w, h = 960, 860
+        w, h = 1200, 860
         x = (self.winfo_screenwidth() - w) // 2
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -109,7 +111,7 @@ class ModernApp(ctk.CTk):
 
         subtitle = ctk.CTkLabel(
             header,
-            text="Minecraft Launcher",
+            text="Fusion Minecraft Launcher",
             font=ctk.CTkFont(family="Microsoft YaHei", size=14),
             text_color=COLORS["text_secondary"],
         )
@@ -178,11 +180,260 @@ class ModernApp(ctk.CTk):
         content = ctk.CTkFrame(self.main_frame, fg_color="transparent")
         content.pack(fill=ctk.BOTH, expand=True)
 
-        # 左侧 - 已安装版本
+        # 最左侧 - 侧边栏（角色名、皮肤、日志）
+        self._build_sidebar(content)
+
+        # 中间 - 已安装版本
         self._build_installed_panel(content)
 
         # 右侧 - 操作面板
         self._build_action_panel(content)
+
+    def _build_sidebar(self, parent):
+        """构建左侧边栏：自定义角色名、自定义皮肤、启动器日志"""
+        sidebar = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=220)
+        sidebar.pack(side=ctk.LEFT, fill=ctk.Y, padx=(0, 10))
+        sidebar.pack_propagate(False)
+
+        # ── 自定义角色名 ──
+        ctk.CTkLabel(
+            sidebar,
+            text="👤 角色名",
+            font=ctk.CTkFont(family="Microsoft YaHei", size=14, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
+
+        ctk.CTkFrame(sidebar, fg_color=COLORS["card_border"], height=1).pack(
+            fill=ctk.X, padx=12, pady=(0, 8)
+        )
+
+        self.player_name_var = ctk.StringVar(value="")
+        self.player_name_entry = ctk.CTkEntry(
+            sidebar,
+            textvariable=self.player_name_var,
+            height=32,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            fg_color=COLORS["bg_medium"],
+            border_color=COLORS["card_border"],
+            placeholder_text="输入角色名",
+        )
+        self.player_name_entry.pack(fill=ctk.X, padx=12, pady=(0, 5))
+
+        # 从配置加载角色名
+        if "get_player_name" in self.callbacks:
+            saved_name = self.callbacks["get_player_name"]()
+            if saved_name:
+                self.player_name_var.set(saved_name)
+
+        self.player_name_entry.bind("<FocusOut>", self._on_player_name_change)
+
+        # ── 自定义皮肤 ──
+        ctk.CTkLabel(
+            sidebar,
+            text="🎨 自定义皮肤",
+            font=ctk.CTkFont(family="Microsoft YaHei", size=14, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
+
+        ctk.CTkFrame(sidebar, fg_color=COLORS["card_border"], height=1).pack(
+            fill=ctk.X, padx=12, pady=(0, 8)
+        )
+
+        # 皮肤预览区
+        self.skin_preview_frame = ctk.CTkFrame(
+            sidebar, fg_color=COLORS["bg_medium"], corner_radius=8, height=80
+        )
+        self.skin_preview_frame.pack(fill=ctk.X, padx=12, pady=(0, 5))
+        self.skin_preview_frame.pack_propagate(False)
+
+        self.skin_preview_label = ctk.CTkLabel(
+            self.skin_preview_frame,
+            text="暂无皮肤\n支持 64x64 / 64x32 PNG",
+            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            text_color=COLORS["text_secondary"],
+            justify=ctk.CENTER,
+        )
+        self.skin_preview_label.pack(expand=True)
+
+        # 皮肤操作按钮行
+        skin_btn_frame = ctk.CTkFrame(sidebar, fg_color="transparent", height=30)
+        skin_btn_frame.pack(fill=ctk.X, padx=12, pady=(0, 5))
+        skin_btn_frame.pack_propagate(False)
+
+        ctk.CTkButton(
+            skin_btn_frame,
+            text="📂 选择皮肤",
+            height=28,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_select_skin,
+        ).pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(0, 3))
+
+        self._skin_remove_btn = ctk.CTkButton(
+            skin_btn_frame,
+            text="🗑",
+            width=36,
+            height=28,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_medium"],
+            hover_color=COLORS["accent"],
+            text_color=COLORS["text_secondary"],
+            command=self._on_remove_skin,
+        )
+        self._skin_remove_btn.pack(side=ctk.RIGHT)
+
+        # 加载已保存的皮肤信息
+        self._current_skin_path: Optional[str] = None
+        if "get_skin_path" in self.callbacks:
+            saved_skin = self.callbacks["get_skin_path"]()
+            if saved_skin and os.path.exists(saved_skin):
+                self._current_skin_path = saved_skin
+                self._update_skin_preview(saved_skin)
+
+        # ── 启动器日志 ──
+        ctk.CTkLabel(
+            sidebar,
+            text="📋 启动器日志",
+            font=ctk.CTkFont(family="Microsoft YaHei", size=14, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
+
+        ctk.CTkFrame(sidebar, fg_color=COLORS["card_border"], height=1).pack(
+            fill=ctk.X, padx=12, pady=(0, 8)
+        )
+
+        # 日志文本框（可滚动）
+        self.log_text = ctk.CTkTextbox(
+            sidebar,
+            font=ctk.CTkFont(family="Consolas", size=10),
+            fg_color=COLORS["bg_medium"],
+            border_color=COLORS["card_border"],
+            text_color=COLORS["text_secondary"],
+            activate_scrollbars=True,
+            height=200,
+            wrap=ctk.WORD,
+            spacing3=1,
+        )
+        self.log_text.pack(fill=ctk.BOTH, expand=True, padx=12, pady=(0, 5))
+
+        # 清空日志按钮
+        ctk.CTkButton(
+            sidebar,
+            text="清空日志",
+            height=26,
+            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_clear_log,
+        ).pack(fill=ctk.X, padx=12, pady=(0, 12))
+
+        # 设置日志捕获
+        self._setup_log_capture()
+
+        # 记录启动日志
+        self._append_log("[FMCL] 启动器已启动")
+
+    def _setup_log_capture(self):
+        """设置日志捕获，将 logzero 输出重定向到 UI 日志框"""
+        self._log_buffer = io.StringIO()
+        try:
+            import logzero
+            # 添加一个自定义 handler 将日志写入 buffer
+            self._log_writer = logging.StreamHandler(self._log_buffer)
+            self._log_writer.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S"))
+            self._log_writer.setLevel(logging.DEBUG)
+            logzero.logger.addHandler(self._log_writer)
+            self._log_capture_active = True
+        except Exception:
+            self._log_capture_active = False
+
+    def _append_log(self, message: str):
+        """追加日志到 UI 日志框（线程安全）"""
+        def _do_append():
+            self.log_text.insert(ctk.END, message + "\n")
+            self.log_text.see(ctk.END)
+        if self.winfo_exists():
+            self.after(0, _do_append)
+
+    def _poll_log_buffer(self):
+        """轮询日志缓冲区，将新日志写入 UI"""
+        if not self._running or not self._log_capture_active:
+            return
+        content = self._log_buffer.getvalue()
+        if content:
+            self._log_buffer.seek(0)
+            self._log_buffer.truncate(0)
+            lines = content.strip().split("\n")
+            for line in lines:
+                if line.strip():
+                    self._append_log(line)
+        self.after(500, self._poll_log_buffer)
+
+    def _on_player_name_change(self, event=None):
+        """角色名输入框失焦时保存"""
+        name = self.player_name_var.get().strip()
+        if name and "set_player_name" in self.callbacks:
+            self.callbacks["set_player_name"](name)
+
+    def _on_select_skin(self):
+        """选择皮肤文件"""
+        from tkinter import filedialog
+        filetypes = [("皮肤文件", "*.png"), ("所有文件", "*.*")]
+        filepath = filedialog.askopenfilename(
+            title="选择皮肤文件",
+            filetypes=filetypes,
+        )
+        if not filepath:
+            return
+
+        # 验证皮肤文件尺寸
+        try:
+            from PIL import Image
+            with Image.open(filepath) as img:
+                w, h = img.size
+                if (w, h) not in [(64, 64), (64, 32), (128, 128), (128, 64)]:
+                    self.set_status(f"皮肤尺寸 {w}x{h} 不支持，请使用 64x64 或 64x32", "warning")
+                    return
+        except ImportError:
+            pass  # 无 PIL，跳过尺寸验证
+        except Exception:
+            self.set_status("无法读取皮肤文件", "error")
+            return
+
+        self._current_skin_path = filepath
+        self._update_skin_preview(filepath)
+
+        if "set_skin_path" in self.callbacks:
+            self.callbacks["set_skin_path"](filepath)
+
+        # 复制皮肤到 .minecraft 目录
+        if "get_minecraft_dir" in self.callbacks:
+            mc_dir = Path(self.callbacks["get_minecraft_dir"]())
+            skin_dir = mc_dir / "skins"
+            skin_dir.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copy2(filepath, str(skin_dir / Path(filepath).name))
+            self.set_status(f"皮肤已安装: {Path(filepath).name}", "success")
+
+    def _update_skin_preview(self, filepath: str):
+        """更新皮肤预览"""
+        filename = Path(filepath).name
+        if len(filename) > 20:
+            filename = filename[:17] + "..."
+        self.skin_preview_label.configure(text=f"✅ {filename}", text_color=COLORS["success"])
+
+    def _on_remove_skin(self):
+        """移除皮肤"""
+        self._current_skin_path = None
+        self.skin_preview_label.configure(text="暂无皮肤\n支持 64x64 / 64x32 PNG", text_color=COLORS["text_secondary"])
+        if "set_skin_path" in self.callbacks:
+            self.callbacks["set_skin_path"](None)
+        self.set_status("皮肤已移除", "info")
+
+    def _on_clear_log(self):
+        """清空日志"""
+        self.log_text.delete("1.0", ctk.END)
 
     def _build_installed_panel(self, parent):
         """构建已安装版本面板"""
@@ -999,6 +1250,9 @@ class ModernApp(ctk.CTk):
     def _on_app_ready(self):
         """应用初始化完成（由外部调用触发）"""
         self._launcher_ready = True
+        # 启动日志轮询
+        if self._log_capture_active:
+            self._poll_log_buffer()
         self.set_status("正在初始化环境...", "loading")
         self._run_in_thread(self._init_environment)
 

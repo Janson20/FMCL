@@ -1,5 +1,8 @@
 {
   "mirror_enabled": true,
   "download_threads": 16,
-  "minimize_on_game_launch": true
+  "minimize_on_game_launch": true,
+  "auto_check_update": true,
+  "player_name": "Janson20",
+  "skin_path": null
 }
