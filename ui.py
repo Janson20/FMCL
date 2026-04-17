@@ -2890,6 +2890,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                 self._status_label.configure(text=text)
         except Exception:
             pass
+
+
+class LauncherSettingsWindow(ctk.CTkToplevel):
     """启动器设置窗口"""
 
     def __init__(self, parent, callbacks: Dict[str, Callable]):
