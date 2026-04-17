@@ -1555,8 +1555,8 @@ class ModernApp(ctk.CTk):
             self.progress_label.configure(text="")
 
         elif task_type == "update_install_started":
-            self.set_status("安装程序已启动，即将退出当前程序...", "success")
-            self.after(2000, self.on_closing)
+            self.set_status("正在退出，即将开始安装更新...", "success")
+            self.after(500, self.on_closing)
 
     # ─── 工具方法 ─────────────────────────────────────────────
 
