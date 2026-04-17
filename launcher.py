@@ -4,6 +4,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Any, Tuple
@@ -321,11 +322,17 @@ class MinecraftLauncher:
 
             logger.info("正在启动游戏...")
             # 使用 Popen 非阻塞启动，捕获 stdout 以便检测游戏窗口
-            self._game_process = subprocess.Popen(
-                minecraft_command,
+            # Windows 下使用 CREATE_NO_WINDOW 隐藏 Java 控制台窗口
+            popen_kwargs = dict(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 bufsize=1,
+            )
+            if sys.platform == 'win32':
+                popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+            self._game_process = subprocess.Popen(
+                minecraft_command,
+                **popen_kwargs,
             )
 
             # ── 启动后内存释放 ──
