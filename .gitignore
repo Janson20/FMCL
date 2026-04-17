@@ -39,6 +39,7 @@ htmlcov/
 
 # Minecraft Files
 .minecraft/
+config/
 
 # Build outputs
 *.exe

@@ -987,13 +987,14 @@ class ModernApp(ctk.CTk):
         if "kill_game_process" in self.callbacks:
             success = self.callbacks["kill_game_process"]()
             if success:
+                self._killed_by_user = True
                 self.set_status("游戏进程已强制结束", "warning")
             else:
                 self.set_status("没有正在运行的游戏进程", "info")
             self.kill_btn.configure(state=ctk.DISABLED)
 
     def _watch_game_exit(self):
-        """监控游戏进程退出（后台线程），退出时通知主线程禁用 kill 按钮"""
+        """监控游戏进程退出（后台线程），检测崩溃并通知主线程"""
         if "get_game_process" not in self.callbacks:
             return
 
@@ -1003,8 +1004,63 @@ class ModernApp(ctk.CTk):
 
         # 等待进程退出（阻塞）
         proc.wait()
-        logger.info("游戏进程已退出")
-        self._task_queue.put(("game_exited", None))
+        exit_code = proc.returncode
+        logger.info(f"游戏进程已退出，退出码: {exit_code}")
+
+        if exit_code != 0 and not getattr(self, "_killed_by_user", False):
+            # 退出码非 0 视为崩溃，收集崩溃文件信息
+            crash_files = self._collect_crash_info()
+            self._task_queue.put(("game_crashed", {"exit_code": exit_code, "crash_files": crash_files}))
+        else:
+            self._task_queue.put(("game_exited", None))
+
+    def _collect_crash_info(self):
+        """收集崩溃相关文件信息（后台线程调用），支持版本隔离目录"""
+        files = {}
+        mc_dir = None
+        try:
+            if "get_minecraft_dir" in self.callbacks:
+                mc_dir = Path(self.callbacks["get_minecraft_dir"]())
+            if mc_dir and mc_dir.exists():
+                base_dir = mc_dir.parent  # 项目根目录
+                files["_mc_dir"] = str(base_dir)
+
+                # ── 游戏日志：在项目根目录的 ./logs 下 ──
+                logs_dir = base_dir / "logs"
+                if logs_dir.exists():
+                    latest_log = logs_dir / "latest.log"
+                    if latest_log.exists():
+                        files["game_log"] = str(latest_log)
+                    debug_log = logs_dir / "debug.log"
+                    if debug_log.exists():
+                        files["debug_log"] = str(debug_log)
+
+                # ── 崩溃报告：在版本隔离目录或全局 .minecraft 下查找 ──
+                version_id = getattr(self, "_running_version_id", None)
+                game_dirs = []
+                if version_id:
+                    version_game_dir = mc_dir / "versions" / version_id
+                    if version_game_dir.exists():
+                        game_dirs.append(version_game_dir)
+                game_dirs.append(mc_dir)  # 最后检查全局目录作为回退
+
+                for game_dir in game_dirs:
+                    # 崩溃报告（取最新的）
+                    crash_dir = game_dir / "crash-reports"
+                    if crash_dir.exists():
+                        crash_reports = sorted(crash_dir.glob("crash-*.txt"), key=lambda f: f.stat().st_mtime, reverse=True)
+                        if crash_reports:
+                            if "crash_report" not in files:
+                                files["crash_report"] = str(crash_reports[0])
+                            if "crash_report_list" not in files:
+                                files["crash_report_list"] = [str(f) for f in crash_reports[:10]]
+                    # JVM 崩溃日志 (hs_err_pid*.log)
+                    hs_err_files = sorted(game_dir.glob("hs_err_pid*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+                    if hs_err_files and "jvm_crash_log" not in files:
+                        files["jvm_crash_log"] = str(hs_err_files[0])
+        except Exception as e:
+            logger.error(f"收集崩溃信息失败: {e}")
+        return files
 
     def _watch_game_stdout(self):
         """监控游戏进程 stdout，检测到游戏窗口出现后关闭管道以避免缓冲区满导致游戏卡顿（后台线程）"""
@@ -1016,7 +1072,7 @@ class ModernApp(ctk.CTk):
             logger.warning("无法获取游戏进程 stdout")
             return
 
-        marker = "Reloading ResourceManager:"
+        marker = "Datafixer optimizations took"
         timeout = 120
 
         import threading
@@ -1043,7 +1099,7 @@ class ModernApp(ctk.CTk):
         start = time.time()
         while time.time() - start < timeout and self._running:
             if result["detected"]:
-                logger.info("检测到游戏窗口出现 (Reloading ResourceManager)，关闭 stdout 管道")
+                logger.info("检测到游戏窗口出现 (Datafixer Bootstrap)，关闭 stdout 管道")
                 try:
                     proc.stdout.close()
                 except Exception:
@@ -1327,8 +1383,8 @@ class ModernApp(ctk.CTk):
         """启动游戏（后台线程）"""
         try:
             minimize = self.minimize_var.get()
-            result = self.callbacks["launch_game"](version_id, minimize_after=minimize)
-            self._task_queue.put(("launch_done", (version_id, result)))
+            success, target_version = self.callbacks["launch_game"](version_id, minimize_after=minimize)
+            self._task_queue.put(("launch_done", (version_id, target_version, success)))
         except Exception as e:
             self._task_queue.put(("launch_error", str(e)))
 
@@ -1420,8 +1476,10 @@ class ModernApp(ctk.CTk):
             self.set_status(f"删除错误: {data}", "error")
 
         elif task_type == "launch_done":
-            version_id, success = data
+            version_id, target_version, success = data
             if success:
+                self._running_version_id = target_version or version_id
+                self._killed_by_user = False
                 self.set_status(f"{version_id} 已启动，等待游戏窗口...", "loading")
                 self.kill_btn.configure(state=ctk.NORMAL)
                 # 无论是否最小化都启动日志监控，检测到窗口后关闭管道避免缓冲区满导致游戏卡顿
@@ -1444,6 +1502,19 @@ class ModernApp(ctk.CTk):
 
         elif task_type == "game_exited":
             self.kill_btn.configure(state=ctk.DISABLED)
+            self.set_status("游戏已正常退出", "info")
+
+        elif task_type == "game_crashed":
+            self.kill_btn.configure(state=ctk.DISABLED)
+            exit_code = data["exit_code"]
+            crash_files = data["crash_files"]
+            self.set_status(f"游戏异常退出 (退出码: {exit_code})", "error")
+            # 恢复最小化的窗口
+            try:
+                self.deiconify()
+            except Exception:
+                pass
+            self._show_crash_dialog(exit_code, crash_files)
 
         elif task_type == "progress_update":
             current, total, status = data
@@ -1607,6 +1678,195 @@ class ModernApp(ctk.CTk):
 
         about.bind('<Return>', lambda e: about.destroy())
         about.focus_set()
+
+    def _show_crash_dialog(self, exit_code: int, crash_files: dict):
+        """显示崩溃提示对话框"""
+        import tkinter as tk
+        from tkinter import filedialog
+        import zipfile
+        import shutil
+        from datetime import datetime
+
+        dialog = tk.Toplevel(self)
+        dialog.title("游戏崩溃")
+        dialog.resizable(False, False)
+        dialog.attributes('-topmost', True)
+        dialog.configure(bg='#1a1a2e')
+        dialog.transient(self)
+        dialog.grab_set()
+
+        # 窗口尺寸与居中
+        w, h = 440, 280
+        dialog.geometry(f"{w}x{h}")
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() - w) // 2
+        y = (dialog.winfo_screenheight() - h) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        pad = 24
+
+        # 崩溃图标
+        icon_path = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__))), 'icon.ico')
+        icon_frame = tk.Frame(dialog, bg='#1a1a2e')
+        icon_frame.place(x=pad, y=pad, width=64, height=64)
+        if os.path.exists(icon_path):
+            try:
+                from PIL import Image as PILImage, ImageTk
+                pil_img = PILImage.open(icon_path).resize((64, 64), PILImage.LANCZOS)
+                tk_img = ImageTk.PhotoImage(pil_img)
+                tk.Label(icon_frame, image=tk_img, bg='#1a1a2e').pack()
+                dialog._icon_ref = tk_img
+            except Exception:
+                tk.Label(icon_frame, text='\u26cf', font=('Segoe UI', 28), fg='#e94560', bg='#1a1a2e').pack()
+        else:
+            tk.Label(icon_frame, text='\u26cf', font=('Segoe UI', 28), fg='#e94560', bg='#1a1a2e').pack()
+
+        # 崩溃信息
+        has_crash_report = "crash_report" in crash_files
+        has_game_log = "game_log" in crash_files
+        has_jvm_crash = "jvm_crash_log" in crash_files
+
+        info_text = f"游戏异常退出 (退出码: {exit_code})"
+        tk.Label(dialog, text=info_text, font=('Microsoft YaHei', 14, 'bold'),
+                 fg='#e94560', bg='#1a1a2e').place(x=pad + 72, y=pad + 5)
+
+        detail_parts = []
+        if has_crash_report:
+            detail_parts.append("已检测到崩溃报告")
+        if has_jvm_crash:
+            detail_parts.append("JVM 崩溃日志可用")
+        if has_game_log:
+            detail_parts.append("游戏日志可用")
+        detail = "；".join(detail_parts) if detail_parts else "未找到崩溃报告文件，仍可尝试导出"
+        tk.Label(dialog, text=detail, font=('Microsoft YaHei', 10),
+                 fg='#8899aa', bg='#1a1a2e').place(x=pad + 72, y=pad + 38)
+
+        # 分隔线
+        tk.Frame(dialog, bg='#0f3460', height=1).place(x=pad, y=pad + 68, width=w - 2 * pad)
+
+        # 按钮区域
+        btn_y = pad + 90
+        btn_h = 38
+
+        def _open_crash_report():
+            path = crash_files.get("crash_report")
+            if path and os.path.exists(path):
+                os.startfile(path)
+
+        def _open_game_log():
+            path = crash_files.get("game_log")
+            if path and os.path.exists(path):
+                os.startfile(path)
+            else:
+                mc_dir = None
+                try:
+                    if "get_minecraft_dir" in self.callbacks:
+                        mc_dir = Path(self.callbacks["get_minecraft_dir"]())
+                    if mc_dir:
+                        log_dir = mc_dir / "logs"
+                        if log_dir.exists():
+                            os.startfile(str(log_dir))
+                            return
+                except Exception:
+                    pass
+                messagebox.showinfo("提示", "未找到游戏日志文件", parent=dialog)
+
+        def _export_crash_report():
+            filetypes = [("ZIP 压缩包", "*.zip")]
+            default_name = f"FMCL-crash-{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+            save_path = filedialog.asksaveasfilename(
+                parent=dialog,
+                title="导出崩溃报告",
+                defaultextension=".zip",
+                initialfile=default_name,
+                filetypes=filetypes,
+            )
+            if not save_path:
+                return
+            try:
+                with zipfile.ZipFile(save_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                    # 崩溃报告文件
+                    if "crash_report" in crash_files:
+                        p = crash_files["crash_report"]
+                        if os.path.exists(p):
+                            zf.write(p, f"crash-reports/{os.path.basename(p)}")
+                    if "crash_report_list" in crash_files:
+                        for p in crash_files["crash_report_list"]:
+                            if os.path.exists(p):
+                                zf.write(p, f"crash-reports/{os.path.basename(p)}")
+
+                    # 游戏日志
+                    for key, arcname in [("game_log", "logs/latest.log"), ("debug_log", "logs/debug.log"), ("jvm_crash_log", "hs_err_pid.log")]:
+                        p = crash_files.get(key)
+                        if p and os.path.exists(p):
+                            zf.write(p, arcname)
+
+                    # 启动器日志（从内存缓冲区或磁盘文件获取）
+                    launcher_log_content = ""
+                    # 优先从内存缓冲区获取
+                    if hasattr(self, '_log_buffer') and self._log_buffer:
+                        launcher_log_content = self._log_buffer.getvalue()
+                    # 如果缓冲区为空，回退到 logzero 的磁盘日志文件
+                    if not launcher_log_content.strip():
+                        base_dir = crash_files.get("_mc_dir")
+                        if base_dir:
+                            disk_log = Path(base_dir) / "latest.log"
+                            if disk_log.exists():
+                                try:
+                                    # Windows 下 logzero 可能使用 GBK 编码
+                                    for enc in ("utf-8", "gbk", "latin-1"):
+                                        try:
+                                            launcher_log_content = disk_log.read_text(enc)
+                                            break
+                                        except (UnicodeDecodeError, UnicodeError):
+                                            continue
+                                except Exception:
+                                    pass
+                    if launcher_log_content.strip():
+                        zf.writestr("launcher.log", launcher_log_content.encode("utf-8", errors="replace"))
+
+
+                    # 系统信息摘要
+                    import platform as _platform
+                    sys_info = (
+                        f"FMCL Crash Report\n"
+                        f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                        f"Exit Code: {exit_code}\n"
+                        f"OS: {_platform.system()} {_platform.release()}\n"
+                        f"Python: {_platform.python_version()}\n"
+                        f"Architecture: {_platform.machine()}\n"
+                    )
+                    zf.writestr("system-info.txt", sys_info)
+
+                messagebox.showinfo("导出成功", f"崩溃报告已保存至:\n{save_path}", parent=dialog)
+            except Exception as e:
+                messagebox.showerror("导出失败", f"导出崩溃报告时出错:\n{e}", parent=dialog)
+
+        # 按钮样式参数
+        btn_style = dict(font=('Microsoft YaHei', 10), relief='flat', cursor='hand2',
+                         bg='#0f3460', fg='white', activebackground='#2d3a5c', activeforeground='white',
+                         bd=0, highlightthickness=0)
+
+        btn1 = tk.Button(dialog, text="📄 打开崩溃报告", command=_open_crash_report,
+                         state='normal' if has_crash_report else 'disabled', **btn_style)
+        btn1.place(x=pad, y=btn_y, width=w - 2 * pad, height=btn_h)
+
+        btn2 = tk.Button(dialog, text="📋 打开游戏日志", command=_open_game_log,
+                         state='normal' if has_game_log else 'normal', **btn_style)
+        btn2.place(x=pad, y=btn_y + btn_h + 8, width=w - 2 * pad, height=btn_h)
+
+        btn3 = tk.Button(dialog, text="📦 导出崩溃报告", command=_export_crash_report,
+                         bg='#e94560', fg='white', activebackground='#ff6b81', activeforeground='white',
+                         font=('Microsoft YaHei', 10, 'bold'), relief='flat', cursor='hand2',
+                         bd=0, highlightthickness=0)
+        btn3.place(x=pad, y=btn_y + (btn_h + 8) * 2, width=w - 2 * pad, height=btn_h)
+
+        # 关闭按钮
+        close_btn = tk.Button(dialog, text='关闭', command=dialog.destroy,
+                              font=('Microsoft YaHei', 9), relief='flat', cursor='hand2',
+                              bg='#1a1a2e', fg='#667788', activebackground='#1a1a2e',
+                              activeforeground='#aabbcc', bd=0)
+        close_btn.place(x=w // 2 - 20, y=h - 36, width=40)
 
     def _open_launcher_settings(self):
         """打开启动器设置窗口"""
@@ -2469,10 +2729,11 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _set_status(self, text: str):
         """更新状态栏"""
-        self._status_label.configure(text=text)
-
-
-class LauncherSettingsWindow(ctk.CTkToplevel):
+        try:
+            if self.winfo_exists():
+                self._status_label.configure(text=text)
+        except Exception:
+            pass
     """启动器设置窗口"""
 
     def __init__(self, parent, callbacks: Dict[str, Callable]):
@@ -3079,7 +3340,11 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
     def _set_status(self, text: str):
         """更新状态栏"""
-        self._status_label.configure(text=text)
+        try:
+            if self.winfo_exists():
+                self._status_label.configure(text=text)
+        except Exception:
+            pass
 
     def _run_in_thread(self, target, *args, **kwargs):
         """后台线程执行"""
