@@ -34,7 +34,7 @@ COLORS = {
 
 
 class ModernApp(ctk.CTk):
-    """MCL 启动器主窗口"""
+    """FMCL 启动器主窗口"""
 
     def __init__(self, launcher_callbacks: Dict[str, Callable]):
         """
@@ -56,7 +56,7 @@ class ModernApp(ctk.CTk):
         self._launcher_ready = False  # 标记 launcher 是否初始化完成
 
         # 窗口配置
-        self.title("MCL - Minecraft Launcher")
+        self.title("FMCL - Fusion Minecraft Launcher")
         self.geometry("960x860")
         self.minsize(860, 800)
         self.configure(fg_color=COLORS["bg_dark"])
@@ -101,7 +101,7 @@ class ModernApp(ctk.CTk):
         # 标题
         title_label = ctk.CTkLabel(
             header,
-            text="⛏ MCL",
+            text="⛏ FMCL",
             font=ctk.CTkFont(family="Microsoft YaHei", size=28, weight="bold"),
             text_color=COLORS["text_primary"],
         )

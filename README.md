@@ -1,4 +1,4 @@
-# MCL - Minecraft Launcher
+# FMCL - Fusion Minecraft Launcher
 
 一个功能丰富的 Minecraft 启动器，基于 CustomTkinter 现代化 UI，支持国内镜像加速、多模组加载器安装与版本管理。
 
@@ -85,7 +85,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  ⛏ MCL   Minecraft Launcher   🔽 启动后最小化  🇨🇳 国内镜像  ⬆ 更新  🔄 刷新  │
+│  ⛏ FMCL   Minecraft Launcher   🔽 启动后最小化  🇨🇳 国内镜像  ⬆ 更新  🔄 刷新  │
 ├──────────────────────────────┬──────────────────────────────┤
 │  📦 已安装版本  ⚙  3 个版本 │  📥 安装新版本               │
 │  ─────────────────────────── │  ──────────────────────      │
@@ -122,39 +122,39 @@
 
 ### 方式一：从 Release 下载（推荐）
 
-前往 [Releases](https://github.com/Janson20/MCL/releases) 页面下载适合你平台的安装包：
+前往 [Releases](https://github.com/Janson20/FMCL/releases) 页面下载适合你平台的安装包：
 
 | 平台 | 文件 | 说明 |
 |------|------|------|
-| Windows | `MCL-Setup-x.x.x.exe` | NSIS 安装包，双击运行 |
-| macOS Intel | `MCL-x.x.x-mac-amd64.dmg` | Intel 芯片 |
-| macOS Apple Silicon | `MCL-x.x.x-mac-arm64.dmg` | M1/M2/M3 芯片 |
-| Linux | `MCL-x.x.x-linux-amd64.deb` | Debian/Ubuntu 等发行版 |
-| Linux | `MCL-x.x.x-x86_64.AppImage` | 通用 Linux 格式 |
+| Windows | `FMCL-Setup-x.x.x.exe` | NSIS 安装包，双击运行 |
+| macOS Intel | `FMCL-x.x.x-mac-amd64.dmg` | Intel 芯片 |
+| macOS Apple Silicon | `FMCL-x.x.x-mac-arm64.dmg` | M1/M2/M3 芯片 |
+| Linux | `FMCL-x.x.x-linux-amd64.deb` | Debian/Ubuntu 等发行版 |
+| Linux | `FMCL-x.x.x-x86_64.AppImage` | 通用 Linux 格式 |
 
 #### 安装说明
 
 - **Windows**: 双击 `.exe` 安装包，按向导完成安装
-- **macOS**: 双击 `.dmg` 文件，将 MCL.app 拖入 Applications 文件夹。首次打开若提示"无法验证开发者"，请在系统设置 > 安全性与隐私中点击"仍要打开"，或运行：
+- **macOS**: 双击 `.dmg` 文件，将 FMCL.app 拖入 Applications 文件夹。首次打开若提示"无法验证开发者"，请在系统设置 > 安全性与隐私中点击"仍要打开"，或运行：
   ```bash
-  xattr -cr /Applications/MCL.app
+  xattr -cr /Applications/FMCL.app
   ```
 - **Linux DEB**:
   ```bash
-  sudo dpkg -i MCL-x.x.x-linux-amd64.deb
+  sudo dpkg -i FMCL-x.x.x-linux-amd64.deb
   ```
 - **Linux AppImage**:
   ```bash
-  chmod +x MCL-x.x.x-x86_64.AppImage
-  ./MCL-x.x.x-x86_64.AppImage
+  chmod +x FMCL-x.x.x-x86_64.AppImage
+  ./FMCL-x.x.x-x86_64.AppImage
   ```
 
 ### 方式二：从源码运行
 
 ```bash
 # 克隆仓库
-git clone https://github.com/Janson20/MCL.git
-cd MCL
+git clone https://github.com/Janson20/FMCL.git
+cd FMCL
 
 # 安装 Python 依赖
 pip install -r requirements.txt
@@ -275,7 +275,7 @@ python main.py
 ## 项目结构
 
 ```
-MCL/
+FMCL/
 ├── main.py                # 主程序入口，延迟导入优化、日志配置、UI 创建、线程管理
 ├── launcher.py            # 启动器核心逻辑
 │   ├── 环境检查与初始化
@@ -482,7 +482,7 @@ chore: 构建/工具变动
 | 镜像源连接失败 | 尝试关闭「国内镜像」开关使用 Mojang 官方源 |
 | 版本安装失败 | 检查网络连接，查看 `latest.log` 日志 |
 | 游戏启动失败 | 确保已安装 Java 运行时 |
-| macOS 提示无法验证开发者 | `xattr -cr MCL.app` 移除隔离属性 |
+| macOS 提示无法验证开发者 | `xattr -cr FMCL.app` 移除隔离属性 |
 | Windows 杀毒误报 | 添加到杀毒软件排除列表 |
 | Windows 异常退出 | 尝试以管理员权限运行程序 |
 | 依赖安装失败 | `pip install -r requirements.txt --force-reinstall` |
@@ -491,4 +491,4 @@ chore: 构建/工具变动
 
 ## 许可证
 
-[MIT License](LICENSE) - Copyright (c) 2026 MCL Team
+[MIT License](LICENSE) - Copyright (c) 2026 FMCL Team

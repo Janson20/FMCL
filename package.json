@@ -1,5 +1,5 @@
 {
-  "name": "mcl",
+  "name": "fmcl",
   "version": "2.2.2",
   "description": "A feature-rich Minecraft launcher with multi-threaded download support, Forge installation, and GUI version selection",
   "private": true,

@@ -82,7 +82,7 @@ if platform == 'win':
         a.zipfiles,
         a.datas,
         [],
-        name='MCL',
+        name='FMCL',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -109,7 +109,7 @@ elif platform == 'mac':
         a.zipfiles,
         a.datas,
         [],
-        name='MCL',
+        name='FMCL',
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
@@ -126,9 +126,9 @@ elif platform == 'mac':
 
     app = BUNDLE(
         exe,
-        name='MCL.app',
+        name='FMCL.app',
         icon=None,
-        bundle_identifier='com.mcl.launcher',
+        bundle_identifier='com.fmcl.launcher',
         info_plist={
             'NSPrincipalClass': 'NSApplication',
             'NSAppleScriptEnabled': False,
@@ -146,7 +146,7 @@ else:
         a.zipfiles,
         a.datas,
         [],
-        name='MCL',
+        name='FMCL',
         debug=False,
         bootloader_ignore_signals=False,
         strip=True,

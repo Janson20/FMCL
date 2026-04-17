@@ -29,10 +29,10 @@ sudo dnf install python3-devel tk-devel
 # 系统偏好设置 -> 安全性与隐私 -> 通用 -> 仍要打开
 
 # 方法2: 移除隔离属性
-xattr -cr MCL.app
+xattr -cr FMCL.app
 
 # 方法3: 代码签名（需要Apple Developer账号）
-codesign --deep --force --verify --verbose --sign "Developer ID Application: Your Name" MCL.app
+codesign --deep --force --verify --verbose --sign "Developer ID Application: Your Name" FMCL.app
 ```
 
 ### Windows 杀毒软件误报
@@ -46,7 +46,7 @@ codesign --deep --force --verify --verbose --sign "Developer ID Application: You
 2. **长期方案**: 购买代码签名证书并签名
    ```powershell
    # 使用signtool签名
-   signtool sign /f certificate.pfx /p password /t http://timestamp.digicert.com MCL.exe
+   signtool sign /f certificate.pfx /p password /t http://timestamp.digicert.com FMCL.exe
    ```
 
 ### ARM64 构建问题
@@ -85,10 +85,10 @@ uv sync --reinstall
 **解决方案**:
 ```bash
 # 添加执行权限
-chmod +x MCL
+chmod +x FMCL
 
 # 或使用sudo运行
-sudo ./MCL
+sudo ./FMCL
 ```
 
 ### Minecraft 启动失败
@@ -220,10 +220,10 @@ pip install -r requirements.txt
 如果以上方法都无法解决问题：
 
 1. **查看日志**: `latest.log` 文件包含详细的错误信息
-2. **搜索Issues**: [GitHub Issues](https://github.com/Janson20/MCL/issues)
+2. **搜索Issues**: [GitHub Issues](https://github.com/Janson20/FMCL/issues)
 3. **提交Issue**: 提供以下信息：
    - 操作系统和版本
    - Python版本
    - 错误日志
    - 复现步骤
-4. **社区讨论**: [GitHub Discussions](https://github.com/Janson20/MCL/discussions)
+4. **社区讨论**: [GitHub Discussions](https://github.com/Janson20/FMCL/discussions)

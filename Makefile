@@ -23,34 +23,34 @@ build-installer: build ## 构建 Windows 安装包 (需要 NSIS)
 build-dmg: build ## 构建 macOS DMG (仅 macOS)
 	@echo "Creating DMG for version $(VERSION)..."
 	@mkdir -p dmg_temp
-	@cp -R dist/MCL.app dmg_temp/
+	@cp -R dist/FMCL.app dmg_temp/
 	@ln -sf /Applications dmg_temp/Applications
-	@hdiutil create -volname "MCL" -srcfolder dmg_temp -ov -format UDZO "MCL-$(VERSION)-mac.dmg"
+	@hdiutil create -volname "FMCL" -srcfolder dmg_temp -ov -format UDZO "FMCL-$(VERSION)-mac.dmg"
 	@rm -rf dmg_temp
 
 build-deb: build ## 构建 Linux DEB 包
 	@echo "Creating DEB package for version $(VERSION)..."
-	@mkdir -p mcl_$(VERSION)_amd64/DEBIAN
-	@mkdir -p mcl_$(VERSION)_amd64/usr/local/bin
-	@mkdir -p mcl_$(VERSION)_amd64/usr/share/applications
-	@cp dist/MCL mcl_$(VERSION)_amd64/usr/local/bin/mcl
-	@chmod +x mcl_$(VERSION)_amd64/usr/local/bin/mcl
-	@echo "[Desktop Entry]\nName=MCL\nComment=Minecraft Launcher\nExec=/usr/local/bin/mcl\nTerminal=false\nType=Application\nCategories=Game;" > mcl_$(VERSION)_amd64/usr/share/applications/mcl.desktop
-	@echo "Package: mcl\nVersion: $(VERSION)\nArchitecture: amd64\nMaintainer: MCL Team\nDescription: Minecraft Launcher\n A feature-rich Minecraft launcher." > mcl_$(VERSION)_amd64/DEBIAN/control
-	@fakeroot dpkg-deb --build mcl_$(VERSION)_amd64
-	@mv mcl_$(VERSION)_amd64.deb MCL-$(VERSION)-linux-amd64.deb
-	@rm -rf mcl_$(VERSION)_amd64
+	@mkdir -p fmcl_$(VERSION)_amd64/DEBIAN
+	@mkdir -p fmcl_$(VERSION)_amd64/usr/local/bin
+	@mkdir -p fmcl_$(VERSION)_amd64/usr/share/applications
+	@cp dist/FMCL fmcl_$(VERSION)_amd64/usr/local/bin/fmcl
+	@chmod +x fmcl_$(VERSION)_amd64/usr/local/bin/fmcl
+	@echo "[Desktop Entry]\nName=FMCL\nComment=Fusion Minecraft Launcher\nExec=/usr/local/bin/fmcl\nTerminal=false\nType=Application\nCategories=Game;" > fmcl_$(VERSION)_amd64/usr/share/applications/fmcl.desktop
+	@echo "Package: fmcl\nVersion: $(VERSION)\nArchitecture: amd64\nMaintainer: FMCL Team\nDescription: Fusion Minecraft Launcher\n A feature-rich Minecraft launcher." > fmcl_$(VERSION)_amd64/DEBIAN/control
+	@fakeroot dpkg-deb --build fmcl_$(VERSION)_amd64
+	@mv fmcl_$(VERSION)_amd64.deb FMCL-$(VERSION)-linux-amd64.deb
+	@rm -rf fmcl_$(VERSION)_amd64
 
 build-appimage: build ## 构建 Linux AppImage
 	@echo "Creating AppImage for version $(VERSION)..."
-	@mkdir -p MCL.AppDir/usr/bin
-	@cp dist/MCL MCL.AppDir/usr/bin/mcl
-	@chmod +x MCL.AppDir/usr/bin/mcl
-	@echo '#!/bin/sh\nSELF=$$(readlink -f "$$0")\nHERE=$${SELF%/*}\nexec "$${HERE}/usr/bin/mcl" "$$@"' > MCL.AppDir/AppRun
-	@chmod +x MCL.AppDir/AppRun
-	@echo "[Desktop Entry]\nName=MCL\nComment=Minecraft Launcher\nExec=mcl\nTerminal=false\nType=Application\nCategories=Game;" > MCL.AppDir/mcl.desktop
-	@appimagetool MCL.AppDir MCL-$(VERSION)-x86_64.AppImage
-	@rm -rf MCL.AppDir
+	@mkdir -p FMCL.AppDir/usr/bin
+	@cp dist/FMCL FMCL.AppDir/usr/bin/fmcl
+	@chmod +x FMCL.AppDir/usr/bin/fmcl
+	@echo '#!/bin/sh\nSELF=$$(readlink -f "$$0")\nHERE=$${SELF%/*}\nexec "$${HERE}/usr/bin/fmcl" "$$@"' > FMCL.AppDir/AppRun
+	@chmod +x FMCL.AppDir/AppRun
+	@echo "[Desktop Entry]\nName=FMCL\nComment=Fusion Minecraft Launcher\nExec=fmcl\nTerminal=false\nType=Application\nCategories=Game;" > FMCL.AppDir/fmcl.desktop
+	@appimagetool FMCL.AppDir FMCL-$(VERSION)-x86_64.AppImage
+	@rm -rf FMCL.AppDir
 
 release: ## 创建新版本发布 (使用: make release VERSION=2.0.1)
 	@python scripts/release.py $(VERSION)
