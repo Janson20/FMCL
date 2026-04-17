@@ -255,7 +255,7 @@ class MinecraftLauncher:
             minimize_after: 启动后是否最小化启动器窗口（由 UI 侧监控游戏日志实现）
 
         Returns:
-            是否启动成功
+            (success, target_version) 是否启动成功及实际启动的版本ID
         """
         try:
             # 检查版本是否已安装
@@ -289,7 +289,7 @@ class MinecraftLauncher:
                         target_version = matches[0]
                 else:
                     logger.error(f"版本未安装: {version_id}")
-                    return False
+                    return False, None
 
             # 版本隔离：为模组加载器版本设置 gameDirectory
             # 游戏会从 gameDirectory 读取 mods、config 等资源
@@ -339,11 +339,11 @@ class MinecraftLauncher:
             self._release_memory_after_launch()
 
             logger.info(f"游戏已启动 ({target_version})")
-            return True
+            return True, target_version
 
         except Exception as e:
             logger.error(f"启动游戏失败: {str(e)}")
-            return False
+            return False, None
 
     @staticmethod
     def _has_mod_loader(version_id: str) -> bool:
