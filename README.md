@@ -46,6 +46,7 @@
 
 ### 🖥️ 现代化界面
 - 基于 CustomTkinter 的深色主题，流畅美观
+- 启动画面：加载时在屏幕中央展示应用图标，加载完成后自动切换到主窗口
 - 三栏布局：左侧边栏（角色名、皮肤、日志）、中间已安装版本、右侧操作面板
 - 异步操作：所有网络与安装任务在后台线程执行，UI 不卡顿
 - 实时进度条与状态提示
@@ -355,7 +356,8 @@ FMCL/
 ├── config.json            # 用户配置（镜像源开关、下载线程数等）
 ├── requirements.txt       # Python 依赖
 ├── pyproject.toml         # 项目元数据（版本号等）
-├── build.spec             # PyInstaller 构建配置
+├── build.spec             # PyInstaller 构建配置（含应用图标）
+├── icon.ico               # 应用图标（多尺寸 ICO）
 ├── installer.nsi          # Windows NSIS 安装脚本
 ├── Makefile               # 构建/开发命令集合
 ├── package.json           # Node.js 开发工具配置

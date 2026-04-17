@@ -22,6 +22,9 @@ print(f"Building for platform: {platform}, arch: {arch}")
 
 block_cipher = None
 
+# 图标路径
+icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon.ico')
+
 # 通用隐式导入
 hidden_imports = [
     'minecraft_launcher_lib',
@@ -55,7 +58,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[(icon_path, '.')],
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
@@ -89,12 +92,13 @@ if platform == 'win':
         upx=True,
         upx_exclude=[],
         runtime_tmpdir=None,
-        console=True,
+        console=False,
         disable_windowed_traceback=False,
         argv_emulation=False,
         target_arch=None,
         codesign_identity=None,
         entitlements_file=None,
+        icon=icon_path,
     )
 
 elif platform == 'mac':
@@ -127,7 +131,7 @@ elif platform == 'mac':
     app = BUNDLE(
         exe,
         name='FMCL.app',
-        icon=None,
+        icon=icon_path.replace('.ico', '.icns') if os.path.exists(icon_path.replace('.ico', '.icns')) else None,
         bundle_identifier='com.fmcl.launcher',
         info_plist={
             'NSPrincipalClass': 'NSApplication',
