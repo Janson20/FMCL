@@ -2481,11 +2481,21 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.parent = parent
 
         self.title("启动器设置")
-        self.geometry("450x320")
+        self.geometry("450x420")
         self.resizable(False, False)
         self.grab_set()
 
         self._build_ui()
+
+    def destroy(self):
+        """销毁窗口，先处理 CTkSlider 的 bug"""
+        if hasattr(self, '_threads_slider'):
+            try:
+                if hasattr(self._threads_slider, '_variable'):
+                    self._threads_slider._variable = None
+            except Exception:
+                pass
+        super().destroy()
 
     def _build_ui(self):
         """构建设置界面"""
@@ -2555,6 +2565,43 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         )
         mirror_switch.pack(side=ctk.RIGHT)
 
+        # 下载线程数滑块
+        threads_frame = ctk.CTkFrame(container, fg_color="transparent")
+        threads_frame.pack(fill=ctk.X, pady=10)
+
+        threads_label = ctk.CTkLabel(
+            threads_frame,
+            text="⚡ 下载线程数",
+            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            text_color=COLORS["text_primary"],
+        )
+        threads_label.pack(side=ctk.LEFT)
+
+        self.threads_value_label = ctk.CTkLabel(
+            threads_frame,
+            text=str(self.callbacks.get("get_download_threads", lambda: 4)()),
+            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            text_color=COLORS["accent"],
+            width=30,
+        )
+        self.threads_value_label.pack(side=ctk.RIGHT)
+
+        threads_slider = ctk.CTkSlider(
+            container,
+            from_=1,
+            to=255,
+            number_of_steps=254,
+            command=self._on_threads_change,
+            fg_color=COLORS["bg_light"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            progress_color=COLORS["accent"],
+            width=380,
+        )
+        threads_slider.set(self.callbacks.get("get_download_threads", lambda: 4)())
+        threads_slider.pack(fill=ctk.X, pady=(5, 0))
+        self._threads_slider = threads_slider
+
         # 关闭按钮
         close_btn = ctk.CTkButton(
             container,
@@ -2591,6 +2638,14 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             f"国内镜像源: {'已启用' if enabled else '已禁用'}",
             "success" if enabled else "info"
         )
+
+    def _on_threads_change(self, value):
+        """下载线程数滑块变化"""
+        threads = int(round(value))
+        self.threads_value_label.configure(text=str(threads))
+        if "set_download_threads" in self.callbacks:
+            self.callbacks["set_download_threads"](threads)
+        self.parent.set_status(f"下载线程数: {threads}", "info")
 
 
 class ModBrowserWindow(ctk.CTkToplevel):

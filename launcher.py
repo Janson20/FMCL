@@ -507,6 +507,8 @@ class MinecraftLauncher:
             "verify_installed_version": self.verify_installed_version,
             "set_minimize_on_game_launch": self.set_minimize_on_game_launch,
             "get_minimize_on_game_launch": self.get_minimize_on_game_launch,
+            "get_download_threads": self.get_download_threads,
+            "set_download_threads": self.set_download_threads,
             "get_game_process": self.get_game_process,
             "kill_game_process": self.kill_game_process,
             "is_game_running": self.is_game_running,
@@ -648,6 +650,16 @@ class MinecraftLauncher:
     def get_minimize_on_game_launch(self) -> bool:
         """获取游戏启动后是否最小化启动器"""
         return self.config.minimize_on_game_launch
+
+    def get_download_threads(self) -> int:
+        """获取下载线程数"""
+        return self.config.download_threads
+
+    def set_download_threads(self, threads: int) -> None:
+        """设置下载线程数"""
+        self.config.download_threads = max(1, min(255, threads))
+        self.config.save_config()
+        logger.info(f"下载线程数设置为: {self.config.download_threads}")
 
     def test_mirror_connection(self) -> bool:
         """测试当前镜像源连接"""
