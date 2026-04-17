@@ -296,17 +296,33 @@ def install_update(file_path: str) -> bool:
 
     try:
         if system == "windows":
-            # NSIS 安装包支持 /S 静默安装
-            # /S 大写是 NSIS 的标准静默安装参数
-            cmd = [str(path), "/S"]
-            logger.info(f"启动静默安装: {' '.join(cmd)}")
+            # 获取当前安装目录，确保更新安装到相同位置
+            if getattr(sys, 'frozen', False):
+                install_dir = str(Path(sys.executable).parent)
+                # /D= 指定安装目录（NSIS 要求：必须是最末参数，不可加引号）
+                install_dir_arg = f"/D={install_dir}"
+            else:
+                install_dir_arg = ""
 
-            # 使用 CREATE_NEW_PROCESS_GROUP 确保安装程序独立运行
-            # 启动后立即返回，不等待安装完成
+            # 创建辅助批处理脚本：等待当前进程退出后再运行安装程序
+            # 解决安装程序无法覆盖正在运行的可执行文件的问题
+            bat_path = Path(file_path).parent / "update_fmcl.bat"
+            bat_content = (
+                "@echo off\r\n"
+                ":wait_loop\r\n"
+                'tasklist /FI "IMAGENAME eq FMCL.exe" 2>nul | find /I "FMCL.exe" >nul\r\n'
+                "if %ERRORLEVEL% equ 0 (\r\n"
+                "    timeout /t 1 /nobreak >nul\r\n"
+                "    goto wait_loop\r\n"
+                ")\r\n"
+                f'"{file_path}" /S /NCRC {install_dir_arg}\r\n'
+            )
+            bat_path.write_text(bat_content, encoding="ascii")
+
+            logger.info(f"启动更新辅助脚本: {bat_path}")
             subprocess.Popen(
-                cmd,
+                str(bat_path),
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
-                close_fds=True,
             )
 
         elif system == "darwin":
