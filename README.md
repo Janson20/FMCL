@@ -95,7 +95,9 @@
 
 ### 📋 日志系统
 - 基于 logzero 的完整日志记录
-- 日志文件 `latest.log` 保留在程序目录，便于排查问题
+- **跨平台日志存储**：
+  - Windows/macOS: `latest.log` 保留在程序目录
+  - Linux: `/var/log/fmcl/latest.log`（遵循 FHS 标准）
 
 ### 💥 崩溃检测与报告
 - 自动检测游戏异常退出（退出码非 0）
@@ -430,7 +432,33 @@ main.py
 
 ## 配置说明
 
-配置文件 `config.json` 位于程序根目录，启动时自动加载：
+### 配置文件位置（跨平台）
+
+**Windows/macOS:**
+- 配置文件: `config.json`（程序根目录）
+- 日志文件: `latest.log`（程序根目录）
+- Minecraft 目录: `.minecraft/`（程序根目录）
+
+**Linux (FHS 标准):**
+- 配置文件: `/etc/fmcl/config.json`
+- 日志文件: `/var/log/fmcl/latest.log`
+- Minecraft 目录: `~/.minecraft/`
+- 运行时目录: `~/.fmcl/`
+
+> 💡 **Linux 首次运行**: 需要创建系统目录，可使用提供的初始化脚本：
+> ```bash
+> chmod +x scripts/setup_linux.sh
+> ./scripts/setup_linux.sh
+> ```
+> 或手动创建：
+> ```bash
+> sudo mkdir -p /etc/fmcl /var/log/fmcl
+> sudo chown $USER:$USER /etc/fmcl /var/log/fmcl
+> ```
+
+### 配置项说明
+
+配置文件 `config.json` 启动时自动加载：
 
 ```json
 {
@@ -480,6 +508,23 @@ make lint             # 代码检查 (flake8 + mypy)
 make fix              # 运行常见问题修复工具
 make clean            # 清理构建文件
 ```
+
+### Linux 初始化
+
+Linux 平台首次运行前，需要创建系统目录：
+
+```bash
+# 方法一：使用初始化脚本（推荐）
+chmod +x scripts/setup_linux.sh
+./scripts/setup_linux.sh
+
+# 方法二：手动创建
+sudo mkdir -p /etc/fmcl /var/log/fmcl
+sudo chown $USER:$USER /etc/fmcl /var/log/fmcl
+mkdir -p ~/.minecraft ~/.fmcl
+```
+
+详见：[Linux 文件存储说明](docs/LINUX_FILE_LOCATIONS.md)
 
 ### 构建
 
@@ -546,6 +591,8 @@ chore: 构建/工具变动
 | Windows 杀毒误报 | 添加到杀毒软件排除列表 |
 | Windows 异常退出 | 尝试以管理员权限运行程序 |
 | 依赖安装失败 | `pip install -r requirements.txt --force-reinstall` |
+| **Linux 权限错误** | 运行 `scripts/setup_linux.sh` 初始化目录权限 |
+| **Linux 找不到配置** | 检查 `/etc/fmcl/config.json` 是否存在且可写 |
 
 ---
 
