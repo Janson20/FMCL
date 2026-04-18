@@ -23,6 +23,7 @@ uv.lock
 .vscode/
 .idea/
 .codebuddy/
+.trae/
 *.swp
 *.swo
 *~
@@ -65,3 +66,6 @@ fmcl_*_amd64/
 *.dat
 /logs
 config.json
+
+# Other
+video/

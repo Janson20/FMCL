@@ -242,7 +242,7 @@ class MinecraftLauncher:
             logger.error(f"安装版本失败: {str(e)}")
             return False, version_id
 
-    def launch_game(self, version_id: str, minimize_after: bool = False) -> bool:
+    def launch_game(self, version_id: str, minimize_after: bool = False, server_ip: str | None = None, server_port: int = 25565) -> bool:
         """
         启动游戏
 
@@ -304,6 +304,12 @@ class MinecraftLauncher:
             if self.config.player_name and self.config.player_name != "Steve":
                 options["username"] = self.config.player_name
                 options["playerName"] = self.config.player_name
+
+            # 直连服务器
+            if server_ip:
+                options["serverIp"] = server_ip
+                options["serverPort"] = str(server_port)
+                logger.info(f"将直连服务器: {server_ip}:{server_port}")
 
             # 获取启动命令
             logger.info(f"正在生成启动命令: {target_version}")
@@ -523,6 +529,17 @@ class MinecraftLauncher:
             "set_player_name": self.set_player_name,
             "get_skin_path": self.get_skin_path,
             "set_skin_path": self.set_skin_path,
+            # 服务器相关
+            "get_server_versions": self.get_server_versions,
+            "get_installed_servers": self.get_installed_servers,
+            "install_server": self.install_server,
+            "start_server": self.start_server,
+            "stop_server": self.stop_server,
+            "is_server_running": self.is_server_running,
+            "get_server_process": self.get_server_process,
+            "remove_server": self.remove_server,
+            "get_server_dir": self.get_server_dir,
+            "send_server_command": self.send_server_command,
         }
 
     def get_player_name(self) -> str:
@@ -675,3 +692,414 @@ class MinecraftLauncher:
     def get_mirror_name(self) -> str:
         """获取当前镜像源名称"""
         return self._mirror.get_mirror_name()
+
+    # ─── 服务器管理 ──────────────────────────────────────────
+
+    def get_server_dir(self) -> str:
+        """获取服务器根目录路径"""
+        return str(self.config.minecraft_dir / "server")
+
+    def _get_server_versions_dir(self) -> Path:
+        """获取服务器版本目录路径: .minecraft/server/"""
+        return self.config.minecraft_dir / "server"
+
+    def get_server_versions(self) -> List[Dict[str, str]]:
+        """
+        获取可下载的服务器版本列表（正式版）
+
+        Returns:
+            [{"id": "1.21.4", "type": "release"}, ...] 列表
+        """
+        try:
+            versions = self._mcllib.utils.get_available_versions(self.minecraft_dir)
+            # 过滤出正式版（服务器只支持正式版）
+            release_versions = [v for v in versions if v.get("type") == "release"]
+            return release_versions
+        except Exception as e:
+            logger.error(f"获取服务器版本列表失败: {str(e)}")
+            return []
+
+    def get_installed_servers(self) -> List[str]:
+        """获取已安装的服务器版本列表"""
+        try:
+            server_dir = self._get_server_versions_dir()
+            if not server_dir.exists():
+                return []
+            installed = [
+                v for v in os.listdir(str(server_dir))
+                if v not in ['jre_manifest.json', 'version_manifest_v2.json', 'versions']
+                and (server_dir / v).is_dir()
+            ]
+            logger.info(f"已安装 {len(installed)} 个服务器版本")
+            return sorted(installed)
+        except Exception as e:
+            logger.error(f"获取已安装服务器版本失败: {str(e)}")
+            return []
+
+    def _find_runtime_java(self, version_id: str) -> str:
+        """
+        从 .minecraft/runtime 中查找合适版本的 Java
+
+        先尝试读取版本 JSON 中的 javaVersion 字段获取精确的 runtime 组件名，
+        再使用 minecraft_launcher_lib.runtime.get_executable_path 查找可执行文件。
+        如果找不到，回退到已安装的 runtime 列表中选择最新的。
+
+        Args:
+            version_id: Minecraft 版本号
+
+        Returns:
+            Java 可执行文件路径，找不到则返回 "java"
+        """
+        import json
+
+        # 1. 从版本 JSON 获取 javaVersion.component
+        version_json_path = Path(self.minecraft_dir) / "versions" / version_id / f"{version_id}.json"
+        jvm_component = None
+        if version_json_path.exists():
+            try:
+                with open(version_json_path, "r", encoding="utf-8") as f:
+                    vdata = json.load(f)
+                jvm_component = vdata.get("javaVersion", {}).get("component")
+            except Exception:
+                pass
+
+        # 2. 使用 minecraft_launcher_lib 查找 runtime Java
+        if jvm_component:
+            java_path = self._mcllib.runtime.get_executable_path(jvm_component, self.minecraft_dir)
+            if java_path:
+                logger.info(f"从 runtime 找到 Java ({jvm_component}): {java_path}")
+                return java_path
+
+        # 3. 回退：遍历已安装的 runtime，选最新的
+        try:
+            installed_runtimes = self._mcllib.runtime.get_installed_jvm_runtimes(self.minecraft_dir)
+            if installed_runtimes:
+                # 按版本排序取最新的
+                latest = sorted(installed_runtimes, key=lambda r: r.get("version", {}).get("name", ""), reverse=True)
+                component = latest[0].get("name", "")
+                if component:
+                    java_path = self._mcllib.runtime.get_executable_path(component, self.minecraft_dir)
+                    if java_path:
+                        logger.info(f"从已安装 runtime 找到 Java ({component}): {java_path}")
+                        return java_path
+        except Exception:
+            pass
+
+        # 4. 最终回退到系统 Java
+        logger.warning("未在 runtime 中找到 Java，回退到系统 Java")
+        try:
+            return self._mcllib.utils.get_java_executable()
+        except Exception:
+            return "java"
+
+    def install_server(self, version_id: str) -> Tuple[bool, str]:
+        """
+        下载并安装 Minecraft 服务器
+
+        流程：
+        1. 安装同名客户端版本（自动下载所需 Java runtime 到 .minecraft/runtime/）
+        2. 从版本 JSON 获取 server jar 下载链接，下载到 .minecraft/server/<version>/
+        3. 重命名为 server-<version>.jar
+        4. 自动同意 EULA
+
+        Args:
+            version_id: 版本号（如 "1.21.4"）
+
+        Returns:
+            (是否成功, 版本号) 元组
+        """
+        import json
+        import requests as req
+
+        try:
+            server_dir = self._get_server_versions_dir() / version_id
+            server_dir.mkdir(parents=True, exist_ok=True)
+            server_jar = server_dir / f"server-{version_id}.jar"
+
+            # 1. 安装同名客户端版本（会自动下载 Java runtime）
+            logger.info(f"正在安装客户端版本 {version_id}（自动下载 Java runtime）...")
+            self._set_status(f"正在准备环境: 安装 {version_id} ...")
+            self._mcllib.install.install_minecraft_version(
+                version_id,
+                self.minecraft_dir,
+                callback=self._get_callback()
+            )
+
+            # 2. 从版本 JSON 获取 server jar 下载链接
+            version_json_path = Path(self.minecraft_dir) / "versions" / version_id / f"{version_id}.json"
+            if not version_json_path.exists():
+                logger.error(f"版本 JSON 不存在: {version_json_path}")
+                return False, version_id
+
+            with open(version_json_path, "r", encoding="utf-8") as f:
+                vdata = json.load(f)
+
+            downloads = vdata.get("downloads", {})
+            server_info = downloads.get("server")
+            if not server_info:
+                logger.error(f"版本 {version_id} 不支持服务器端 (无 server downloads)")
+                return False, version_id
+
+            server_jar_url = server_info.get("url")
+            if not server_jar_url:
+                logger.error(f"无法获取服务器 jar 下载链接")
+                return False, version_id
+
+            # 3. 下载 server jar
+            logger.info(f"正在下载服务器 jar: {server_jar_url}")
+            self._set_status(f"正在下载服务器 {version_id} jar ...")
+            resp = req.get(server_jar_url, stream=True)
+            resp.raise_for_status()
+            total = int(resp.headers.get("content-length", 0))
+            downloaded = 0
+            with open(server_jar, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        self._set_progress(downloaded)
+                        self._set_max(total)
+            logger.info(f"服务器 jar 下载完成: {server_jar}")
+
+            # 4. 自动同意 EULA
+            eula_file = server_dir / "eula.txt"
+            eula_file.write_text("eula=true\n", encoding="utf-8")
+            logger.info("已自动同意 EULA")
+
+            # 5. 创建基本的 server.properties
+            props_file = server_dir / "server.properties"
+            if not props_file.exists():
+                props_file.write_text(
+                    "#Minecraft server properties\n"
+                    "enable-jmx-monitoring=false\n"
+                    "rcon.port=25575\n"
+                    "level-seed=\n"
+                    "gamemode=survival\n"
+                    "enable-command-block=false\n"
+                    "enable-query=false\n"
+                    "generator-settings={}\n"
+                    "enforce-secure-profile=false\n"
+                    "level-name=world\n"
+                    "motd=FMCL Server\n"
+                    "query.port=25565\n"
+                    "pvp=true\n"
+                    "generate-structures=true\n"
+                    "max-chained-neighbor-updates=1000000\n"
+                    "difficulty=easy\n"
+                    "network-compression-threshold=256\n                    \n"
+                    "max-tick-time=60000\n"
+                    "require-resource-pack=false\n"
+                    "use-native-transport=true\n"
+                    "max-players=20\n"
+                    "online-mode=false\n"
+                    "enable-status=true\n"
+                    "allow-flight=false\n"
+                    "initial-disabled-packs=\n"
+                    "broadcast-rcon-to-ops=true\n"
+                    "view-distance=10\n"
+                    "server-ip=\n"
+                    "resource-pack-prompt=\n"
+                    "allow-nether=true\n"
+                    "server-port=25565\n"
+                    "enable-rcon=false\n"
+                    "sync-chunk-writes=true\n"
+                    "op-permission-level=4\n"
+                    "prevent-proxy-connections=false\n"
+                    "hide-online-players=false\n"
+                    "resource-pack=\n"
+                    "entity-broadcast-range-percentage=100\n"
+                    "simulation-distance=10\n"
+                    "rcon.password=\n"
+                    "player-idle-timeout=0\n"
+                    "force-gamemode=false\n"
+                    "rate-limit=0\n"
+                    "hardcore=false\n"
+                    "white-list=false\n"
+                    "broadcast-console-to-ops=true\n"
+                    "spawn-npcs=true\n"
+                    "spawn-animals=true\n"
+                    "function-permission-level=2\n"
+                    "initial-enabled-packs=vanilla\n"
+                    "level-type=minecraft\\:normal\n"
+                    "text-filtering-config=\n"
+                    "spawn-monsters=true\n"
+                    "enforce-whitelist=false\n"
+                    "spawn-protection=16\n"
+                    "resource-pack-sha1=\n"
+                    "max-world-size=29999984\n",
+                    encoding="utf-8"
+                )
+
+            logger.info(f"服务器 {version_id} 安装完成: {server_dir}")
+            return True, version_id
+
+        except Exception as e:
+            logger.error(f"安装服务器失败: {str(e)}")
+            return False, version_id
+
+    def _kill_process_on_port(self, port: int):
+        """
+        检查并杀掉占用指定端口的进程（仅 Windows）
+
+        Args:
+            port: 要检查的端口号
+        """
+        if sys.platform != 'win32':
+            return
+        try:
+            result = subprocess.run(
+                ['netstat', '-ano'],
+                capture_output=True, text=True, timeout=10
+            )
+            for line in result.stdout.splitlines():
+                if f':{port}' in line and 'LISTENING' in line:
+                    parts = line.strip().split()
+                    pid = parts[-1]
+                    if pid.isdigit() and int(pid) > 0:
+                        logger.info(f"端口 {port} 被进程 {pid} 占用，正在终止...")
+                        subprocess.run(
+                            ['taskkill', '/F', '/PID', pid],
+                            capture_output=True, timeout=10
+                        )
+                        logger.info(f"已终止进程 {pid}")
+                        break
+        except Exception as e:
+            logger.warning(f"清理端口 {port} 失败: {e}")
+
+    def start_server(self, version_id: str, max_memory: str = "2G") -> Tuple[bool, Optional[subprocess.Popen]]:
+        """
+        启动 Minecraft 服务器
+
+        Args:
+            version_id: 服务器版本号
+            max_memory: 最大内存（默认 "2G"）
+
+        Returns:
+            (是否成功, 进程对象) 元组
+        """
+        try:
+            server_dir = self._get_server_versions_dir() / version_id
+            if not server_dir.exists():
+                logger.error(f"服务器版本未安装: {version_id}")
+                return False, None
+
+            server_jar = server_dir / f"server-{version_id}.jar"
+            if not server_jar.exists():
+                logger.error(f"服务器 jar 不存在: {server_jar}")
+                return False, None
+
+            # 确保 EULA 已同意
+            eula_file = server_dir / "eula.txt"
+            if not eula_file.exists() or "eula=true" not in eula_file.read_text(encoding="utf-8"):
+                eula_file.write_text("eula=true\n", encoding="utf-8")
+                logger.info("已自动同意 EULA")
+
+            # 清理残留的 session.lock（上次异常退出可能导致锁文件残留）
+            world_dir = server_dir / "world"
+            lock_file = world_dir / "session.lock"
+            if lock_file.exists():
+                try:
+                    lock_file.unlink()
+                    logger.info("已清理残留的 session.lock")
+                except Exception as e:
+                    logger.warning(f"清理 session.lock 失败: {e}")
+
+            # 清理占用 25565 端口的残留进程
+            self._kill_process_on_port(25565)
+
+            # 从 runtime 查找 Java
+            java_path = self._find_runtime_java(version_id)
+            logger.info(f"使用 Java: {java_path}")
+
+            cmd = [java_path, f"-Xmx{max_memory}", f"-Xms{max_memory}", "-jar", str(server_jar), "nogui"]
+            logger.info(f"正在启动服务器 {version_id}: {' '.join(cmd)}")
+
+            popen_kwargs = dict(
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE,
+                bufsize=1,
+                cwd=str(server_dir),
+            )
+            if sys.platform == 'win32':
+                popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+
+            process = subprocess.Popen(cmd, **popen_kwargs)
+            self._server_process = process
+            logger.info(f"服务器 {version_id} 已启动 (PID: {process.pid})")
+            return True, process
+
+        except Exception as e:
+            logger.error(f"启动服务器失败: {str(e)}")
+            return False, None
+
+    def stop_server(self) -> bool:
+        """停止服务器（发送 stop 命令）"""
+        proc = getattr(self, "_server_process", None)
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.stdin.write(b"stop\n")
+                proc.stdin.flush()
+                logger.info("已发送 stop 命令到服务器")
+                return True
+            except Exception as e:
+                logger.error(f"发送 stop 命令失败: {e}")
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                self._server_process = None
+                return False
+        logger.warning("没有正在运行的服务器")
+        return False
+
+    def send_server_command(self, command: str) -> bool:
+        """
+        向服务器发送控制台命令
+
+        Args:
+            command: 要发送的命令字符串
+
+        Returns:
+            是否发送成功
+        """
+        proc = getattr(self, "_server_process", None)
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.stdin.write((command + "\n").encode("utf-8"))
+                proc.stdin.flush()
+                logger.info(f"已发送服务器命令: {command}")
+                return True
+            except Exception as e:
+                logger.error(f"发送服务器命令失败: {e}")
+                return False
+        return False
+
+    def is_server_running(self) -> bool:
+        """检查服务器是否正在运行"""
+        proc = getattr(self, "_server_process", None)
+        return proc is not None and proc.poll() is None
+
+    def get_server_process(self) -> Optional[subprocess.Popen]:
+        """获取服务器进程对象"""
+        return getattr(self, "_server_process", None)
+
+    def remove_server(self, version_id: str) -> Tuple[bool, str]:
+        """删除已安装的服务器版本"""
+        try:
+            server_dir = self._get_server_versions_dir() / version_id
+            if not server_dir.exists():
+                logger.error(f"服务器版本未安装: {version_id}")
+                return False, version_id
+
+            # 如果正在运行则先停止
+            if self.is_server_running():
+                self.stop_server()
+
+            shutil.rmtree(str(server_dir))
+            logger.info(f"服务器 {version_id} 已删除")
+            return True, version_id
+
+        except Exception as e:
+            logger.error(f"删除服务器版本失败: {str(e)}")
+            return False, version_id
