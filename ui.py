@@ -3,7 +3,9 @@ import os
 import io
 import re
 import sys
+import platform
 import logging
+import subprocess
 import threading
 import queue
 import tkinter.messagebox as messagebox
@@ -35,6 +37,115 @@ COLORS = {
     "card_bg": "#1e2a4a",
     "card_border": "#2d3a5c",
 }
+
+
+# ─── 跨平台中文字体检测 ──────────────────────────────────────────
+def _detect_font_family() -> str:
+    """
+    检测当前平台可用的中文字体，并返回字体名称。
+    
+    - Windows: 使用 Microsoft YaHei
+    - macOS: 使用 PingFang SC
+    - Linux: 通过 fc-list 检测，若无中文字体则尝试自动安装
+    """
+    system = platform.system().lower()
+
+    if system == "windows":
+        return "Microsoft YaHei"
+
+    if system == "darwin":
+        return "PingFang SC"
+
+    # ── Linux: 使用 fc-list 检测中文字体 ──
+    try:
+        result = subprocess.run(
+            ["fc-list", ":lang=zh", "family"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            fonts = set()
+            for line in result.stdout.strip().split("\n"):
+                for f in line.split(","):
+                    f = f.strip()
+                    if f:
+                        fonts.add(f)
+
+            # 按优先级选择
+            for preferred in [
+                "Noto Sans CJK SC", "Noto Sans SC",
+                "WenQuanYi Micro Hei", "WenQuanYi Zen Hei",
+                "Droid Sans Fallback",
+            ]:
+                if preferred in fonts:
+                    return preferred
+
+            # 返回第一个可用的中文字体
+            if fonts:
+                return next(iter(fonts))
+    except Exception:
+        pass
+
+    # ── 无中文字体，尝试自动安装 ──
+    _install_chinese_font()
+
+    # 安装后再检测一次
+    try:
+        result = subprocess.run(
+            ["fc-list", ":lang=zh", "family"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip().split("\n")[0].split(",")[0].strip()
+    except Exception:
+        pass
+
+    return ""  # 使用系统默认字体
+
+
+def _install_chinese_font():
+    """
+    尝试在 Linux 上自动安装中文字体。
+    
+    支持 apt(Debian/Ubuntu)、dnf(Fedora)、pacman(Arch) 包管理器。
+    优先使用 pkexec 进行图形化认证，回退到 sudo。
+    """
+    import shutil
+
+    # 检测包管理器和对应的字体包名
+    if shutil.which("apt"):
+        pkg_cmd = ["apt", "install", "-y", "fonts-noto-cjk"]
+    elif shutil.which("dnf"):
+        pkg_cmd = ["dnf", "install", "-y", "google-noto-sans-cjk-fonts"]
+    elif shutil.which("pacman"):
+        pkg_cmd = ["pacman", "-S", "--noconfirm", "noto-fonts-cjk"]
+    else:
+        logging.warning("未检测到支持的包管理器，无法自动安装中文字体")
+        return
+
+    # 优先 pkexec（图形化认证对话框），回退 sudo
+    if shutil.which("pkexec"):
+        cmd = ["pkexec"] + pkg_cmd
+    elif shutil.which("sudo"):
+        cmd = ["sudo"] + pkg_cmd
+    else:
+        logging.warning("未找到 pkexec 或 sudo，无法安装中文字体")
+        return
+
+    try:
+        logging.info(f"正在尝试安装中文字体: {' '.join(cmd)}")
+        subprocess.run(cmd, timeout=180, check=False)
+        # 刷新字体缓存
+        subprocess.run(["fc-cache", "-f"], timeout=30, check=False)
+        logging.info("中文字体安装完成")
+    except Exception as e:
+        logging.warning(f"安装中文字体失败: {e}")
+
+
+FONT_FAMILY = _detect_font_family()
+if FONT_FAMILY:
+    logging.info(f"使用字体: {FONT_FAMILY}")
+else:
+    logging.warning("未检测到中文字体，将使用系统默认字体（中文可能显示异常）")
 
 
 def _get_fmcl_version():
@@ -117,7 +228,7 @@ class ModernApp(ctk.CTk):
         title_label = ctk.CTkLabel(
             header,
             text="⛏ FMCL",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=28, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=28, weight="bold"),
             text_color=COLORS["text_primary"],
         )
         title_label.pack(side=ctk.LEFT, padx=(5, 0))
@@ -125,7 +236,7 @@ class ModernApp(ctk.CTk):
         subtitle = ctk.CTkLabel(
             header,
             text="Fusion Minecraft Launcher",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_secondary"],
         )
         subtitle.pack(side=ctk.LEFT, padx=(15, 0), pady=(10, 0))
@@ -136,7 +247,7 @@ class ModernApp(ctk.CTk):
             text="🔄 刷新",
             width=100,
             height=35,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._refresh_versions,
@@ -149,7 +260,7 @@ class ModernApp(ctk.CTk):
             text="⬆ 更新",
             width=90,
             height=35,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._on_check_update,
@@ -162,7 +273,7 @@ class ModernApp(ctk.CTk):
             text="⚙ 设置",
             width=90,
             height=35,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._open_launcher_settings,
@@ -175,7 +286,7 @@ class ModernApp(ctk.CTk):
             text="ℹ 关于",
             width=80,
             height=35,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._show_about,
@@ -210,7 +321,7 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(
             sidebar,
             text="👤 角色名",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
 
@@ -223,7 +334,7 @@ class ModernApp(ctk.CTk):
             sidebar,
             textvariable=self.player_name_var,
             height=32,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["bg_medium"],
             border_color=COLORS["card_border"],
             placeholder_text="输入角色名",
@@ -236,7 +347,7 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(
             sidebar,
             text="🎨 自定义皮肤",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
 
@@ -254,7 +365,7 @@ class ModernApp(ctk.CTk):
         self.skin_preview_label = ctk.CTkLabel(
             self.skin_preview_frame,
             text="暂无皮肤\n支持 64x64 / 64x32 PNG",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
             justify=ctk.CENTER,
         )
@@ -269,7 +380,7 @@ class ModernApp(ctk.CTk):
             skin_btn_frame,
             text="📂 选择皮肤",
             height=28,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._on_select_skin,
@@ -292,7 +403,7 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(
             sidebar,
             text="📋 启动器日志",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
 
@@ -319,7 +430,7 @@ class ModernApp(ctk.CTk):
             sidebar,
             text="清空日志",
             height=26,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._on_clear_log,
@@ -445,14 +556,14 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(
             title_frame,
             text="📦 已安装版本",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=16, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(side=ctk.LEFT)
 
         self.version_count_label = ctk.CTkLabel(
             title_frame,
             text="0 个版本",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         )
         self.version_count_label.pack(side=ctk.RIGHT)
@@ -494,7 +605,7 @@ class ModernApp(ctk.CTk):
             launch_frame,
             text="🚀 启动游戏",
             height=40,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=15, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             command=self._on_launch,
@@ -527,7 +638,7 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(
             panel,
             text="📥 安装新版本",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=16, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(15, 8), anchor=ctk.W)
 
@@ -539,14 +650,14 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(
             panel,
             text="版本 ID:",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         ).pack(padx=15, anchor=ctk.W)
 
         self.version_entry = ctk.CTkEntry(
             panel,
             height=35,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],
             border_color=COLORS["card_border"],
             placeholder_text="例如: 1.20.4 或 26.1",
@@ -557,7 +668,7 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(
             panel,
             text="模组加载器:",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         ).pack(padx=15, anchor=ctk.W)
 
@@ -567,7 +678,7 @@ class ModernApp(ctk.CTk):
             variable=self.modloader_var,
             values=["无", "Forge", "Fabric", "NeoForge"],
             height=35,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],
             button_color=COLORS["bg_light"],
             button_hover_color=COLORS["card_border"],
@@ -580,7 +691,7 @@ class ModernApp(ctk.CTk):
         self.modloader_hint = ctk.CTkLabel(
             panel,
             text="",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["warning"],
             wraplength=260,
             justify=ctk.LEFT,
@@ -594,7 +705,7 @@ class ModernApp(ctk.CTk):
             panel,
             text="📥 安装版本",
             height=38,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._on_install,
@@ -605,7 +716,7 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(
             panel,
             text="📋 快速选择",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=16, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(5, 8), anchor=ctk.W)
 
@@ -624,7 +735,7 @@ class ModernApp(ctk.CTk):
             text="📦 正式版",
             variable=self.version_tab_var,
             value="release",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             border_color=COLORS["text_secondary"],
@@ -637,7 +748,7 @@ class ModernApp(ctk.CTk):
             text="🔬 测试版",
             variable=self.version_tab_var,
             value="snapshot",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             border_color=COLORS["text_secondary"],
@@ -681,7 +792,7 @@ class ModernApp(ctk.CTk):
         self._page_info_label = ctk.CTkLabel(
             page_frame,
             text="1/1",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
             width=60,
         )
@@ -710,7 +821,7 @@ class ModernApp(ctk.CTk):
         self.status_label = ctk.CTkLabel(
             footer,
             text="✅ 就绪",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["success"],
         )
         self.status_label.pack(side=ctk.LEFT, padx=15)
@@ -730,7 +841,7 @@ class ModernApp(ctk.CTk):
         self.progress_label = ctk.CTkLabel(
             footer,
             text="",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
         )
         self.progress_label.pack(side=ctk.RIGHT, padx=(0, 10))
@@ -756,7 +867,7 @@ class ModernApp(ctk.CTk):
             ctk.CTkLabel(
                 self.version_list_frame,
                 text="暂无已安装的版本\n请在右侧安装新版本",
-                font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13),
                 text_color=COLORS["text_secondary"],
                 justify=ctk.CENTER,
             ).pack(pady=30)
@@ -776,7 +887,7 @@ class ModernApp(ctk.CTk):
             btn = ctk.CTkButton(
                 btn_frame,
                 text=f"  {ver}",
-                font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13),
                 fg_color="transparent",
                 hover_color=COLORS["bg_light"],
                 text_color=COLORS["text_primary"],
@@ -791,7 +902,7 @@ class ModernApp(ctk.CTk):
                 text="X",
                 width=30,
                 height=28,
-                font=ctk.CTkFont(family="Microsoft YaHei", size=12, weight="bold"),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
                 fg_color="transparent",
                 hover_color=COLORS["accent"],
                 text_color=COLORS["text_secondary"],
@@ -891,7 +1002,7 @@ class ModernApp(ctk.CTk):
             ctk.CTkLabel(
                 self.available_list_frame,
                 text="暂无版本" if tab == "release" else "暂无测试版",
-                font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
                 text_color=COLORS["text_secondary"],
             ).pack(pady=10)
             return
@@ -911,7 +1022,7 @@ class ModernApp(ctk.CTk):
                     btn = ctk.CTkButton(
                         row_frame,
                         text=f"{type_icon} {ver_id}",
-                        font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+                        font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                         fg_color="transparent",
                         hover_color=COLORS["bg_light"],
                         text_color=COLORS["text_primary"],
@@ -1187,7 +1298,7 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(
             dialog,
             text=f"⬆ 发现新版本: {version}",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=18, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["accent"],
         ).pack(pady=(20, 10))
 
@@ -1203,7 +1314,7 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(
             changelog_frame,
             text=display_text,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_primary"],
             wraplength=440,
             justify=ctk.LEFT,
@@ -1229,7 +1340,7 @@ class ModernApp(ctk.CTk):
             text="立即更新",
             width=120,
             height=38,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             fg_color=COLORS["success"],
             hover_color="#27ae60",
             command=on_update,
@@ -1240,7 +1351,7 @@ class ModernApp(ctk.CTk):
             text="稍后再说",
             width=120,
             height=38,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             fg_color=COLORS["bg_medium"],
             hover_color=COLORS["card_border"],
             command=on_skip,
@@ -1606,77 +1717,122 @@ class ModernApp(ctk.CTk):
         ResourceManagerWindow(self, version_id, self.callbacks)
 
     def _show_about(self):
-        """显示关于对话框（winver 风格）"""
-        import tkinter as tk
-        import platform
-
-        about = tk.Toplevel(self)
+        """显示关于对话框"""
+        about = ctk.CTkToplevel(self)
         about.title("关于 FMCL")
         about.resizable(False, False)
-        about.attributes('-topmost', True)
-        about.configure(bg='#1a1a2e')
         about.transient(self)
         about.grab_set()
+        about.configure(fg_color=COLORS["bg_dark"])
 
         # 窗口尺寸与居中
-        w, h = 460, 340
+        w, h = 460, 360
         about.geometry(f"{w}x{h}")
         about.update_idletasks()
         x = (about.winfo_screenwidth() - w) // 2
         y = (about.winfo_screenheight() - h) // 2
         about.geometry(f"+{x}+{y}")
 
-        pad = 30
+        # 主容器
+        main_frame = ctk.CTkFrame(about, fg_color="transparent")
+        main_frame.pack(fill=ctk.BOTH, expand=True, padx=30, pady=30)
 
-        # 左侧 logo
-        icon_path = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__))), 'icon.ico')
-        icon_frame = tk.Frame(about, bg='#1a1a2e')
-        icon_frame.place(x=pad, y=pad, width=80, height=80)
+        # 顶部区域：logo + 标题
+        top_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        top_frame.pack(fill=ctk.X, pady=(0, 15))
+
+        # Logo
+        icon_path = os.path.join(
+            getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))),
+            "icon.ico",
+        )
+        icon_displayed = False
         if os.path.exists(icon_path):
             try:
-                from PIL import Image as PILImage, ImageTk
+                from PIL import Image as PILImage
+
                 pil_img = PILImage.open(icon_path).resize((80, 80), PILImage.LANCZOS)
-                tk_img = ImageTk.PhotoImage(pil_img)
-                tk.Label(icon_frame, image=tk_img, bg='#1a1a2e').pack()
-                about._icon_ref = tk_img  # 防止 GC
+                ctk_img = ctk.CTkImage(pil_img, size=(80, 80))
+                ctk.CTkLabel(top_frame, image=ctk_img, text="").pack(
+                    side=ctk.LEFT, padx=(0, 15)
+                )
+                about._icon_ref = ctk_img
+                icon_displayed = True
             except Exception:
-                tk.Label(icon_frame, text='\u26cf', font=('Segoe UI', 36), fg='#e94560', bg='#1a1a2e').pack()
-        else:
-            tk.Label(icon_frame, text='\u26cf', font=('Segoe UI', 36), fg='#e94560', bg='#1a1a2e').pack()
+                pass
 
-        # 右侧标题信息
-        info_frame = tk.Frame(about, bg='#1a1a2e')
-        info_frame.place(x=pad + 90, y=pad)
+        if not icon_displayed:
+            ctk.CTkLabel(
+                top_frame,
+                text="\u26cf",
+                font=ctk.CTkFont(size=36),
+                text_color=COLORS["accent"],
+            ).pack(side=ctk.LEFT, padx=(0, 15))
 
-        tk.Label(info_frame, text='FMCL', font=('Segoe UI', 20, 'bold'), fg='#ffffff', bg='#1a1a2e').pack(anchor='w')
-        tk.Label(info_frame, text='Fusion Minecraft Launcher', font=('Segoe UI', 10), fg='#a0a0b0', bg='#1a1a2e').pack(anchor='w')
+        # 标题信息
+        info_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
+        info_frame.pack(side=ctk.LEFT)
+        ctk.CTkLabel(
+            info_frame,
+            text="FMCL",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(anchor=ctk.W)
+        ctk.CTkLabel(
+            info_frame,
+            text="Fusion Minecraft Launcher",
+            font=ctk.CTkFont(size=10),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor=ctk.W)
 
         # 分隔线
-        tk.Frame(about, bg='#2d3a5c', height=1).place(x=pad, y=pad + 90, width=w - 2 * pad)
+        ctk.CTkFrame(
+            main_frame, height=1, fg_color=COLORS["card_border"]
+        ).pack(fill=ctk.X, pady=(0, 15))
 
         # 系统信息
         info_items = [
-            ('版本', _get_fmcl_version()),
-            ('Python', platform.python_version()),
-            ('系统', f'{platform.system()} {platform.release()}'),
-            ('架构', platform.machine()),
+            ("版本", _get_fmcl_version()),
+            ("Python", platform.python_version()),
+            ("系统", f"{platform.system()} {platform.release()}"),
+            ("架构", platform.machine()),
         ]
-        y_pos = pad + 110
-        for label, value in info_items:
-            tk.Label(about, text=label, font=('Microsoft YaHei', 10), fg='#a0a0b0', bg='#1a1a2e', width=6, anchor='e').place(x=pad, y=y_pos)
-            tk.Label(about, text=value, font=('Microsoft YaHei', 10), fg='#ffffff', bg='#1a1a2e', anchor='w').place(x=pad + 55, y=y_pos)
-            y_pos += 28
 
-        # 底部关闭按钮
-        close_btn = ctk.CTkButton(
-            about, text='确定', width=80, height=32,
-            font=ctk.CTkFont(family='Microsoft YaHei', size=12),
-            fg_color='#0f3460', hover_color='#2d3a5c',
+        info_container = ctk.CTkFrame(main_frame, fg_color="transparent")
+        info_container.pack(fill=ctk.X, pady=(0, 15))
+
+        for label_text, value in info_items:
+            row = ctk.CTkFrame(info_container, fg_color="transparent")
+            row.pack(fill=ctk.X, pady=2)
+            ctk.CTkLabel(
+                row,
+                text=label_text,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLORS["text_secondary"],
+                width=60,
+                anchor=ctk.E,
+            ).pack(side=ctk.LEFT)
+            ctk.CTkLabel(
+                row,
+                text=value,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLORS["text_primary"],
+                anchor=ctk.W,
+            ).pack(side=ctk.LEFT, padx=(10, 0))
+
+        # 底部确定按钮
+        ctk.CTkButton(
+            main_frame,
+            text="确定",
+            width=80,
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
             command=about.destroy,
-        )
-        close_btn.place(x=w - pad - 80, y=h - pad - 32)
+        ).pack(pady=(20, 0))
 
-        about.bind('<Return>', lambda e: about.destroy())
+        about.bind("<Return>", lambda e: about.destroy())
         about.focus_set()
 
     # ── 崩溃类型检测 ──────────────────────────────────────────────
@@ -1855,9 +2011,9 @@ class ModernApp(ctk.CTk):
                 tk.Label(icon_frame, image=tk_img, bg='#1a1a2e').pack()
                 dialog._icon_ref = tk_img
             except Exception:
-                tk.Label(icon_frame, text='\u26cf', font=('Segoe UI', 28), fg='#e94560', bg='#1a1a2e').pack()
+                tk.Label(icon_frame, text='\u26cf', font=(FONT_FAMILY, 28), fg='#e94560', bg='#1a1a2e').pack()
         else:
-            tk.Label(icon_frame, text='\u26cf', font=('Segoe UI', 28), fg='#e94560', bg='#1a1a2e').pack()
+            tk.Label(icon_frame, text='\u26cf', font=(FONT_FAMILY, 28), fg='#e94560', bg='#1a1a2e').pack()
 
         # 崩溃信息
         has_crash_report = "crash_report" in crash_files
@@ -1865,7 +2021,7 @@ class ModernApp(ctk.CTk):
         has_jvm_crash = "jvm_crash_log" in crash_files
 
         info_text = f"游戏异常退出 (退出码: {exit_code})"
-        tk.Label(dialog, text=info_text, font=('Microsoft YaHei', 14, 'bold'),
+        tk.Label(dialog, text=info_text, font=(FONT_FAMILY, 14, 'bold'),
                  fg='#e94560', bg='#1a1a2e').place(x=pad + 72, y=pad + 5)
 
         detail_parts = []
@@ -1876,7 +2032,7 @@ class ModernApp(ctk.CTk):
         if has_game_log:
             detail_parts.append("游戏日志可用")
         detail = "；".join(detail_parts) if detail_parts else "未找到崩溃报告文件，仍可尝试导出"
-        tk.Label(dialog, text=detail, font=('Microsoft YaHei', 10),
+        tk.Label(dialog, text=detail, font=(FONT_FAMILY, 10),
                  fg='#8899aa', bg='#1a1a2e').place(x=pad + 72, y=pad + 38)
 
         # 分隔线
@@ -1892,14 +2048,14 @@ class ModernApp(ctk.CTk):
                 diag_frame.place(x=pad, y=y, width=w - 2 * pad, height=56)
                 # 标题行
                 tk.Label(diag_frame, text=f"{diag['icon']} {diag['name']}",
-                         font=('Microsoft YaHei', 10, 'bold'), fg='#e94560', bg='#16213e').pack(
+                         font=(FONT_FAMILY, 10, 'bold'), fg='#e94560', bg='#16213e').pack(
                     anchor='w', padx=10, pady=(6, 0))
                 # 建议（单行截断）
                 advice_text = diag['advice']
                 if len(advice_text) > 48:
                     advice_text = advice_text[:47] + "…"
                 tk.Label(diag_frame, text=f"💡 {advice_text}",
-                         font=('Microsoft YaHei', 9), fg='#8899aa', bg='#16213e').pack(
+                         font=(FONT_FAMILY, 9), fg='#8899aa', bg='#16213e').pack(
                     anchor='w', padx=10, pady=(2, 0))
         btn_y = diag_y + h_diag + 8
         btn_h = 38
@@ -1999,7 +2155,7 @@ class ModernApp(ctk.CTk):
                 messagebox.showerror("导出失败", f"导出崩溃报告时出错:\n{e}", parent=dialog)
 
         # 按钮样式参数
-        btn_style = dict(font=('Microsoft YaHei', 10), relief='flat', cursor='hand2',
+        btn_style = dict(font=(FONT_FAMILY, 10), relief='flat', cursor='hand2',
                          bg='#0f3460', fg='white', activebackground='#2d3a5c', activeforeground='white',
                          bd=0, highlightthickness=0)
 
@@ -2013,13 +2169,13 @@ class ModernApp(ctk.CTk):
 
         btn3 = tk.Button(dialog, text="📦 导出崩溃报告", command=_export_crash_report,
                          bg='#e94560', fg='white', activebackground='#ff6b81', activeforeground='white',
-                         font=('Microsoft YaHei', 10, 'bold'), relief='flat', cursor='hand2',
+                         font=(FONT_FAMILY, 10, 'bold'), relief='flat', cursor='hand2',
                          bd=0, highlightthickness=0)
         btn3.place(x=pad, y=btn_y + (btn_h + 8) * 2, width=w - 2 * pad, height=btn_h)
 
         # 关闭按钮
         close_btn = tk.Button(dialog, text='关闭', command=dialog.destroy,
-                              font=('Microsoft YaHei', 9), relief='flat', cursor='hand2',
+                              font=(FONT_FAMILY, 9), relief='flat', cursor='hand2',
                               bg='#1a1a2e', fg='#667788', activebackground='#1a1a2e',
                               activeforeground='#aabbcc', bd=0)
         close_btn.place(x=w // 2 - 20, y=h - 36, width=40)
@@ -2076,7 +2232,7 @@ class VersionSelectorDialog(ctk.CTkToplevel):
         self.search_entry = ctk.CTkEntry(
             search_frame,
             height=35,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],
             border_color=COLORS["card_border"],
             placeholder_text="🔍 搜索版本...",
@@ -2101,7 +2257,7 @@ class VersionSelectorDialog(ctk.CTkToplevel):
             text="取消",
             width=100,
             height=35,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],
             hover_color=COLORS["card_border"],
             command=self._on_cancel,
@@ -2112,7 +2268,7 @@ class VersionSelectorDialog(ctk.CTkToplevel):
             text="选择",
             width=100,
             height=35,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             command=self._on_select,
@@ -2131,7 +2287,7 @@ class VersionSelectorDialog(ctk.CTkToplevel):
             btn = ctk.CTkButton(
                 self.list_frame,
                 text=f"{type_icon} {ver_id}  ({ver_type})",
-                font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13),
                 fg_color="transparent",
                 hover_color=COLORS["bg_light"],
                 text_color=COLORS["text_primary"],
@@ -2188,7 +2344,7 @@ def show_confirmation(message: str, title: str = "确认") -> bool:
     ctk.CTkLabel(
         dialog,
         text=message,
-        font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+        font=ctk.CTkFont(family=FONT_FAMILY, size=14),
         text_color=COLORS["text_primary"],
         wraplength=350,
     ).pack(pady=(30, 20))
@@ -2244,7 +2400,7 @@ def show_alert(message: str, title: str = "提示") -> None:
     ctk.CTkLabel(
         dialog,
         text=message,
-        font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+        font=ctk.CTkFont(family=FONT_FAMILY, size=14),
         text_color=COLORS["text_primary"],
         wraplength=350,
     ).pack(pady=(30, 20))
@@ -2358,7 +2514,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         title_label = ctk.CTkLabel(
             main_frame,
             text=f"📁 {self.version_id} - 资源管理",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=18, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["text_primary"],
         )
         title_label.pack(anchor=ctk.W, pady=(0, 10))
@@ -2377,7 +2533,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                 tab_frame,
                 text=label_text,
                 height=32,
-                font=ctk.CTkFont(family="Microsoft YaHei", size=13, weight="bold"),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
                 fg_color=COLORS["bg_light"] if rtype == "mods" else "transparent",
                 hover_color=COLORS["card_border"],
                 text_color=COLORS["text_primary"],
@@ -2399,7 +2555,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._drag_hint_label = ctk.CTkLabel(
             top_bar,
             text=RESOURCE_TYPES["mods"]["description"],
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         )
         self._drag_hint_label.pack(side=ctk.LEFT)
@@ -2410,7 +2566,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             text="📂 打开文件夹",
             width=110,
             height=30,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._open_folder,
@@ -2422,7 +2578,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             text="➕ 选择文件安装",
             width=130,
             height=30,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._select_file_install,
@@ -2442,7 +2598,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._empty_label = ctk.CTkLabel(
             self._drop_frame,
             text="将文件拖拽到此处\n或点击「选择文件安装」",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_secondary"],
             justify=ctk.CENTER,
         )
@@ -2458,7 +2614,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._status_label = ctk.CTkLabel(
             main_frame,
             text="就绪",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
         )
         self._status_label.pack(anchor=ctk.W, pady=(5, 0))
@@ -2659,7 +2815,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         name_label = ctk.CTkLabel(
             row,
             text=f"  {icon} {name_text}",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"] if item.get("disabled") else COLORS["text_primary"],
             anchor=ctk.W,
         )
@@ -2670,7 +2826,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             size_label = ctk.CTkLabel(
                 row,
                 text=item["size"],
-                font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                 text_color=COLORS["text_secondary"],
             )
             size_label.pack(side=ctk.LEFT, padx=(0, 5))
@@ -2683,7 +2839,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                 text=toggle_text,
                 width=50,
                 height=26,
-                font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                 fg_color="transparent",
                 hover_color=COLORS["bg_light"],
                 text_color=COLORS["text_secondary"],
@@ -2926,7 +3082,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         title = ctk.CTkLabel(
             container,
             text="⚙ 启动器设置",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=18, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["text_primary"],
         )
         title.pack(anchor=ctk.W, pady=(0, 20))
@@ -2938,7 +3094,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         minimize_label = ctk.CTkLabel(
             minimize_frame,
             text="🔽 启动后最小化",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_primary"],
         )
         minimize_label.pack(side=ctk.LEFT)
@@ -2948,7 +3104,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             minimize_frame,
             text="",
             variable=self.minimize_var,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["accent"],
             button_color=COLORS["text_primary"],
             button_hover_color=COLORS["text_secondary"],
@@ -2965,7 +3121,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         mirror_label = ctk.CTkLabel(
             mirror_frame,
             text="🇨🇳 使用国内镜像源",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_primary"],
         )
         mirror_label.pack(side=ctk.LEFT)
@@ -2975,7 +3131,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             mirror_frame,
             text="",
             variable=self.mirror_var,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["accent"],
             button_color=COLORS["text_primary"],
             button_hover_color=COLORS["text_secondary"],
@@ -2992,7 +3148,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         threads_label = ctk.CTkLabel(
             threads_frame,
             text="⚡ 下载线程数",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_primary"],
         )
         threads_label.pack(side=ctk.LEFT)
@@ -3000,7 +3156,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.threads_value_label = ctk.CTkLabel(
             threads_frame,
             text=str(self.callbacks.get("get_download_threads", lambda: 4)()),
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["accent"],
             width=30,
         )
@@ -3028,7 +3184,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             text="关闭",
             width=120,
             height=36,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             command=self.destroy,
@@ -3123,7 +3279,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         ctk.CTkLabel(
             header,
             text=f"🧩 安装模组 - {self.version_id}",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=18, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(side=ctk.LEFT)
 
@@ -3138,7 +3294,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         ctk.CTkLabel(
             header,
             text=info_text,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=info_color,
         ).pack(side=ctk.RIGHT)
 
@@ -3150,7 +3306,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._search_entry = ctk.CTkEntry(
             search_frame,
             height=36,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],
             border_color=COLORS["card_border"],
             placeholder_text="🔍 搜索模组...",
@@ -3163,7 +3319,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             text="搜索",
             width=80,
             height=36,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             command=self._on_search,
@@ -3184,7 +3340,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._loading_label = ctk.CTkLabel(
             self._mod_list_frame,
             text="⏳ 加载中...",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_secondary"],
             justify=ctk.CENTER,
         )
@@ -3200,7 +3356,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             text="◀ 上一页",
             width=90,
             height=30,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["bg_medium"],
             hover_color=COLORS["bg_light"],
             text_color=COLORS["text_primary"],
@@ -3211,7 +3367,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._page_label = ctk.CTkLabel(
             page_frame,
             text="0 / 0",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
             width=100,
         )
@@ -3222,7 +3378,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             text="下一页 ▶",
             width=90,
             height=30,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["bg_medium"],
             hover_color=COLORS["bg_light"],
             text_color=COLORS["text_primary"],
@@ -3234,7 +3390,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._result_count_label = ctk.CTkLabel(
             page_frame,
             text="",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
         )
         self._result_count_label.pack(side=ctk.RIGHT)
@@ -3243,7 +3399,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._status_label = ctk.CTkLabel(
             main_frame,
             text="就绪",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
         )
         self._status_label.pack(anchor=ctk.W, pady=(5, 0))
@@ -3287,7 +3443,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             ctk.CTkLabel(
                 self._mod_list_frame,
                 text="未找到模组\n请尝试其他关键词",
-                font=ctk.CTkFont(family="Microsoft YaHei", size=14),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=14),
                 text_color=COLORS["text_secondary"],
                 justify=ctk.CENTER,
             ).pack(pady=40)
@@ -3314,7 +3470,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         ctk.CTkLabel(
             self._mod_list_frame,
             text=f"搜索失败\n{error_msg}",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["error"],
             justify=ctk.CENTER,
         ).pack(pady=40)
@@ -3339,7 +3495,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         ctk.CTkLabel(
             top_row,
             text=f"🧩 {title}",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=13, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             text_color=COLORS["text_primary"],
             anchor=ctk.W,
         ).pack(side=ctk.LEFT, fill=ctk.X, expand=True)
@@ -3350,7 +3506,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         ctk.CTkLabel(
             top_row,
             text=f"📥 {dl_text}",
-            font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
         ).pack(side=ctk.LEFT, padx=(5, 0))
 
@@ -3361,7 +3517,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             text="📥 安装",
             width=70,
             height=28,
-            font=ctk.CTkFont(family="Microsoft YaHei", size=12),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["success"],
             hover_color="#27ae60",
             text_color=COLORS["text_primary"],
@@ -3374,7 +3530,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             desc_label = ctk.CTkLabel(
                 row,
                 text=description,
-                font=ctk.CTkFont(family="Microsoft YaHei", size=11),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                 text_color=COLORS["text_secondary"],
                 wraplength=700,
                 justify=ctk.LEFT,
@@ -3401,7 +3557,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             ctk.CTkLabel(
                 row,
                 text=tags_text,
-                font=ctk.CTkFont(family="Microsoft YaHei", size=10),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                 text_color=COLORS["text_secondary"],
                 anchor=ctk.W,
             ).pack(fill=ctk.X, padx=10, pady=(0, 8))

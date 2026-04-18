@@ -32,6 +32,8 @@ def _get_icon_path():
 
 def _create_splash(ctk):
     """创建启动画面 - 屏幕中央展示图标，加载完成后关闭"""
+    from ui import FONT_FAMILY
+
     splash = ctk.CTkToplevel()
     splash.overrideredirect(True)
     splash.attributes('-topmost', True)
@@ -63,7 +65,7 @@ def _create_splash(ctk):
 
     # 标题文字
     ctk.CTkLabel(
-        splash, text='FMCL', font=ctk.CTkFont(family='Microsoft YaHei', size=20, weight='bold'),
+        splash, text='FMCL', font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight='bold'),
         text_color='#a0a0b0',
     ).place(relx=0.5, rely=0.65, anchor=ctk.CENTER)
 
