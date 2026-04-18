@@ -199,20 +199,23 @@ class Config:
             
             try:
                 # 尝试创建配置目录（可能需要 sudo）
-                if not config_dir.exists():
-                    logger.warning(f"配置目录不存在: {config_dir}")
-                    logger.warning(f"请运行: sudo mkdir -p {config_dir} && sudo chown $USER:$USER {config_dir}")
-                
-                # 尝试创建日志目录（可能需要 sudo）
-                if not log_dir.exists():
-                    logger.warning(f"日志目录不存在: {log_dir}")
-                    logger.warning(f"请运行: sudo mkdir -p {log_dir} && sudo chown $USER:$USER {log_dir}")
-                    
+                config_dir.mkdir(parents=True, exist_ok=True)
+                logger.info(f"配置目录已确保: {config_dir}")
+            except PermissionError:
+                logger.warning(f"无权限创建配置目录: {config_dir}")
+                logger.warning(f"请运行: sudo mkdir -p {config_dir} && sudo chown $USER:$USER {config_dir}")
             except Exception as e:
-                logger.error(f"创建系统目录失败: {e}")
-                logger.error("在 Linux 上首次运行时，可能需要手动创建目录:")
-                logger.error(f"  sudo mkdir -p {config_dir} {log_dir}")
-                logger.error(f"  sudo chown $USER:$USER {config_dir} {log_dir}")
+                logger.error(f"创建配置目录失败: {e}")
+            
+            try:
+                # 尝试创建日志目录（可能需要 sudo）
+                log_dir.mkdir(parents=True, exist_ok=True)
+                logger.info(f"日志目录已确保: {log_dir}")
+            except PermissionError:
+                logger.warning(f"无权限创建日志目录: {log_dir}")
+                logger.warning(f"请运行: sudo mkdir -p {log_dir} && sudo chown $USER:$USER {log_dir}")
+            except Exception as e:
+                logger.error(f"创建日志目录失败: {e}")
 
     def get_versions_dir(self) -> Path:
         """获取版本目录路径"""
