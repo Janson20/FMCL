@@ -2033,12 +2033,13 @@ class ModernApp(ctk.CTk):
             try:
                 from PIL import Image as PILImage
 
-                pil_img = PILImage.open(icon_path).resize((80, 80), PILImage.LANCZOS)
+                pil_img = PILImage.open(icon_path).resize((64, 64), PILImage.Resampling.LANCZOS)
                 ctk_img = ctk.CTkImage(pil_img, size=(80, 80))
                 ctk.CTkLabel(top_frame, image=ctk_img, text="").pack(
                     side=ctk.LEFT, padx=(0, 15)
                 )
-                about._icon_ref = ctk_img
+                # 保存对图像的引用以防止被垃圾回收
+                setattr(about, '_icon_ref', ctk_img)
                 icon_displayed = True
             except Exception:
                 pass
@@ -2291,7 +2292,8 @@ class ModernApp(ctk.CTk):
                 pil_img = PILImage.open(icon_path).resize((64, 64), PILImage.LANCZOS)
                 tk_img = ImageTk.PhotoImage(pil_img)
                 tk.Label(icon_frame, image=tk_img, bg='#1a1a2e').pack()
-                dialog._icon_ref = tk_img
+                # 保存对图像的引用以防止被垃圾回收
+                setattr(dialog, '_icon_ref', tk_img)
             except Exception:
                 tk.Label(icon_frame, text='\u26cf', font=(FONT_FAMILY, 28), fg='#e94560', bg='#1a1a2e').pack()
         else:
