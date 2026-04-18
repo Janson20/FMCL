@@ -298,10 +298,33 @@ class ModernApp(ctk.CTk):
         self.mirror_var = ctk.BooleanVar(value=self.callbacks.get("get_mirror_enabled", lambda: True)())
 
     def _build_content(self):
-        """构建内容区域"""
-        content = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        """构建内容区域 - 使用标签页"""
+        # 创建标签页容器
+        self.tabview = ctk.CTkTabview(self.main_frame, fg_color="transparent")
+        self.tabview.pack(fill=ctk.BOTH, expand=True, padx=0, pady=0)
+        
+        # 添加"游戏"标签页
+        self.game_tab = self.tabview.add("🎮 游戏")
+        self.game_tab.configure(fg_color="transparent")
+        
+        # 添加"链接"标签页
+        self.links_tab = self.tabview.add("🔗 链接")
+        self.links_tab.configure(fg_color="transparent")
+        
+        # 设置默认标签页为"游戏"
+        self.tabview.set("🎮 游戏")
+        
+        # 构建游戏标签页内容
+        self._build_game_tab_content()
+        
+        # 构建链接标签页内容
+        self._build_links_tab_content()
+    
+    def _build_game_tab_content(self):
+        """构建游戏标签页内容"""
+        content = ctk.CTkFrame(self.game_tab, fg_color="transparent")
         content.pack(fill=ctk.BOTH, expand=True)
-
+        
         # 最左侧 - 侧边栏（角色名、皮肤、日志）
         self._build_sidebar(content)
 
@@ -310,6 +333,251 @@ class ModernApp(ctk.CTk):
 
         # 右侧 - 操作面板
         self._build_action_panel(content)
+    
+    def _build_links_tab_content(self):
+        """构建链接标签页内容"""
+        # Minecraft相关网站数据
+        minecraft_sites = [
+            {
+                "name": "Minecraft官网",
+                "description": "Minecraft官方游戏网站，提供游戏下载、更新和官方信息，支持多平台版本获取与账号管理。",
+                "tags": ["官方", "游戏下载", "更新"],
+                "link": "https://www.minecraft.net/zh-hans"
+            },
+            {
+                "name": "Minecraft中文官网",
+                "description": "Minecraft中国版官方游戏平台，提供网易代理版本的下载、更新和本地化服务。",
+                "tags": ["官方", "游戏下载", "中国版"],
+                "link": "http://mc.163.com"
+            },
+            {
+                "name": "Minecraft中文Wiki",
+                "description": "最全面的Minecraft中文百科全书，提供游戏机制、合成表、生物群系等详细信息，运行12年以上且社区活跃。",
+                "tags": ["百科", "知识库", "中文"],
+                "link": "https://zh.minecraft.wiki"
+            },
+            {
+                "name": "MineBBS",
+                "description": "中国最大的Minecraft资源交流论坛，提供模组、地图、材质包、皮肤等全品类资源，支持Java版与基岩版。",
+                "tags": ["论坛", "社区", "资源下载"],
+                "link": "https://www.minebbs.com"
+            },
+            {
+                "name": "Minecraft苦力怕论坛",
+                "description": "国内活跃的Minecraft中文社区，提供资源下载、技术交流和创作分享，拥有大量基岩版资源。",
+                "tags": ["论坛", "社区", "中文"],
+                "link": "https://klpbbs.com"
+            },
+            {
+                "name": "CurseForge",
+                "description": "全球最大的Minecraft模组下载平台，拥有超过25万个模组资源，支持版本筛选和PCL2/HMCL启动器集成。",
+                "tags": ["模组", "资源下载", "插件"],
+                "link": "https://www.curseforge.com/minecraft"
+            },
+            {
+                "name": "Modrinth",
+                "description": "新兴Minecraft模组资源平台，界面友好、访问速度快，提供模组、资源包和整合包下载，支持中文资源。",
+                "tags": ["模组", "资源下载", "整合包"],
+                "link": "https://modrinth.com"
+            },
+            {
+                "name": "PlanetMinecraft",
+                "description": "专注于Minecraft地图、皮肤和资源包的下载网站，提供详细分类和预览功能，适合寻找特定内容。",
+                "tags": ["地图", "皮肤", "资源下载"],
+                "link": "https://www.planetminecraft.com"
+            },
+            {
+                "name": "MinecraftSkins.net",
+                "description": "全球玩家创作的Minecraft皮肤资源库，提供3D预览、按标签搜索和UUID匹配功能，每日更新新皮肤。",
+                "tags": ["皮肤", "资源下载"],
+                "link": "https://www.minecraftskins.net"
+            },
+            {
+                "name": "NameMC",
+                "description": "Minecraft正版玩家信息查询平台，可查看玩家历史皮肤、UUID信息，支持3D皮肤效果预览。",
+                "tags": ["皮肤", "查询"],
+                "link": "https://namemc.com"
+            },
+            {
+                "name": "ChunkBase",
+                "description": "专业的Minecraft种子查询工具，可分析区块、查找结构、定位生物群系，是建筑和探险的实用助手。",
+                "tags": ["工具", "种子查询", "区块分析"],
+                "link": "https://www.chunkbase.com"
+            },
+            {
+                "name": "Minecraft教育版官网",
+                "description": "Minecraft教育版官方平台，提供教学资源、课程模板和教育工具，专为教师和学生设计。",
+                "tags": ["官方", "教育", "资源"],
+                "link": "https://education.minecraft.net"
+            },
+            {
+                "name": "Minecraft Heads",
+                "description": "提供Minecraft装饰性头颅资源，支持自定义设计和下载，可用于游戏内装饰和建筑。",
+                "tags": ["装饰", "资源", "头颅"],
+                "link": "https://www.minecraft-heads.com"
+            },
+            {
+                "name": "Amulet地图编辑器",
+                "description": "开源的Minecraft世界编辑工具，支持Java 1.12+和Bedrock 1.7+版本，提供三维可视化编辑和精确坐标控制。",
+                "tags": ["工具", "地图编辑", "世界转换"],
+                "link": "https://gitcode.com/gh_mirrors/am/Amulet-Map-Editor"
+            },
+            {
+                "name": "MCskin",
+                "description": "Minecraft皮肤制作与编辑网站，提供皮肤抓取、自定义人物动作、调整光照和颜色背景功能，支持透明底下载。",
+                "tags": ["皮肤", "编辑工具", "自定义"],
+                "link": "https://mcskins.top"
+            }
+        ]
+        
+        # 主容器
+        main_container = ctk.CTkFrame(self.links_tab, fg_color="transparent")
+        main_container.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
+        
+        # 标题
+        title_label = ctk.CTkLabel(
+            main_container,
+            text="🔗 Minecraft 相关网站",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        title_label.pack(anchor=ctk.W, pady=(0, 10))
+        
+        # 描述
+        desc_label = ctk.CTkLabel(
+            main_container,
+            text="收录了 Minecraft 相关的官方网站、社区、资源下载和工具网站，方便快速访问。",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLORS["text_secondary"],
+        )
+        desc_label.pack(anchor=ctk.W, pady=(0, 20))
+        
+        # 网站列表容器（可滚动）
+        scroll_frame = ctk.CTkScrollableFrame(
+            main_container,
+            fg_color="transparent",
+            scrollbar_button_color=COLORS["bg_light"],
+        )
+        scroll_frame.pack(fill=ctk.BOTH, expand=True)
+        
+        # 创建网站卡片
+        for site in minecraft_sites:
+            self._create_site_card(scroll_frame, site)
+    
+    def _create_site_card(self, parent, site):
+        """创建网站卡片"""
+        card = ctk.CTkFrame(
+            parent,
+            fg_color=COLORS["card_bg"],
+            corner_radius=12,
+            border_width=1,
+            border_color=COLORS["card_border"],
+        )
+        card.pack(fill=ctk.X, pady=5)
+        
+        # 卡片内部容器
+        card_inner = ctk.CTkFrame(card, fg_color="transparent")
+        card_inner.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
+        
+        # 网站名称和标签行
+        name_frame = ctk.CTkFrame(card_inner, fg_color="transparent")
+        name_frame.pack(fill=ctk.X, pady=(0, 8))
+        
+        # 网站名称
+        name_label = ctk.CTkLabel(
+            name_frame,
+            text=site["name"],
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
+            text_color=COLORS["text_primary"],
+            anchor=ctk.W,
+        )
+        name_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
+        
+        # 标签
+        tags_frame = ctk.CTkFrame(name_frame, fg_color="transparent")
+        tags_frame.pack(side=ctk.RIGHT)
+        
+        for tag in site["tags"][:3]:  # 最多显示3个标签
+            tag_label = ctk.CTkLabel(
+                tags_frame,
+                text=tag,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=COLORS["accent"],
+                fg_color=COLORS["bg_medium"],
+                corner_radius=10,
+                padx=8,
+                pady=2,
+            )
+            tag_label.pack(side=ctk.LEFT, padx=(2, 0))
+        
+        # 网站描述
+        desc_label = ctk.CTkLabel(
+            card_inner,
+            text=site["description"],
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_secondary"],
+            wraplength=800,
+            justify=ctk.LEFT,
+            anchor=ctk.W,
+        )
+        desc_label.pack(fill=ctk.X, pady=(0, 10))
+        
+        # 链接和按钮行
+        link_frame = ctk.CTkFrame(card_inner, fg_color="transparent")
+        link_frame.pack(fill=ctk.X)
+        
+        # 链接地址
+        link_label = ctk.CTkLabel(
+            link_frame,
+            text=site["link"],
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+            anchor=ctk.W,
+        )
+        link_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
+        
+        # 打开链接按钮
+        def create_open_link_callback(url):
+            import webbrowser
+            return lambda: webbrowser.open(url)
+        
+        open_btn = ctk.CTkButton(
+            link_frame,
+            text="🌐 打开链接",
+            width=100,
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=create_open_link_callback(site["link"]),
+        )
+        open_btn.pack(side=ctk.RIGHT, padx=(10, 0))
+        
+        # 复制链接按钮
+        def create_copy_link_callback(url, name):
+            import pyperclip
+            def copy_func():
+                try:
+                    pyperclip.copy(url)
+                    # 显示复制成功提示
+                    if hasattr(self, 'set_status'):
+                        self.set_status(f"已复制链接: {name}", "success")
+                except Exception as e:
+                    if hasattr(self, 'set_status'):
+                        self.set_status(f"复制失败: {e}", "error")
+            return copy_func
+        
+        copy_btn = ctk.CTkButton(
+            link_frame,
+            text="📋 复制链接",
+            width=90,
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=create_copy_link_callback(site["link"], site["name"]),
+        )
+        copy_btn.pack(side=ctk.RIGHT)
 
     def _build_sidebar(self, parent):
         """构建左侧边栏：自定义角色名、自定义皮肤、启动器日志"""
