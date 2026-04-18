@@ -1,5 +1,6 @@
 """配置文件管理模块"""
 import os
+import platform
 from pathlib import Path
 from typing import Optional
 
@@ -32,6 +33,55 @@ except ImportError:
         return _json_mod.dumps(obj, indent=indent, ensure_ascii=ensure_ascii)
 
 
+def _get_platform_paths():
+    """
+    根据操作系统返回平台特定的路径配置
+    
+    Returns:
+        dict: {
+            'base_dir': 基础目录（Windows/macOS: 当前目录, Linux: ~/.fmcl）,
+            'minecraft_dir': Minecraft 目录,
+            'log_file': 日志文件路径,
+            'config_file': 配置文件路径
+        }
+    """
+    system = platform.system().lower()
+    
+    if system == "linux":
+        # Linux: 遵循 FHS 标准
+        home = Path.home()
+        
+        # 配置文件: /etc/fmcl/config.json
+        config_dir = Path("/etc/fmcl")
+        config_file = config_dir / "config.json"
+        
+        # 日志文件: /var/log/fmcl/latest.log
+        log_dir = Path("/var/log/fmcl")
+        log_file = log_dir / "latest.log"
+        
+        # Minecraft 目录: ~/.minecraft
+        minecraft_dir = home / ".minecraft"
+        
+        # 基础目录: ~/.fmcl (用于其他运行时文件)
+        base_dir = home / ".fmcl"
+        
+        return {
+            'base_dir': base_dir,
+            'minecraft_dir': minecraft_dir,
+            'log_file': log_file,
+            'config_file': config_file,
+        }
+    else:
+        # Windows/macOS: 使用当前工作目录
+        base_dir = Path.cwd()
+        return {
+            'base_dir': base_dir,
+            'minecraft_dir': base_dir / ".minecraft",
+            'log_file': base_dir / "latest.log",
+            'config_file': base_dir / "config.json",
+        }
+
+
 class Config:
     """启动器配置类"""
 
@@ -46,12 +96,22 @@ class Config:
         初始化配置
 
         Args:
-            base_dir: 基础目录,默认为当前工作目录
+            base_dir: 基础目录,默认为根据平台自动检测
         """
-        self.base_dir = Path(base_dir) if base_dir else Path.cwd()
-        self.minecraft_dir = self.base_dir / ".minecraft"
-        self.log_file = self.base_dir / "latest.log"
-        self.config_file = self.base_dir / "config.json"
+        # 获取平台特定路径
+        platform_paths = _get_platform_paths()
+        
+        # 如果手动指定了 base_dir，则覆盖自动检测的路径（仅非 Linux 平台有效）
+        if base_dir is not None and platform.system().lower() != "linux":
+            self.base_dir = Path(base_dir)
+            self.minecraft_dir = self.base_dir / ".minecraft"
+            self.log_file = self.base_dir / "latest.log"
+            self.config_file = self.base_dir / "config.json"
+        else:
+            self.base_dir = platform_paths['base_dir']
+            self.minecraft_dir = platform_paths['minecraft_dir']
+            self.log_file = platform_paths['log_file']
+            self.config_file = platform_paths['config_file']
 
         # 下载配置
         self.download_threads = 4
@@ -122,8 +182,37 @@ class Config:
 
     def ensure_directories(self) -> None:
         """确保必要的目录存在"""
+        import platform
+        
+        system = platform.system().lower()
+        
+        # 创建 Minecraft 目录
         self.minecraft_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 创建基础目录
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Linux 特殊处理：确保 /etc/fmcl 和 /var/log/fmcl 存在
+        if system == "linux":
+            config_dir = self.config_file.parent
+            log_dir = self.log_file.parent
+            
+            try:
+                # 尝试创建配置目录（可能需要 sudo）
+                if not config_dir.exists():
+                    logger.warning(f"配置目录不存在: {config_dir}")
+                    logger.warning(f"请运行: sudo mkdir -p {config_dir} && sudo chown $USER:$USER {config_dir}")
+                
+                # 尝试创建日志目录（可能需要 sudo）
+                if not log_dir.exists():
+                    logger.warning(f"日志目录不存在: {log_dir}")
+                    logger.warning(f"请运行: sudo mkdir -p {log_dir} && sudo chown $USER:$USER {log_dir}")
+                    
+            except Exception as e:
+                logger.error(f"创建系统目录失败: {e}")
+                logger.error("在 Linux 上首次运行时，可能需要手动创建目录:")
+                logger.error(f"  sudo mkdir -p {config_dir} {log_dir}")
+                logger.error(f"  sudo chown $USER:$USER {config_dir} {log_dir}")
 
     def get_versions_dir(self) -> Path:
         """获取版本目录路径"""

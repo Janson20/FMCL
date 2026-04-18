@@ -1127,6 +1127,8 @@ class ModernApp(ctk.CTk):
 
     def _collect_crash_info(self):
         """收集崩溃相关文件信息（后台线程调用），支持版本隔离目录"""
+        import platform
+        
         files = {}
         mc_dir = None
         try:
@@ -1134,17 +1136,29 @@ class ModernApp(ctk.CTk):
                 mc_dir = Path(self.callbacks["get_minecraft_dir"]())
             if mc_dir and mc_dir.exists():
                 base_dir = mc_dir.parent  # 项目根目录
-                files["_mc_dir"] = str(base_dir)
-
-                # ── 游戏日志：在项目根目录的 ./logs 下 ──
-                logs_dir = base_dir / "logs"
-                if logs_dir.exists():
-                    latest_log = logs_dir / "latest.log"
-                    if latest_log.exists():
-                        files["game_log"] = str(latest_log)
-                    debug_log = logs_dir / "debug.log"
-                    if debug_log.exists():
-                        files["debug_log"] = str(debug_log)
+                system = platform.system().lower()
+                
+                # ── 游戏日志：根据平台在不同位置查找 ──
+                if system == "linux":
+                    # Linux: 日志在 /var/log/fmcl/
+                    logs_dir = Path("/var/log/fmcl")
+                    if logs_dir.exists():
+                        latest_log = logs_dir / "latest.log"
+                        if latest_log.exists():
+                            files["game_log"] = str(latest_log)
+                        debug_log = logs_dir / "debug.log"
+                        if debug_log.exists():
+                            files["debug_log"] = str(debug_log)
+                else:
+                    # Windows/macOS: 日志在项目根目录的 ./logs 下
+                    logs_dir = base_dir / "logs"
+                    if logs_dir.exists():
+                        latest_log = logs_dir / "latest.log"
+                        if latest_log.exists():
+                            files["game_log"] = str(latest_log)
+                        debug_log = logs_dir / "debug.log"
+                        if debug_log.exists():
+                            files["debug_log"] = str(debug_log)
 
                 # ── 崩溃报告：在版本隔离目录或全局 .minecraft 下查找 ──
                 version_id = getattr(self, "_running_version_id", None)
@@ -2120,20 +2134,31 @@ class ModernApp(ctk.CTk):
                         launcher_log_content = self._log_buffer.getvalue()
                     # 如果缓冲区为空，回退到 logzero 的磁盘日志文件
                     if not launcher_log_content.strip():
-                        base_dir = crash_files.get("_mc_dir")
-                        if base_dir:
-                            disk_log = Path(base_dir) / "latest.log"
-                            if disk_log.exists():
-                                try:
-                                    # Windows 下 logzero 可能使用 GBK 编码
-                                    for enc in ("utf-8", "gbk", "latin-1"):
-                                        try:
-                                            launcher_log_content = disk_log.read_text(enc)
-                                            break
-                                        except (UnicodeDecodeError, UnicodeError):
-                                            continue
-                                except Exception:
-                                    pass
+                        import platform as _platform
+                        system = _platform.system().lower()
+                        
+                        if system == "linux":
+                            # Linux: 日志在 /var/log/fmcl/latest.log
+                            disk_log = Path("/var/log/fmcl/latest.log")
+                        else:
+                            # Windows/macOS: 日志在项目根目录
+                            base_dir = crash_files.get("_mc_dir")
+                            if base_dir:
+                                disk_log = Path(base_dir) / "latest.log"
+                            else:
+                                disk_log = None
+                        
+                        if disk_log and disk_log.exists():
+                            try:
+                                # Windows 下 logzero 可能使用 GBK 编码
+                                for enc in ("utf-8", "gbk", "latin-1"):
+                                    try:
+                                        launcher_log_content = disk_log.read_text(enc)
+                                        break
+                                    except (UnicodeDecodeError, UnicodeError):
+                                        continue
+                            except Exception:
+                                pass
                     if launcher_log_content.strip():
                         zf.writestr("launcher.log", launcher_log_content.encode("utf-8", errors="replace"))
 
