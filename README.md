@@ -129,10 +129,10 @@
 ├────────────┬──────────────────────────────┬──────────────────────────────────────┤
 │ 👤 角色名  │  📦 已安装版本  ⚙  3 个版本 │  📥 安装新版本               │
 │ [Steve   ] │  ─────────────────────────── │  ──────────────────────      │
-│            │  ┌────────────────────────┐  │  版本 ID:  [1.20.4      ]   │
-│ 🎨 皮肤   │  │ 1.20.4          🧩⚙[X] │  │  模组加载器: [无      ▼]     │
-│ ✅ skin.png│  │ 1.20.4-forge-49🧩⚙[X] │  │  提示: 安装 Forge 会同时... │
-│ [选择][🗑] │  │ fabric-loader-0🧩⚙[X] │  │  [📥 安装版本]              │
+│            │  │ 1.20.4          🧩⚙[X] │  │  版本 ID:  [1.20.4      ]   │
+│ 🎨 皮肤   │  │ 1.20.4-forge-49🧩⚙[X] │  │  模组加载器: [无      ▼]     │
+│ ✅ skin.png│  │ fabric-loader-0🧩⚙[X] │  │  提示: 安装 Forge 会同时... │
+│ [选择][🗑] │  │                        │  │  [📥 安装版本]              │
 │            │  │                        │  │                              │
 │ 📋 日志   │  │                        │  │  📋 快速选择                 │
 │ [14:30:01] │  │                        │  │  ──────────────────          │
@@ -445,16 +445,18 @@ main.py
 - Minecraft 目录: `~/.minecraft/`
 - 运行时目录: `~/.fmcl/`
 
-> 💡 **Linux 首次运行**: 需要创建系统目录，可使用提供的初始化脚本：
-> ```bash
-> chmod +x scripts/setup_linux.sh
-> ./scripts/setup_linux.sh
-> ```
-> 或手动创建：
-> ```bash
-> sudo mkdir -p /etc/fmcl /var/log/fmcl
-> sudo chown $USER:$USER /etc/fmcl /var/log/fmcl
-> ```
+> 💡 **Linux 首次运行**: 
+> - **日志目录** (`/var/log/fmcl/`) 会自动创建（如权限不足会提示）
+> - **配置目录** (`/etc/fmcl/`) 需要手动创建或使用初始化脚本：
+>   ```bash
+>   chmod +x scripts/setup_linux.sh
+>   ./scripts/setup_linux.sh
+>   ```
+>   或手动创建：
+>   ```bash
+>   sudo mkdir -p /etc/fmcl /var/log/fmcl
+>   sudo chown $USER:$USER /etc/fmcl /var/log/fmcl
+>   ```
 
 ### 配置项说明
 
@@ -511,16 +513,16 @@ make clean            # 清理构建文件
 
 ### Linux 初始化
 
-Linux 平台首次运行前，需要创建系统目录：
+Linux 平台首次运行前，建议创建系统目录（日志目录会自动创建）：
 
 ```bash
 # 方法一：使用初始化脚本（推荐）
 chmod +x scripts/setup_linux.sh
 ./scripts/setup_linux.sh
 
-# 方法二：手动创建
-sudo mkdir -p /etc/fmcl /var/log/fmcl
-sudo chown $USER:$USER /etc/fmcl /var/log/fmcl
+# 方法二：手动创建配置目录（日志目录会自动创建）
+sudo mkdir -p /etc/fmcl
+sudo chown $USER:$USER /etc/fmcl
 mkdir -p ~/.minecraft ~/.fmcl
 ```
 
@@ -591,8 +593,8 @@ chore: 构建/工具变动
 | Windows 杀毒误报 | 添加到杀毒软件排除列表 |
 | Windows 异常退出 | 尝试以管理员权限运行程序 |
 | 依赖安装失败 | `pip install -r requirements.txt --force-reinstall` |
-| **Linux 权限错误** | 运行 `scripts/setup_linux.sh` 初始化目录权限 |
-| **Linux 找不到配置** | 检查 `/etc/fmcl/config.json` 是否存在且可写 |
+| **Linux 配置目录权限错误** | 运行 `sudo mkdir -p /etc/fmcl && sudo chown $USER:$USER /etc/fmcl` |
+| **Linux 日志目录权限错误** | 运行 `./scripts/setup_linux.sh` 或手动创建 `/var/log/fmcl` |
 
 ---
 
