@@ -427,6 +427,90 @@ class ModernApp(ctk.CTk):
                 "description": "Minecraft皮肤制作与编辑网站，提供皮肤抓取、自定义人物动作、调整光照和颜色背景功能，支持透明底下载。",
                 "tags": ["皮肤", "编辑工具", "自定义"],
                 "link": "https://mcskins.top"
+            },
+            {
+                "name": "Minecraft Shaders",
+                "description": "专注于Minecraft光影包（Shaders）的下载网站，提供各类光影效果的预览和下载，帮助你轻松提升游戏画面表现。",
+                "tags": ["光影", "画面", "渲染"],
+                "link": "https://minecraftshader.com"
+            },
+            {
+                "name": "Resource Packs",
+                "description": "老牌材质包（Resource Packs）下载站，分类详细，提供高清修复、奇幻风格、像素风等多种类型的材质包下载。",
+                "tags": ["材质包", "高清修复", "纹理"],
+                "link": "https://resourcepack.net"
+            },
+            {
+                "name": "MCPEDL",
+                "description": "全球知名的基岩版（Bedrock Edition）资源站，提供海量的 addons、地图、皮肤和模组，是手机版玩家的首选资源库。",
+                "tags": ["基岩版", "手机版", "Addons"],
+                "link": "https://mcpedl.com"
+            },
+            {
+                "name": "Minecraft Maps",
+                "description": "专业的Minecraft地图下载网站，收录了冒险地图、解谜地图、PVP地图和生存挑战等多种玩家自制地图。",
+                "tags": ["地图", "冒险", "下载"],
+                "link": "http://www.minecraftmaps.com"
+            },
+            {
+                "name": "The Skindex",
+                "description": "老牌皮肤网站，拥有庞大的皮肤库和简单易用的在线皮肤编辑器，支持直接预览和下载。",
+                "tags": ["皮肤", "编辑器", "社区"],
+                "link": "https://www.minecraftskins.com"
+            },
+            {
+                "name": "Minecraft Servers",
+                "description": "全球Minecraft服务器列表，玩家可以根据标签（如生存、空岛、小游戏）查找和投票支持喜欢的服务器。",
+                "tags": ["服务器", "多人联机", "列表"],
+                "link": "https://minecraftservers.org"
+            },
+            {
+                "name": "我的世界服务器列表 (mclists)",
+                "description": "国内知名的服务器宣传与列表平台，方便国内玩家查找稳定的中文服务器，涵盖各种玩法类型。",
+                "tags": ["服务器", "国内", "中文服"],
+                "link": "https://www.mclists.cn"
+            },
+            {
+                "name": "Minecraft Tools",
+                "description": "综合性工具箱网站，提供合成表查询、效果查询、附魔计算器、生物生成条件查询等实用功能。",
+                "tags": ["工具", "合成表", "计算器"],
+                "link": "https://minecraft.tools"
+            },
+            {
+                "name": "Nova Skins",
+                "description": "功能强大的皮肤编辑与壁纸生成工具，支持皮肤动图制作、披风编辑以及复杂的滤镜效果处理。",
+                "tags": ["皮肤编辑", "壁纸生成", "工具"],
+                "link": "https://novaskin.me"
+            },
+            {
+                "name": "mclo.gs",
+                "description": "服务器腐竹和玩家必备工具，用于上传和分析游戏崩溃日志（Logs），能快速定位错误原因并提供解决方案建议。",
+                "tags": ["日志分析", "除错", "服务器管理"],
+                "link": "https://mclo.gs"
+            },
+            {
+                "name": "Chunker",
+                "description": "在线存档转换工具，支持将Java版存档转换为基岩版（反之亦然），方便跨平台玩家迁移世界数据。",
+                "tags": ["存档转换", "跨平台", "工具"],
+                "link": "https://chunker.app"
+            },
+            {
+                "name": "Minecraft Forge",
+                "description": "Minecraft Java版最古老的模组加载器官网，提供最新版本的Forge下载，是运行大量经典模组的必要环境。",
+                "tags": ["Forge", "模组加载器", "API"],
+                "link": "https://www.minecraftforge.net"
+            },
+            {
+                "name": "Fabric",
+                "description": "轻量级、高性能的模组加载器，启动速度快，社区活跃，适合喜欢最新版本和轻量级模组的玩家。",
+                "tags": ["Fabric", "模组加载器", "高性能"],
+                "link": "https://fabricmc.net"
+            },
+            {
+                "name": "ArmorTrims",
+                "description": "1.20+版本盔甲纹饰预览工具，可以直观地查看不同锻造模板和材料组合后的盔甲外观效果。",
+                "tags": ["盔甲纹饰", "预览", "1.20+"],
+                "link": "https://www.armortrims.com"
             }
         ]
         
