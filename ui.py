@@ -2223,7 +2223,8 @@ class ModernApp(ctk.CTk):
             if platform.system() == "Windows":
                 result = subprocess.run(
                     ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-                    capture_output=True, text=True, timeout=5
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
                 )
                 for line in result.stdout.splitlines():
                     if f'"{pid}"' in line:

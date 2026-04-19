@@ -300,10 +300,19 @@ class MinecraftLauncher:
                 options["gameDirectory"] = version_game_dir
                 logger.info(f"版本隔离已启用: gameDirectory={version_game_dir}")
 
-            # 设置自定义玩家名
-            if self.config.player_name and self.config.player_name != "Steve":
+            # 设置自定义玩家名（始终应用，不限制默认值）
+            if self.config.player_name:
                 options["username"] = self.config.player_name
                 options["playerName"] = self.config.player_name
+
+            # 皮肤：版本隔离时将皮肤复制到版本目录，确保游戏能找到
+            if self.config.skin_path and os.path.exists(self.config.skin_path):
+                import shutil
+                game_dir = options.get("gameDirectory", self.minecraft_dir)
+                skin_dir = os.path.join(game_dir, "skins")
+                os.makedirs(skin_dir, exist_ok=True)
+                shutil.copy2(self.config.skin_path, os.path.join(skin_dir, os.path.basename(self.config.skin_path)))
+                logger.info(f"已复制皮肤到: {skin_dir}")
 
             # 直连服务器
             if server_ip:
@@ -318,6 +327,13 @@ class MinecraftLauncher:
                 self.minecraft_dir,
                 options
             )
+
+            # 直连服务器时追加 --quickPlayMultiplayer（1.20.4+，启动后立即加入）
+            if server_ip:
+                server_addr = f"{server_ip}:{server_port}"
+                minecraft_command.append("--quickPlayMultiplayer")
+                minecraft_command.append(server_addr)
+                logger.info(f"追加 --quickPlayMultiplayer {server_addr}")
 
             # ── JVM 参数优化 ──
             minecraft_command = self._optimize_jvm_args(minecraft_command)
