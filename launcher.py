@@ -2,6 +2,7 @@
 import gc
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -564,6 +565,11 @@ class MinecraftLauncher:
             "remove_server": self.remove_server,
             "get_server_dir": self.get_server_dir,
             "send_server_command": self.send_server_command,
+            # 整合包相关
+            "get_mrpack_information": self.get_mrpack_information,
+            "install_mrpack": self.install_mrpack,
+            "get_mrpack_launch_version": self.get_mrpack_launch_version,
+            "install_mrpack_server": self.install_mrpack_server,
         }
 
     def get_player_name(self) -> str:
@@ -1016,9 +1022,10 @@ class MinecraftLauncher:
                 logger.error(f"服务器版本未安装: {version_id}")
                 return False, None
 
-            server_jar = server_dir / f"server-{version_id}.jar"
-            if not server_jar.exists():
-                logger.error(f"服务器 jar 不存在: {server_jar}")
+            # 查找服务器 jar（支持 vanilla / Fabric / Forge / NeoForge / Quilt）
+            server_jar = self._find_server_jar(server_dir)
+            if not server_jar:
+                logger.error(f"在 {server_dir} 中未找到服务器 jar")
                 return False, None
 
             # 确保 EULA 已同意
@@ -1136,3 +1143,634 @@ class MinecraftLauncher:
         except Exception as e:
             logger.error(f"删除服务器版本失败: {str(e)}")
             return False, version_id
+
+    # ─── 整合包（mrpack）安装 ───────────────────────────────────
+
+    def get_mrpack_information(self, mrpack_path: str) -> Dict[str, Any]:
+        """
+        读取 .mrpack 整合包的元数据信息
+
+        Args:
+            mrpack_path: .mrpack 文件的绝对路径
+
+        Returns:
+            包含 name, summary, minecraftVersion, optionalFiles 等字段的字典
+
+        Raises:
+            ValueError: 文件无效或解析失败
+        """
+        import minecraft_launcher_lib
+        if not os.path.isfile(mrpack_path):
+            raise ValueError(f"文件不存在: {mrpack_path}")
+        try:
+            info = minecraft_launcher_lib.mrpack.get_mrpack_information(mrpack_path)
+            logger.info(f"已读取整合包信息: {info.get('name', '未知')}")
+            return info
+        except Exception as e:
+            logger.error(f"读取整合包信息失败: {e}")
+            raise ValueError(f"无法解析 .mrpack 文件: {e}") from e
+
+    def install_mrpack(
+        self,
+        mrpack_path: str,
+        optional_files: Optional[List[str]] = None,
+        modpack_directory: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """
+        安装 .mrpack 整合包（默认启用版本隔离）
+
+        整合包的模组、配置文件等资源默认安装到
+        .minecraft/versions/<launch_version>/ 目录，实现版本隔离。
+        启动游戏时 launch_game 会自动为含模组加载器的版本设置 gameDirectory。
+
+        Args:
+            mrpack_path: .mrpack 文件的绝对路径
+            optional_files: 要安装的可选文件列表（默认全部不安装）
+            modpack_directory: 整合包安装目录（默认为版本隔离目录，即 versions/<launch_version>/）
+
+        Returns:
+            (是否成功, 启动版本ID 或 错误信息) 元组
+        """
+        if not os.path.isfile(mrpack_path):
+            msg = f"文件不存在: {mrpack_path}"
+            logger.error(msg)
+            return False, msg
+
+        mc_dir = self.minecraft_dir
+
+        # 先获取启动版本ID，用于确定版本隔离目录
+        try:
+            launch_version = self._mcllib.mrpack.get_mrpack_launch_version(mrpack_path)
+        except Exception as e:
+            msg = f"无法获取整合包启动版本: {e}"
+            logger.error(msg)
+            return False, msg
+
+        # 默认使用版本隔离目录：versions/<launch_version>/
+        if modpack_directory:
+            mp_dir = modpack_directory
+        else:
+            mp_dir = os.path.join(mc_dir, "versions", launch_version)
+            os.makedirs(mp_dir, exist_ok=True)
+            logger.info(f"版本隔离模式: 整合包资源将安装到 {mp_dir}")
+
+        install_options: dict = {
+            "optionalFiles": optional_files or [],
+        }
+
+        try:
+            logger.info(f"正在安装整合包: {mrpack_path} -> {mc_dir}")
+            self._mcllib.mrpack.install_mrpack(
+                mrpack_path,
+                mc_dir,
+                modpack_directory=mp_dir,
+                mrpack_install_options=install_options,
+                callback=self._get_callback(),
+            )
+            logger.info(f"整合包安装完成，启动版本: {launch_version}")
+            return True, launch_version
+        except Exception as e:
+            logger.error(f"整合包安装失败: {e}")
+            return False, str(e)
+
+    def get_mrpack_launch_version(self, mrpack_path: str) -> str:
+        """
+        获取整合包的启动版本ID
+
+        Args:
+            mrpack_path: .mrpack 文件的绝对路径
+
+        Returns:
+            启动版本ID字符串
+        """
+        return self._mcllib.mrpack.get_mrpack_launch_version(mrpack_path)
+
+    def install_mrpack_server(
+        self,
+        mrpack_path: str,
+        optional_files: Optional[List[str]] = None,
+        server_name: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """
+        安装整合包作为服务器
+
+        流程：
+        1. 读取整合包信息，获取 Minecraft 版本和 mod loader 信息
+        2. 用 mrpack 模块将整合包文件（mods、configs 等）安装到服务器目录
+        3. 安装同名客户端版本（自动下载 Java runtime）
+        4. 如果有 mod loader，自动下载并安装服务端 mod loader
+        5. 如果没有 mod loader，下载 vanilla server jar
+        6. 自动同意 EULA，创建基本 server.properties
+
+        Args:
+            mrpack_path: .mrpack 文件的绝对路径
+            optional_files: 要安装的可选文件列表
+            server_name: 服务器目录名（默认使用整合包名称）
+
+        Returns:
+            (是否成功, 服务器名称 或 错误信息) 元组
+        """
+        import json
+        import requests as req
+        import zipfile
+
+        if not os.path.isfile(mrpack_path):
+            msg = f"文件不存在: {mrpack_path}"
+            logger.error(msg)
+            return False, msg
+
+        try:
+            # 1. 读取整合包信息 + mod loader 信息
+            mrpack_info = self._mcllib.mrpack.get_mrpack_information(mrpack_path)
+            mc_version = mrpack_info.get("minecraftVersion", "")
+            pack_name = mrpack_info.get("name", "modpack")
+
+            if not mc_version:
+                msg = "无法获取整合包的 Minecraft 版本"
+                logger.error(msg)
+                return False, msg
+
+            # 从 mrpack 内部的 modrinth.index.json 读取 mod loader 依赖
+            mod_loader_info = {}  # {"type": "forge"|"fabric"|"neoforge"|"quilt", "version": "..."}
+            with zipfile.ZipFile(mrpack_path, "r") as zf:
+                if "modrinth.index.json" in zf.namelist():
+                    with zf.open("modrinth.index.json", "r") as f:
+                        index = json.load(f)
+                    deps = index.get("dependencies", {})
+                    if "forge" in deps:
+                        mod_loader_info = {"type": "forge", "version": deps["forge"]}
+                    elif "neoforge" in deps:
+                        mod_loader_info = {"type": "neoforge", "version": deps["neoforge"]}
+                    elif "fabric-loader" in deps:
+                        mod_loader_info = {"type": "fabric", "version": deps["fabric-loader"]}
+                    elif "quilt-loader" in deps:
+                        mod_loader_info = {"type": "quilt", "version": deps["quilt-loader"]}
+
+            loader_type = mod_loader_info.get("type", "")
+            loader_version = mod_loader_info.get("version", "")
+            if loader_type:
+                logger.info(f"检测到 mod loader: {loader_type} {loader_version}")
+
+            # 服务器目录名
+            if not server_name:
+                safe_name = re.sub(r'[<>:"/\\|?*]', '_', pack_name)
+                server_name = f"{safe_name}-{mc_version}"
+
+            server_dir = self._get_server_versions_dir() / server_name
+            server_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"整合包服务器目录: {server_dir}")
+
+            # 2. 安装整合包文件到服务器目录
+            install_options: dict = {"optionalFiles": optional_files or []}
+            self._set_status(f"正在安装整合包文件到服务器目录...")
+            self._mcllib.mrpack.install_mrpack(
+                mrpack_path,
+                self.minecraft_dir,
+                modpack_directory=str(server_dir),
+                mrpack_install_options=install_options,
+                callback=self._get_callback(),
+            )
+
+            # 3. 安装同名客户端版本（自动下载 Java runtime）
+            logger.info(f"正在安装客户端版本 {mc_version}（自动下载 Java runtime）...")
+            self._set_status(f"正在准备环境: 安装 {mc_version} ...")
+            self._mcllib.install.install_minecraft_version(
+                mc_version,
+                self.minecraft_dir,
+                callback=self._get_callback()
+            )
+
+            # 4. 安装服务端 mod loader 或 vanilla server jar
+            java_path = self._find_runtime_java(mc_version)
+            logger.info(f"使用 Java: {java_path}")
+
+            if loader_type:
+                success, err_msg = self._install_server_mod_loader(
+                    loader_type, loader_version, mc_version, server_dir, java_path
+                )
+                if not success:
+                    return False, f"服务端 {loader_type} 安装失败: {err_msg}"
+            else:
+                # 下载 vanilla server jar
+                success, err_msg = self._download_vanilla_server_jar(mc_version, server_dir)
+                if not success:
+                    return False, err_msg
+
+            # 5. 自动同意 EULA
+            eula_file = server_dir / "eula.txt"
+            eula_file.write_text("eula=true\n", encoding="utf-8")
+
+            # 6. 创建基本 server.properties（如果不存在）
+            props_file = server_dir / "server.properties"
+            if not props_file.exists():
+                props_file.write_text(
+                    "#Minecraft server properties\n"
+                    "enable-jmx-monitoring=false\n"
+                    "rcon.port=25575\n"
+                    "level-seed=\n"
+                    "gamemode=survival\n"
+                    "enable-command-block=false\n"
+                    "enable-query=false\n"
+                    "generator-settings={}\n"
+                    "enforce-secure-profile=false\n"
+                    "level-name=world\n"
+                    f"motd={pack_name} Server\n"
+                    "query.port=25565\n"
+                    "pvp=true\n"
+                    "generate-structures=true\n"
+                    "max-chained-neighbor-updates=1000000\n"
+                    "difficulty=easy\n"
+                    "network-compression-threshold=256\n"
+                    "max-tick-time=60000\n"
+                    "require-resource-pack=false\n"
+                    "use-native-transport=true\n"
+                    "max-players=20\n"
+                    "online-mode=false\n"
+                    "enable-status=true\n"
+                    "allow-flight=false\n"
+                    "initial-disabled-packs=\n"
+                    "broadcast-rcon-to-ops=true\n"
+                    "view-distance=10\n"
+                    "server-ip=\n"
+                    "resource-pack-prompt=\n"
+                    "allow-nether=true\n"
+                    "server-port=25565\n"
+                    "enable-rcon=false\n"
+                    "sync-chunk-writes=true\n"
+                    "op-permission-level=4\n"
+                    "prevent-proxy-connections=false\n"
+                    "hide-online-players=false\n"
+                    "resource-pack=\n"
+                    "entity-broadcast-range-percentage=100\n"
+                    "simulation-distance=10\n"
+                    "rcon.password=\n"
+                    "player-idle-timeout=0\n"
+                    "force-gamemode=false\n"
+                    "rate-limit=0\n"
+                    "hardcore=false\n"
+                    "white-list=false\n"
+                    "broadcast-console-to-ops=true\n"
+                    "spawn-npcs=true\n"
+                    "spawn-animals=true\n"
+                    "function-permission-level=2\n"
+                    "initial-enabled-packs=vanilla\n"
+                    "level-type=minecraft\\:normal\n"
+                    "text-filtering-config=\n"
+                    "spawn-monsters=true\n"
+                    "enforce-whitelist=false\n"
+                    "spawn-protection=16\n"
+                    "resource-pack-sha1=\n"
+                    "max-world-size=29999984\n",
+                    encoding="utf-8"
+                )
+
+            logger.info(f"整合包服务器 {server_name} 安装完成: {server_dir}")
+            return True, server_name
+
+        except Exception as e:
+            logger.error(f"整合包服务器安装失败: {e}")
+            return False, str(e)
+
+    def _find_server_jar(self, server_dir: Path) -> Optional[Path]:
+        """
+        在服务器目录中查找可用的服务器 jar
+
+        查找优先级：
+        1. fabric-server-launch.jar（Fabric）
+        2. quilt-server-launch.jar（Quilt）
+        3. run.bat（Forge/NeoForge 生成的启动脚本，提取其中的 jar 路径）
+        4. forge-*.jar（Forge 旧版）
+        5. server-*.jar（vanilla 或整合包开服创建的）
+        """
+        # Fabric
+        fabric_jar = server_dir / "fabric-server-launch.jar"
+        if fabric_jar.exists():
+            logger.info(f"找到 Fabric 服务器 jar: {fabric_jar}")
+            return fabric_jar
+
+        # Quilt
+        quilt_jar = server_dir / "quilt-server-launch.jar"
+        if quilt_jar.exists():
+            logger.info(f"找到 Quilt 服务器 jar: {quilt_jar}")
+            return quilt_jar
+
+        # Forge / NeoForge: 检查 run.bat 中引用的 jar
+        run_bat = server_dir / "run.bat"
+        if run_bat.exists():
+            try:
+                content = run_bat.read_text(encoding="utf-8", errors="replace")
+                # 查找 @libraries/... 或 *.jar 引用
+                # Forge/NeoForge 通常用 @libraries/.../xxx.jar 或直接 java -jar xxx.jar nogui
+                jar_match = re.search(r'@"?(libraries\\[^"]+\.jar)"?', content)
+                if jar_match:
+                    jar_path = server_dir / jar_match.group(1).lstrip("@").replace("\\", os.sep)
+                    if jar_path.exists():
+                        logger.info(f"从 run.bat 找到服务器 jar: {jar_path}")
+                        return jar_path
+                # 也尝试匹配直接 -jar xxx.jar
+                direct_match = re.search(r'-jar\s+"?([^"\s]+\.jar)"?', content)
+                if direct_match:
+                    jar_path = server_dir / direct_match.group(1)
+                    if jar_path.exists():
+                        logger.info(f"从 run.bat 找到服务器 jar: {jar_path}")
+                        return jar_path
+            except Exception:
+                pass
+
+        # run.sh (Linux)
+        run_sh = server_dir / "run.sh"
+        if run_sh.exists():
+            try:
+                content = run_sh.read_text(encoding="utf-8", errors="replace")
+                jar_match = re.search(r'@"?(libraries/[^"]+\.jar)"?', content)
+                if jar_match:
+                    jar_path = server_dir / jar_match.group(1).lstrip("@").replace("/", os.sep)
+                    if jar_path.exists():
+                        logger.info(f"从 run.sh 找到服务器 jar: {jar_path}")
+                        return jar_path
+                direct_match = re.search(r'-jar\s+"?([^"\s]+\.jar)"?', content)
+                if direct_match:
+                    jar_path = server_dir / direct_match.group(1)
+                    if jar_path.exists():
+                        logger.info(f"从 run.sh 找到服务器 jar: {jar_path}")
+                        return jar_path
+            except Exception:
+                pass
+
+        # forge-*.jar（旧版 Forge）
+        forge_jars = list(server_dir.glob("forge-*.jar"))
+        if forge_jars:
+            logger.info(f"找到 Forge 服务器 jar: {forge_jars[0]}")
+            return forge_jars[0]
+
+        # server-*.jar（vanilla 或整合包开服）
+        server_jars = list(server_dir.glob("server-*.jar"))
+        if server_jars:
+            logger.info(f"找到服务器 jar: {server_jars[0]}")
+            return server_jars[0]
+
+        # 最后尝试任何 *.jar
+        all_jars = [j for j in server_dir.glob("*.jar") if j.name not in ("fabric-installer.jar", "quilt-installer.jar", "forge-installer.jar", "neoforge-installer.jar")]
+        if all_jars:
+            logger.info(f"使用目录中的 jar: {all_jars[0]}")
+            return all_jars[0]
+
+        return None
+
+    def _download_vanilla_server_jar(self, mc_version: str, server_dir: Path) -> Tuple[bool, str]:
+        """下载 vanilla 服务器 jar 到指定目录"""
+        import json
+        import requests as req
+
+        version_json_path = Path(self.minecraft_dir) / "versions" / mc_version / f"{mc_version}.json"
+        if not version_json_path.exists():
+            return False, f"版本 JSON 不存在: {version_json_path}"
+
+        with open(version_json_path, "r", encoding="utf-8") as f:
+            vdata = json.load(f)
+
+        downloads = vdata.get("downloads", {})
+        server_info = downloads.get("server")
+        if not server_info:
+            return False, f"版本 {mc_version} 不支持服务器端 (无 server downloads)"
+
+        server_jar_url = server_info.get("url")
+        if not server_jar_url:
+            return False, f"无法获取服务器 jar 下载链接"
+
+        server_jar = server_dir / f"server-{mc_version}.jar"
+        logger.info(f"正在下载服务器 jar: {server_jar_url}")
+        self._set_status(f"正在下载服务器 {mc_version} jar ...")
+        resp = req.get(server_jar_url, stream=True)
+        resp.raise_for_status()
+        total = int(resp.headers.get("content-length", 0))
+        downloaded = 0
+        with open(server_jar, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total:
+                    self._set_progress(downloaded)
+                    self._set_max(total)
+        logger.info(f"服务器 jar 下载完成: {server_jar}")
+        return True, ""
+
+    def _install_server_mod_loader(
+        self,
+        loader_type: str,
+        loader_version: str,
+        mc_version: str,
+        server_dir: Path,
+        java_path: str,
+    ) -> Tuple[bool, str]:
+        """
+        下载并安装服务端 mod loader
+
+        Args:
+            loader_type: "forge" | "fabric" | "neoforge" | "quilt"
+            loader_version: loader 版本号
+            mc_version: Minecraft 版本
+            server_dir: 服务器目录
+            java_path: Java 可执行文件路径
+
+        Returns:
+            (是否成功, 错误信息) 元组
+        """
+        import requests as req
+        import tempfile
+
+        try:
+            if loader_type == "fabric":
+                return self._install_fabric_server(loader_version, mc_version, server_dir, java_path)
+            elif loader_type == "quilt":
+                return self._install_quilt_server(loader_version, mc_version, server_dir, java_path)
+            elif loader_type in ("forge", "neoforge"):
+                return self._install_forge_neoforge_server(loader_type, loader_version, mc_version, server_dir, java_path)
+            else:
+                return False, f"不支持的 mod loader: {loader_type}"
+        except Exception as e:
+            logger.error(f"安装服务端 {loader_type} 失败: {e}")
+            return False, str(e)
+
+    def _install_fabric_server(
+        self,
+        loader_version: str,
+        mc_version: str,
+        server_dir: Path,
+        java_path: str,
+    ) -> Tuple[bool, str]:
+        """安装 Fabric 服务端"""
+        import requests as req
+
+        self._set_status(f"正在安装 Fabric 服务端 ({loader_version}) ...")
+        logger.info(f"正在安装 Fabric {loader_version} for {mc_version}")
+
+        # 获取最新稳定版 installer
+        installer_resp = req.get("https://meta.fabricmc.net/v2/versions/installer")
+        installer_resp.raise_for_status()
+        installers = installer_resp.json()
+        stable = [i for i in installers if i.get("stable")]
+        if not stable:
+            return False, "无法获取 Fabric 安装器信息"
+        installer_url = stable[0]["url"]
+
+        # 下载 installer
+        installer_path = server_dir / "fabric-installer.jar"
+        self._set_status("正在下载 Fabric 安装器...")
+        resp = req.get(installer_url, stream=True)
+        resp.raise_for_status()
+        with open(installer_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        logger.info(f"Fabric 安装器下载完成: {installer_path}")
+
+        # 运行安装器
+        self._set_status(f"正在安装 Fabric {loader_version} for {mc_version}...")
+        cmd = [java_path, "-jar", str(installer_path), "server", "install",
+               "-mcversion", mc_version, "-loader", loader_version, "-dir", str(server_dir)]
+        logger.info(f"运行: {' '.join(cmd)}")
+
+        popen_kwargs = dict(
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            stdin=subprocess.PIPE, cwd=str(server_dir),
+        )
+        if sys.platform == 'win32':
+            popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+
+        process = subprocess.run(cmd, **popen_kwargs, timeout=300)
+        if process.returncode != 0:
+            output = process.stdout.decode("utf-8", errors="replace") if process.stdout else ""
+            return False, f"Fabric 安装器返回错误码 {process.returncode}\n{output[-500:]}"
+
+        # 清理 installer
+        try:
+            installer_path.unlink()
+        except Exception:
+            pass
+
+        logger.info(f"Fabric 服务端安装完成")
+        return True, ""
+
+    def _install_quilt_server(
+        self,
+        loader_version: str,
+        mc_version: str,
+        server_dir: Path,
+        java_path: str,
+    ) -> Tuple[bool, str]:
+        """安装 Quilt 服务端"""
+        import requests as req
+
+        self._set_status(f"正在安装 Quilt 服务端 ({loader_version}) ...")
+        logger.info(f"正在安装 Quilt {loader_version} for {mc_version}")
+
+        # 获取最新稳定版 installer
+        installer_resp = req.get("https://meta.quiltmc.org/v3/versions/installer")
+        installer_resp.raise_for_status()
+        installers = installer_resp.json()
+        stable = [i for i in installers if i.get("stable")]
+        if not stable:
+            return False, "无法获取 Quilt 安装器信息"
+        installer_url = stable[0]["url"]
+
+        # 下载 installer
+        installer_path = server_dir / "quilt-installer.jar"
+        self._set_status("正在下载 Quilt 安装器...")
+        resp = req.get(installer_url, stream=True)
+        resp.raise_for_status()
+        with open(installer_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+        # 运行安装器
+        self._set_status(f"正在安装 Quilt {loader_version} for {mc_version}...")
+        cmd = [java_path, "-jar", str(installer_path), "install", "server",
+               "--mc-version", mc_version, "--loader-version", loader_version,
+               "--install-dir", str(server_dir)]
+        logger.info(f"运行: {' '.join(cmd)}")
+
+        popen_kwargs = dict(
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            stdin=subprocess.PIPE, cwd=str(server_dir),
+        )
+        if sys.platform == 'win32':
+            popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+
+        process = subprocess.run(cmd, **popen_kwargs, timeout=300)
+        if process.returncode != 0:
+            output = process.stdout.decode("utf-8", errors="replace") if process.stdout else ""
+            return False, f"Quilt 安装器返回错误码 {process.returncode}\n{output[-500:]}"
+
+        try:
+            installer_path.unlink()
+        except Exception:
+            pass
+
+        logger.info(f"Quilt 服务端安装完成")
+        return True, ""
+
+    def _install_forge_neoforge_server(
+        self,
+        loader_type: str,
+        loader_version: str,
+        mc_version: str,
+        server_dir: Path,
+        java_path: str,
+    ) -> Tuple[bool, str]:
+        """安装 Forge/NeoForge 服务端"""
+        import requests as req
+
+        self._set_status(f"正在安装 {loader_type} 服务端 ({loader_version}) ...")
+        logger.info(f"正在安装 {loader_type} {loader_version} for {mc_version}")
+
+        # 获取 installer 下载链接
+        if loader_type == "neoforge":
+            # NeoForge: https://maven.neoforged.net/releases/net/neoforged/neoforge/{version}/neoforge-{version}-installer.jar
+            installer_url = (
+                f"https://maven.neoforged.net/releases/net/neoforged/neoforge/"
+                f"{loader_version}/neoforge-{loader_version}-installer.jar"
+            )
+        else:
+            # Forge: https://maven.minecraftforge.net/net/minecraftforge/forge/{mc_version}-{version}/forge-{mc_version}-{version}-installer.jar
+            installer_url = (
+                f"https://maven.minecraftforge.net/net/minecraftforge/forge/"
+                f"{mc_version}-{loader_version}/forge-{mc_version}-{loader_version}-installer.jar"
+            )
+
+        # 下载 installer
+        installer_path = server_dir / f"{loader_type}-installer.jar"
+        self._set_status(f"正在下载 {loader_type} 安装器...")
+        resp = req.get(installer_url, stream=True)
+        if resp.status_code == 404:
+            return False, f"找不到 {loader_type} {loader_version} 的安装器 (Minecraft {mc_version})"
+        resp.raise_for_status()
+        with open(installer_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
+        logger.info(f"{loader_type} 安装器下载完成: {installer_path}")
+
+        # 运行安装器
+        self._set_status(f"正在安装 {loader_type} {loader_version} for {mc_version}...")
+        cmd = [java_path, "-jar", str(installer_path), "--installServer"]
+        logger.info(f"运行: {' '.join(cmd)}")
+
+        popen_kwargs = dict(
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            stdin=subprocess.PIPE, cwd=str(server_dir),
+        )
+        if sys.platform == 'win32':
+            popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+
+        process = subprocess.run(cmd, **popen_kwargs, timeout=600)
+        if process.returncode != 0:
+            output = process.stdout.decode("utf-8", errors="replace") if process.stdout else ""
+            return False, f"{loader_type} 安装器返回错误码 {process.returncode}\n{output[-500:]}"
+
+        # 清理 installer
+        try:
+            installer_path.unlink()
+        except Exception:
+            pass
+
+        logger.info(f"{loader_type} 服务端安装完成")
+        return True, ""
