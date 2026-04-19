@@ -133,6 +133,9 @@ class Config:
         # 日志配置
         self.log_level = logzero.INFO
 
+        # 净读 AI Token
+        self.jdz_token: Optional[str] = None
+
         # 从配置文件加载
         self._load_config()
 
@@ -157,6 +160,8 @@ class Config:
                 self.player_name = data["player_name"]
             if "skin_path" in data:
                 self.skin_path = data["skin_path"]
+            if "jdz_token" in data:
+                self.jdz_token = data["jdz_token"]
 
             logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}")
 
@@ -173,6 +178,7 @@ class Config:
                 "auto_check_update": self.auto_check_update,
                 "player_name": self.player_name,
                 "skin_path": self.skin_path,
+                "jdz_token": self.jdz_token,
             }
             with open(self.config_file, "w", encoding="utf-8") as f:
                 f.write(_json_dumps(data, indent=2, ensure_ascii=False))

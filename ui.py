@@ -3500,12 +3500,287 @@ class ModernApp(ctk.CTk):
                          bd=0, highlightthickness=0)
         btn3.place(x=pad, y=btn_y + (btn_h + 8) * 2, width=w - 2 * pad, height=btn_h)
 
+        # AI 分析按钮
+        _jdz_token = self.callbacks.get("get_jdz_token", lambda: None)() if self.callbacks else None
+
+        ai_btn = tk.Button(dialog, text="🤖 AI 智能分析（净读 AI）",
+                           command=lambda: self._ai_analyze_crash(crash_files, exit_code),
+                           bg='#6c5ce7', fg='white', activebackground='#a29bfe', activeforeground='white',
+                           font=(FONT_FAMILY, 10, 'bold'), relief='flat', cursor='hand2',
+                           bd=0, highlightthickness=0,
+                           state='normal' if _jdz_token else 'disabled')
+        ai_btn.place(x=pad, y=btn_y + (btn_h + 8) * 3, width=w - 2 * pad, height=btn_h)
+
+        if not _jdz_token:
+            tk.Label(dialog, text="请先在设置中登录净读账号",
+                     font=(FONT_FAMILY, 8), fg='#667788', bg='#1a1a2e').place(
+                x=pad, y=btn_y + (btn_h + 8) * 3 + btn_h + 2)
+
+        # 调整窗口高度以容纳新按钮
+        h += btn_h + 8 + (12 if not _jdz_token else 0)
+        dialog.geometry(f"{w}x{h}")
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() - w) // 2
+        y = (dialog.winfo_screenheight() - h) // 2
+        dialog.geometry(f"+{x}+{y}")
+
         # 关闭按钮
         close_btn = tk.Button(dialog, text='关闭', command=dialog.destroy,
                               font=(FONT_FAMILY, 9), relief='flat', cursor='hand2',
                               bg='#1a1a2e', fg='#667788', activebackground='#1a1a2e',
                               activeforeground='#aabbcc', bd=0)
         close_btn.place(x=w // 2 - 20, y=h - 36, width=40)
+
+    def _read_file_tail(self, filepath: str, lines: int = 200) -> str:
+        """读取文件最后 lines 行"""
+        if not filepath or not os.path.exists(filepath):
+            return ""
+        try:
+            for enc in ("utf-8", "gbk", "latin-1"):
+                try:
+                    with open(filepath, "r", encoding=enc, errors="ignore") as f:
+                        return "".join(f.readlines()[-lines:])
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+        except Exception:
+            pass
+        return ""
+
+    def _collect_ai_context(self, crash_files: dict, exit_code: int) -> str:
+        """收集发送给 AI 的崩溃上下文信息"""
+        parts = []
+
+        # 系统信息
+        parts.append(f"[系统信息]\nOS: {platform.system()} {platform.release()}\n"
+                     f"Python: {platform.python_version()}\n"
+                     f"Architecture: {platform.machine()}\n"
+                     f"退出码: {exit_code}")
+
+        # 崩溃报告（完整内容，通常不大）
+        crash_report = crash_files.get("crash_report")
+        if crash_report:
+            content = self._read_file_tail(crash_report, 99999)
+            if content:
+                parts.append(f"[崩溃报告]\n{content}")
+
+        # 游戏日志最后 200 行
+        game_log = crash_files.get("game_log")
+        if game_log:
+            content = self._read_file_tail(game_log, 200)
+            if content:
+                parts.append(f"[游戏日志（最后200行）]\n{content}")
+
+        # debug 日志最后 200 行
+        debug_log = crash_files.get("debug_log")
+        if debug_log:
+            content = self._read_file_tail(debug_log, 200)
+            if content:
+                parts.append(f"[Debug 日志（最后200行）]\n{content}")
+
+        # JVM 崩溃日志
+        jvm_log = crash_files.get("jvm_crash_log")
+        if jvm_log:
+            content = self._read_file_tail(jvm_log, 200)
+            if content:
+                parts.append(f"[JVM 崩溃日志（最后200行）]\n{content}")
+
+        # 启动器日志最后 200 行
+        launcher_log = ""
+        if hasattr(self, '_log_buffer') and self._log_buffer:
+            launcher_log = self._log_buffer.getvalue()
+        if not launcher_log.strip():
+            try:
+                system = platform.system().lower()
+                if system == "linux":
+                    disk_log = Path("/var/log/fmcl/latest.log")
+                else:
+                    disk_log = Path("latest.log")
+                if disk_log.exists():
+                    for enc in ("utf-8", "gbk", "latin-1"):
+                        try:
+                            launcher_log = disk_log.read_text(enc, errors="ignore")
+                            break
+                        except (UnicodeDecodeError, UnicodeError):
+                            continue
+            except Exception:
+                pass
+        if launcher_log.strip():
+            log_lines = launcher_log.strip().splitlines()[-200:]
+            parts.append(f"[启动器日志（最后200行）]\n" + "\n".join(log_lines))
+
+        return "\n\n".join(parts)
+
+    def _ai_analyze_crash(self, crash_files: dict, exit_code: int):
+        """AI 分析崩溃（后台线程请求，主线程弹窗）"""
+        token = self.callbacks.get("get_jdz_token", lambda: None)() if self.callbacks else None
+        if not token:
+            messagebox.showwarning("提示", "请先在设置中登录净读账号", parent=self)
+            return
+
+        # 收集上下文
+        context = self._collect_ai_context(crash_files, exit_code)
+        if not context.strip():
+            messagebox.showwarning("提示", "未找到可用于分析的日志信息", parent=self)
+            return
+
+        # 构建请求消息
+        system_prompt = (
+            "你是一个 Minecraft 崩溃日志分析专家。根据用户提供的崩溃报告、游戏日志和系统信息，"
+            "分析崩溃原因并给出具体、可操作的建议。\n"
+            "请用中文回复，格式如下：\n"
+            "## 崩溃原因分析\n（简明扼要地说明崩溃原因）\n\n"
+            "## 建议操作\n（列出具体的解决步骤，每步用数字编号）"
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"请分析以下 Minecraft 崩溃信息：\n\n{context}"},
+        ]
+
+        # 显示加载窗口
+        import tkinter as tk
+        loading = tk.Toplevel(self)
+        loading.title("AI 分析中...")
+        loading.geometry("320x100")
+        loading.resizable(False, False)
+        loading.attributes('-topmost', True)
+        loading.configure(bg='#1a1a2e')
+        loading.transient(self)
+        loading.grab_set()
+        loading.update_idletasks()
+        lx = (loading.winfo_screenwidth() - 320) // 2
+        ly = (loading.winfo_screenheight() - 100) // 2
+        loading.geometry(f"+{lx}+{ly}")
+
+        tk.Label(loading, text="🤖 AI 正在分析崩溃原因...",
+                 font=(FONT_FAMILY, 12), fg='#a0a0b0', bg='#1a1a2e').pack(pady=(20, 5))
+        tk.Label(loading, text="请稍候，这可能需要几秒钟",
+                 font=(FONT_FAMILY, 9), fg='#667788', bg='#1a1a2e').pack()
+
+        def _do_analyze():
+            import urllib.request
+            import urllib.error
+            import json
+            try:
+                req_data = json.dumps({
+                    "model": "deepseek-chat",
+                    "messages": messages,
+                    "stream": False,
+                }).encode("utf-8")
+
+                req = urllib.request.Request(
+                    "https://jingdu.qzz.io/api/deepseek/v1/chat/completions",
+                    data=req_data,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {token}",
+                        "User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+
+                ai_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if not ai_content:
+                    ai_content = "AI 未返回有效分析结果。"
+                self.after(0, lambda: _show_result(ai_content))
+            except urllib.error.HTTPError as e:
+                _code = e.code
+                body = ""
+                try:
+                    body = e.read().decode("utf-8", errors="ignore")
+                except Exception:
+                    pass
+                _err_msg = f"HTTP {_code}: {body[:200]}"
+                self.after(0, lambda: _show_error(_err_msg))
+            except Exception as e:
+                _err_msg = str(e)
+                self.after(0, lambda: _show_error(_err_msg))
+            finally:
+                self.after(0, loading.destroy)
+
+        def _show_result(content: str):
+            self._show_ai_result_dialog(content)
+
+        def _show_error(msg: str):
+            messagebox.showerror("AI 分析失败", f"分析请求失败:\n{msg}", parent=self)
+
+        threading.Thread(target=_do_analyze, daemon=True).start()
+
+    def _show_ai_result_dialog(self, content: str):
+        """显示 AI 分析结果弹窗，支持保存为 txt"""
+        import tkinter as tk
+        from tkinter import filedialog
+        from datetime import datetime
+
+        result = tk.Toplevel(self)
+        result.title("AI 崩溃分析结果")
+        result.geometry("580x600")
+        result.resizable(True, True)
+        result.attributes('-topmost', True)
+        result.configure(bg='#1a1a2e')
+        result.transient(self)
+        result.grab_set()
+        result.update_idletasks()
+        rx = (result.winfo_screenwidth() - 580) // 2
+        ry = (result.winfo_screenheight() - 600) // 2
+        result.geometry(f"+{rx}+{ry}")
+
+        # 标题
+        tk.Label(result, text="🤖 AI 崩溃分析结果",
+                 font=(FONT_FAMILY, 14, 'bold'), fg='#ffffff', bg='#1a1a2e').pack(anchor='w', padx=16, pady=(16, 8))
+
+        # 内容区域（可滚动文本框）
+        text_frame = tk.Frame(result, bg='#16213e', highlightbackground='#2d3a5c', highlightthickness=1)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
+
+        text_widget = tk.Text(
+            text_frame, wrap=tk.WORD, font=(FONT_FAMILY, 11),
+            fg='#ffffff', bg='#16213e', bd=0, padx=12, pady=12,
+            insertbackground='white', selectbackground='#0f3460',
+            relief='flat',
+        )
+        scrollbar = tk.Scrollbar(text_frame, command=text_widget.yview, bg='#1a1a2e',
+                                 troughcolor='#16213e', activebackground='#0f3460')
+        text_widget.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        text_widget.pack(fill=tk.BOTH, expand=True)
+        text_widget.insert('1.0', content)
+        text_widget.configure(state='disabled')
+
+        # 按钮区
+        btn_frame = tk.Frame(result, bg='#1a1a2e')
+        btn_frame.pack(fill=tk.X, padx=16, pady=(0, 16))
+
+        def _save_as_txt():
+            default_name = f"FMCL-AI分析-{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            save_path = filedialog.asksaveasfilename(
+                parent=result,
+                title="保存分析结果",
+                defaultextension=".txt",
+                initialfile=default_name,
+                filetypes=[("文本文件", "*.txt")],
+            )
+            if save_path:
+                try:
+                    with open(save_path, "w", encoding="utf-8") as f:
+                        f.write(f"FMCL AI 崩溃分析结果\n"
+                                f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                                f"{'=' * 50}\n\n"
+                                f"{content}\n")
+                    messagebox.showinfo("保存成功", f"分析结果已保存至:\n{save_path}", parent=result)
+                except Exception as e:
+                    messagebox.showerror("保存失败", f"保存时出错:\n{e}", parent=result)
+
+        tk.Button(btn_frame, text="💾 保存为 TXT", command=_save_as_txt,
+                  font=(FONT_FAMILY, 10), relief='flat', cursor='hand2',
+                  bg='#0f3460', fg='white', activebackground='#2d3a5c', activeforeground='white',
+                  bd=0).pack(side=tk.LEFT)
+
+        tk.Button(btn_frame, text="关闭", command=result.destroy,
+                  font=(FONT_FAMILY, 10), relief='flat', cursor='hand2',
+                  bg='#e94560', fg='white', activebackground='#ff6b81', activeforeground='white',
+                  bd=0, width=80).pack(side=tk.RIGHT)
 
     def _open_launcher_settings(self):
         """打开启动器设置窗口"""
@@ -4384,7 +4659,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.parent = parent
 
         self.title("启动器设置")
-        self.geometry("450x420")
+        self.geometry("450x580")
         self.resizable(False, False)
         self.grab_set()
 
@@ -4468,6 +4743,83 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         )
         mirror_switch.pack(side=ctk.RIGHT)
 
+        # ── 净读 AI 账号 ──
+        jdz_section = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
+        jdz_section.pack(fill=ctk.X, pady=(15, 5))
+
+        jdz_title = ctk.CTkLabel(
+            jdz_section,
+            text="🤖 净读 AI（崩溃智能分析）",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        jdz_title.pack(anchor=ctk.W, padx=12, pady=(10, 5))
+
+        # Token 状态
+        _saved_token = self.callbacks.get("get_jdz_token", lambda: None)()
+        token_status = "已登录" if _saved_token else "未登录"
+        token_color = COLORS["success"] if _saved_token else COLORS["text_secondary"]
+        self.jdz_status_label = ctk.CTkLabel(
+            jdz_section,
+            text=f"状态: {token_status}",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=token_color,
+        )
+        self.jdz_status_label.pack(anchor=ctk.W, padx=12, pady=(0, 5))
+
+        # 登录表单
+        login_form = ctk.CTkFrame(jdz_section, fg_color="transparent")
+        login_form.pack(fill=ctk.X, padx=12, pady=(0, 10))
+
+        self.jdz_user_entry = ctk.CTkEntry(
+            login_form,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_dark"],
+            border_color=COLORS["card_border"],
+            text_color=COLORS["text_primary"],
+            placeholder_text="用户名",
+            width=140,
+        )
+        self.jdz_user_entry.pack(side=ctk.LEFT, padx=(0, 5))
+
+        self.jdz_pass_entry = ctk.CTkEntry(
+            login_form,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_dark"],
+            border_color=COLORS["card_border"],
+            text_color=COLORS["text_primary"],
+            placeholder_text="密码",
+            width=140,
+            show="•",
+        )
+        self.jdz_pass_entry.pack(side=ctk.LEFT, padx=(0, 5))
+
+        self.jdz_login_btn = ctk.CTkButton(
+            login_form,
+            text="登录",
+            width=50,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._on_jdz_login,
+        )
+        self.jdz_login_btn.pack(side=ctk.LEFT, padx=(0, 5))
+
+        self.jdz_logout_btn = ctk.CTkButton(
+            login_form,
+            text="退出",
+            width=50,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_jdz_logout,
+        )
+        self.jdz_logout_btn.pack(side=ctk.LEFT)
+
         # 下载线程数滑块
         threads_frame = ctk.CTkFrame(container, fg_color="transparent")
         threads_frame.pack(fill=ctk.X, pady=10)
@@ -4549,6 +4901,75 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         if "set_download_threads" in self.callbacks:
             self.callbacks["set_download_threads"](threads)
         self.parent.set_status(f"下载线程数: {threads}", "info")
+
+    def _on_jdz_login(self):
+        """净读 AI 登录"""
+        username = self.jdz_user_entry.get().strip()
+        password = self.jdz_pass_entry.get().strip()
+        if not username or not password:
+            messagebox.showwarning("提示", "请输入用户名和密码", parent=self)
+            return
+
+        self.jdz_login_btn.configure(state="disabled", text="登录中...")
+        self.update()
+
+        def _do_login():
+            import urllib.request
+            import urllib.error
+            import json
+            try:
+                req_data = json.dumps({"username": username, "password": password}).encode("utf-8")
+                req = urllib.request.Request(
+                    "https://jingdu.qzz.io/api/auth/login",
+                    data=req_data,
+                    headers={
+                        "Content-Type": "application/json",
+                        "User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                token = result.get("token")
+                if token:
+                    if "set_jdz_token" in self.callbacks:
+                        self.callbacks["set_jdz_token"](token)
+                    self.after(0, lambda: self._jdz_login_success(token))
+                else:
+                    self.after(0, lambda: self._jdz_login_fail("未获取到 Token"))
+            except urllib.error.HTTPError as e:
+                _code = e.code
+                body = ""
+                try:
+                    body = e.read().decode("utf-8", errors="ignore")
+                except Exception:
+                    pass
+                _err_msg = f"HTTP {_code}: {body[:100]}"
+                self.after(0, lambda: self._jdz_login_fail(_err_msg))
+            except Exception as e:
+                _err_msg = str(e)
+                self.after(0, lambda: self._jdz_login_fail(_err_msg))
+
+        threading.Thread(target=_do_login, daemon=True).start()
+
+    def _jdz_login_success(self, token: str):
+        self.jdz_login_btn.configure(state="normal", text="登录")
+        self.jdz_status_label.configure(text="状态: 已登录", text_color=COLORS["success"])
+        self.parent.set_status("净读 AI 登录成功", "success")
+
+    def _jdz_login_fail(self, msg: str):
+        self.jdz_login_btn.configure(state="normal", text="登录")
+        self.jdz_status_label.configure(text="状态: 登录失败", text_color=COLORS["error"])
+        messagebox.showerror("登录失败", f"净读 AI 登录失败:\n{msg}", parent=self)
+
+    def _on_jdz_logout(self):
+        """退出净读 AI"""
+        if "set_jdz_token" in self.callbacks:
+            self.callbacks["set_jdz_token"](None)
+        self.jdz_status_label.configure(text="状态: 未登录", text_color=COLORS["text_secondary"])
+        self.jdz_user_entry.delete(0, "end")
+        self.jdz_pass_entry.delete(0, "end")
+        self.parent.set_status("净读 AI 已退出登录", "info")
 
 
 class ModBrowserWindow(ctk.CTkToplevel):

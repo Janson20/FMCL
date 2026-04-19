@@ -529,6 +529,8 @@ class MinecraftLauncher:
             "set_player_name": self.set_player_name,
             "get_skin_path": self.get_skin_path,
             "set_skin_path": self.set_skin_path,
+            "get_jdz_token": self.get_jdz_token,
+            "set_jdz_token": self.set_jdz_token,
             # 服务器相关
             "get_server_versions": self.get_server_versions,
             "get_installed_servers": self.get_installed_servers,
@@ -558,6 +560,15 @@ class MinecraftLauncher:
     def set_skin_path(self, path: Optional[str]) -> None:
         """设置自定义皮肤路径"""
         self.config.skin_path = path
+        self.config.save_config()
+
+    def get_jdz_token(self) -> Optional[str]:
+        """获取净读 AI Token"""
+        return self.config.jdz_token
+
+    def set_jdz_token(self, token: Optional[str]) -> None:
+        """设置净读 AI Token"""
+        self.config.jdz_token = token
         self.config.save_config()
 
     def verify_installed_version(self, version_id: str, max_workers: int = 4) -> Dict[str, Any]:
