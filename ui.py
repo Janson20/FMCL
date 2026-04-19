@@ -2912,6 +2912,10 @@ class ModernApp(ctk.CTk):
             self.server_join_btn.configure(state=ctk.NORMAL)
             if success:
                 self.set_status(f"正在加入服务器 ({version_id})", "success")
+                self._running = True
+                self.kill_btn.configure(state=ctk.NORMAL)
+                # 加入服务器不监控 stdout（管道未捕获），仅监控进程退出
+                self._run_in_thread(self._watch_game_exit)
             else:
                 self.set_status(f"启动游戏失败 ({version_id})", "error")
 

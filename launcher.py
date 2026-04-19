@@ -345,13 +345,19 @@ class MinecraftLauncher:
             logger.info("正在启动游戏...")
             # 使用 Popen 非阻塞启动，捕获 stdout 以便检测游戏窗口
             # Windows 下使用 CREATE_NO_WINDOW 隐藏 Java 控制台窗口
-            popen_kwargs = dict(
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                bufsize=1,
-            )
-            if sys.platform == 'win32':
-                popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+            # 直连服务器时不捕获 stdout，避免管道缓冲区满导致游戏阻塞
+            if server_ip:
+                popen_kwargs = {}
+                if sys.platform == 'win32':
+                    popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+            else:
+                popen_kwargs = dict(
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    bufsize=1,
+                )
+                if sys.platform == 'win32':
+                    popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
             self._game_process = subprocess.Popen(
                 minecraft_command,
                 **popen_kwargs,
