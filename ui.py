@@ -1627,6 +1627,8 @@ class ModernApp(ctk.CTk):
         )
         self.progress_label.pack(side=ctk.RIGHT, padx=(0, 10))
 
+        self._launch_anim_running = False
+
     # ─── 版本列表渲染 ─────────────────────────────────────────
 
     @staticmethod
@@ -2302,6 +2304,35 @@ class ModernApp(ctk.CTk):
                 self.set_status("没有正在运行的游戏进程", "info")
             self.kill_btn.configure(state=ctk.DISABLED)
 
+    def _start_launch_animation(self):
+        """启动进度条加载动画（来回滚动）"""
+        self._launch_anim_running = True
+        self._launch_anim_pos = 0.0
+        self._launch_anim_dir = 1
+        self.progress_label.configure(text="加载中...")
+        self._launch_animate_step()
+
+    def _launch_animate_step(self):
+        """进度条动画单步"""
+        if not self._launch_anim_running:
+            return
+        step = 0.02
+        self._launch_anim_pos += step * self._launch_anim_dir
+        if self._launch_anim_pos >= 1.0:
+            self._launch_anim_pos = 1.0
+            self._launch_anim_dir = -1
+        elif self._launch_anim_pos <= 0.0:
+            self._launch_anim_pos = 0.0
+            self._launch_anim_dir = 1
+        self.progress_bar.set(self._launch_anim_pos)
+        self.after(50, self._launch_animate_step)
+
+    def _stop_launch_animation(self):
+        """停止进度条加载动画"""
+        self._launch_anim_running = False
+        self.progress_bar.set(0)
+        self.progress_label.configure(text="")
+
     def _watch_game_exit(self):
         """监控游戏进程退出（后台线程），检测崩溃并通知主线程"""
         if "get_game_process" not in self.callbacks:
@@ -2807,6 +2838,7 @@ class ModernApp(ctk.CTk):
                 self._killed_by_user = False
                 self.set_status(f"{version_id} 已启动，等待游戏窗口...", "loading")
                 self.kill_btn.configure(state=ctk.NORMAL)
+                self._start_launch_animation()
                 # 无论是否最小化都启动日志监控，检测到窗口后关闭管道避免缓冲区满导致游戏卡顿
                 self._run_in_thread(self._watch_game_stdout)
                 self._run_in_thread(self._watch_game_exit)
@@ -2914,6 +2946,7 @@ class ModernApp(ctk.CTk):
                 self.set_status(f"正在加入服务器 ({version_id})", "success")
                 self._running = True
                 self.kill_btn.configure(state=ctk.NORMAL)
+                self._start_launch_animation()
                 # 加入服务器不监控 stdout（管道未捕获），仅监控进程退出
                 self._run_in_thread(self._watch_game_exit)
             else:
@@ -2924,6 +2957,7 @@ class ModernApp(ctk.CTk):
             self.set_status(f"加入服务器错误: {data}", "error")
 
         elif task_type == "game_window_detected":
+            self._stop_launch_animation()
             if self.minimize_var.get():
                 self.set_status("游戏窗口已出现，启动器已最小化", "success")
                 self.iconify()
@@ -2931,10 +2965,12 @@ class ModernApp(ctk.CTk):
                 self.set_status("游戏已就绪", "success")
 
         elif task_type == "game_exited":
+            self._stop_launch_animation()
             self.kill_btn.configure(state=ctk.DISABLED)
             self.set_status("游戏已正常退出", "info")
 
         elif task_type == "game_crashed":
+            self._stop_launch_animation()
             self.kill_btn.configure(state=ctk.DISABLED)
             exit_code = data["exit_code"]
             crash_files = data["crash_files"]
