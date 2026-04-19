@@ -1052,12 +1052,6 @@ class MinecraftLauncher:
                 logger.error(f"服务器版本未安装: {version_id}")
                 return False, None
 
-            # 查找服务器 jar（支持 vanilla / Fabric / Forge / NeoForge / Quilt）
-            server_jar = self._find_server_jar(server_dir)
-            if not server_jar:
-                logger.error(f"在 {server_dir} 中未找到服务器 jar")
-                return False, None
-
             # 确保 EULA 已同意
             eula_file = server_dir / "eula.txt"
             if not eula_file.exists() or "eula=true" not in eula_file.read_text(encoding="utf-8"):
@@ -1107,6 +1101,34 @@ class MinecraftLauncher:
 
             # 清理占用 25565 端口的残留进程
             self._kill_process_on_port(25565)
+
+            # NeoForge / Forge 服务器：优先使用 run.bat 或 run.sh 启动
+            run_script = server_dir / ("run.bat" if sys.platform == 'win32' else "run.sh")
+            if run_script.exists():
+                env = os.environ.copy()
+                env["JAVA_OPTS"] = f"-Xmx{max_memory} -Xms{max_memory}"
+                cmd = [str(run_script)]
+                logger.info(f"使用启动脚本: {run_script}")
+                popen_kwargs = dict(
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.PIPE,
+                    bufsize=1,
+                    cwd=str(server_dir),
+                    env=env,
+                )
+                if sys.platform == 'win32':
+                    popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+                process = subprocess.Popen(cmd, **popen_kwargs)
+                self._server_process = process
+                logger.info(f"服务器 {version_id} 已启动 (PID: {process.pid})")
+                return True, process
+
+            # 回退：查找服务器 jar 并直接启动（原版 / Fabric / 无启动脚本的 Forge）
+            server_jar = self._find_server_jar(server_dir)
+            if not server_jar:
+                logger.error(f"在 {server_dir} 中未找到服务器 jar")
+                return False, None
 
             # 从 runtime 查找 Java
             java_path = self._find_runtime_java(version_id)
