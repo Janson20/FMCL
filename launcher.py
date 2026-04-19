@@ -75,7 +75,7 @@ class MinecraftLauncher:
         self._mcllib = minecraft_launcher_lib
         self.options = minecraft_launcher_lib.utils.generate_test_options()
         self.options["launcherName"] = "FMCL"
-        self.options["launcherVersion"] = "2.3.3"
+        self.options["launcherVersion"] = "2.4.0"
 
         self.current_max = 0
 

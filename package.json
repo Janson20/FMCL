@@ -1,6 +1,6 @@
 {
   "name": "fmcl",
-  "version": "2.3.3",
+  "version": "2.4.0",
   "description": "Fusion Minecraft Launcher - A feature-rich Minecraft launcher with multi-threaded download support, Forge installation, and GUI version selection",
   "private": true,
   "scripts": {
