@@ -2308,19 +2308,21 @@ class ModernApp(ctk.CTk):
         if proc is None:
             return
 
-        try:
-            # 实时读取服务器 stdout
-            while proc.poll() is None:
-                line = proc.stdout.readline()
-                if line:
-                    text = line.decode("utf-8", errors="replace").rstrip("\r\n")
-                    if text:
-                        self._task_queue.put(("server_log", text))
-                else:
-                    # stdout 关闭但进程可能还在
-                    break
+        # 清空上次启动的日志缓存
+        self._server_log_lines = []
 
-            exit_code = proc.returncode
+        try:
+            # 读取所有输出直到 EOF（即使进程已经退出也能读取管道中残留的数据）
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", errors="replace").rstrip("\r\n")
+                if text:
+                    self._server_log_lines.append(text)
+                    self._task_queue.put(("server_log", text))
+
+            exit_code = proc.wait()
             self._task_queue.put(("server_exit", exit_code))
         except Exception as e:
             logger.error(f"监控服务器退出失败: {e}")

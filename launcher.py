@@ -301,6 +301,36 @@ class MinecraftLauncher:
                 options["gameDirectory"] = version_game_dir
                 logger.info(f"版本隔离已启用: gameDirectory={version_game_dir}")
 
+            # Fabric 游戏：检查 mods/ 中是否有 Fabric API，没有则自动下载
+            if "fabric" in target_version.lower():
+                game_dir = options.get("gameDirectory", self.minecraft_dir)
+                mods_dir = Path(game_dir) / "mods"
+                has_fabric_api = False
+                if mods_dir.exists():
+                    for f in mods_dir.iterdir():
+                        if f.name.lower().startswith("fabric-api"):
+                            has_fabric_api = True
+                            break
+                if not has_fabric_api:
+                    self._set_status("正在自动下载 Fabric API...")
+                    logger.info("Fabric API 未找到，正在自动下载...")
+                    try:
+                        from modrinth import install_mod_with_deps, parse_game_version_from_version
+                        mc_version = parse_game_version_from_version(target_version)
+                        ok, msg, names = install_mod_with_deps(
+                            project_id="P7dR8mSH",
+                            game_version=mc_version or target_version,
+                            mod_loader="fabric",
+                            mods_dir=str(mods_dir),
+                            status_callback=self._set_status,
+                        )
+                        if ok:
+                            logger.info(f"Fabric API 自动安装成功: {', '.join(names)}")
+                        else:
+                            logger.warning(f"Fabric API 自动安装失败（不影响启动）: {msg}")
+                    except Exception as e:
+                        logger.warning(f"Fabric API 自动安装异常（不影响启动）: {e}")
+
             # 设置自定义玩家名（始终应用，不限制默认值）
             if self.config.player_name:
                 options["username"] = self.config.player_name
@@ -1034,6 +1064,37 @@ class MinecraftLauncher:
                 eula_file.write_text("eula=true\n", encoding="utf-8")
                 logger.info("已自动同意 EULA")
 
+            # Fabric 服务器：检查 mods/ 中是否有 Fabric API，没有则自动下载
+            version_lower = version_id.lower()
+            if "fabric" in version_lower:
+                mods_dir = server_dir / "mods"
+                has_fabric_api = False
+                if mods_dir.exists():
+                    for f in mods_dir.iterdir():
+                        if f.name.lower().startswith("fabric-api"):
+                            has_fabric_api = True
+                            break
+                if not has_fabric_api:
+                    self._set_status("正在自动下载 Fabric API...")
+                    logger.info("Fabric API 未找到，正在自动下载...")
+                    try:
+                        from modrinth import install_mod_with_deps, parse_game_version_from_version
+                        mc_version = parse_game_version_from_version(version_id)
+                        ok, msg, names = install_mod_with_deps(
+                            project_id="P7dR8mSH",
+                            game_version=mc_version or version_id,
+                            mod_loader="fabric",
+                            mods_dir=str(mods_dir),
+                            status_callback=self._set_status,
+                        )
+                        if ok:
+                            logger.info(f"Fabric API 自动安装成功: {', '.join(names)}")
+                            self._set_status(f"Fabric API 安装成功: {', '.join(names)}")
+                        else:
+                            logger.warning(f"Fabric API 自动安装失败（不影响启动）: {msg}")
+                    except Exception as e:
+                        logger.warning(f"Fabric API 自动安装异常（不影响启动）: {e}")
+
             # 清理残留的 session.lock（上次异常退出可能导致锁文件残留）
             world_dir = server_dir / "world"
             lock_file = world_dir / "session.lock"
@@ -1659,6 +1720,28 @@ class MinecraftLauncher:
         success, err_msg = self._download_vanilla_server_jar(mc_version, server_dir, filename="server.jar")
         if not success:
             return False, f"原版服务器 jar 下载失败: {err_msg}"
+
+        # 自动下载 Fabric API 及其依赖
+        mods_dir = server_dir / "mods"
+        mods_dir.mkdir(parents=True, exist_ok=True)
+        self._set_status("正在下载 Fabric API...")
+        try:
+            from modrinth import install_mod_with_deps
+            api_ok, api_msg, api_names = install_mod_with_deps(
+                project_id="P7dR8mSH",  # Fabric API on Modrinth
+                game_version=mc_version,
+                mod_loader="fabric",
+                mods_dir=str(mods_dir),
+                status_callback=self._set_status,
+            )
+            if api_ok:
+                logger.info(f"Fabric API 安装成功: {', '.join(api_names)}")
+                self._set_status(f"Fabric API 安装成功: {', '.join(api_names)}")
+            else:
+                logger.warning(f"Fabric API 安装失败（不影响启动）: {api_msg}")
+                self._set_status(f"Fabric API 安装失败: {api_msg}")
+        except Exception as e:
+            logger.warning(f"Fabric API 下载异常（不影响启动）: {e}")
 
         logger.info(f"Fabric 服务端安装完成")
         return True, ""
