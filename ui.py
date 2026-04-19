@@ -3715,7 +3715,7 @@ class ModernApp(ctk.CTk):
 
         result = tk.Toplevel(self)
         result.title("AI 崩溃分析结果")
-        result.geometry("580x600")
+        result.geometry("580x640")
         result.resizable(True, True)
         result.attributes('-topmost', True)
         result.configure(bg='#1a1a2e')
@@ -3723,7 +3723,7 @@ class ModernApp(ctk.CTk):
         result.grab_set()
         result.update_idletasks()
         rx = (result.winfo_screenwidth() - 580) // 2
-        ry = (result.winfo_screenheight() - 600) // 2
+        ry = (result.winfo_screenheight() - 640) // 2
         result.geometry(f"+{rx}+{ry}")
 
         # 标题
@@ -4819,6 +4819,21 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             command=self._on_jdz_logout,
         )
         self.jdz_logout_btn.pack(side=ctk.LEFT)
+
+        # 注册链接（单独一行）
+        import webbrowser
+        register_btn = ctk.CTkButton(
+            jdz_section,
+            text="没有账号？去注册",
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color=COLORS["text_primary"],
+            anchor="w",
+            command=lambda: webbrowser.open("https://jingdu.qzz.io/register"),
+        )
+        register_btn.pack(anchor="w", padx=12, pady=(0, 10))
 
         # 下载线程数滑块
         threads_frame = ctk.CTkFrame(container, fg_color="transparent")
