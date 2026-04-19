@@ -1517,8 +1517,14 @@ class MinecraftLauncher:
 
         return None
 
-    def _download_vanilla_server_jar(self, mc_version: str, server_dir: Path) -> Tuple[bool, str]:
-        """下载 vanilla 服务器 jar 到指定目录"""
+    def _download_vanilla_server_jar(self, mc_version: str, server_dir: Path, filename: str = "") -> Tuple[bool, str]:
+        """下载 vanilla 服务器 jar 到指定目录
+
+        Args:
+            mc_version: Minecraft 版本号
+            server_dir: 服务器目录
+            filename: 输出文件名，默认为 server-{mc_version}.jar
+        """
         import json
         import requests as req
 
@@ -1538,8 +1544,8 @@ class MinecraftLauncher:
         if not server_jar_url:
             return False, f"无法获取服务器 jar 下载链接"
 
-        server_jar = server_dir / f"server-{mc_version}.jar"
-        logger.info(f"正在下载服务器 jar: {server_jar_url}")
+        server_jar = server_dir / (filename or f"server-{mc_version}.jar")
+        logger.info(f"正在下载服务器 jar: {server_jar_url} -> {server_jar}")
         self._set_status(f"正在下载服务器 {mc_version} jar ...")
         resp = req.get(server_jar_url, stream=True)
         resp.raise_for_status()
@@ -1648,6 +1654,12 @@ class MinecraftLauncher:
         except Exception:
             pass
 
+        # Fabric 需要原版 server.jar 才能启动
+        self._set_status(f"正在下载原版服务器 {mc_version} jar（Fabric 依赖）...")
+        success, err_msg = self._download_vanilla_server_jar(mc_version, server_dir, filename="server.jar")
+        if not success:
+            return False, f"原版服务器 jar 下载失败: {err_msg}"
+
         logger.info(f"Fabric 服务端安装完成")
         return True, ""
 
@@ -1705,6 +1717,12 @@ class MinecraftLauncher:
             installer_path.unlink()
         except Exception:
             pass
+
+        # Quilt 需要原版 server.jar 才能启动
+        self._set_status(f"正在下载原版服务器 {mc_version} jar（Quilt 依赖）...")
+        success, err_msg = self._download_vanilla_server_jar(mc_version, server_dir, filename="server.jar")
+        if not success:
+            return False, f"原版服务器 jar 下载失败: {err_msg}"
 
         logger.info(f"Quilt 服务端安装完成")
         return True, ""
