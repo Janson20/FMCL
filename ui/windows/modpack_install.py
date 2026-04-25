@@ -236,6 +236,8 @@ class ModpackInstallWindow(ctk.CTkToplevel):
 
     def _show_mrpack_info(self, info: Dict[str, Any]):
         """在 UI 中显示整合包信息"""
+        if not self.winfo_exists():
+            return
         self._info_name_label.configure(text=info.get("name", "未知整合包"))
         summary = info.get("summary", "")
         if summary:
@@ -271,6 +273,8 @@ class ModpackInstallWindow(ctk.CTkToplevel):
 
     def _show_error(self, msg: str):
         """显示错误"""
+        if not self.winfo_exists():
+            return
         self._file_label.configure(text="文件无效", text_color=COLORS["error"])
         self._install_btn.configure(state=ctk.DISABLED, text="📦 开始安装")
         messagebox.showerror("错误", f"无法读取整合包:\n{msg}", parent=self)
@@ -361,6 +365,8 @@ class ModpackInstallWindow(ctk.CTkToplevel):
 
     def _on_install_done(self, success: bool, result: str):
         """安装完成"""
+        if not self.winfo_exists():
+            return
         self._close_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
         if success:

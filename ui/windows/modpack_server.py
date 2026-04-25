@@ -235,6 +235,8 @@ class ModpackServerWindow(ctk.CTkToplevel):
             self.after(0, lambda: self._show_error(str(e)))
 
     def _show_mrpack_info(self, info: Dict[str, Any]):
+        if not self.winfo_exists():
+            return
         self._info_name_label.configure(text=info.get("name", "未知整合包"))
         summary = info.get("summary", "")
         if summary:
@@ -268,6 +270,8 @@ class ModpackServerWindow(ctk.CTkToplevel):
         self._install_btn.configure(state=ctk.NORMAL, text="🚀 开始安装服务器")
 
     def _show_error(self, msg: str):
+        if not self.winfo_exists():
+            return
         self._file_label.configure(text="文件无效", text_color=COLORS["error"])
         self._install_btn.configure(state=ctk.DISABLED, text="🚀 开始安装服务器")
         messagebox.showerror("错误", f"无法读取整合包:\n{msg}", parent=self)
@@ -347,6 +351,8 @@ class ModpackServerWindow(ctk.CTkToplevel):
             self._polling = False
 
     def _on_install_done(self, success: bool, result: str):
+        if not self.winfo_exists():
+            return
         self._close_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
         if success:
