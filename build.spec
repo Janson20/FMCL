@@ -54,12 +54,6 @@ elif platform == 'mac':
         'Foundation',
     ])
 
-# Linux: 过滤掉 libpython 共享库，避免 GLIBC 版本不兼容
-# 构建在 manylinux2014 (GLIBC 2.17) 上，二进制可在大多数 Linux 发行版运行
-_linux_binaries_excludes = []
-if platform == 'linux':
-    _linux_binaries_excludes = ['libpython']
-
 a = Analysis(
     ['main.py'],
     pathex=[],
@@ -79,10 +73,6 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
-
-# Linux: 从打包结果中移除 libpython 共享库
-if platform == 'linux':
-    a.binaries = [x for x in a.binaries if not any(x[0].startswith(ex) for ex in _linux_binaries_excludes)]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
