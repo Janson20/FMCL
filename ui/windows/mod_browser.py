@@ -432,10 +432,11 @@ class ModBrowserWindow(ctk.CTkToplevel):
         if "get_minecraft_dir" in self.callbacks:
             mc_dir = Path(self.callbacks["get_minecraft_dir"]())
 
-        # 优先版本隔离
-        version_base = mc_dir / "versions" / self.version_id
-        if version_base.exists():
-            return str(version_base / "mods")
+        # 仅模组加载器版本使用版本隔离目录
+        v = self.version_id.lower()
+        if any(loader in v for loader in ("forge", "fabric", "neoforge")):
+            version_dir = mc_dir / "versions" / self.version_id / "mods"
+            return str(version_dir)
 
         return str(mc_dir / "mods")
 

@@ -136,6 +136,14 @@ class Config:
         # 净读 AI Token
         self.jdz_token: Optional[str] = None
 
+        # 备份配置
+        self.backup_dir: Optional[str] = None
+        self.backup_compress_level: int = 6
+        self.backup_max_per_world: int = 10
+        self.backup_restore_mode: str = "rename"
+        self.backup_auto_launch: bool = False
+        self.backup_auto_exit: bool = False
+
         # 从配置文件加载
         self._load_config()
 
@@ -162,6 +170,18 @@ class Config:
                 self.skin_path = data["skin_path"]
             if "jdz_token" in data:
                 self.jdz_token = data["jdz_token"]
+            if "backup_dir" in data:
+                self.backup_dir = data["backup_dir"]
+            if "backup_compress_level" in data:
+                self.backup_compress_level = data["backup_compress_level"]
+            if "backup_max_per_world" in data:
+                self.backup_max_per_world = data["backup_max_per_world"]
+            if "backup_restore_mode" in data:
+                self.backup_restore_mode = data["backup_restore_mode"]
+            if "backup_auto_launch" in data:
+                self.backup_auto_launch = data["backup_auto_launch"]
+            if "backup_auto_exit" in data:
+                self.backup_auto_exit = data["backup_auto_exit"]
 
             logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}")
 
@@ -179,6 +199,12 @@ class Config:
                 "player_name": self.player_name,
                 "skin_path": self.skin_path,
                 "jdz_token": self.jdz_token,
+                "backup_dir": self.backup_dir,
+                "backup_compress_level": self.backup_compress_level,
+                "backup_max_per_world": self.backup_max_per_world,
+                "backup_restore_mode": self.backup_restore_mode,
+                "backup_auto_launch": self.backup_auto_launch,
+                "backup_auto_exit": self.backup_auto_exit,
             }
             with open(self.config_file, "w", encoding="utf-8") as f:
                 f.write(_json_dumps(data, indent=2, ensure_ascii=False))

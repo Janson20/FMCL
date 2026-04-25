@@ -231,6 +231,12 @@ def main():
             if "get_minimize_on_game_launch" in callbacks:
                 app.minimize_var.set(callbacks["get_minimize_on_game_launch"]())
 
+            # 同步备份自动备份开关状态
+            if hasattr(app, 'backup_auto_launch_var'):
+                app.backup_auto_launch_var.set(config.backup_auto_launch)
+            if hasattr(app, 'backup_auto_exit_var'):
+                app.backup_auto_exit_var.set(config.backup_auto_exit)
+
             app.set_status("启动器就绪", "success")
 
             # 启动环境初始化流程

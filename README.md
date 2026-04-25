@@ -14,7 +14,7 @@
 - 每个版本条目提供 ⚙ 版本设置、🧩 安装模组、X 删除三个快捷按钮
 
 ### 🔗 链接标签页
-- **三标签页布局**：主界面现在包含"🎮 游戏"、"🖥 开服"和"🔗 链接"三个标签页
+- **四标签页布局**：主界面包含"🎮 游戏"、"💾 备份"、"🖥 开服"和"🔗 链接"四个标签页
 - **默认游戏标签页**：保留原有的三栏布局（侧边栏、已安装版本、操作面板），所有游戏功能保持不变
 - **链接标签页**：收录了15个常用的Minecraft相关网站，包括官方网站、中文社区、资源平台和实用工具
 - **网站卡片**：每个网站以卡片形式展示，包含名称、描述、标签和直达链接
@@ -91,6 +91,22 @@
 - **进程监控**：自动检测服务器进程退出，更新 UI 状态
 - **Fabric API 自动安装**：启动 Fabric 服务器时自动检测 mods 目录，缺失则从 Modrinth 下载 Fabric API
 - **删除管理**：支持删除已安装的服务器版本
+
+### 💾 存档备份
+- **备份管理标签页**：独立的"💾 备份"标签页，位于"游戏"和"开服"之间
+- **手动备份**：选择存档，一键备份，支持添加备注
+- **自动备份**：游戏启动前/退出后自动执行，可配置触发时机
+- **备份列表**：查看某存档的所有备份，显示时间、大小、备注、游戏版本
+- **一键恢复**：选择备份还原，自动保护当前存档（重命名为 `_bak_时间戳`）
+- **备份删除**：删除过期或多余的备份（需二次确认）
+- **备份导出**：将备份导出为 ZIP 文件，方便分享
+- **存储设置**：自定义备份目录、压缩等级、最大备份数、恢复时旧存档处理方式
+- **进度提示**：压缩/解压时实时显示进度条，不阻塞界面
+- **完整性校验**：恢复前自动校验 ZIP 完整性，失败则阻止恢复并提示
+- **磁盘空间检查**：备份前检查可用空间，不足时提前警告
+- **自动清理**：超出最大备份数量时自动删除最旧的备份
+- **版本隔离支持**：自动扫描全局 `saves/` 和版本隔离目录中的存档
+- **备份索引**：使用 `index.json` 记录备份元数据，便于快速检索
 
 ### 🖥️ 现代化界面
 - 基于 CustomTkinter 的深色主题，流畅美观
@@ -181,7 +197,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │  ⛏ FMCL   Minecraft Launcher   ⬆ 更新  🔄 刷新  ⚙ 设置  │
-│  [🎮 游戏] [🖥 开服] [🔗 链接]                               │
+│  [🎮 游戏] [💾 备份] [🖥 开服] [🔗 链接]                       │
 ├────────────┬──────────────────────────────┬──────────────────────────────────────┤
 │ 👤 角色名  │  📦 已安装版本  ⚙  3 个版本 │  📥 安装新版本               │
 │ [Steve   ] │  ─────────────────────────── │  ──────────────────────      │
@@ -364,7 +380,7 @@ python main.py
 - 🔕 **禁用/启用模组**：模组标签页中可一键切换 `.disabled` 状态
 - 🗑️ **删除资源**：移除不需要的资源文件
 
-> 💡 支持版本隔离模式：若 `.minecraft/versions/{版本名}/` 目录存在，资源将安装到版本独立目录下；否则使用全局 `.minecraft/` 目录。
+> 💡 支持版本隔离模式：安装了模组加载器（Forge/Fabric/NeoForge）的版本自动启用版本隔离，资源将安装到 `.minecraft/versions/{版本名}/` 对应子目录下；原版客户端使用全局 `.minecraft/` 目录。
 
 #### 安装 Modrinth 整合包
 
@@ -394,6 +410,39 @@ python main.py
 - 🔗 **依赖自动安装**：安装模组时自动递归安装 `required` 依赖，找不到兼容版本时跳过并提示
 
 > 💡 模组浏览器会自动将模组安装到版本隔离目录（如 `.minecraft/versions/1.20.4-forge-49.0.26/mods/`）或全局 `mods/` 目录。
+
+#### 存档备份
+
+切换到"💾 备份"标签页，可管理 Minecraft 存档的备份和恢复。
+
+**手动备份：**
+
+1. 左侧列表会自动扫描所有存档（包括版本隔离目录中的存档）
+2. 点击选择要备份的存档
+3. 在顶部输入框中可选填写备注
+4. 点击「📥 备份」按钮，等待进度条完成
+
+**恢复备份：**
+
+1. 选择存档后，右侧会显示该存档的所有备份
+2. 找到要恢复的备份，点击「🔄」恢复按钮
+3. 确认后，当前存档会自动重命名为 `_bak_时间戳` 保留
+4. 备份解压恢复，自动校验 `level.dat` 完整性
+
+**自动备份：**
+
+1. 左侧底部可开启「启动游戏前备份」和「游戏退出后备份」
+2. 自动备份会备份最近修改的存档，备注标记为"自动备份(启动前/退出后)"
+
+**备份设置：**
+
+点击右上角「⚙ 设置」按钮打开备份设置窗口，可配置：
+- **备份存储路径**：自定义备份保存位置（默认为程序目录/backups）
+- **压缩等级**：1（最快）到 9（最小体积），推荐 6（适中）
+- **最大备份数**：每个存档保留的最大备份数，超出自动删除最旧的
+- **恢复时旧存档处理**：重命名为 .bak / 直接覆盖 / 移至回收站
+
+> 💡 备份文件存储在 `backups/<存档名>/` 目录下，使用 ZIP 格式压缩。每个备份都有对应的 `index.json` 索引文件记录元数据。
 
 #### 服务器管理
 
@@ -449,6 +498,7 @@ FMCL/
 │   ├── app_server.py      # ServerTabMixin - 开服标签页（服务器安装/启动/停止 + 版本管理）
 │   ├── app_handlers.py    # EventHandlerMixin - 版本管理、游戏操作、更新检查、队列处理
 │   ├── app_crash.py       # CrashHandlerMixin - 崩溃诊断、AI 分析
+│   ├── app_backup.py      # BackupTabMixin - 存档备份标签页
 │   ├── constants.py       # 颜色主题、字体检测、资源类型配置
 │   ├── dialogs.py         # 通用对话框（确认/提示）、版本选择对话框
 │   └── windows/           # 独立窗口类
@@ -457,6 +507,7 @@ FMCL/
 │       ├── modpack_install.py    # Modrinth 整合包安装窗口
 │       ├── modpack_server.py     # 整合包开服窗口
 │       └── mod_browser.py        # Modrinth 模组浏览与安装窗口
+│       └── backup_settings.py    # 备份设置窗口
 ├── downloader.py          # 多线程下载器 & 异步批量下载 & 模组加载器安装
 │   ├── MultiThreadDownloader  # 多线程分段下载 + 文件合并
 │   ├── AsyncBatchDownloader   # asyncio + aiohttp 异步并发下载
@@ -477,7 +528,7 @@ FMCL/
 │   ├── MirrorSource       # 镜像源管理器（URL 重写缓存）
 │   ├── URL 重写规则       # 官方 URL -> BMCLAPI 映射（前缀长度排序）
 │   └── Monkey Patch       # minecraft_launcher_lib 补丁
-├── config.py              # 配置管理
+├── backup_manager.py      # 存档备份管理（备份/恢复/删除/校验/导出）
 │   └── Config             # 配置类（持久化到 config.json）
 ├── screen_shot.py         # 截图工具（Ctrl+Alt+T 触发）
 ├── config.json            # 用户配置（镜像源开关、下载线程数等）
@@ -502,6 +553,7 @@ FMCL/
 ```
 main.py
   ├── config.py (全局配置)
+  ├── backup_manager.py (存档备份管理)
   ├── launcher/ (核心逻辑包)
   │   ├── core.py (环境检查、版本安装、游戏启动)
   │   ├── server.py (服务器管理)
@@ -510,7 +562,7 @@ main.py
   │   ├── mirror.py (镜像源)
   │   └── downloader.py (下载器 & 模组加载器)
   ├── ui/ (界面包)
-  │   ├── app.py → app_base.py / app_server.py / app_handlers.py / app_crash.py
+  │   ├── app.py → app_base.py / app_server.py / app_handlers.py / app_crash.py / app_backup.py
   │   ├── constants.py (颜色主题、字体)
   │   ├── dialogs.py (通用对话框)
   │   ├── windows/ (独立窗口)
@@ -587,7 +639,13 @@ main.py
   "minimize_on_game_launch": false,
   "auto_check_update": true,
   "player_name": "Steve",
-  "skin_path": null
+  "skin_path": null,
+  "backup_dir": null,
+  "backup_compress_level": 6,
+  "backup_max_per_world": 10,
+  "backup_restore_mode": "rename",
+  "backup_auto_launch": false,
+  "backup_auto_exit": false
 }
 ```
 
@@ -599,6 +657,12 @@ main.py
 | `auto_check_update` | bool | `true` | 启动时是否自动检查更新 |
 | `player_name` | string | `"Steve"` | 自定义游戏角色名 |
 | `skin_path` | string/null | `null` | 自定义皮肤文件路径 |
+| `backup_dir` | string/null | `null` | 备份存储路径（null 则使用程序目录/backups） |
+| `backup_compress_level` | int | `6` | 备份压缩等级（1=最快, 9=最小体积） |
+| `backup_max_per_world` | int | `10` | 每个存档最大备份数（0=不限制） |
+| `backup_restore_mode` | string | `"rename"` | 恢复时旧存档处理方式（rename/overwrite/trash） |
+| `backup_auto_launch` | bool | `false` | 是否在游戏启动前自动备份 |
+| `backup_auto_exit` | bool | `false` | 是否在游戏退出后自动备份 |
 
 ---
 

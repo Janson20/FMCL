@@ -56,15 +56,22 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             return Path(self.callbacks["get_minecraft_dir"]())
         return Path(".") / ".minecraft"
 
+    @staticmethod
+    def _has_mod_loader(version_id: str) -> bool:
+        """判断版本是否安装了模组加载器（需要版本隔离）"""
+        v = version_id.lower()
+        return any(loader in v for loader in ("forge", "fabric", "neoforge"))
+
     def _get_resource_dir(self, resource_type: str) -> Path:
-        """获取指定资源类型的目录，优先使用版本隔离目录"""
+        """获取指定资源类型的目录，仅模组加载器版本使用版本隔离目录"""
         mc_dir = self._get_minecraft_dir()
         folder_name: str = RESOURCE_TYPES[resource_type]["folder"]
 
-        # 版本隔离：如果 .minecraft/versions/{版本名}/ 存在，则使用隔离目录
-        version_base = mc_dir / "versions" / self.version_id
-        if version_base.exists():
-            version_dir = version_base / folder_name
+        # 版本隔离：仅当版本安装了模组加载器时，才使用隔离目录
+        # 原版客户端虽然 versions/{版本名}/ 也存在（含 jar/json），
+        # 但启动时未设置 gameDirectory，游戏资源（saves 等）仍在全局目录
+        if self._has_mod_loader(self.version_id):
+            version_dir = mc_dir / "versions" / self.version_id / folder_name
             logger.info(f"使用版本隔离目录: {version_dir}")
             return version_dir
 

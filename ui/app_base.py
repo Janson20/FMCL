@@ -170,6 +170,10 @@ class ModernAppBase(ctk.CTk):
         self.game_tab = self.tabview.add("🎮 游戏")
         self.game_tab.configure(fg_color="transparent")
 
+        # 添加"备份"标签页
+        self.backup_tab = self.tabview.add("💾 备份")
+        self.backup_tab.configure(fg_color="transparent")
+
         # 添加"开服"标签页
         self.server_tab = self.tabview.add("🖥 开服")
         self.server_tab.configure(fg_color="transparent")
@@ -183,6 +187,9 @@ class ModernAppBase(ctk.CTk):
         
         # 构建游戏标签页内容
         self._build_game_tab_content()
+
+        # 构建备份标签页内容
+        self._build_backup_tab_content()
 
         # 构建开服标签页内容
         self._build_server_tab_content()

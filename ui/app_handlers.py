@@ -717,6 +717,10 @@ class EventHandlerMixin(object):
 
     def _launch_game(self, version_id: str):
         """启动游戏（后台线程）"""
+        # 启动前自动备份
+        if hasattr(self, '_auto_backup_before_launch'):
+            self._auto_backup_before_launch(version_id)
+
         try:
             minimize = self.minimize_var.get()
             success, target_version = self.callbacks["launch_game"](version_id, minimize_after=minimize)
@@ -741,10 +745,27 @@ class EventHandlerMixin(object):
         except Exception as e:
             logger.error(f"队列处理错误: {e}")
 
+        # 检测标签页切换
+        try:
+            current_tab = self.tabview.get()
+            prev = getattr(self, '_last_tab', None)
+            if current_tab != prev:
+                self._last_tab = current_tab
+                if current_tab == "💾 备份" and hasattr(self, '_refresh_world_list'):
+                    self._refresh_world_list()
+        except Exception:
+            pass
+
         self.after(100, self._poll_queue)
 
     def _handle_task(self, task_type: str, data: Any):
         """处理队列任务"""
+        # 备份相关任务
+        if hasattr(self, '_handle_backup_task'):
+            handled = self._handle_backup_task(task_type, data)
+            if handled:
+                return
+
         if task_type == "init_done":
             self.set_status("环境初始化完成", "success")
             self._refresh_versions()
@@ -950,6 +971,9 @@ class EventHandlerMixin(object):
             self._stop_launch_animation()
             self.kill_btn.configure(state=ctk.DISABLED)
             self.set_status("游戏已正常退出", "info")
+            # 退出后自动备份
+            if hasattr(self, '_auto_backup_after_exit'):
+                self._auto_backup_after_exit()
 
         elif task_type == "game_crashed":
             self._stop_launch_animation()
