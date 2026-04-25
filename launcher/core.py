@@ -77,7 +77,14 @@ class MinecraftLauncher:
         self._mcllib = minecraft_launcher_lib
         self.options = minecraft_launcher_lib.utils.generate_test_options()
         self.options["launcherName"] = "FMCL"
-        self.options["launcherVersion"] = "2.4.4"
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib
+        _pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        with open(_pyproject, "rb") as _f:
+            _toml_data = tomllib.load(_f)
+        self.options["launcherVersion"] = _toml_data["project"]["version"]
 
         self.current_max = 0
 
