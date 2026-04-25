@@ -22,6 +22,8 @@ import requests
 import urllib3
 from logzero import logger
 
+from structured_logger import slog
+
 # 禁用 SSL 证书验证警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -71,6 +73,8 @@ def check_for_update() -> Optional[Dict[str, Any]]:
     try:
         current = get_current_version()
         logger.info(f"检查更新: 当前版本 {current}")
+        slog.info("update_check_start", current_version=current,
+                  platform=f"{platform.system().lower()}_{platform.machine().lower()}")
 
         resp = requests.get(GITHUB_API_URL, timeout=10, verify=False)
         resp.raise_for_status()
@@ -110,12 +114,18 @@ def check_for_update() -> Optional[Dict[str, Any]]:
 
     except requests.exceptions.Timeout:
         logger.warning("检查更新超时")
+        slog.warning("update_check_failed", current_version=get_current_version(),
+                     failure_stage="check_network", error="timeout")
         return None
     except requests.exceptions.ConnectionError:
         logger.warning("检查更新失败: 无法连接到 GitHub")
+        slog.warning("update_check_failed", current_version=get_current_version(),
+                     failure_stage="check_network", error="connection_error")
         return None
     except Exception as e:
         logger.error(f"检查更新失败: {e}")
+        slog.error("update_check_failed", current_version=get_current_version(),
+                   failure_stage="check_network", error=str(e)[:200])
         return None
 
 
@@ -274,10 +284,12 @@ def download_update(
                         progress_callback(downloaded, content_length)
 
         logger.info(f"更新下载完成: {save_path}")
+        slog.info("update_download_complete", installer_path=save_path, size_bytes=downloaded)
         return save_path
 
     except Exception as e:
         logger.error(f"下载更新失败: {e}")
+        slog.error("update_install_failed", failure_stage="download_installer", error=str(e)[:200])
         return None
 
 
@@ -329,10 +341,13 @@ def install_update(file_path: str) -> bool:
             return False
 
         logger.info("安装程序已启动，即将退出当前程序...")
+        slog.info("update_installer_launched", installer_path=file_path)
         return True
 
     except Exception as e:
         logger.error(f"启动安装程序失败: {e}")
+        slog.error("update_install_failed", failure_stage="execute_installer",
+                   error_message=str(e)[:200])
         return False
 
 

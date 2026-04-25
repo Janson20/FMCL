@@ -20,6 +20,7 @@ _ZIP_DEFLATE = getattr(zipfile, 'ZIP_DEFLATE', 8)
 from logzero import logger
 
 from config import Config, _json_loads, _json_dumps
+from structured_logger import slog
 
 
 class BackupEntry:
@@ -289,6 +290,8 @@ class BackupManager:
         target = self._world_backup_dir(world_name)
         ok, msg = self._check_disk_space(needed, target)
         if not ok:
+            slog.error("backup_failed", world_name=world_name, reason="disk_full",
+                       required_bytes=needed)
             return False, msg
 
         # 收集文件列表
@@ -364,10 +367,13 @@ class BackupManager:
             if progress_callback:
                 progress_callback(total_size, total_size, "备份完成")
 
+            slog.info("backup_start", world_name=world_name, backup_name=file_name,
+                      size_bytes=actual_size, compress_level=getattr(self.config, "backup_compress_level", 6))
             return True, f"备份成功: {file_name}"
 
         except Exception as e:
             logger.error(f"备份失败: {e}")
+            slog.error("backup_failed", world_name=world_name, reason=str(e)[:200])
             # 清理临时文件
             try:
                 if os.path.exists(tmp_path):
@@ -473,10 +479,14 @@ class BackupManager:
                 progress_callback(total_files, total_files, "恢复完成")
 
             logger.info(f"存档 {world_name} 已从备份恢复")
+            slog.info("backup_restored", world_name=world_name, backup_entry=entry_id,
+                      size_bytes=entry.size_bytes)
             return True, f"恢复成功: {world_name}"
 
         except Exception as e:
             logger.error(f"恢复失败: {e}")
+            slog.error("backup_restore_failed", world_name=world_name,
+                       reason=str(e)[:200])
             # 回滚
             try:
                 if target_dir.exists():

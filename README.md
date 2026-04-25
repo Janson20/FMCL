@@ -165,7 +165,9 @@
 - **跨平台日志存储**：
   - Windows/macOS: `latest.log` 保留在程序目录
   - Linux: 优先 `/var/log/fmcl/latest.log`（遵循 FHS 标准）；若目录不可写则自动回退到 `~/.fmcl/latest.log`
-- **结构化日志**：核心流程（版本安装、游戏启动、崩溃检测、AI 分析）额外输出 JSONL 格式结构化日志到 `latest_structured.log`，方便程序化分析和统计
+- **结构化日志**：核心流程额外输出 JSONL 格式结构化日志到 `latest_structured.log`，方便程序化分析和统计
+  - ★★★ 必须场景：崩溃捕获（含 error_type、version、loader、log_snippet）、关键下载失败（含 status_code、mirror_source）、模组安装决策（含 decision_reason、dependencies）
+  - ★★☆ 推荐场景：服务器启动全流程（含 server_type、mods_count）、备份/恢复操作（含 size_bytes、reason）、游戏启动命令生成（含 jvm_args、game_args）、自动更新行为（含 failure_stage、error_message）
 
 ### 💥 崩溃检测与报告
 - 自动检测游戏异常退出（退出码非 0）

@@ -20,6 +20,8 @@ import requests
 import urllib3
 from logzero import logger
 
+from structured_logger import slog
+
 # 禁用 SSL 证书验证警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -218,6 +220,7 @@ class AsyncBatchDownloader:
                     async with session.get(url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
                         if resp.status != 200:
                             logger.warning(f"下载失败 (HTTP {resp.status}): {url}")
+                            slog.warning("download_failed", url=url[:200], status_code=resp.status)
                             return save_path, False
 
                         # 确保目标目录存在
@@ -271,6 +274,7 @@ class AsyncBatchDownloader:
                 results[save_path] = True
             except Exception as e:
                 logger.debug(f"同步下载失败 {url}: {e}")
+                slog.warning("download_failed_sync", url=url[:200], error=str(e)[:200])
                 results[save_path] = False
 
             if progress_callback:
@@ -345,8 +349,11 @@ def install_mod_loader(
         )
 
         logger.info(f"{loader} 安装成功: 版本ID={installed_version_id}, Loader版本={loader_version}")
+        slog.info("mod_loader_installed", loader=loader_id, version=version,
+                  installed_version_id=installed_version_id, loader_version=loader_version)
         return installed_version_id, loader_version
 
     except Exception as e:
         logger.error(f"安装 {loader} 失败: {str(e)}")
+        slog.error("mod_loader_install_failed", loader=loader_id, version=version, error=str(e))
         raise

@@ -13,6 +13,7 @@ from typing import List, Dict, Optional, Callable, Any, Tuple
 from logzero import logger
 
 from config import Config
+from structured_logger import slog
 from mirror import MirrorSource
 
 
@@ -227,6 +228,8 @@ class MinecraftLauncher:
                     callback=self._get_callback(),
                 )
                 logger.info(f"安装完成: {installed_version_id} (Loader: {mod_loader} {loader_version})")
+                slog.info("version_installed", version=version_id, loader=mod_loader,
+                          installed_version_id=installed_version_id, loader_version=loader_version)
                 return True, installed_version_id
             else:
                 # 仅安装原版 Minecraft
@@ -237,10 +240,14 @@ class MinecraftLauncher:
                     callback=self._get_callback()
                 )
                 logger.info(f"Minecraft {version_id} 安装成功")
+                slog.info("version_installed", version=version_id, loader="vanilla",
+                          installed_version_id=version_id)
                 return True, version_id
 
         except Exception as e:
             logger.error(f"安装版本失败: {str(e)}")
+            slog.error("version_install_failed", version=version_id, loader=mod_loader if mod_loader != "无" else "vanilla",
+                       error=str(e)[:200])
             return False, version_id
 
     def launch_game(self, version_id: str, minimize_after: bool = False, server_ip: str | None = None, server_port: int = 25565) -> bool:
@@ -368,6 +375,21 @@ class MinecraftLauncher:
 
             # ── JVM 参数优化 ──
             minecraft_command = self._optimize_jvm_args(minecraft_command)
+
+            # 结构化日志：记录游戏启动命令
+            _java_cmd = minecraft_command[0] if minecraft_command else ""
+            _jvm_args = [a for a in minecraft_command[1:] if a.startswith("-")]
+            _game_args = [a for a in minecraft_command[1:] if not a.startswith("-")]
+            _loader = ""
+            _tl = target_version.lower()
+            if "forge" in _tl:
+                _loader = "forge"
+            elif "fabric" in _tl:
+                _loader = "fabric"
+            elif "neoforge" in _tl:
+                _loader = "neoforge"
+            slog.info("game_launch_command_generated", version=target_version, loader=_loader,
+                      java_cmd=_java_cmd, jvm_args=_jvm_args[:10], game_args_count=len(_game_args))
 
             # ── 设置启动器名称 ──
             # 替换 --versionType 参数值，使游戏标题界面左下角显示 "Minecraft x.x.x/FMCL"

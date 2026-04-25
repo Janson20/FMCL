@@ -596,23 +596,28 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _toggle_mod(self, path: str, is_disabled: bool):
         """启用/禁用模组"""
+        from structured_logger import slog
         try:
             p = Path(path)
+            mod_name = p.name
             if is_disabled:
                 # 启用：移除 .disabled 后缀
                 new_path = p.with_suffix("")
                 p.rename(new_path)
                 logger.info(f"模组已启用: {p.name} -> {new_path.name}")
                 self._set_status(f"已启用: {new_path.name}")
+                slog.info("mod_enabled", mod_name=mod_name, new_name=new_path.name)
             else:
                 # 禁用：添加 .disabled 后缀
                 new_path = Path(str(p) + ".disabled")
                 p.rename(new_path)
                 logger.info(f"模组已禁用: {p.name} -> {new_path.name}")
                 self._set_status(f"已禁用: {new_path.name}")
+                slog.info("mod_disabled", mod_name=mod_name, new_name=new_path.name)
             self._refresh_current_list()
         except Exception as e:
             logger.error(f"切换模组状态失败: {e}")
+            slog.error("mod_toggle_failed", mod_name=Path(path).name, action="enable" if is_disabled else "disable", error=str(e)[:200])
             self._set_status(f"操作失败: {e}")
 
     def _set_status(self, text: str):

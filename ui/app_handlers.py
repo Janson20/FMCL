@@ -995,9 +995,41 @@ class EventHandlerMixin(object):
             exit_code = data["exit_code"]
             crash_files = data["crash_files"]
             self.set_status(f"游戏异常退出 (退出码: {exit_code})", "error")
-            slog.error("game_crashed", exit_code=exit_code,
+
+            # 提取 error_type 和 log_snippet 用于结构化日志
+            _error_type = ""
+            _log_snippet = ""
+            _crash_report_path = crash_files.get("crash_report")
+            if _crash_report_path:
+                try:
+                    from pathlib import Path as _P
+                    _content = Path(_crash_report_path).read_text(encoding="utf-8", errors="ignore")
+                    import re as _re
+                    _match = _re.search(r"(java\.\w+\.\w+Exception|net\.minecraft\.\w+Exception|OutOfMemoryError|StackOverflowError)", _content)
+                    if _match:
+                        _error_type = _match.group(1)
+                    _lines = _content.strip().splitlines()
+                    _log_snippet = "\n".join(_lines[-5:]) if len(_lines) > 5 else _content[:500]
+                except Exception:
+                    pass
+
+            # 从版本ID解析 loader
+            _version_id = getattr(self, '_running_version_id', '') or ''
+            _loader = ''
+            _vl = _version_id.lower()
+            if 'forge' in _vl:
+                _loader = 'forge'
+            elif 'fabric' in _vl:
+                _loader = 'fabric'
+            elif 'neoforge' in _vl:
+                _loader = 'neoforge'
+
+            slog.error("game_crash", exit_code=exit_code,
+                       version=_version_id, loader=_loader,
+                       error_type=_error_type,
                        has_crash_report="crash_report" in crash_files,
-                       has_game_log="game_log" in crash_files)
+                       has_game_log="game_log" in crash_files,
+                       log_snippet=_log_snippet[:300])
             # 恢复最小化的窗口
             try:
                 self.deiconify()

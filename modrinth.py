@@ -17,6 +17,8 @@ import requests
 import urllib3
 from logzero import logger
 
+from structured_logger import slog
+
 # 禁用 SSL 证书验证警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -213,10 +215,12 @@ def download_mod(
                     downloaded += len(chunk)
 
         logger.info(f"模组下载完成: {filename} ({downloaded}/{total_size} bytes)")
+        slog.info("mod_download_complete", filename=filename, size_bytes=downloaded)
         return True, str(file_path)
 
     except Exception as e:
         logger.error(f"下载模组失败: {e}")
+        slog.error("mod_download_failed", filename=filename, error=str(e)[:200])
         return False, str(e)
 
 
@@ -297,9 +301,12 @@ def install_mod_with_deps(
 
     if not versions:
         logger.warning(f"模组 {mod_title} 没有兼容的版本 ({game_version}+{mod_loader})")
+        slog.warning("mod_no_compatible_version", mod_id=project_id, mod_title=mod_title,
+                     game_version=game_version, loader=mod_loader)
         return False, f"{mod_title} 没有兼容的版本", []
 
     version = versions[0]
+    mod_version_number = version.get("version_number", "")
     files = version.get("files", [])
 
     # 找主文件
@@ -378,8 +385,14 @@ def install_mod_with_deps(
         msg = f"{mod_title} 安装成功"
         if skipped_deps:
             msg += f"（跳过不兼容依赖: {', '.join(skipped_deps)}）"
+        slog.info("mod_install_decision", mod_id=project_id, mod_title=mod_title,
+                  mod_version=mod_version_number, game_version=game_version, loader=mod_loader,
+                  decision_reason="auto_match" if not skipped_deps else "auto_match_with_skipped_deps",
+                  fallback_used=False, dependencies=[d.get("project_id", "") for d in dependencies if d.get("dependency_type") == "required"])
         return True, msg, installed_names
     else:
+        slog.error("mod_install_failed", mod_id=project_id, mod_title=mod_title,
+                   mod_version=mod_version_number, error=result)
         return False, f"{mod_title} 安装失败: {result}", installed_names
 
 

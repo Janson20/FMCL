@@ -10,6 +10,8 @@ from typing import List, Dict, Optional, Tuple, Callable, Any
 
 from logzero import logger
 
+from structured_logger import slog
+
 
 class ServerMixin:
     """服务器管理 Mixin 类"""
@@ -250,10 +252,12 @@ class ServerMixin:
                 )
 
             logger.info(f"服务器 {version_id} 安装完成: {server_dir}")
+            slog.info("server_installed", server_version=version_id, eula_accepted=True)
             return True, version_id
 
         except Exception as e:
             logger.error(f"安装服务器失败: {str(e)}")
+            slog.error("server_install_failed", server_version=version_id, error=str(e)[:200])
             return False, version_id
 
     def _kill_process_on_port(self, port: int):
@@ -301,6 +305,22 @@ class ServerMixin:
             if not server_dir.exists():
                 logger.error(f"服务器版本未安装: {version_id}")
                 return False, None
+
+            # 解析服务器类型
+            _server_type = "vanilla"
+            _vl = version_id.lower()
+            if "forge" in _vl:
+                _server_type = "forge"
+            elif "fabric" in _vl:
+                _server_type = "fabric"
+            elif "neoforge" in _vl:
+                _server_type = "neoforge"
+
+            # 统计 mods 数量
+            _mods_dir = server_dir / "mods"
+            _mods_count = 0
+            if _mods_dir.exists():
+                _mods_count = len([f for f in _mods_dir.iterdir() if f.suffix == ".jar" and not f.name.endswith(".disabled")])
 
             # 确保 EULA 已同意
             eula_file = server_dir / "eula.txt"
@@ -372,6 +392,9 @@ class ServerMixin:
                 process = subprocess.Popen(cmd, **popen_kwargs)
                 self._server_process = process
                 logger.info(f"服务器 {version_id} 已启动 (PID: {process.pid})")
+                slog.info("server_start_attempt", server_version=version_id, server_type=_server_type,
+                          java_path=str(run_script), eula_accepted=True, mods_count=_mods_count,
+                          config_valid=True)
                 return True, process
 
             # 回退：查找服务器 jar 并直接启动（原版 / Fabric / 无启动脚本的 Forge）
@@ -400,10 +423,15 @@ class ServerMixin:
             process = subprocess.Popen(cmd, **popen_kwargs)
             self._server_process = process
             logger.info(f"服务器 {version_id} 已启动 (PID: {process.pid})")
+            slog.info("server_start_attempt", server_version=version_id, server_type=_server_type,
+                      java_path=java_path, eula_accepted=True, mods_count=_mods_count,
+                      config_valid=True, jvm_args=[f"-Xmx{max_memory}", f"-Xms{max_memory}"])
             return True, process
 
         except Exception as e:
             logger.error(f"启动服务器失败: {str(e)}")
+            slog.error("server_start_failed", server_version=version_id, server_type=_server_type,
+                       error=str(e)[:200])
             return False, None
 
     def stop_server(self) -> bool:
