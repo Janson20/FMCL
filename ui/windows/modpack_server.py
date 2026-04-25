@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Callable, Any
 import customtkinter as ctk
 
 from ui.constants import COLORS, FONT_FAMILY
+from ui.i18n import _
 
 
 class ModpackServerWindow(ctk.CTkToplevel):
@@ -20,7 +21,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
         self._mrpack_info: Optional[Dict[str, Any]] = None
         self._optional_var_map: Dict[str, ctk.BooleanVar] = {}
 
-        self.title("📦 整合包开服")
+        self.title(_("mp_server_title"))
         self.geometry("580x520")
         self.minsize(520, 460)
         self.configure(fg_color=COLORS["bg_dark"])
@@ -48,14 +49,14 @@ class ModpackServerWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             main_frame,
-            text="📦 整合包开服",
+            text=_("mp_server_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(pady=(0, 5))
 
         ctk.CTkLabel(
             main_frame,
-            text="安装 .mrpack 整合包作为服务器，自动下载模组、配置和服务器核心",
+            text=_("mp_server_subtitle"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         ).pack(pady=(0, 15))
@@ -64,7 +65,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
         file_frame.pack(fill=ctk.X, pady=(0, 12))
 
         self._file_label = ctk.CTkLabel(
-            file_frame, text="未选择文件",
+            file_frame, text=_("mp_no_file_selected"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
             anchor=ctk.W, wraplength=440,
@@ -75,14 +76,14 @@ class ModpackServerWindow(ctk.CTkToplevel):
         btn_row.pack(fill=ctk.X, padx=15, pady=(0, 12))
 
         ctk.CTkButton(
-            btn_row, text="📂 选择 .mrpack 文件",
+            btn_row, text=_("mp_select_file_btn"),
             height=34, font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             command=self._select_file,
         ).pack(side=ctk.LEFT, padx=(0, 8))
 
         ctk.CTkButton(
-            btn_row, text="🌐 从 Modrinth 下载",
+            btn_row, text=_("mp_download_modrinth"),
             height=34, font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["success"], hover_color="#27ae60",
             command=self._open_modrinth_browser,
@@ -122,7 +123,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
         name_row.pack(fill=ctk.X, padx=15, pady=(8, 5))
 
         ctk.CTkLabel(
-            name_row, text="服务器名称:",
+            name_row, text=_("mp_server_name_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         ).pack(side=ctk.LEFT)
@@ -131,13 +132,13 @@ class ModpackServerWindow(ctk.CTkToplevel):
             name_row, height=28,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["bg_medium"], border_color=COLORS["card_border"],
-            placeholder_text="留空则自动命名",
+            placeholder_text=_("mp_server_name_placeholder"),
         )
         self._server_name_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(8, 0))
 
         ctk.CTkLabel(
             self._info_frame,
-            text="✅ 自动检测并安装服务端 mod loader（Forge/Fabric/NeoForge/Quilt）",
+            text=_("mp_server_loader_hint"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"], anchor=ctk.W, wraplength=480,
         ).pack(padx=15, pady=(0, 12), fill=ctk.X)
@@ -145,27 +146,27 @@ class ModpackServerWindow(ctk.CTkToplevel):
         self._progress_frame = ctk.CTkFrame(main_frame, fg_color=COLORS["card_bg"], corner_radius=10)
 
         ctk.CTkLabel(
-            self._progress_frame, text="安装进度",
+            self._progress_frame, text=_("mp_install_progress_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(12, 8), anchor=ctk.W)
 
         self._mp_progress_label = ctk.CTkLabel(
-            self._progress_frame, text="整合包文件: --",
+            self._progress_frame, text=_("mp_prog_mrpack_init"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"], anchor=ctk.W,
         )
         self._mp_progress_label.pack(padx=15, pady=(0, 2), fill=ctk.X)
 
         self._mc_progress_label = ctk.CTkLabel(
-            self._progress_frame, text="原版安装: --",
+            self._progress_frame, text=_("mp_prog_vanilla_init"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"], anchor=ctk.W,
         )
         self._mc_progress_label.pack(padx=15, pady=(0, 8), fill=ctk.X)
 
         self._progress_status = ctk.CTkLabel(
-            self._progress_frame, text="正在安装...",
+            self._progress_frame, text=_("mp_installing"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["text_primary"],
         )
@@ -182,7 +183,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
         self._bottom_frame.pack(fill=ctk.X, pady=(12, 0))
 
         self._install_btn = ctk.CTkButton(
-            self._bottom_frame, text="🚀 开始安装服务器",
+            self._bottom_frame, text=_("mp_server_start_install"),
             height=40, font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             state=ctk.DISABLED,
@@ -191,7 +192,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
         self._install_btn.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
 
         self._close_btn = ctk.CTkButton(
-            self._bottom_frame, text="关闭",
+            self._bottom_frame, text=_("close"),
             height=40, width=80,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
@@ -203,14 +204,14 @@ class ModpackServerWindow(ctk.CTkToplevel):
         from tkinter import filedialog
         path = filedialog.askopenfilename(
             parent=self,
-            title="选择 Modrinth 整合包",
+            title=_("mp_select_dialog_title"),
             filetypes=[("Modrinth 整合包", "*.mrpack"), ("所有文件", "*.*")],
         )
         if not path:
             return
         self._mrpack_path = path
         self._file_label.configure(text=os.path.basename(path), text_color=COLORS["text_primary"])
-        self._install_btn.configure(state=ctk.DISABLED, text="读取中...")
+        self._install_btn.configure(state=ctk.DISABLED, text=_("mp_reading_info"))
         self._run_in_thread(self._load_mrpack_info)
 
     def _open_modrinth_browser(self):
@@ -223,7 +224,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
             text=os.path.basename(mrpack_path),
             text_color=COLORS["text_primary"],
         )
-        self._install_btn.configure(state=ctk.DISABLED, text="读取中...")
+        self._install_btn.configure(state=ctk.DISABLED, text=_("mp_reading_info"))
         self._run_in_thread(self._load_mrpack_info)
 
     def _load_mrpack_info(self):
@@ -237,7 +238,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
     def _show_mrpack_info(self, info: Dict[str, Any]):
         if not self.winfo_exists():
             return
-        self._info_name_label.configure(text=info.get("name", "未知整合包"))
+        self._info_name_label.configure(text=info.get("name", _("mp_unknown_modpack")))
         summary = info.get("summary", "")
         if summary:
             self._info_summary_label.configure(text=summary)
@@ -245,12 +246,12 @@ class ModpackServerWindow(ctk.CTkToplevel):
             self._info_summary_label.pack_forget()
 
         mc_version = info.get("minecraftVersion", "未知")
-        self._info_version_label.configure(text=f"Minecraft {mc_version}")
+        self._info_version_label.configure(text=_("mp_mc_version", version=mc_version))
 
         optional_files = info.get("optionalFiles", [])
         if optional_files:
             ctk.CTkLabel(
-                self._optional_frame, text="可选组件:",
+                self._optional_frame, text=_("mp_optional_components"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                 text_color=COLORS["text_secondary"], anchor=ctk.W,
             ).pack(fill=ctk.X, pady=(0, 3))
@@ -267,14 +268,14 @@ class ModpackServerWindow(ctk.CTkToplevel):
                 ).pack(anchor=ctk.W, pady=1)
 
         self._info_frame.pack(fill=ctk.X, pady=(0, 5))
-        self._install_btn.configure(state=ctk.NORMAL, text="🚀 开始安装服务器")
+        self._install_btn.configure(state=ctk.NORMAL, text=_("mp_server_start_install"))
 
     def _show_error(self, msg: str):
         if not self.winfo_exists():
             return
-        self._file_label.configure(text="文件无效", text_color=COLORS["error"])
-        self._install_btn.configure(state=ctk.DISABLED, text="🚀 开始安装服务器")
-        messagebox.showerror("错误", f"无法读取整合包:\n{msg}", parent=self)
+        self._file_label.configure(text=_("mp_invalid_file"), text_color=COLORS["error"])
+        self._install_btn.configure(state=ctk.DISABLED, text=_("mp_server_start_install"))
+        messagebox.showerror(_("error"), _("mp_read_error", error=msg), parent=self)
 
     def _on_install(self):
         if not self._mrpack_path or not self._mrpack_info:
@@ -285,7 +286,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
 
         self._info_frame.pack_forget()
         self._progress_frame.pack(fill=ctk.X, pady=(0, 5))
-        self._install_btn.configure(state=ctk.DISABLED, text="安装中...")
+        self._install_btn.configure(state=ctk.DISABLED, text=_("mp_installing"))
         self._close_btn.pack_forget()
 
         self._run_in_thread(self._do_install, optional_files, custom_name)
@@ -311,10 +312,12 @@ class ModpackServerWindow(ctk.CTkToplevel):
                     mc_pct = (mc_data.get("current", 0) / max(mc_data.get("max", 1), 1)) * 100
 
                     self._mp_progress_label.configure(
-                        text=f"整合包文件: {mp_pct:.0f}%  ({mp_data.get('label', '')})"
+                        text=_("mp_prog_mrpack_label", pct=f"{mp_pct:.0f}",
+                               label=mp_data.get('label', ''))
                     )
                     self._mc_progress_label.configure(
-                        text=f"原版安装: {mc_pct:.0f}%  ({mc_data.get('label', '')})"
+                        text=_("mp_prog_vanilla_label", pct=f"{mc_pct:.0f}",
+                               label=mc_data.get('label', ''))
                     )
 
                     overall = mp.get("overall", 0)
@@ -322,13 +325,13 @@ class ModpackServerWindow(ctk.CTkToplevel):
 
                     if phase == "loader":
                         self._progress_status.configure(
-                            text=f"安装服务端: {mp.get('loader_label', '')}"
+                            text=_("mp_server_loader_status", name=mp.get('loader_label', ''))
                         )
                     elif phase == "done":
                         self._polling = False
                         return
                     else:
-                        status_text = mp.get("status_text", "并行安装中...")
+                        status_text = mp.get("status_text", _("mp_parallel_installing"))
                         self._progress_status.configure(text=status_text)
             except Exception:
                 pass
@@ -356,28 +359,25 @@ class ModpackServerWindow(ctk.CTkToplevel):
         self._close_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
         if success:
-            self._progress_status.configure(text="安装完成!", text_color=COLORS["success"])
+            self._progress_status.configure(text=_("mp_install_done"), text_color=COLORS["success"])
             self._install_btn.configure(
-                text=f"✅ 安装完成 - {result}",
+                text=_("mp_server_install_done_btn", result=result),
                 fg_color=COLORS["success"],
                 state=ctk.DISABLED,
             )
 
             messagebox.showinfo(
-                "安装完成",
-                f"整合包服务器安装成功！\n\n"
-                f"服务器名称: {result}\n"
-                f"目录: .minecraft/server/{result}/\n\n"
-                f"请刷新服务器列表后选择该版本启动。",
+                _("mp_server_install_done_title"),
+                _("mp_server_install_done_msg", result=result),
                 parent=self,
             )
             self._refresh_parent_server_list()
             self.destroy()
         else:
-            self._progress_status.configure(text="安装失败", text_color=COLORS["error"])
-            self._install_btn.configure(text="🚀 重新安装", state=ctk.NORMAL)
+            self._progress_status.configure(text=_("mp_install_failed_status"), text_color=COLORS["error"])
+            self._install_btn.configure(text=_("mp_server_install_retry"), state=ctk.NORMAL)
 
-            messagebox.showerror("安装失败", f"整合包服务器安装失败:\n{result}", parent=self)
+            messagebox.showerror(_("mp_install_failed_status"), _("mp_server_install_error", error=result), parent=self)
 
     def _refresh_parent_server_list(self):
         try:
