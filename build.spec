@@ -29,14 +29,38 @@ icon_path = os.path.join(os.getcwd(), 'icon.ico')
 # locales 目录路径（多语言支持）
 locales_src = os.path.join(os.getcwd(), 'ui', 'locales')
 
-# 数据文件列表：图标 + locales
-datas = [(icon_path, '.')]
+# pyproject.toml 路径
+pyproject_path = os.path.join(os.getcwd(), 'pyproject.toml')
+
+# 数据文件列表：图标 + locales + pyproject.toml
+datas = [(icon_path, '.'), (pyproject_path, '.')]
 if os.path.exists(locales_src):
     datas.append((locales_src, 'ui' + os.sep + 'locales'))
 
 # 通用隐式导入
 hidden_imports = [
     'minecraft_launcher_lib',
+    'minecraft_launcher_lib._helper',
+    'minecraft_launcher_lib._internal_types',
+    'minecraft_launcher_lib.command',
+    'minecraft_launcher_lib.exceptions',
+    'minecraft_launcher_lib.fabric',
+    'minecraft_launcher_lib.forge',
+    'minecraft_launcher_lib.install',
+    'minecraft_launcher_lib.java_utils',
+    'minecraft_launcher_lib.microsoft_account',
+    'minecraft_launcher_lib.mod_loader',
+    'minecraft_launcher_lib.mod_loader._forge',
+    'minecraft_launcher_lib.mod_loader._fabric',
+    'minecraft_launcher_lib.mod_loader._neoforge',
+    'minecraft_launcher_lib.mrpack',
+    'minecraft_launcher_lib.natives',
+    'minecraft_launcher_lib.news',
+    'minecraft_launcher_lib.quilt',
+    'minecraft_launcher_lib.runtime',
+    'minecraft_launcher_lib.types',
+    'minecraft_launcher_lib.utils',
+    'minecraft_launcher_lib.vanilla_launcher',
     'forgepy',
     'requests',
     'logzero',
@@ -54,6 +78,8 @@ hidden_imports = [
     'PIL.Image',
     'PIL.ImageTk',
     'customtkinter',
+    'orjson',
+    'urllib3',
 ]
 
 # 平台特定导入

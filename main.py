@@ -234,29 +234,41 @@ def main():
         # ── 在后台线程中初始化启动器核心 ──
         # minecraft_launcher_lib (~0.16s) 和 mirror patch 的导入在这里完成
         def _init_launcher():
+            logger.info("_init_launcher: 1. 正在导入 MinecraftLauncher...")
             from launcher import MinecraftLauncher
+            logger.info("_init_launcher: 2. 正在创建 MinecraftLauncher 实例...")
             launcher = MinecraftLauncher(config)
+            logger.info("_init_launcher: 3. MinecraftLauncher 创建完成")
             _launcher_result['launcher'] = launcher
             _launcher_ready.set()
+            logger.info("_init_launcher: 4. 正在调度 splash 关闭回调...")
             app.after(0, _try_dismiss_splash)
+            logger.info("_init_launcher: 5. 初始化完成，后台线程即将退出")
 
         def _try_dismiss_splash():
             """尝试关闭启动画面：需同时满足 1 秒和加载完成"""
+            logger.info("_try_dismiss_splash: 被调用")
             if not _launcher_ready.is_set():
+                logger.info("_try_dismiss_splash: launcher 尚未就绪，返回")
                 return
             elapsed = time.time() - splash_start
             remaining = max(0, 1.0 - elapsed)
+            logger.info(f"_try_dismiss_splash: 已耗时 {elapsed:.2f}秒，剩余 {remaining:.2f}秒")
             if remaining > 0:
+                logger.info("_try_dismiss_splash: 等待剩余时间后调用 _dismiss_splash")
                 splash.after(int(remaining * 1000), _dismiss_splash)
             else:
+                logger.info("_try_dismiss_splash: 立即调用 _dismiss_splash")
                 _dismiss_splash()
 
         def _dismiss_splash():
             """关闭启动画面，显示主窗口"""
+            logger.info("_dismiss_splash: 开始关闭启动画面")
             try:
                 splash.destroy()
-            except Exception:
-                pass
+                logger.info("_dismiss_splash: splash.destroy() 成功")
+            except Exception as e:
+                logger.error(f"_dismiss_splash: splash.destroy() 失败: {e}")
             _on_launcher_ready(_launcher_result['launcher'])
 
         def _on_launcher_ready(launcher):

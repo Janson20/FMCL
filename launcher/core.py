@@ -72,18 +72,23 @@ class MinecraftLauncher:
         self.config = config
         self.minecraft_dir = str(config.minecraft_dir)
 
+        logger.info("MinecraftLauncher.__init__: 1. 正在导入 minecraft_launcher_lib...")
         # 延迟导入 minecraft_launcher_lib，避免模块加载阶段的阻塞
         import minecraft_launcher_lib
+        logger.info("MinecraftLauncher.__init__: 2. minecraft_launcher_lib 导入完成")
         self._mcllib = minecraft_launcher_lib
         self.options = minecraft_launcher_lib.utils.generate_test_options()
+        logger.info("MinecraftLauncher.__init__: 3. generate_test_options 完成")
         self.options["launcherName"] = "FMCL"
         try:
             import tomllib
         except ImportError:
             import tomli as tomllib
         _pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        logger.info(f"MinecraftLauncher.__init__: 4. pyproject.toml 路径: {_pyproject}")
         with open(_pyproject, "rb") as _f:
             _toml_data = tomllib.load(_f)
+        logger.info("MinecraftLauncher.__init__: 5. pyproject.toml 读取完成")
         self.options["launcherVersion"] = _toml_data["project"]["version"]
 
         self.current_max = 0
@@ -92,8 +97,11 @@ class MinecraftLauncher:
         self.on_progress: Optional[Callable[[int, int, str], None]] = None
 
         # 初始化镜像源
+        logger.info("MinecraftLauncher.__init__: 6. 正在初始化 MirrorSource...")
         self._mirror = MirrorSource(enabled=config.mirror_enabled)
+        logger.info("MinecraftLauncher.__init__: 7. MirrorSource 初始化完成，正在应用补丁...")
         self._apply_mirror_patch()
+        logger.info("MinecraftLauncher.__init__: 8. 初始化完成")
 
     def _apply_mirror_patch(self):
         """应用镜像源补丁"""
