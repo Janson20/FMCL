@@ -162,7 +162,7 @@
 - 基于 logzero 的完整日志记录
 - **跨平台日志存储**：
   - Windows/macOS: `latest.log` 保留在程序目录
-  - Linux: `/var/log/fmcl/latest.log`（遵循 FHS 标准）
+  - Linux: 优先 `/var/log/fmcl/latest.log`（遵循 FHS 标准）；若目录不可写则自动回退到 `~/.fmcl/latest.log`
 
 ### 💥 崩溃检测与报告
 - 自动检测游戏异常退出（退出码非 0）
@@ -779,7 +779,7 @@ chore: 构建/工具变动
 | 依赖安装失败 | `pip install -r requirements.txt --force-reinstall` |
 | **Linux GLIBC 版本错误** | 需要 GLIBC >= 2.28（Ubuntu 18.04+、Debian 10+、RHEL 8+），旧版 Linux 会出现 `GLIBC_X.XX not found` 错误 |
 | **Linux 配置目录权限错误** | 运行 `sudo mkdir -p /etc/fmcl && sudo chown $USER:$USER /etc/fmcl` |
-| **Linux 日志目录权限错误** | 运行 `./scripts/setup_linux.sh` 或手动创建 `/var/log/fmcl` |
+| **Linux 日志目录权限错误** | 程序会自动回退到 `~/.fmcl/latest.log`，无需手动处理 |
 
 ---
 

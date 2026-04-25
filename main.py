@@ -107,8 +107,24 @@ def set_chinese_language():
 
 
 def setup_logging():
-    """配置日志系统"""
-    logzero.logfile(str(config.log_file))
+    """配置日志系统，如果默认日志目录不可写则回退到用户目录"""
+    log_file = config.log_file
+    log_dir = log_file.parent
+
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        # 测试是否可写
+        test_file = log_dir / ".fmcl_write_test"
+        test_file.touch()
+        test_file.unlink()
+    except (PermissionError, OSError):
+        # 回退到 ~/.fmcl/latest.log
+        fallback_dir = Path.home() / ".fmcl"
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        log_file = fallback_dir / "latest.log"
+        logger.warning(f"日志目录 {log_dir} 不可写，回退到 {log_file}")
+
+    logzero.logfile(str(log_file))
     logzero.loglevel(config.log_level)
     logger.info("日志系统初始化完成")
 
