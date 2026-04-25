@@ -780,6 +780,7 @@ chore: 构建/工具变动
 | **Linux GLIBC 版本错误** | 需要 GLIBC >= 2.28（Ubuntu 18.04+、Debian 10+、RHEL 8+），旧版 Linux 会出现 `GLIBC_X.XX not found` 错误 |
 | **Linux 配置目录权限错误** | 运行 `sudo mkdir -p /etc/fmcl && sudo chown $USER:$USER /etc/fmcl` |
 | **Linux 日志目录权限错误** | 程序会自动回退到 `~/.fmcl/latest.log`，无需手动处理 |
+| **Linux 无图形环境崩溃** | 在 WSL/无头服务器等无 X11/Wayland 环境时，鼠标检测线程会自动跳过，不会崩溃 |
 
 ---
 

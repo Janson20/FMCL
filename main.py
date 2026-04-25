@@ -133,7 +133,15 @@ def detect_mouse_move():
     """
     鼠标位置检测功能(调试用)
     持续记录鼠标位置到文件
+    仅在有图形环境时启用
     """
+    # 检测是否有 X11 显示环境（Linux 无头环境如 WSL/服务器）
+    display = os.environ.get("DISPLAY")
+    wayland = os.environ.get("WAYLAND_DISPLAY")
+    if not display and not wayland:
+        logger.debug("无图形环境，跳过鼠标检测线程")
+        return
+
     # 延迟导入 pyautogui，避免启动时 0.08s 的导入开销
     import pyautogui
 
