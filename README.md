@@ -123,6 +123,8 @@
 - 🔽 启动后最小化开关
 - 🇨🇳 使用国内镜像源开关
 - ⚡ 下载线程数滑块（1-255），实时调整多线程下载并发数
+- 🌐 界面语言切换（简体中文/English/繁體中文/日本語），切换后点击「应用」自动重启启动器生效
+- 🤖 净读 AI 账号登录（用于崩溃智能分析功能）
 - 设置自动持久化到 `config.json`
 
 ### ℹ 关于
@@ -180,9 +182,12 @@
 - 分析结果以弹窗展示，包含崩溃原因分析和建议操作
 - 支持将 AI 分析结果保存为 TXT 文件
 
-### 🌐 自动设置中文语言
-- 启动时自动将 `.minecraft/options.txt` 中的语言设置修改为 `zh_cn`
-- 确保首次启动游戏时即为中文界面，无需手动切换
+### 🌐 多语言界面
+- 支持简体中文、English、繁體中文、日本語四种语言
+- 从配置文件读取语言设置
+- 启动时自动检测系统语言并切换对应界面语言（可通过设置窗口手动切换）
+- 在设置窗口中切换语言后，点击「应用」按钮自动重启启动器，新语言即时生效
+- **游戏语言**：启动时自动将 `.minecraft/options.txt` 中的语言设置修改为 `zh_cn`，确保首次启动游戏时即为中文界面
 
 ### ⬆ 自动更新
 - 启动时自动从 GitHub Release 检查新版本（可配置开关）
@@ -327,6 +332,9 @@ python main.py
 
 - **🔽 启动后最小化**：开启后当检测到游戏窗口出现时自动最小化启动器到任务栏
 - **🇨🇳 使用国内镜像源**：默认开启，国内用户建议保持开启，切换后自动测试连接
+- **🌐 界面语言**：支持简体中文、English、繁體中文、日本語，切换后点击「应用」自动重启启动器使新语言生效
+- **⚡ 下载线程数**：拖动滑块调整下载并发数（1-255）
+- **🤖 净读 AI**：登录账号后可在游戏崩溃时使用 AI 智能分析功能
 - 设置会自动持久化到 `config.json`
 
 #### 自定义角色名
@@ -642,6 +650,7 @@ main.py
   "auto_check_update": true,
   "player_name": "Steve",
   "skin_path": null,
+  "language": "zh_CN",
   "backup_dir": null,
   "backup_compress_level": 6,
   "backup_max_per_world": 10,
@@ -659,6 +668,7 @@ main.py
 | `auto_check_update` | bool | `true` | 启动时是否自动检查更新 |
 | `player_name` | string | `"Steve"` | 自定义游戏角色名 |
 | `skin_path` | string/null | `null` | 自定义皮肤文件路径 |
+| `language` | string | `"zh_CN"` | 界面语言（zh_CN/en_US/ja_JP/zh_TW） |
 | `backup_dir` | string/null | `null` | 备份存储路径（null 则使用程序目录/backups） |
 | `backup_compress_level` | int | `6` | 备份压缩等级（1=最快, 9=最小体积） |
 | `backup_max_per_world` | int | `10` | 每个存档最大备份数（0=不限制） |

@@ -20,6 +20,7 @@ from ui.windows.resource_manager import ResourceManagerWindow
 from ui.windows.launcher_settings import LauncherSettingsWindow
 from ui.windows.modpack_install import ModpackInstallWindow
 from ui.windows.mod_browser import ModBrowserWindow
+from ui.i18n import _, get_available_languages, set_language
 
 
 class EventHandlerMixin(object):
@@ -40,12 +41,12 @@ class EventHandlerMixin(object):
             widget.destroy()
         self.version_buttons.clear()
 
-        self.version_count_label.configure(text=f"{len(versions)} 个版本")
+        self.version_count_label.configure(text=_("version_count", count=len(versions)))
 
         if not versions:
             ctk.CTkLabel(
                 self.version_list_frame,
-                text="暂无已安装的版本\n请在右侧安装新版本",
+                text=_("no_installed_versions"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=13),
                 text_color=COLORS["text_secondary"],
                 justify=ctk.CENTER,
@@ -248,18 +249,26 @@ class EventHandlerMixin(object):
     def _on_modloader_change(self, *args):
         """模组加载器选项变更回调"""
         loader = self.modloader_var.get()
-        if loader and loader != "无":
+        # 获取原始加载器名称用于显示
+        loader_map = {
+            _("mod_loader_none"): "None",
+            _("mod_loader_forge"): "Forge",
+            _("mod_loader_fabric"): "Fabric",
+            _("mod_loader_neoforge"): "NeoForge",
+        }
+        raw_loader = loader_map.get(loader, "")
+        if raw_loader and raw_loader != "None":
             self.modloader_hint.configure(
-                text=f"提示: 安装 {loader} 会同时安装原版 Minecraft，两者均可独立启动"
+                text=_("mod_loader_hint", loader=raw_loader)
             )
         else:
             self.modloader_hint.configure(text="")
 
     def _on_delete_version(self, version: str):
         """删除版本按钮回调"""
-        if not messagebox.askyesno("确认删除", f"确定要删除版本 {version} 吗？\n此操作不可恢复。"):
+        if not messagebox.askyesno(_("confirm_delete"), _("confirm_delete_version", version=version)):
             return
-        self.set_status(f"正在删除 {version}...", "loading")
+        self.set_status(_("deleting_version", version=version), "loading")
         self._run_in_thread(self._remove_version, version)
 
     def _remove_version(self, version_id: str):
@@ -1080,7 +1089,7 @@ class EventHandlerMixin(object):
     def _show_about(self):
         """显示关于对话框"""
         about = ctk.CTkToplevel(self)
-        about.title("关于 FMCL")
+        about.title(_("about_title"))
         about.resizable(False, False)
         about.transient(self)
         about.grab_set()
@@ -1154,10 +1163,10 @@ class EventHandlerMixin(object):
 
         # 系统信息
         info_items = [
-            ("版本", _get_fmcl_version()),
-            ("Python", platform.python_version()),
-            ("系统", f"{platform.system()} {platform.release()}"),
-            ("架构", platform.machine()),
+            (_("about_version"), _get_fmcl_version()),
+            (_("about_python"), platform.python_version()),
+            (_("about_system"), f"{platform.system()} {platform.release()}"),
+            (_("about_arch"), platform.machine()),
         ]
 
         info_container = ctk.CTkFrame(main_frame, fg_color="transparent")
@@ -1185,7 +1194,7 @@ class EventHandlerMixin(object):
         # 底部确定按钮
         ctk.CTkButton(
             main_frame,
-            text="确定",
+            text=_("confirm"),
             width=80,
             height=32,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),

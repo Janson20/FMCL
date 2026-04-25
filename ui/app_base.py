@@ -11,6 +11,7 @@ from typing import List, Dict, Optional, Callable, Any
 import customtkinter as ctk
 
 from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
+from ui.i18n import _, get_current_language
 
 
 class ModernAppBase(ctk.CTk):
@@ -37,7 +38,7 @@ class ModernAppBase(ctk.CTk):
         self._current_skin_path: Optional[str] = None  # 当前皮肤路径
 
         # 窗口配置
-        self.title("FMCL - Fusion Minecraft Launcher")
+        self.title(_("app_title"))
         self.geometry("1200x860")
         self.minsize(1060, 800)
         self.configure(fg_color=COLORS["bg_dark"])
@@ -84,7 +85,7 @@ class ModernAppBase(ctk.CTk):
         # 标题
         title_label = ctk.CTkLabel(
             header,
-            text="⛏ FMCL",
+            text=_("title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=28, weight="bold"),
             text_color=COLORS["text_primary"],
         )
@@ -92,7 +93,7 @@ class ModernAppBase(ctk.CTk):
 
         subtitle = ctk.CTkLabel(
             header,
-            text="Fusion Minecraft Launcher",
+            text=_("subtitle"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_secondary"],
         )
@@ -101,7 +102,7 @@ class ModernAppBase(ctk.CTk):
         # 刷新按钮
         refresh_btn = ctk.CTkButton(
             header,
-            text="🔄 刷新",
+            text=_("refresh"),
             width=100,
             height=35,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
@@ -114,7 +115,7 @@ class ModernAppBase(ctk.CTk):
         # 检查更新按钮
         self.update_btn = ctk.CTkButton(
             header,
-            text="⬆ 更新",
+            text=_("update"),
             width=90,
             height=35,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
@@ -127,7 +128,7 @@ class ModernAppBase(ctk.CTk):
         # 启动器设置按钮
         settings_btn = ctk.CTkButton(
             header,
-            text="⚙ 设置",
+            text=_("settings"),
             width=90,
             height=35,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
@@ -140,7 +141,7 @@ class ModernAppBase(ctk.CTk):
         # 关于按钮（winver 风格）
         about_btn = ctk.CTkButton(
             header,
-            text="ℹ 关于",
+            text=_("about"),
             width=80,
             height=35,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
@@ -167,23 +168,23 @@ class ModernAppBase(ctk.CTk):
         self.tabview.pack(fill=ctk.BOTH, expand=True, padx=0, pady=0)
         
         # 添加"游戏"标签页
-        self.game_tab = self.tabview.add("🎮 游戏")
+        self.game_tab = self.tabview.add(_("tab_game"))
         self.game_tab.configure(fg_color="transparent")
 
         # 添加"备份"标签页
-        self.backup_tab = self.tabview.add("💾 备份")
+        self.backup_tab = self.tabview.add(_("tab_backup"))
         self.backup_tab.configure(fg_color="transparent")
 
         # 添加"开服"标签页
-        self.server_tab = self.tabview.add("🖥 开服")
+        self.server_tab = self.tabview.add(_("tab_server"))
         self.server_tab.configure(fg_color="transparent")
         
         # 添加"链接"标签页
-        self.links_tab = self.tabview.add("🔗 链接")
+        self.links_tab = self.tabview.add(_("tab_links"))
         self.links_tab.configure(fg_color="transparent")
         
         # 设置默认标签页为"游戏"
-        self.tabview.set("🎮 游戏")
+        self.tabview.set(_("tab_game"))
         
         # 构建游戏标签页内容
         self._build_game_tab_content()
@@ -398,7 +399,7 @@ class ModernAppBase(ctk.CTk):
         # 标题
         title_label = ctk.CTkLabel(
             main_container,
-            text="🔗 Minecraft 相关网站",
+            text=_("links_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
             text_color=COLORS["text_primary"],
         )
@@ -407,7 +408,7 @@ class ModernAppBase(ctk.CTk):
         # 描述
         desc_label = ctk.CTkLabel(
             main_container,
-            text="收录了 Minecraft 相关的官方网站、社区、资源下载和工具网站，方便快速访问。",
+            text=_("links_description"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["text_secondary"],
         )
@@ -504,7 +505,7 @@ class ModernAppBase(ctk.CTk):
         
         open_btn = ctk.CTkButton(
             link_frame,
-            text="🌐 打开链接",
+            text=_("open_link"),
             width=100,
             height=28,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -513,7 +514,7 @@ class ModernAppBase(ctk.CTk):
             command=create_open_link_callback(site["link"]),
         )
         open_btn.pack(side=ctk.RIGHT, padx=(10, 0))
-        
+
         # 复制链接按钮
         def create_copy_link_callback(url, name):
             import pyperclip
@@ -522,15 +523,15 @@ class ModernAppBase(ctk.CTk):
                     pyperclip.copy(url)
                     # 显示复制成功提示
                     if hasattr(self, 'set_status'):
-                        self.set_status(f"已复制链接: {name}", "success")
+                        self.set_status(_("link_copied", name=name), "success")
                 except Exception as e:
                     if hasattr(self, 'set_status'):
-                        self.set_status(f"复制失败: {e}", "error")
+                        self.set_status(_("copy_failed", error=str(e)), "error")
             return copy_func
         
         copy_btn = ctk.CTkButton(
             link_frame,
-            text="📋 复制链接",
+            text=_("copy_link"),
             width=90,
             height=28,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -549,7 +550,7 @@ class ModernAppBase(ctk.CTk):
         # ── 自定义角色名 ──
         ctk.CTkLabel(
             sidebar,
-            text="👤 角色名",
+            text=_("player_name"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
@@ -566,7 +567,7 @@ class ModernAppBase(ctk.CTk):
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["bg_medium"],
             border_color=COLORS["card_border"],
-            placeholder_text="输入角色名",
+            placeholder_text=_("player_name_placeholder"),
         )
         self.player_name_entry.pack(fill=ctk.X, padx=12, pady=(0, 5))
 
@@ -575,7 +576,7 @@ class ModernAppBase(ctk.CTk):
         # ── 自定义皮肤 ──
         ctk.CTkLabel(
             sidebar,
-            text="🎨 自定义皮肤",
+            text=_("custom_skin"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
@@ -593,7 +594,7 @@ class ModernAppBase(ctk.CTk):
 
         self.skin_preview_label = ctk.CTkLabel(
             self.skin_preview_frame,
-            text="暂无皮肤\n支持 64x64 / 64x32 PNG",
+            text=_("skin_no_preview"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
             justify=ctk.CENTER,
@@ -607,7 +608,7 @@ class ModernAppBase(ctk.CTk):
 
         ctk.CTkButton(
             skin_btn_frame,
-            text="📂 选择皮肤",
+            text=_("select_skin"),
             height=28,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["bg_light"],
@@ -617,7 +618,7 @@ class ModernAppBase(ctk.CTk):
 
         self._skin_remove_btn = ctk.CTkButton(
             skin_btn_frame,
-            text="🗑",
+            text=_("remove_skin"),
             width=36,
             height=28,
             font=ctk.CTkFont(size=13),
@@ -631,7 +632,7 @@ class ModernAppBase(ctk.CTk):
         # ── 启动器日志 ──
         ctk.CTkLabel(
             sidebar,
-            text="📋 启动器日志",
+            text=_("launcher_log"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
@@ -657,7 +658,7 @@ class ModernAppBase(ctk.CTk):
         # 清空日志按钮
         ctk.CTkButton(
             sidebar,
-            text="清空日志",
+            text=_("clear_log"),
             height=26,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["bg_light"],
@@ -669,7 +670,7 @@ class ModernAppBase(ctk.CTk):
         self._setup_log_capture()
 
         # 记录启动日志
-        self._append_log("[FMCL] 启动器已启动")
+        self._append_log("[FMCL] " + _("launcher_log") + " - " + _("status_ready"))
 
     def _setup_log_capture(self):
         """设置日志捕获，将 logzero 输出重定向到 UI 日志框"""
@@ -718,7 +719,7 @@ class ModernAppBase(ctk.CTk):
         from tkinter import filedialog
         filetypes = [("皮肤文件", "*.png"), ("所有文件", "*.*")]
         filepath = filedialog.askopenfilename(
-            title="选择皮肤文件",
+            title=_("select_skin_title"),
             filetypes=filetypes,
         )
         if not filepath:
@@ -730,12 +731,12 @@ class ModernAppBase(ctk.CTk):
             with Image.open(filepath) as img:
                 w, h = img.size
                 if (w, h) not in [(64, 64), (64, 32), (128, 128), (128, 64)]:
-                    self.set_status(f"皮肤尺寸 {w}x{h} 不支持，请使用 64x64 或 64x32", "warning")
+                    self.set_status(_("skin_size_invalid", width=w, height=h), "warning")
                     return
         except ImportError:
             pass  # 无 PIL，跳过尺寸验证
         except Exception:
-            self.set_status("无法读取皮肤文件", "error")
+            self.set_status(_("skin_file_error"), "error")
             return
 
         self._current_skin_path = filepath
@@ -751,7 +752,7 @@ class ModernAppBase(ctk.CTk):
             skin_dir.mkdir(parents=True, exist_ok=True)
             import shutil
             shutil.copy2(filepath, str(skin_dir / Path(filepath).name))
-            self.set_status(f"皮肤已安装: {Path(filepath).name}", "success")
+            self.set_status(_("skin_installed", filename=Path(filepath).name), "success")
 
     def _update_skin_preview(self, filepath: str):
         """更新皮肤预览"""
@@ -763,10 +764,10 @@ class ModernAppBase(ctk.CTk):
     def _on_remove_skin(self):
         """移除皮肤"""
         self._current_skin_path = None
-        self.skin_preview_label.configure(text="暂无皮肤\n支持 64x64 / 64x32 PNG", text_color=COLORS["text_secondary"])
+        self.skin_preview_label.configure(text=_("skin_no_preview"), text_color=COLORS["text_secondary"])
         if "set_skin_path" in self.callbacks:
             self.callbacks["set_skin_path"](None)
-        self.set_status("皮肤已移除", "info")
+        self.set_status(_("skin_remove"), "info")
 
     def _on_clear_log(self):
         """清空日志"""
@@ -784,14 +785,14 @@ class ModernAppBase(ctk.CTk):
 
         ctk.CTkLabel(
             title_frame,
-            text="📦 已安装版本",
+            text=_("installed_versions"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(side=ctk.LEFT)
 
         self.version_count_label = ctk.CTkLabel(
             title_frame,
-            text="0 个版本",
+            text=_("version_count", count=0),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         )
@@ -832,7 +833,7 @@ class ModernAppBase(ctk.CTk):
 
         self.launch_btn = ctk.CTkButton(
             launch_frame,
-            text="🚀 启动游戏",
+            text=_("launch_game"),
             height=40,
             font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
             fg_color=COLORS["accent"],
@@ -866,7 +867,7 @@ class ModernAppBase(ctk.CTk):
         # ── 安装新版本区域 ──
         ctk.CTkLabel(
             panel,
-            text="📥 安装新版本",
+            text=_("install_new_version"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(15, 8), anchor=ctk.W)
@@ -878,7 +879,7 @@ class ModernAppBase(ctk.CTk):
         # 版本ID输入
         ctk.CTkLabel(
             panel,
-            text="版本 ID:",
+            text=_("version_id"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         ).pack(padx=15, anchor=ctk.W)
@@ -889,23 +890,23 @@ class ModernAppBase(ctk.CTk):
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],
             border_color=COLORS["card_border"],
-            placeholder_text="例如: 1.20.4 或 26.1",
+            placeholder_text=_("version_id_placeholder"),
         )
         self.version_entry.pack(fill=ctk.X, padx=15, pady=(5, 10))
 
         # 模组加载器选项
         ctk.CTkLabel(
             panel,
-            text="模组加载器:",
+            text=_("mod_loader"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         ).pack(padx=15, anchor=ctk.W)
 
-        self.modloader_var = ctk.StringVar(value="无")
+        self.modloader_var = ctk.StringVar(value=_("mod_loader_none"))
         self.modloader_menu = ctk.CTkOptionMenu(
             panel,
             variable=self.modloader_var,
-            values=["无", "Forge", "Fabric", "NeoForge"],
+            values=[_("mod_loader_none"), _("mod_loader_forge"), _("mod_loader_fabric"), _("mod_loader_neoforge")],
             height=35,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],
@@ -935,7 +936,7 @@ class ModernAppBase(ctk.CTk):
 
         self.install_btn = ctk.CTkButton(
             btn_row,
-            text="📥 安装版本",
+            text=_("install_version"),
             height=38,
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             fg_color=COLORS["bg_light"],
@@ -946,7 +947,7 @@ class ModernAppBase(ctk.CTk):
 
         self.modpack_btn = ctk.CTkButton(
             btn_row,
-            text="📦 安装整合包",
+            text=_("install_modpack"),
             height=38,
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             fg_color=COLORS["bg_light"],
@@ -958,7 +959,7 @@ class ModernAppBase(ctk.CTk):
         # ── 版本选择器 ──
         ctk.CTkLabel(
             panel,
-            text="📋 快速选择",
+            text=_("quick_select"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(5, 8), anchor=ctk.W)
@@ -975,7 +976,7 @@ class ModernAppBase(ctk.CTk):
 
         release_tab = ctk.CTkRadioButton(
             tab_frame,
-            text="📦 正式版",
+            text=_("release_version"),
             variable=self.version_tab_var,
             value="release",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -988,7 +989,7 @@ class ModernAppBase(ctk.CTk):
 
         snapshot_tab = ctk.CTkRadioButton(
             tab_frame,
-            text="🔬 测试版",
+            text=_("snapshot_version"),
             variable=self.version_tab_var,
             value="snapshot",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -1063,7 +1064,7 @@ class ModernAppBase(ctk.CTk):
         # 状态文本
         self.status_label = ctk.CTkLabel(
             footer,
-            text="✅ 就绪",
+            text=_("status_ready"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["success"],
         )

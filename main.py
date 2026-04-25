@@ -10,6 +10,7 @@ v3.0 - modern UI with CustomTkinter, multi-threaded operations
 v3.1 - perf: lazy imports, deferred heavy initialization
 v3.2 - perf: orjson JSON parsing, concurrent file verify, async batch download,
        JVM args optimization (G1GC), GC release after launch, URL rewrite cache
+v3.3 - feat: multi-language support (English, Japanese, Traditional Chinese)
 """
 
 import os
@@ -17,6 +18,7 @@ import re
 import sys
 import threading
 import time
+from pathlib import Path
 
 import logzero
 from logzero import logger
@@ -177,11 +179,16 @@ def main():
         setup_logging()
 
         logger.info("=" * 60)
-        logger.info("Fusion Minecraft Launcher v3.2 启动")
+        logger.info("Fusion Minecraft Launcher v3.3 启动")
         logger.info("=" * 60)
 
         # 确保目录存在
         config.ensure_directories()
+
+        # 初始化国际化（必须在加载 UI 之前）
+        from ui.i18n import init_i18n
+        current_lang = init_i18n(getattr(config, 'language', None))
+        logger.info(f"界面语言: {current_lang}")
 
         # 设置游戏语言为中文
         set_chinese_language()

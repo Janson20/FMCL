@@ -1,4 +1,6 @@
 """启动器设置窗口"""
+import subprocess
+import sys
 import threading
 import tkinter.messagebox as messagebox
 from typing import Dict, Optional, Callable, Any
@@ -6,6 +8,7 @@ from typing import Dict, Optional, Callable, Any
 import customtkinter as ctk
 
 from ui.constants import COLORS, FONT_FAMILY
+from ui.i18n import _, get_available_languages, set_language, get_current_language
 
 
 class LauncherSettingsWindow(ctk.CTkToplevel):
@@ -16,8 +19,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.callbacks = callbacks
         self.parent = parent
 
-        self.title("启动器设置")
-        self.geometry("450x580")
+        self.title(_("settings_title"))
+        self.geometry("450x620")
         self.resizable(False, False)
         self.grab_set()
 
@@ -33,6 +36,21 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 pass
         super().destroy()
 
+    def _restart_launcher(self):
+        """重启启动器"""
+        # 关闭设置窗口
+        self.destroy()
+        # 获取当前脚本路径
+        script = sys.executable
+        if getattr(sys, 'frozen', False):
+            # PyInstaller 打包环境下
+            subprocess.Popen([script])
+        else:
+            # 开发环境下
+            subprocess.Popen([script, 'main.py'])
+        # 退出当前进程
+        self.parent.quit()
+
     def _build_ui(self):
         """构建设置界面"""
         container = ctk.CTkFrame(self, fg_color="transparent")
@@ -41,7 +59,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         # 标题
         title = ctk.CTkLabel(
             container,
-            text="⚙ 启动器设置",
+            text=_("settings_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["text_primary"],
         )
@@ -53,7 +71,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         minimize_label = ctk.CTkLabel(
             minimize_frame,
-            text="🔽 启动后最小化",
+            text=_("settings_minimize"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_primary"],
         )
@@ -80,7 +98,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         mirror_label = ctk.CTkLabel(
             mirror_frame,
-            text="🇨🇳 使用国内镜像源",
+            text=_("settings_mirror"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_primary"],
         )
@@ -101,13 +119,52 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         )
         mirror_switch.pack(side=ctk.RIGHT)
 
+        # ── 界面语言设置 ──
+        language_frame = ctk.CTkFrame(container, fg_color="transparent")
+        language_frame.pack(fill=ctk.X, pady=10)
+
+        language_label = ctk.CTkLabel(
+            language_frame,
+            text=_("settings_language"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
+            text_color=COLORS["text_primary"],
+        )
+        language_label.pack(side=ctk.LEFT)
+
+        # 获取可用语言列表
+        lang_map = get_available_languages()
+        lang_values = list(lang_map.values())
+        lang_codes = list(lang_map.keys())
+
+        # 当前语言
+        current_lang = get_current_language()
+        current_lang_display = lang_map.get(current_lang, lang_map["zh_CN"])
+
+        self.language_var = ctk.StringVar(value=current_lang_display)
+        language_menu = ctk.CTkOptionMenu(
+            language_frame,
+            variable=self.language_var,
+            values=lang_values,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=COLORS["bg_medium"],
+            button_color=COLORS["bg_light"],
+            button_hover_color=COLORS["card_border"],
+            dropdown_fg_color=COLORS["bg_medium"],
+            dropdown_hover_color=COLORS["bg_light"],
+            command=self._on_language_change,
+        )
+        language_menu.pack(side=ctk.RIGHT)
+
+        # 保存语言代码映射
+        self._lang_display_to_code = {v: k for k, v in lang_map.items()}
+
         # ── 净读 AI 账号 ──
         jdz_section = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
         jdz_section.pack(fill=ctk.X, pady=(15, 5))
 
         jdz_title = ctk.CTkLabel(
             jdz_section,
-            text="🤖 净读 AI（崩溃智能分析）",
+            text=_("netread_ai"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             text_color=COLORS["text_primary"],
         )
@@ -115,13 +172,12 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         # Token 状态
         _saved_token = self.callbacks.get("get_jdz_token", lambda: None)()
-        token_status = "已登录" if _saved_token else "未登录"
-        token_color = COLORS["success"] if _saved_token else COLORS["text_secondary"]
+        logged_in = _saved_token is not None
         self.jdz_status_label = ctk.CTkLabel(
             jdz_section,
-            text=f"状态: {token_status}",
+            text=f"{_('netread_status')}: {_('netread_logged_in') if logged_in else _('netread_not_logged_in')}",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=token_color,
+            text_color=COLORS["success"] if logged_in else COLORS["text_secondary"],
         )
         self.jdz_status_label.pack(anchor=ctk.W, padx=12, pady=(0, 5))
 
@@ -136,7 +192,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             fg_color=COLORS["bg_dark"],
             border_color=COLORS["card_border"],
             text_color=COLORS["text_primary"],
-            placeholder_text="用户名",
+            placeholder_text=_("netread_username_placeholder"),
             width=140,
         )
         self.jdz_user_entry.pack(side=ctk.LEFT, padx=(0, 5))
@@ -148,7 +204,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             fg_color=COLORS["bg_dark"],
             border_color=COLORS["card_border"],
             text_color=COLORS["text_primary"],
-            placeholder_text="密码",
+            placeholder_text=_("netread_password_placeholder"),
             width=140,
             show="•",
         )
@@ -156,8 +212,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         self.jdz_login_btn = ctk.CTkButton(
             login_form,
-            text="登录",
-            width=50,
+            text=_("login"),
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["accent"],
@@ -168,8 +223,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         self.jdz_logout_btn = ctk.CTkButton(
             login_form,
-            text="退出",
-            width=50,
+            text=_("netread_logout"),
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["bg_light"],
@@ -182,7 +236,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         import webbrowser
         register_btn = ctk.CTkButton(
             jdz_section,
-            text="没有账号？去注册",
+            text=_("netread_register"),
             height=28,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["accent"],
@@ -199,7 +253,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         threads_label = ctk.CTkLabel(
             threads_frame,
-            text="⚡ 下载线程数",
+            text=_("settings_download_threads"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_primary"],
         )
@@ -231,17 +285,32 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self._threads_slider = threads_slider
 
         # 关闭按钮
-        close_btn = ctk.CTkButton(
-            container,
-            text="关闭",
-            width=120,
+        btn_frame = ctk.CTkFrame(container, fg_color="transparent")
+        btn_frame.pack(pady=(30, 0), fill=ctk.X)
+
+        # 应用按钮
+        apply_btn = ctk.CTkButton(
+            btn_frame,
+            text=_("settings_apply"),
             height=36,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
+            command=self._restart_launcher,
+        )
+        apply_btn.pack(side=ctk.LEFT, padx=(0, 10))
+
+        # 关闭按钮
+        close_btn = ctk.CTkButton(
+            btn_frame,
+            text=_("settings_close"),
+            height=36,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
             command=self.destroy,
         )
-        close_btn.pack(pady=(30, 0))
+        close_btn.pack(side=ctk.LEFT)
 
     def _on_minimize_toggle(self):
         """启动后最小化开关切换"""
@@ -267,23 +336,44 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             "success" if enabled else "info"
         )
 
+    def _on_language_change(self, lang_display: str):
+        """语言切换回调"""
+        # 获取语言代码
+        lang_code = self._lang_display_to_code.get(lang_display)
+        if not lang_code:
+            return
+
+        # 切换语言
+        success = set_language(lang_code)
+        if success:
+            # 保存到配置
+            if "set_language" in self.callbacks:
+                self.callbacks["set_language"](lang_code)
+
+            # 获取语言名称用于显示
+            lang_name = get_available_languages().get(lang_code, lang_code)
+            self.parent.set_status(
+                _("settings_language_changed", lang=lang_name),
+                "info"
+            )
+
     def _on_threads_change(self, value):
         """下载线程数滑块变化"""
         threads = int(round(value))
         self.threads_value_label.configure(text=str(threads))
         if "set_download_threads" in self.callbacks:
             self.callbacks["set_download_threads"](threads)
-        self.parent.set_status(f"下载线程数: {threads}", "info")
+        self.parent.set_status(_("settings_threads", threads=threads), "info")
 
     def _on_jdz_login(self):
         """净读 AI 登录"""
         username = self.jdz_user_entry.get().strip()
         password = self.jdz_pass_entry.get().strip()
         if not username or not password:
-            messagebox.showwarning("提示", "请输入用户名和密码", parent=self)
+            messagebox.showwarning(_("warning"), _("please_enter_username_password"), parent=self)
             return
 
-        self.jdz_login_btn.configure(state="disabled", text="登录中...")
+        self.jdz_login_btn.configure(state="disabled", text=_("logging_in") + "...")
         self.update()
 
         def _do_login():
@@ -326,20 +416,29 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         threading.Thread(target=_do_login, daemon=True).start()
 
     def _jdz_login_success(self, token: str):
-        self.jdz_login_btn.configure(state="normal", text="登录")
-        self.jdz_status_label.configure(text="状态: 已登录", text_color=COLORS["success"])
-        self.parent.set_status("净读 AI 登录成功", "success")
+        self.jdz_login_btn.configure(state="normal", text=_("login"))
+        self.jdz_status_label.configure(
+            text=f"{_('netread_status')}: {_('netread_logged_in')}",
+            text_color=COLORS["success"]
+        )
+        self.parent.set_status(_("netread_login_success"), "success")
 
     def _jdz_login_fail(self, msg: str):
-        self.jdz_login_btn.configure(state="normal", text="登录")
-        self.jdz_status_label.configure(text="状态: 登录失败", text_color=COLORS["error"])
-        messagebox.showerror("登录失败", f"净读 AI 登录失败:\n{msg}", parent=self)
+        self.jdz_login_btn.configure(state="normal", text=_("login"))
+        self.jdz_status_label.configure(
+            text=f"{_('netread_status')}: {_('login_failed')}",
+            text_color=COLORS["error"]
+        )
+        messagebox.showerror(_("login_failed"), f"{_('netread_login_failed', error=msg)}", parent=self)
 
     def _on_jdz_logout(self):
         """退出净读 AI"""
         if "set_jdz_token" in self.callbacks:
             self.callbacks["set_jdz_token"](None)
-        self.jdz_status_label.configure(text="状态: 未登录", text_color=COLORS["text_secondary"])
+        self.jdz_status_label.configure(
+            text=f"{_('netread_status')}: {_('netread_not_logged_in')}",
+            text_color=COLORS["text_secondary"]
+        )
         self.jdz_user_entry.delete(0, "end")
         self.jdz_pass_entry.delete(0, "end")
-        self.parent.set_status("净读 AI 已退出登录", "info")
+        self.parent.set_status(_("netread_logged_out"), "info")

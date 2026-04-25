@@ -90,6 +90,7 @@ class Config:
     DEFAULT_MINIMIZE_ON_GAME_LAUNCH = False
     DEFAULT_AUTO_CHECK_UPDATE = True
     DEFAULT_PLAYER_NAME = "Steve"
+    DEFAULT_LANGUAGE = "zh_CN"
 
     def __init__(self, base_dir: Optional[str] = None):
         """
@@ -135,6 +136,9 @@ class Config:
 
         # 净读 AI Token
         self.jdz_token: Optional[str] = None
+
+        # 语言设置
+        self.language: str = self.DEFAULT_LANGUAGE
 
         # 备份配置
         self.backup_dir: Optional[str] = None
@@ -182,8 +186,10 @@ class Config:
                 self.backup_auto_launch = data["backup_auto_launch"]
             if "backup_auto_exit" in data:
                 self.backup_auto_exit = data["backup_auto_exit"]
+            if "language" in data:
+                self.language = data["language"]
 
-            logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}")
+            logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}, 语言={self.language}")
 
         except Exception as e:
             logger.error(f"加载配置文件失败: {e}")
@@ -199,6 +205,7 @@ class Config:
                 "player_name": self.player_name,
                 "skin_path": self.skin_path,
                 "jdz_token": self.jdz_token,
+                "language": self.language,
                 "backup_dir": self.backup_dir,
                 "backup_compress_level": self.backup_compress_level,
                 "backup_max_per_world": self.backup_max_per_world,

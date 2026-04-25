@@ -584,6 +584,8 @@ class MinecraftLauncher:
             "set_skin_path": self.set_skin_path,
             "get_jdz_token": self.get_jdz_token,
             "set_jdz_token": self.set_jdz_token,
+            "get_language": self.get_language,
+            "set_language": self.set_language,
             # 服务器相关
             "get_server_versions": self.get_server_versions,
             "get_installed_servers": self.get_installed_servers,
@@ -627,6 +629,15 @@ class MinecraftLauncher:
     def set_jdz_token(self, token: Optional[str]) -> None:
         """设置净读 AI Token"""
         self.config.jdz_token = token
+        self.config.save_config()
+
+    def get_language(self) -> str:
+        """获取界面语言"""
+        return getattr(self.config, 'language', 'zh_CN')
+
+    def set_language(self, language: str) -> None:
+        """设置界面语言"""
+        self.config.language = language
         self.config.save_config()
 
     def verify_installed_version(self, version_id: str, max_workers: int = 4) -> Dict[str, Any]:

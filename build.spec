@@ -25,6 +25,14 @@ block_cipher = None
 # 图标路径
 icon_path = os.path.join(os.getcwd(), 'icon.ico')
 
+# locales 目录路径（多语言支持）
+locales_src = os.path.join(os.getcwd(), 'ui', 'locales')
+
+# 数据文件列表：图标 + locales
+datas = [(icon_path, '.')]
+if os.path.exists(locales_src):
+    datas.append((locales_src, 'ui' + os.sep + 'locales'))
+
 # 通用隐式导入
 hidden_imports = [
     'minecraft_launcher_lib',
@@ -58,7 +66,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[(icon_path, '.')],
+    datas=datas,
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
