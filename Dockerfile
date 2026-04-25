@@ -1,15 +1,15 @@
 # Dockerfile for building FMCL Linux binaries with GLIBC compatibility
-# Based on manylinux2014 (CentOS 7, GLIBC 2.17) for maximum compatibility
-FROM quay.io/pypa/manylinux2014_x86_64
+# Based on manylinux_2_28 (AlmaLinux 9, GLIBC 2.28) for broad compatibility
+# Covers: Ubuntu 18.04+, Debian 10+, RHEL 8+, Fedora 33+
+FROM quay.io/pypa/manylinux_2_28_x86_64
 
 # Install system dependencies required by PyInstaller and tkinter
-RUN yum install -y \
+RUN dnf install -y \
     tk-devel \
     dbus-devel \
     libXScrnSaver-devel \
     libnotify-devel \
     nss-devel \
-    xorg-x11-server-Xvfb \
     fontconfig \
     cairo \
     pango \
@@ -23,8 +23,7 @@ RUN yum install -y \
     xz-devel \
     readline-devel \
     sqlite-devel \
-    gdbm-devel \
-    && yum clean all
+    && dnf clean all
 
 # Install Python 3.11
 RUN /opt/python/cp311-cp311/bin/python -m pip install --upgrade pip setuptools wheel

@@ -143,8 +143,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Pull manylinux2014 image
-        run: docker pull quay.io/pypa/manylinux2014_x86_64
+      - name: Pull manylinux image
+        run: docker pull quay.io/pypa/manylinux_2_28_x86_64
 
       - name: Build with PyInstaller in Docker
         run: |
@@ -153,10 +153,10 @@ jobs:
             -w /app \
             -e PLATFORM=linux \
             -e ARCH=amd64 \
-            quay.io/pypa/manylinux2014_x86_64 \
+            quay.io/pypa/manylinux_2_28_x86_64 \
             bash -exc '
               export PATH="/opt/python/cp311-cp311/bin:${PATH}"
-              yum install -y tk-devel dbus-devel libXScrnSaver-devel nss-devel \
+              dnf install -y tk-devel dbus-devel libXScrnSaver-devel nss-devel \
                 fontconfig cairo pango atk gtk3 alsa-lib 2>/dev/null
               pip install --upgrade pip setuptools wheel
               pip install pyinstaller
