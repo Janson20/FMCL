@@ -139,46 +139,30 @@ jobs:
   build-linux:
     name: Build Linux Packages
     runs-on: ubuntu-latest
-    container:
-      image: quay.io/pypa/manylinux2014_x86_64
-    env:
-      PATH: "/opt/python/cp311-cp311/bin:${PATH}"
-      DISPLAY: ":99"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: |
-          yum install -y \
-            git \
-            tk-devel \
-            dbus-devel \
-            libXScrnSaver-devel \
-            nss-devel \
-            xorg-x11-server-Xvfb \
-            fontconfig \
-            cairo \
-            pango \
-            atk \
-            gtk3 \
-            alsa-lib \
-            dpkg-dev \
-            fakeroot \
-            curl \
-            && yum clean all
+      - name: Pull manylinux2014 image
+        run: docker pull quay.io/pypa/manylinux2014_x86_64
 
-      - name: Install Python dependencies
+      - name: Build with PyInstaller in Docker
         run: |
-          python3.11 -m pip install --upgrade pip setuptools wheel
-          pip install pyinstaller
-          pip install -r requirements.txt
-
-      - name: Build with PyInstaller
-        run: pyinstaller build.spec --noconfirm
-        env:
-          PLATFORM: linux
-          ARCH: amd64
+          docker run --rm \
+            -v "$PWD:/app" \
+            -w /app \
+            -e PLATFORM=linux \
+            -e ARCH=amd64 \
+            quay.io/pypa/manylinux2014_x86_64 \
+            bash -exc '
+              export PATH="/opt/python/cp311-cp311/bin:${PATH}"
+              yum install -y tk-devel dbus-devel libXScrnSaver-devel nss-devel \
+                fontconfig cairo pango atk gtk3 alsa-lib 2>/dev/null
+              pip install --upgrade pip setuptools wheel
+              pip install pyinstaller
+              pip install -r requirements.txt
+              pyinstaller build.spec --noconfirm
+            '
 
       - name: Build DEB package
         run: |
@@ -198,6 +182,7 @@ jobs:
 
           printf 'Package: fmcl\nVersion: %s\nArchitecture: %s\nMaintainer: FMCL Team\nDescription: Fusion Minecraft Launcher\n A feature-rich Minecraft launcher with multi-threaded\n download support, Forge installation, and GUI version selection.\nDepends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, libgbm1\nSection: games\nPriority: optional\n' "$VERSION" "$ARCHITECTURE" > ${PKG_NAME}/DEBIAN/control
 
+          sudo apt-get update && sudo apt-get install -y dpkg fakeroot
           fakeroot dpkg-deb --build ${PKG_NAME}
           mv ${PKG_NAME}.deb FMCL-${VERSION}-linux-amd64.deb
 
@@ -221,7 +206,7 @@ jobs:
           chmod +x FMCL.AppDir/usr/bin/fmcl
 
           # Generate a placeholder icon using pure Python (no PIL dependency)
-          python3.11 -c "
+          python3 -c "
           import struct, zlib
           def create_png(width, height, r, g, b):
               def chunk(ctype, data):
