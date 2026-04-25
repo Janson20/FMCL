@@ -3,6 +3,7 @@
 
 import os
 import sys
+import tkinter as tk
 from pathlib import Path
 
 # 自动检测平台
@@ -46,7 +47,13 @@ hidden_imports = [
     'tkinter.ttk',
     'tkinter.filedialog',
     'tkinter.messagebox',
+    'tkinter.colorchooser',
+    'tkinter.commondialog',
+    'tkinter.constants',
     'PIL',
+    'PIL.Image',
+    'PIL.ImageTk',
+    'customtkinter',
 ]
 
 # 平台特定导入
@@ -62,10 +69,22 @@ elif platform == 'mac':
         'Foundation',
     ])
 
+# ── 收集 tkinter/TCL 库文件（Windows 必需）──
+# tkinter 需要访问 tcl86t.dll, tk86t.dll 等文件
+binaries_tkinter = []
+if platform == 'win':
+    # 获取 Python 的 tcl 库目录
+    tk_lib_dir = Path(sys.prefix) / 'tcl' / 'tk8.6'
+    if tk_lib_dir.exists():
+        binaries_tkinter.append((str(tk_lib_dir), '.'))
+    tcl_lib_dir = Path(sys.prefix) / 'tcl' / 'tcl8.6'
+    if tcl_lib_dir.exists():
+        binaries_tkinter.append((str(tcl_lib_dir), '.'))
+
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=binaries_tkinter if platform == 'win' else [],
     datas=datas,
     hiddenimports=hidden_imports,
     hookspath=[],
@@ -99,7 +118,7 @@ if platform == 'win':
         strip=False,
         upx=True,
         upx_exclude=[],
-        runtime_tmpdir=None,
+        runtime_tmpdir='FMCL',  # 为 tkinter/TCL 库创建独立临时目录
         console=False,
         disable_windowed_traceback=False,
         argv_emulation=False,

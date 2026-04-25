@@ -198,25 +198,33 @@ def main():
         # 设置游戏语言为中文
         set_chinese_language()
 
+        logger.info("正在加载 customtkinter...")
         # ── 延迟导入：只在需要时才加载重量级模块 ──
         # customtkinter (~0.14s) 和 launcher/minecraft_launcher_lib (~0.16s)
         # 延迟导入 launcher 模块，避免模块加载阶段就触发 minecraft_launcher_lib 的导入
         import customtkinter as ctk
+        logger.info("customtkinter 加载完成")
 
         # 设置CustomTkinter主题
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
 
+        logger.info("正在加载 UI 模块...")
         # 延迟导入 UI 模块
         from ui import ModernApp
+        logger.info("ModernApp 导入完成")
 
+        logger.info("正在创建主窗口...")
         # ── 先创建 UI，让用户尽快看到窗口 ──
         # 传入一个空的 callbacks 字典，稍后在后台线程中替换
         app = ModernApp({})
+        logger.info("主窗口创建完成")
         app.withdraw()  # 先隐藏主窗口，等启动画面结束后再显示
 
+        logger.info("正在创建启动画面...")
         # 创建启动画面
         splash = _create_splash(ctk)
+        logger.info("启动画面创建完成")
         splash_start = time.time()
         _launcher_result = {}  # 线程安全存储 launcher 实例
         _launcher_ready = threading.Event()

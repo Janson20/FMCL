@@ -10,6 +10,7 @@ main.dist/
 *.log
 *.xml
 pos.txt
+config.json
 
 # Virtual environments
 .venv
