@@ -48,23 +48,26 @@
 
 ### 📦 Modrinth 整合包安装
 - 支持安装 `.mrpack` 格式的 Modrinth 整合包
+- **🌐 从 Modrinth 下载**：内置整合包浏览器，支持关键词搜索、按 MC 版本分组浏览、版本选择和一键下载
 - 自动读取整合包元数据（名称、简介、Minecraft 版本）
 - 可选组件支持：可选择安装整合包包含的可选文件
-- 自定义安装目录：可选择与 Minecraft 目录不同的安装位置
 - **版本隔离**：整合包资源默认安装到 `versions/<版本ID>/` 目录，避免不同整合包之间的模组和配置冲突
+- **并行安装优化**：整合包文件下载与原版 Minecraft 安装并行执行，模组文件多线程并行下载，大幅提升安装速度
+- **分段进度显示**：实时显示整合包文件下载和原版安装的独立进度百分比及总进度条
 - 自动下载整合包所需的所有模组、配置文件并处理依赖关系
-- **实时安装日志**：安装过程中显示详细日志，方便排查问题
 - 安装完成后自动刷新版本列表，可直接启动游戏
 
 ### 📦 整合包开服
 - 支持将 `.mrpack` 整合包安装为服务器
+- **🌐 从 Modrinth 下载**：内置整合包浏览器，与整合包安装窗口一致
 - 自动安装整合包文件（mods、configs 等）到服务器目录
 - 自动下载对应版本的 vanilla 服务器核心
 - 自动同意 EULA，创建基本 server.properties
 - 支持自定义服务器名称
 - **自动检测并安装服务端 mod loader**：自动识别整合包中的 Forge/Fabric/NeoForge/Quilt，下载并运行对应的服务端安装器
 - **自动下载 Fabric API**：Fabric 服务端安装完成后，自动从 Modrinth 下载 Fabric API 及其依赖
-- **实时安装日志**：安装过程中显示详细日志，方便排查问题
+- **并行安装优化**：整合包文件下载与原版客户端安装并行执行，模组文件多线程并行下载
+- **分段进度显示**：实时显示整合包文件下载和原版安装的独立进度百分比及总进度条
 - 安装完成后自动刷新服务器列表，可直接启动
 
 ### 📦 资源管理
@@ -399,14 +402,23 @@ python main.py
 
 在右侧操作面板点击「📦 安装整合包」按钮，打开整合包安装窗口。
 
+**方式一：从本地文件安装**
+
 1. 点击「📂 选择 .mrpack 文件」，从本地选择一个 `.mrpack` 格式的整合包文件
 2. 程序自动读取并显示整合包信息（名称、简介、Minecraft 版本）
 3. 如有可选组件，可勾选需要安装的组件
-4. 可自定义安装目录（默认与 Minecraft 目录相同）
-5. 点击「📦 开始安装」，等待安装完成
-6. 安装完成后刷新版本列表，选择对应版本即可启动游戏
+4. 点击「📦 开始安装」，等待安装完成
+5. 安装完成后刷新版本列表，选择对应版本即可启动游戏
 
-> 💡 `.mrpack` 文件可从 [Modrinth 网站](https://modrinth.com/modpacks) 下载，在整合包页面点击分享图标选择「Download .mrpack」即可。
+**方式二：从 Modrinth 下载**
+
+1. 点击「🌐 从 Modrinth 下载」按钮，打开整合包浏览窗口
+2. 窗口打开时自动加载热门整合包列表，也可输入关键词搜索
+3. 找到想要的整合包后点击「� 安装」→ 选择具体版本 → 下载 `.mrpack` 文件
+4. 下载完成后自动回到安装窗口，显示整合包信息
+5. 确认信息后点击「📦 开始安装」即可
+
+> 💡 安装过程采用并行优化：整合包文件（模组等）与原版 Minecraft 同时下载，模组文件多线程并行下载，显著缩短等待时间。进度区域实时显示两个任务的百分比。另可通过 [Modrinth 网站](https://modrinth.com/modpacks) 手动下载 `.mrpack` 文件。
 
 #### Modrinth 模组浏览与安装
 
@@ -473,13 +485,13 @@ python main.py
 **整合包开服：**
 
 1. 点击右侧面板「📦 整合包开服」按钮，打开整合包开服窗口
-2. 选择本地 `.mrpack` 文件，程序自动读取整合包信息
+2. 选择本地 `.mrpack` 文件（或点击「🌐 从 Modrinth 下载」在线获取），程序自动读取整合包信息
 3. 可选自定义服务器名称（留空则自动命名为 `整合包名-版本号`）
 4. 如有可选组件，可勾选需要安装的组件
 5. 点击「🚀 开始安装服务器」，等待安装完成
 6. 安装完成后刷新服务器列表，选择该服务器即可启动
 
-> 💡 程序会自动检测整合包中的 mod loader 并下载安装对应的服务端版本（Forge/Fabric/NeoForge/Quilt），无需手动操作。
+> 💡 安装过程与整合包安装一样采用并行优化，进度区域实时显示分段进度。程序会自动检测整合包中的 mod loader 并下载安装对应的服务端版本（Forge/Fabric/NeoForge/Quilt），无需手动操作。
 
 **启动服务器：**
 
@@ -502,7 +514,7 @@ FMCL/
 │   ├── __init__.py        # MinecraftLauncher 组合类（多继承自 core/server/mrpack）
 │   ├── core.py            # MinecraftLauncherCore - 环境检查、版本安装、游戏启动、镜像源管理
 │   ├── server.py          # ServerMixin - 服务器安装/启动/停止/管理
-│   ├── mrpack.py          # MrpackMixin - 整合包安装/开服
+│   ├── mrpack.py          # MrpackMixin - 整合包安装/开服（并行下载优化）
 │   └── verify.py          # 并发文件校验（ThreadPoolExecutor）
 ├── ui/                    # CustomTkinter 现代化 UI（包）
 │   ├── __init__.py        # 向后兼容导出
@@ -519,7 +531,8 @@ FMCL/
 │       ├── launcher_settings.py  # 启动器设置窗口（镜像源/最小化等）
 │       ├── modpack_install.py    # Modrinth 整合包安装窗口
 │       ├── modpack_server.py     # 整合包开服窗口
-│       └── mod_browser.py        # Modrinth 模组浏览与安装窗口
+│       ├── modpack_browser.py    # Modrinth 整合包浏览与下载窗口
+│       ├── mod_browser.py        # Modrinth 模组浏览与安装窗口
 │       └── backup_settings.py    # 备份设置窗口
 ├── downloader.py          # 多线程下载器 & 异步批量下载 & 模组加载器安装
 │   ├── MultiThreadDownloader  # 多线程分段下载 + 文件合并
@@ -527,8 +540,11 @@ FMCL/
 │   └── install_mod_loader # Forge/Fabric/NeoForge 统一安装
 ├── modrinth.py            # Modrinth API 集成
 │   ├── search_mods        # 搜索模组（关键词 + 版本/加载器筛选）
+│   ├── search_modpacks    # 搜索整合包（关键词 + 版本筛选）
 │   ├── get_mod_versions   # 获取模组版本列表
+│   ├── get_modpack_versions # 获取整合包版本列表
 │   ├── download_mod       # 下载模组文件
+│   ├── download_modpack_file  # 下载整合包 .mrpack 文件
 │   ├── install_mod_with_deps  # 安装模组及依赖（递归）
 │   ├── 版本解析工具       # 从版本 ID 解析加载器/游戏版本（含 NeoForge 特殊处理 + 新版 YY.D.H 格式）
 │   └── 版本压缩展示       # 智能压缩版本列表（基于 Modrinth 完整版本判断全版本覆盖，支持旧版 + 新版格式）
@@ -605,7 +621,7 @@ main.py
 | 日志 | logzero | 轻量级日志框架 |
 | 结构化日志 | JSONL 格式 | 核心流程结构化记录，方便程序化分析 |
 | HTTP | requests | API 请求与文件下载 |
-| 模组搜索 | Modrinth API V2 | 在线搜索和安装模组 |
+| 模组搜索 | Modrinth API V2 | 在线搜索和安装模组/整合包 |
 | 下载 | 多线程分段下载 | 大文件并行下载加速 |
 | 截图 | pyautogui + keyboard | 区域截图 + 快捷键监听 |
 | 自动更新 | GitHub Release API | 版本检查 + 静默安装 |
