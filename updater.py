@@ -31,7 +31,7 @@ GITHUB_REPO = "FMCL"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 
 # 当前版本（从 pyproject.toml 读取）
-CURRENT_VERSION = "2.5.6"
+CURRENT_VERSION = "2.5.7"
 
 
 def _load_current_version() -> str:
