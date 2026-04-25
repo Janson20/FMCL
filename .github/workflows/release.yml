@@ -139,40 +139,38 @@ jobs:
   build-linux:
     name: Build Linux Packages
     runs-on: ubuntu-latest
+    container:
+      image: quay.io/pypa/manylinux2014_x86_64
+    env:
+      PATH: "/opt/python/cp311-cp311/bin:${PATH}"
+      DISPLAY: ":99"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            tk-dev \
-            uuid-dev \
-            xvfb \
-            libgtk-3-0 \
-            libnotify4 \
-            libnss3 \
-            libxss1 \
-            libxtst6 \
-            xdg-utils \
-            libatspi2.0-0 \
-            libdrm2 \
-            libxkbcommon0 \
-            libgbm1 \
+          yum install -y \
+            git \
+            tk-devel \
+            dbus-devel \
+            libXScrnSaver-devel \
+            nss-devel \
+            xorg-x11-server-Xvfb \
+            fontconfig \
+            cairo \
+            pango \
+            atk \
+            gtk3 \
+            alsa-lib \
             dpkg-dev \
             fakeroot \
-            libfuse2
+            curl \
+            && yum clean all
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel
+          python3.11 -m pip install --upgrade pip setuptools wheel
           pip install pyinstaller
           pip install -r requirements.txt
 
@@ -208,8 +206,8 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
 
-          # Download and extract appimagetool (avoids FUSE requirement)
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool.AppImage
+          # Download and extract appimagetool
+          curl -sL https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -o appimagetool.AppImage
           chmod +x appimagetool.AppImage
           ./appimagetool.AppImage --appimage-extract
           APPIMAGETOOL="$(pwd)/squashfs-root/AppRun"
@@ -223,7 +221,7 @@ jobs:
           chmod +x FMCL.AppDir/usr/bin/fmcl
 
           # Generate a placeholder icon using pure Python (no PIL dependency)
-          python3 -c "
+          python3.11 -c "
           import struct, zlib
           def create_png(width, height, r, g, b):
               def chunk(ctype, data):
