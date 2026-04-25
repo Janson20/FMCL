@@ -155,9 +155,27 @@ jobs:
             -e ARCH=amd64 \
             quay.io/pypa/manylinux_2_28_x86_64 \
             bash -exc '
-              export PATH="/opt/python/cp311-cp311/bin:${PATH}"
               dnf install -y tk-devel dbus-devel libXScrnSaver-devel nss-devel \
-                fontconfig cairo pango atk gtk3 alsa-lib 2>/dev/null
+                fontconfig cairo pango atk gtk3 alsa-lib \
+                openssl-devel zlib-devel bzip2-devel xz-devel \
+                readline-devel sqlite-devel libffi-devel 2>/dev/null
+
+              # Build Python 3.11 with --enable-shared for PyInstaller
+              PYTHON_VERSION=$(/opt/python/cp311-cp311/bin/python3.11 -c "import sys; print(sys.version.split()[0])")
+              PYTHON_SRC="/opt/_internal/cpython-${PYTHON_VERSION}"
+              if [ ! -f "${PYTHON_SRC}/Makefile" ]; then
+                curl -sS https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz -o /tmp/Python.tar.xz
+                tar xf /tmp/Python.tar.xz -C /tmp
+                PYTHON_SRC="/tmp/Python-${PYTHON_VERSION}"
+              fi
+              cd "${PYTHON_SRC}"
+              ./configure --prefix=/opt/python/cp311-cp311 --enable-shared --with-ensurepip=install LDFLAGS="-Wl,-rpath,/opt/python/cp311-cp311/lib" 2>&1 | tail -5
+              make -j$(nproc) 2>&1 | tail -3
+              make install 2>&1 | tail -3
+              cd /app
+
+              export PATH="/opt/python/cp311-cp311/bin:${PATH}"
+              export LD_LIBRARY_PATH="/opt/python/cp311-cp311/lib:${LD_LIBRARY_PATH}"
               pip install --upgrade pip setuptools wheel
               pip install pyinstaller
               pip install -r requirements.txt

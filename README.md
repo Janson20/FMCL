@@ -596,7 +596,7 @@ main.py
 | 截图 | pyautogui + keyboard | 区域截图 + 快捷键监听 |
 | 自动更新 | GitHub Release API | 版本检查 + 静默安装 |
 | 构建打包 | PyInstaller + NSIS | 可执行文件 + Windows 安装包 |
-| Linux 兼容构建 | Docker + manylinux_2_28 | GLIBC 2.28 兼容，覆盖 Ubuntu 18.04+、Debian 10+、RHEL 8+ |
+| Linux 兼容构建 | Docker + manylinux_2_28 + Python `--enable-shared` | GLIBC 2.28 兼容，覆盖 Ubuntu 18.04+、Debian 10+、RHEL 8+ |
 | CI/CD | GitHub Actions | 多平台自动构建与发布 |
 | 提交规范 | Husky + Commitlint | 约定式提交自动校验 |
 
