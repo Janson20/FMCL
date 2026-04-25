@@ -17,7 +17,7 @@ class MrpackMixin:
     """整合包（mrpack）安装 Mixin 类"""
 
     # 并行下载模组时的线程数
-    PARALLEL_DOWNLOADS = 32
+    PARALLEL_DOWNLOADS = 10
 
     # ─── 整合包（mrpack）安装 ───────────────────────────────────
 
@@ -367,15 +367,12 @@ class MrpackMixin:
         server_name: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """
-        安装整合包作为服务器
+        安装整合包作为服务器（并行下载优化）
 
         流程：
-        1. 读取整合包信息，获取 Minecraft 版本和 mod loader 信息
-        2. 用 mrpack 模块将整合包文件（mods、configs 等）安装到服务器目录
-        3. 安装同名客户端版本（自动下载 Java runtime）
-        4. 如果有 mod loader，自动下载并安装服务端 mod loader
-        5. 如果没有 mod loader，下载 vanilla server jar
-        6. 自动同意 EULA，创建基本 server.properties
+        1. 并行：整合包文件下载 + 原版客户端安装
+        2. 安装服务端 mod loader 或 vanilla server jar
+        3. 自动同意 EULA + 创建 server.properties
 
         Args:
             mrpack_path: .mrpack 文件的绝对路径
@@ -385,15 +382,16 @@ class MrpackMixin:
         Returns:
             (是否成功, 服务器名称 或 错误信息) 元组
         """
-        import requests as req
+        import minecraft_launcher_lib as _mcllib
 
         if not os.path.isfile(mrpack_path):
             msg = f"文件不存在: {mrpack_path}"
             logger.error(msg)
             return False, msg
 
+        optional = optional_files or []
+
         try:
-            # 1. 读取整合包信息 + mod loader 信息
             mrpack_info = self._mcllib.mrpack.get_mrpack_information(mrpack_path)
             mc_version = mrpack_info.get("minecraftVersion", "")
             pack_name = mrpack_info.get("name", "modpack")
@@ -403,77 +401,158 @@ class MrpackMixin:
                 logger.error(msg)
                 return False, msg
 
-            # 从 mrpack 内部的 modrinth.index.json 读取 mod loader 依赖
-            mod_loader_info = {}  # {"type": "forge"|"fabric"|"neoforge"|"quilt", "version": "..."}
-            with zipfile.ZipFile(mrpack_path, "r") as zf:
-                if "modrinth.index.json" in zf.namelist():
-                    with zf.open("modrinth.index.json", "r") as f:
-                        index = json.load(f)
-                    deps = index.get("dependencies", {})
-                    if "forge" in deps:
-                        mod_loader_info = {"type": "forge", "version": deps["forge"]}
-                    elif "neoforge" in deps:
-                        mod_loader_info = {"type": "neoforge", "version": deps["neoforge"]}
-                    elif "fabric-loader" in deps:
-                        mod_loader_info = {"type": "fabric", "version": deps["fabric-loader"]}
-                    elif "quilt-loader" in deps:
-                        mod_loader_info = {"type": "quilt", "version": deps["quilt-loader"]}
+            index = self._read_mrpack_index(mrpack_path)
+            deps = index.get("dependencies", {})
+            mod_loader_info = {}
+            if "forge" in deps:
+                mod_loader_info = {"type": "forge", "version": deps["forge"]}
+            elif "neoforge" in deps:
+                mod_loader_info = {"type": "neoforge", "version": deps["neoforge"]}
+            elif "fabric-loader" in deps:
+                mod_loader_info = {"type": "fabric", "version": deps["fabric-loader"]}
+            elif "quilt-loader" in deps:
+                mod_loader_info = {"type": "quilt", "version": deps["quilt-loader"]}
 
             loader_type = mod_loader_info.get("type", "")
             loader_version = mod_loader_info.get("version", "")
             if loader_type:
                 logger.info(f"检测到 mod loader: {loader_type} {loader_version}")
 
-            # 服务器目录名
             if not server_name:
                 safe_name = re.sub(r'[<>:"/\\|?*]', '_', pack_name)
                 server_name = f"{safe_name}-{mc_version}"
 
+            mc_dir = self.minecraft_dir
             server_dir = self._get_server_versions_dir() / server_name
             server_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"整合包服务器目录: {server_dir}")
 
-            # 2. 安装整合包文件到服务器目录
-            install_options: dict = {"optionalFiles": optional_files or []}
-            self._set_status(f"正在安装整合包文件到服务器目录...")
-            self._mcllib.mrpack.install_mrpack(
-                mrpack_path,
-                self.minecraft_dir,
-                modpack_directory=str(server_dir),
-                mrpack_install_options=install_options,
-                callback=self._get_callback(),
-            )
+            callback = self._get_callback()
+            mrpack_error: Optional[Exception] = None
+            vanilla_error: Optional[Exception] = None
 
-            # 3. 安装同名客户端版本（自动下载 Java runtime）
-            logger.info(f"正在安装客户端版本 {mc_version}（自动下载 Java runtime）...")
-            self._set_status(f"正在准备环境: 安装 {mc_version} ...")
-            self._mcllib.install.install_minecraft_version(
-                mc_version,
-                self.minecraft_dir,
-                callback=self._get_callback()
-            )
+            progress_lock = threading.Lock()
+            mp_state = {"current": 0, "max": 1, "label": "等待中"}
+            mc_state = {"current": 0, "max": 1, "label": "等待中"}
 
-            # 4. 安装服务端 mod loader 或 vanilla server jar
+            self._mp_progress = {
+                "mrpack": mp_state,
+                "vanilla": mc_state,
+                "overall": 0,
+                "phase": "parallel",
+            }
+
+            def _update_overall():
+                mp_pct = (mp_state["current"] / mp_state["max"]) if mp_state["max"] > 0 else 0
+                mc_pct = (mc_state["current"] / mc_state["max"]) if mc_state["max"] > 0 else 0
+                overall = int((mp_pct + mc_pct) / 2 * 100)
+                self._mp_progress["overall"] = overall / 100.0
+                status_text = f"整合包: {mp_state['label']} | 原版: {mc_state['label']}"
+                self._mp_progress["status_text"] = status_text
+
+            def _make_cb(state: dict, label_prefix: str):
+                def _set_status(msg: str):
+                    with progress_lock:
+                        state["label"] = f"{label_prefix}{msg}"
+                        _update_overall()
+
+                def _set_max(n: int):
+                    with progress_lock:
+                        state["max"] = max(n, 1)
+                        _update_overall()
+
+                def _set_progress(n: int):
+                    with progress_lock:
+                        state["current"] = n
+                        _update_overall()
+
+                return {"setStatus": _set_status, "setMax": _set_max, "setProgress": _set_progress}
+
+            mrpack_cb = _make_cb(mp_state, "")
+            vanilla_cb = _make_cb(mc_state, "")
+
+            def _install_mrpack_files():
+                nonlocal mrpack_error
+                try:
+                    logger.info("并行任务 A: 并行下载整合包服务器文件...")
+                    self._download_mrpack_files_parallel(
+                        mrpack_path,
+                        mc_dir,
+                        str(server_dir),
+                        optional,
+                        mrpack_cb,
+                    )
+                    with progress_lock:
+                        mp_state["current"] = mp_state["max"]
+                        mp_state["label"] = "完成"
+                    _update_overall()
+                    logger.info("并行任务 A: 整合包服务器文件下载完成")
+                except Exception as e:
+                    mrpack_error = e
+                    logger.error(f"并行任务 A 失败: {e}")
+
+            def _install_vanilla():
+                nonlocal vanilla_error
+                try:
+                    logger.info(f"并行任务 B: 安装 Minecraft {mc_version}...")
+                    with progress_lock:
+                        mc_state["label"] = f"安装 Minecraft {mc_version}"
+                    _update_overall()
+                    _mcllib.install.install_minecraft_version(
+                        mc_version,
+                        mc_dir,
+                        callback=vanilla_cb,
+                    )
+                    with progress_lock:
+                        mc_state["current"] = mc_state["max"]
+                        mc_state["label"] = "完成"
+                    _update_overall()
+                    logger.info(f"并行任务 B: Minecraft {mc_version} 安装完成")
+                except Exception as e:
+                    vanilla_error = e
+                    logger.error(f"并行任务 B 失败: {e}")
+
+            logger.info("启动并行安装: 整合包文件下载 + Minecraft 原版安装")
+            t_a = threading.Thread(target=_install_mrpack_files, daemon=True)
+            t_b = threading.Thread(target=_install_vanilla, daemon=True)
+            t_a.start()
+            t_b.start()
+            t_a.join()
+            t_b.join()
+
+            if mrpack_error or vanilla_error:
+                err_msg = []
+                if mrpack_error:
+                    err_msg.append(f"整合包文件: {mrpack_error}")
+                if vanilla_error:
+                    err_msg.append(f"原版安装: {vanilla_error}")
+                combined = "; ".join(err_msg)
+                logger.error(f"并行安装失败: {combined}")
+                return False, combined
+
+            self._mp_progress["phase"] = "loader"
+            self._mp_progress["mrpack"] = {"current": 1, "max": 1, "label": "完成"}
+            self._mp_progress["vanilla"] = {"current": 1, "max": 1, "label": "完成"}
+
             java_path = self._find_runtime_java(mc_version)
             logger.info(f"使用 Java: {java_path}")
 
             if loader_type:
+                self._mp_progress["loader_label"] = f"安装 {loader_type} 服务端"
                 success, err_msg = self._install_server_mod_loader(
                     loader_type, loader_version, mc_version, server_dir, java_path
                 )
                 if not success:
                     return False, f"服务端 {loader_type} 安装失败: {err_msg}"
             else:
-                # 下载 vanilla server jar
+                self._mp_progress["loader_label"] = "下载原版服务器"
                 success, err_msg = self._download_vanilla_server_jar(mc_version, server_dir)
                 if not success:
                     return False, err_msg
 
-            # 5. 自动同意 EULA
             eula_file = server_dir / "eula.txt"
             eula_file.write_text("eula=true\n", encoding="utf-8")
 
-            # 6. 创建基本 server.properties（如果不存在）
             props_file = server_dir / "server.properties"
             if not props_file.exists():
                 props_file.write_text(
@@ -537,6 +616,7 @@ class MrpackMixin:
                     encoding="utf-8"
                 )
 
+            self._mp_progress["phase"] = "done"
             logger.info(f"整合包服务器 {server_name} 安装完成: {server_dir}")
             return True, server_name
 
