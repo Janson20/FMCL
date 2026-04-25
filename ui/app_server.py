@@ -873,3 +873,56 @@ class ServerTabMixin(object):
             self._task_queue.put(("server_exit", exit_code))
         except Exception as e:
             logger.error(f"监控服务器退出失败: {e}")
+
+    def _ask_server_exit_quality(self, exit_code: int):
+        """服务器退出后询问用户服务器是否正常运行，否则触发 AI 分析"""
+        from ui.i18n import _
+        import tkinter as tk
+
+        dialog = tk.Toplevel(self)
+        dialog.title(_("server_exit_question_title"))
+        dialog.geometry("400x180")
+        dialog.resizable(False, False)
+        dialog.attributes('-topmost', True)
+        dialog.configure(bg='#1a1a2e')
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() - 400) // 2
+        y = (dialog.winfo_screenheight() - 180) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        # 标题
+        exit_info = f" ({exit_code=})" if exit_code != 0 else ""
+        tk.Label(dialog, text=_("server_exit_question_title") + exit_info,
+                 font=(FONT_FAMILY, 13, 'bold'), fg='#ffffff', bg='#1a1a2e').pack(pady=(24, 8))
+
+        # 问题
+        tk.Label(dialog, text=_("server_exit_question_msg"),
+                 font=(FONT_FAMILY, 11), fg='#a0a0b0', bg='#1a1a2e').pack(pady=(0, 20))
+
+        # 按钮区域
+        btn_frame = tk.Frame(dialog, bg='#1a1a2e')
+        btn_frame.pack(pady=(0, 16))
+
+        btn_style = dict(font=(FONT_FAMILY, 10), relief='flat', cursor='hand2',
+                         bd=0, highlightthickness=0, width=16, height=1)
+
+        def _on_yes():
+            dialog.destroy()
+
+        def _on_no():
+            dialog.destroy()
+            self._ai_analyze_server_crash(exit_code)
+
+        no_btn = tk.Button(btn_frame, text=_("server_exit_no_analyze"),
+                           command=_on_no,
+                           bg='#6c5ce7', fg='white', activebackground='#a29bfe', activeforeground='white',
+                           **btn_style)
+        no_btn.pack(side=tk.LEFT, padx=8)
+
+        yes_btn = tk.Button(btn_frame, text=_("server_exit_yes"),
+                            command=_on_yes,
+                            bg='#0f3460', fg='white', activebackground='#2d3a5c', activeforeground='white',
+                            **btn_style)
+        yes_btn.pack(side=tk.LEFT, padx=8)

@@ -929,15 +929,18 @@ class EventHandlerMixin(object):
             exit_code = data
             self.server_stop_btn.configure(state=ctk.DISABLED)
             self.server_start_btn.configure(state=ctk.NORMAL)
-            self.server_log_status_label.configure(text="已停止", text_color=COLORS["text_secondary"])
+            self.server_log_status_label.configure(text=_("server_status_stopped"), text_color=COLORS["text_secondary"])
             self._stop_mem_monitor()
             self._server_online_players = []
             self._update_player_display()
             self.server_mem_label.configure(text="0 MB")
             if exit_code == 0:
-                self.set_status("服务器已正常停止", "info")
+                self.set_status(_("server_stopped"), "info")
             else:
-                self.set_status(f"服务器异常退出 (退出码: {exit_code})", "error")
+                self.set_status(_("server_crashed").format(code=exit_code), "error")
+
+            # 服务器退出后弹窗询问是否正常运行
+            self._ask_server_exit_quality(exit_code)
 
         elif task_type == "server_remove_done":
             version_id, success = data

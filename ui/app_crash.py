@@ -496,6 +496,183 @@ class CrashHandlerMixin(object):
 
         return "\n\n".join(parts)
 
+    def _ai_analyze_server_crash(self, exit_code: int):
+        """AI 分析服务器崩溃（后台线程请求，主线程弹窗）"""
+        token = self.callbacks.get("get_jdz_token", lambda: None)() if self.callbacks else None
+        if not token:
+            messagebox.showwarning("提示", "请先在设置中登录净读账号", parent=self)
+            return
+
+        # 收集服务器日志上下文
+        context = self._collect_server_ai_context(exit_code)
+        if not context.strip():
+            messagebox.showwarning("提示", "未找到可用于分析的服务器日志信息", parent=self)
+            return
+
+        # 检查隐私同意
+        from config import config
+        if not config.ai_privacy_consent:
+            self._show_privacy_consent_dialog(
+                lambda: self._do_server_ai_analyze(context, exit_code, token))
+            return
+
+        self._do_server_ai_analyze(context, exit_code, token)
+
+    def _collect_server_ai_context(self, exit_code: int) -> str:
+        """收集发送给 AI 的服务器崩溃上下文"""
+        parts = []
+
+        # 系统信息
+        parts.append(f"[系统信息]\nOS: {platform.system()} {platform.release()}\n"
+                     f"Python: {platform.python_version()}\n"
+                     f"Architecture: {platform.machine()}\n"
+                     f"退出码: {exit_code}\n"
+                     f"场景: 服务器崩溃分析")
+
+        # 服务器版本
+        version_id = getattr(self, 'selected_server_version', '') or ''
+        if version_id:
+            parts.append(f"[服务器版本]\n{version_id}")
+
+        # 服务器控制台日志（_server_log_lines 在 _watch_server_exit 中收集）
+        server_log_lines = getattr(self, '_server_log_lines', [])
+        if server_log_lines:
+            parts.append(f"[服务器日志（最后200行）]\n" + "\n".join(server_log_lines[-200:]))
+
+        # 启动器日志最后 200 行
+        launcher_log = ""
+        if hasattr(self, '_log_buffer') and self._log_buffer:
+            launcher_log = self._log_buffer.getvalue()
+        if not launcher_log.strip():
+            try:
+                system = platform.system().lower()
+                if system == "linux":
+                    disk_log = Path("/var/log/fmcl/latest.log")
+                else:
+                    disk_log = Path("latest.log")
+                if disk_log.exists():
+                    for enc in ("utf-8", "gbk", "latin-1"):
+                        try:
+                            launcher_log = disk_log.read_text(enc, errors="ignore")
+                            break
+                        except (UnicodeDecodeError, UnicodeError):
+                            continue
+            except Exception:
+                pass
+        if launcher_log.strip():
+            log_lines = launcher_log.strip().splitlines()[-200:]
+            parts.append(f"[启动器日志（最后200行）]\n" + "\n".join(log_lines))
+
+        # 结构化日志
+        try:
+            from config import config
+            structured_log_path = config.base_dir / "latest_structured.log"
+            if structured_log_path.exists():
+                structured_content = self._read_file_tail(str(structured_log_path), 100)
+                if structured_content:
+                    parts.append(f"[结构化日志（最后100行）]\n{structured_content}")
+        except Exception:
+            pass
+
+        from structured_logger import slog
+        slog.info("server_ai_context_collected", exit_code=exit_code,
+                  has_server_log=bool(server_log_lines),
+                  has_launcher_log=bool(launcher_log.strip()),
+                  context_length=len("\n\n".join(parts)))
+
+        return "\n\n".join(parts)
+
+    def _do_server_ai_analyze(self, context: str, exit_code: int, token: str):
+        """执行服务器 AI 分析（已通过隐私检查）"""
+        system_prompt = (
+            "你是一个 Minecraft 服务器崩溃日志分析专家。根据用户提供的服务器日志、启动器日志和系统信息，"
+            "分析服务器崩溃或异常退出的原因并给出具体、可操作的建议。\n"
+            "请用中文回复，格式如下：\n"
+            "## 崩溃原因分析\n（简明扼要地说明崩溃原因）\n\n"
+            "## 建议操作\n（列出具体的解决步骤，每步用数字编号）"
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"请分析以下 Minecraft 服务器异常退出信息：\n\n{context}"},
+        ]
+
+        # 显示加载窗口
+        import tkinter as tk
+        loading = tk.Toplevel(self)
+        loading.title("AI 分析中...")
+        loading.geometry("320x100")
+        loading.resizable(False, False)
+        loading.attributes('-topmost', True)
+        loading.configure(bg='#1a1a2e')
+        loading.transient(self)
+        loading.grab_set()
+        loading.update_idletasks()
+        lx = (loading.winfo_screenwidth() - 320) // 2
+        ly = (loading.winfo_screenheight() - 100) // 2
+        loading.geometry(f"+{lx}+{ly}")
+
+        tk.Label(loading, text="🤖 AI 正在分析服务器日志...",
+                 font=(FONT_FAMILY, 12), fg='#a0a0b0', bg='#1a1a2e').pack(pady=(20, 5))
+        tk.Label(loading, text="请稍候，这可能需要几秒钟",
+                 font=(FONT_FAMILY, 9), fg='#667788', bg='#1a1a2e').pack()
+
+        def _do_analyze():
+            import urllib.request
+            import urllib.error
+            import json
+            try:
+                req_data = json.dumps({
+                    "model": "deepseek-chat",
+                    "messages": messages,
+                    "stream": False,
+                }).encode("utf-8")
+
+                req = urllib.request.Request(
+                    "https://jingdu.qzz.io/api/deepseek/v1/chat/completions",
+                    data=req_data,
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {token}",
+                        "User-Agent": "FMCL/1.0 (Minecraft Launcher; server-crash-analyzer)",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+
+                ai_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if not ai_content:
+                    ai_content = "AI 未返回有效分析结果。"
+                from structured_logger import slog
+                slog.info("ai_server_crash_analysis", exit_code=exit_code, result_length=len(ai_content))
+                self.after(0, lambda: _show_result(ai_content))
+            except urllib.error.HTTPError as e:
+                _code = e.code
+                body = ""
+                try:
+                    body = e.read().decode("utf-8", errors="ignore")
+                except Exception:
+                    pass
+                _err_msg = f"HTTP {_code}: {body[:200]}"
+                from structured_logger import slog
+                slog.error("ai_server_crash_analysis_failed", exit_code=exit_code, error=_err_msg)
+                self.after(0, lambda: _show_error(_err_msg))
+            except Exception as e:
+                _err_msg = str(e)
+                from structured_logger import slog
+                slog.error("ai_server_crash_analysis_failed", exit_code=exit_code, error=_err_msg)
+                self.after(0, lambda: _show_error(_err_msg))
+            finally:
+                self.after(0, loading.destroy)
+
+        def _show_result(content: str):
+            self._show_ai_result_dialog(content, title="AI 服务器崩溃分析结果")
+
+        def _show_error(msg: str):
+            messagebox.showerror("AI 分析失败", f"分析请求失败:\n{msg}", parent=self)
+
+        threading.Thread(target=_do_analyze, daemon=True).start()
+
     def _show_privacy_consent_dialog(self, on_accept):
         """显示 AI 分析隐私同意弹窗，同意后调用 on_accept 回调"""
         import tkinter as tk
@@ -684,14 +861,14 @@ class CrashHandlerMixin(object):
 
         threading.Thread(target=_do_analyze, daemon=True).start()
 
-    def _show_ai_result_dialog(self, content: str):
+    def _show_ai_result_dialog(self, content: str, title: str = "AI 崩溃分析结果"):
         """显示 AI 分析结果弹窗，支持保存为 txt"""
         import tkinter as tk
         from tkinter import filedialog
         from datetime import datetime
 
         result = tk.Toplevel(self)
-        result.title("AI 崩溃分析结果")
+        result.title(title)
         result.geometry("580x640")
         result.resizable(True, True)
         result.attributes('-topmost', True)
@@ -704,7 +881,7 @@ class CrashHandlerMixin(object):
         result.geometry(f"+{rx}+{ry}")
 
         # 标题
-        tk.Label(result, text="🤖 AI 崩溃分析结果",
+        tk.Label(result, text=f"🤖 {title}",
                  font=(FONT_FAMILY, 14, 'bold'), fg='#ffffff', bg='#1a1a2e').pack(anchor='w', padx=16, pady=(16, 8))
 
         # 内容区域（可滚动文本框）

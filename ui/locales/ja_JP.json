@@ -257,5 +257,10 @@
   
   "server_status_running": "実行中 ({version})",
   "server_status_stopped": "停止中",
-  "mb": "MB"
+  "mb": "MB",
+
+  "server_exit_question_title": "サーバーが停止しました",
+  "server_exit_question_msg": "サーバーは正常に実行されましたか？",
+  "server_exit_no_analyze": "いいえ（AIログ分析）",
+  "server_exit_yes": "はい"
 }

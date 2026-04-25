@@ -257,5 +257,10 @@
   
   "server_status_running": "執行中 ({version})",
   "server_status_stopped": "已停止",
-  "mb": "MB"
+  "mb": "MB",
+
+  "server_exit_question_title": "伺服器已停止",
+  "server_exit_question_msg": "伺服器是否正常運作？",
+  "server_exit_no_analyze": "否（AI 分析日誌）",
+  "server_exit_yes": "是"
 }
