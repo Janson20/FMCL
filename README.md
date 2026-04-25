@@ -436,26 +436,27 @@ python main.py
 ```
 FMCL/
 ├── main.py                # 主程序入口，延迟导入优化、日志配置、UI 创建、线程管理
-├── launcher.py            # 启动器核心逻辑
-│   ├── 环境检查与初始化
-│   ├── 版本安装（原版 + 模组加载器）
-│   ├── 版本删除
-│   ├── 游戏启动（JVM 参数优化 + 模糊匹配版本 ID + 版本隔离）
-│   ├── 服务器管理（安装/启动/停止服务器 + 自动同意 EULA + 版本隔离）
-│   ├── 整合包安装（.mrpack 读取/安装/获取启动版本）
-│   ├── 整合包开服（.mrpack 安装到服务器目录 + 自动检测安装服务端 mod loader + 下载服务端核心）
-│   ├── 并发文件校验（ThreadPoolExecutor）
-│   └── 镜像源管理
-├── ui.py                  # CustomTkinter 现代化 UI
-│   ├── ModernApp          # 主窗口（三栏布局 + 侧边栏 + 状态栏）
-│   ├── 开服标签页         # 服务器安装/启动/停止 + 版本管理
-│   ├── LauncherSettingsWindow # 启动器设置窗口（镜像源/最小化等）
-│   ├── ResourceManagerWindow  # 资源管理窗口（模组/资源包/地图/光影）
-│   ├── ModBrowserWindow   # Modrinth 模组浏览与安装窗口
-│   ├── ModpackInstallWindow # Modrinth 整合包安装窗口
-│   ├── ModpackServerWindow  # 整合包开服窗口
-│   ├── VersionSelectorDialog  # 版本选择弹出对话框
-│   └── 辅助函数           # show_confirmation / show_alert
+├── launcher/              # 启动器核心逻辑（包）
+│   ├── __init__.py        # MinecraftLauncher 组合类（多继承自 core/server/mrpack）
+│   ├── core.py            # MinecraftLauncherCore - 环境检查、版本安装、游戏启动、镜像源管理
+│   ├── server.py          # ServerMixin - 服务器安装/启动/停止/管理
+│   ├── mrpack.py          # MrpackMixin - 整合包安装/开服
+│   └── verify.py          # 并发文件校验（ThreadPoolExecutor）
+├── ui/                    # CustomTkinter 现代化 UI（包）
+│   ├── __init__.py        # 向后兼容导出
+│   ├── app.py             # ModernApp 组合类（多继承自 app_base/app_server/app_handlers/app_crash）
+│   ├── app_base.py        # ModernAppBase(ctk.CTk) - 主窗口 UI 构建、侧边栏、日志捕获
+│   ├── app_server.py      # ServerTabMixin - 开服标签页（服务器安装/启动/停止 + 版本管理）
+│   ├── app_handlers.py    # EventHandlerMixin - 版本管理、游戏操作、更新检查、队列处理
+│   ├── app_crash.py       # CrashHandlerMixin - 崩溃诊断、AI 分析
+│   ├── constants.py       # 颜色主题、字体检测、资源类型配置
+│   ├── dialogs.py         # 通用对话框（确认/提示）、版本选择对话框
+│   └── windows/           # 独立窗口类
+│       ├── resource_manager.py   # 资源管理窗口（模组/资源包/地图/光影）
+│       ├── launcher_settings.py  # 启动器设置窗口（镜像源/最小化等）
+│       ├── modpack_install.py    # Modrinth 整合包安装窗口
+│       ├── modpack_server.py     # 整合包开服窗口
+│       └── mod_browser.py        # Modrinth 模组浏览与安装窗口
 ├── downloader.py          # 多线程下载器 & 异步批量下载 & 模组加载器安装
 │   ├── MultiThreadDownloader  # 多线程分段下载 + 文件合并
 │   ├── AsyncBatchDownloader   # asyncio + aiohttp 异步并发下载
@@ -501,10 +502,18 @@ FMCL/
 ```
 main.py
   ├── config.py (全局配置)
-  ├── launcher.py (核心逻辑)
+  ├── launcher/ (核心逻辑包)
+  │   ├── core.py (环境检查、版本安装、游戏启动)
+  │   ├── server.py (服务器管理)
+  │   ├── mrpack.py (整合包安装/开服)
+  │   ├── verify.py (并发文件校验)
   │   ├── mirror.py (镜像源)
   │   └── downloader.py (下载器 & 模组加载器)
-  ├── ui.py (界面)
+  ├── ui/ (界面包)
+  │   ├── app.py → app_base.py / app_server.py / app_handlers.py / app_crash.py
+  │   ├── constants.py (颜色主题、字体)
+  │   ├── dialogs.py (通用对话框)
+  │   ├── windows/ (独立窗口)
   │   ├── launcher.get_callbacks() (通过回调与核心逻辑交互)
   │   ├── modrinth.py (Modrinth 模组搜索与安装)
   │   └── updater.py (自动更新)
