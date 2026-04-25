@@ -1,6 +1,5 @@
 """整合包安装窗口 - 选择 .mrpack 文件，确认信息，执行安装"""
 import os
-import queue
 import threading
 import tkinter.messagebox as messagebox
 from typing import List, Dict, Optional, Callable, Any
@@ -22,8 +21,8 @@ class ModpackInstallWindow(ctk.CTkToplevel):
 
         # 窗口配置
         self.title("📦 安装整合包")
-        self.geometry("580x780")
-        self.minsize(520, 700)
+        self.geometry("580x480")
+        self.minsize(520, 420)
         self.configure(fg_color=COLORS["bg_dark"])
         self.transient(parent)
         self.grab_set()
@@ -34,7 +33,7 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         ph = parent.winfo_height()
         px = parent.winfo_x()
         py = parent.winfo_y()
-        w, h = 580, 780
+        w, h = 580, 480
         x = px + (pw - w) // 2
         y = py + (ph - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -129,37 +128,7 @@ class ModpackInstallWindow(ctk.CTkToplevel):
 
         # 可选文件
         self._optional_frame = ctk.CTkFrame(self._info_frame, fg_color="transparent")
-        self._optional_frame.pack(padx=15, pady=(0, 5), fill=ctk.X)
-
-        ctk.CTkFrame(self._info_frame, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(5, 0)
-        )
-
-        # 安装目录设置
-        dir_row = ctk.CTkFrame(self._info_frame, fg_color="transparent")
-        dir_row.pack(fill=ctk.X, padx=15, pady=(8, 12))
-
-        ctk.CTkLabel(
-            dir_row, text="安装目录:",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_secondary"],
-        ).pack(side=ctk.LEFT)
-
-        self._dir_label = ctk.CTkLabel(
-            dir_row, text="默认 (.minecraft)",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_primary"],
-        )
-        self._dir_label.pack(side=ctk.LEFT, padx=(8, 8))
-
-        ctk.CTkButton(
-            dir_row, text="浏览", width=50, height=26,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
-            command=self._select_dir,
-        ).pack(side=ctk.LEFT)
-
-        self._custom_modpack_dir: Optional[str] = None
+        self._optional_frame.pack(padx=15, pady=(0, 12), fill=ctk.X)
 
         # ── 进度区域（初始隐藏）──
         self._progress_frame = ctk.CTkFrame(main_frame, fg_color=COLORS["card_bg"], corner_radius=10)
@@ -197,27 +166,6 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         )
         self._progress_bar.pack(fill=ctk.X, padx=15, pady=(0, 12))
         self._progress_bar.set(0)
-
-        # ── 安装日志区域（初始隐藏）──
-        self._log_frame = ctk.CTkFrame(main_frame, fg_color=COLORS["card_bg"], corner_radius=10)
-
-        log_header = ctk.CTkFrame(self._log_frame, fg_color="transparent")
-        log_header.pack(fill=ctk.X, padx=15, pady=(10, 5))
-
-        ctk.CTkLabel(
-            log_header, text="📋 安装日志",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-            text_color=COLORS["text_secondary"], anchor=ctk.W,
-        ).pack(side=ctk.LEFT)
-
-        self._log_text = ctk.CTkTextbox(
-            self._log_frame, height=200,
-            font=ctk.CTkFont(family="Consolas", size=11),
-            fg_color=COLORS["bg_dark"], border_color=COLORS["card_border"],
-            text_color=COLORS["text_secondary"],
-            wrap=ctk.WORD, state=ctk.DISABLED,
-        )
-        self._log_text.pack(fill=ctk.BOTH, expand=True, padx=15, pady=(0, 12))
 
         # ── 底部按钮 ──
         self._bottom_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
@@ -261,15 +209,6 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         # 后台加载整合包信息
         self._install_btn.configure(state=ctk.DISABLED, text="读取中...")
         self._run_in_thread(self._load_mrpack_info)
-
-    def _select_dir(self):
-        """选择安装目录"""
-        from tkinter import filedialog
-        path = filedialog.askdirectory(parent=self, title="选择整合包安装目录")
-        if not path:
-            return
-        self._custom_modpack_dir = path
-        self._dir_label.configure(text=path)
 
     def _open_modrinth_browser(self):
         """打开 Modrinth 整合包浏览窗口"""
@@ -349,33 +288,17 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         # 切换到进度视图
         self._info_frame.pack_forget()
         self._progress_frame.pack(fill=ctk.X, pady=(0, 5))
-        self._log_frame.pack(fill=ctk.BOTH, expand=True, pady=(5, 0))
         self._install_btn.configure(state=ctk.DISABLED, text="安装中...")
         self._close_btn.pack_forget()
-
-        # 清空日志
-        self._log_text.configure(state=ctk.NORMAL)
-        self._log_text.delete("0.0", ctk.END)
-        self._log_text.configure(state=ctk.DISABLED)
 
         self._run_in_thread(self._do_install, optional_files)
 
     def _do_install(self, optional_files: list):
         """执行安装（后台线程）"""
-        log_queue: queue.Queue = queue.Queue()
-
-        def _enqueue_log(text: str):
-            log_queue.put_nowait(text)
-
-        def _hook_progress(current, total, status):
-            if status:
-                _enqueue_log(status)
-
         launcher = getattr(self.callbacks.get("install_mrpack"), "__self__", None)
         if launcher:
             self._launcher_instance = launcher
             self._orig_on_progress = getattr(launcher, "on_progress", None)
-            launcher.on_progress = _hook_progress
 
         self._polling = True
 
@@ -383,16 +306,6 @@ class ModpackInstallWindow(ctk.CTkToplevel):
             if not self._polling or not self.winfo_exists():
                 return
             try:
-                while True:
-                    try:
-                        line = log_queue.get_nowait()
-                    except queue.Empty:
-                        break
-                    self._log_text.configure(state=ctk.NORMAL)
-                    self._log_text.insert(ctk.END, line + "\n")
-                    self._log_text.see(ctk.END)
-                    self._log_text.configure(state=ctk.DISABLED)
-
                 launcher_inst = self._launcher_instance
                 if launcher_inst and hasattr(launcher_inst, "_mp_progress"):
                     mp = launcher_inst._mp_progress
@@ -435,7 +348,6 @@ class ModpackInstallWindow(ctk.CTkToplevel):
             success, result = self.callbacks["install_mrpack"](
                 self._mrpack_path,
                 optional_files=optional_files,
-                modpack_directory=self._custom_modpack_dir,
             )
             self.after(0, lambda: self._on_install_done(success, result))
         except Exception as e:
@@ -459,13 +371,6 @@ class ModpackInstallWindow(ctk.CTkToplevel):
                 state=ctk.DISABLED,
             )
 
-            def _append_done_log():
-                self._log_text.configure(state=ctk.NORMAL)
-                self._log_text.insert(ctk.END, f"\n✅ 安装完成! 启动版本: {result}\n")
-                self._log_text.see(ctk.END)
-                self._log_text.configure(state=ctk.DISABLED)
-            self.after(0, _append_done_log)
-
             messagebox.showinfo(
                 "安装完成",
                 f"整合包安装成功！\n\n启动版本: {result}\n\n"
@@ -476,13 +381,6 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         else:
             self._progress_status.configure(text="安装失败", text_color=COLORS["error"])
             self._install_btn.configure(text="📦 重新安装", state=ctk.NORMAL)
-
-            def _append_err_log():
-                self._log_text.configure(state=ctk.NORMAL)
-                self._log_text.insert(ctk.END, f"\n❌ 安装失败: {result}\n")
-                self._log_text.see(ctk.END)
-                self._log_text.configure(state=ctk.DISABLED)
-            self.after(0, _append_err_log)
 
             messagebox.showerror("安装失败", f"整合包安装失败:\n{result}", parent=self)
 
