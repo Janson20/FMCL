@@ -137,6 +137,9 @@ class Config:
         # 净读 AI Token
         self.jdz_token: Optional[str] = None
 
+        # AI 隐私同意
+        self.ai_privacy_consent: bool = False
+
         # 语言设置
         self.language: str = self.DEFAULT_LANGUAGE
 
@@ -188,6 +191,8 @@ class Config:
                 self.backup_auto_exit = data["backup_auto_exit"]
             if "language" in data:
                 self.language = data["language"]
+            if "ai_privacy_consent" in data:
+                self.ai_privacy_consent = data["ai_privacy_consent"]
 
             logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}, 语言={self.language}")
 
@@ -206,6 +211,7 @@ class Config:
                 "skin_path": self.skin_path,
                 "jdz_token": self.jdz_token,
                 "language": self.language,
+                "ai_privacy_consent": self.ai_privacy_consent,
                 "backup_dir": self.backup_dir,
                 "backup_compress_level": self.backup_compress_level,
                 "backup_max_per_world": self.backup_max_per_world,

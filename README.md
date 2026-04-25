@@ -165,6 +165,7 @@
 - **跨平台日志存储**：
   - Windows/macOS: `latest.log` 保留在程序目录
   - Linux: 优先 `/var/log/fmcl/latest.log`（遵循 FHS 标准）；若目录不可写则自动回退到 `~/.fmcl/latest.log`
+- **结构化日志**：核心流程（版本安装、游戏启动、崩溃检测、AI 分析）额外输出 JSONL 格式结构化日志到 `latest_structured.log`，方便程序化分析和统计
 
 ### 💥 崩溃检测与报告
 - 自动检测游戏异常退出（退出码非 0）
@@ -181,6 +182,7 @@
 - 崩溃分析：将崩溃报告、游戏日志、启动器日志和系统信息发送至 DeepSeek 模型进行分析
 - 分析结果以弹窗展示，包含崩溃原因分析和建议操作
 - 支持将 AI 分析结果保存为 TXT 文件
+- **隐私保护**：首次使用 AI 分析时弹出隐私说明，需用户勾选同意后才可使用；同意状态持久化保存，后续无需重复确认
 
 ### 🌐 多语言界面
 - 支持简体中文、English、繁體中文、日本語四种语言
@@ -540,6 +542,7 @@ FMCL/
 ├── backup_manager.py      # 存档备份管理（备份/恢复/删除/校验/导出）
 │   └── Config             # 配置类（持久化到 config.json）
 ├── screen_shot.py         # 截图工具（Ctrl+Alt+T 触发）
+├── structured_logger.py   # 结构化日志（JSONL 格式，核心流程结构化记录）
 ├── config.json            # 用户配置（镜像源开关、下载线程数等）
 ├── requirements.txt       # Python 依赖
 ├── pyproject.toml         # 项目元数据（版本号等）
@@ -598,6 +601,7 @@ main.py
 | URL 缓存 | dict 缓存重写结果 | 避免重复匹配规则 |
 | 拖拽支持 | tkinterdnd2 | 文件拖拽安装资源 |
 | 日志 | logzero | 轻量级日志框架 |
+| 结构化日志 | JSONL 格式 | 核心流程结构化记录，方便程序化分析 |
 | HTTP | requests | API 请求与文件下载 |
 | 模组搜索 | Modrinth API V2 | 在线搜索和安装模组 |
 | 下载 | 多线程分段下载 | 大文件并行下载加速 |
@@ -651,6 +655,7 @@ main.py
   "player_name": "Steve",
   "skin_path": null,
   "language": "zh_CN",
+  "ai_privacy_consent": false,
   "backup_dir": null,
   "backup_compress_level": 6,
   "backup_max_per_world": 10,
@@ -669,6 +674,7 @@ main.py
 | `player_name` | string | `"Steve"` | 自定义游戏角色名 |
 | `skin_path` | string/null | `null` | 自定义皮肤文件路径 |
 | `language` | string | `"zh_CN"` | 界面语言（zh_CN/en_US/ja_JP/zh_TW） |
+| `ai_privacy_consent` | bool | `false` | 是否已同意 AI 分析隐私说明 |
 | `backup_dir` | string/null | `null` | 备份存储路径（null 则使用程序目录/backups） |
 | `backup_compress_level` | int | `6` | 备份压缩等级（1=最快, 9=最小体积） |
 | `backup_max_per_world` | int | `10` | 每个存档最大备份数（0=不限制） |

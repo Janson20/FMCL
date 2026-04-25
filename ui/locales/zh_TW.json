@@ -232,6 +232,12 @@
   "logging_in": "登入中",
   "please_enter_username_password": "請輸入使用者名稱和密碼",
   "netread_logged_out": "淨讀 AI 已登出",
+
+  "ai_privacy_title": "AI 分析隱私說明",
+  "ai_privacy_content": "使用 AI 智慧分析功能時，您的崩潰報告、遊戲日誌、啟動器日誌及系統資訊將被傳送至淨讀 AI（DeepSeek 模型）進行分析。\n\n請注意：\n• 日誌中可能包含您的遊戲角色名稱、安裝的模組列表等資訊\n• 資料將透過加密連線傳輸至 AI 伺服器進行處理\n• 我們不會儲存或分享您的日誌資料\n• 您可隨時在設定中撤回同意\n\n同意後，後續使用 AI 分析將不再彈出此提示。",
+
+  "ai_privacy_agreement": "我已閱讀並同意《AI 分析隱私說明》",
+  "ai_privacy_accept": "同意並繼續",
   
   "loading_installed": "正在載入已安裝版本...",
   "loading_available": "正在取得可用版本...",

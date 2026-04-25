@@ -130,6 +130,11 @@ def setup_logging():
     logzero.loglevel(config.log_level)
     logger.info("日志系统初始化完成")
 
+    # 初始化结构化日志路径
+    from structured_logger import slog
+    structured_log_path = str(config.base_dir / "latest_structured.log")
+    slog._log_path = structured_log_path
+
 
 def detect_mouse_move():
     """
@@ -298,6 +303,12 @@ def main():
         logger.info("=" * 60)
         logger.info("程序退出")
         logger.info("=" * 60)
+        # 关闭结构化日志
+        try:
+            from structured_logger import slog
+            slog.close()
+        except Exception:
+            pass
         sys.exit(0)
 
 

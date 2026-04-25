@@ -21,6 +21,7 @@ from ui.windows.launcher_settings import LauncherSettingsWindow
 from ui.windows.modpack_install import ModpackInstallWindow
 from ui.windows.mod_browser import ModBrowserWindow
 from ui.i18n import _, get_available_languages, set_language
+from structured_logger import slog
 
 
 class EventHandlerMixin(object):
@@ -822,8 +823,10 @@ class EventHandlerMixin(object):
                 self.set_status(f"{display} 安装成功!", "success")
                 self.version_entry.delete(0, ctk.END)
                 self._refresh_versions()
+                slog.info("version_installed", version=display, requested=version_id)
             else:
                 self.set_status(f"{version_id} 安装失败", "error")
+                slog.error("version_install_failed", version=version_id)
             self._set_buttons_enabled(True)
 
         elif task_type == "install_error":
@@ -851,11 +854,13 @@ class EventHandlerMixin(object):
                 self.set_status(f"{version_id} 已启动，等待游戏窗口...", "loading")
                 self.kill_btn.configure(state=ctk.NORMAL)
                 self._start_launch_animation()
+                slog.info("game_launched", version=version_id, target=target_version or version_id)
                 # 无论是否最小化都启动日志监控，检测到窗口后关闭管道避免缓冲区满导致游戏卡顿
                 self._run_in_thread(self._watch_game_stdout)
                 self._run_in_thread(self._watch_game_exit)
             else:
                 self.set_status(f"{version_id} 启动失败", "error")
+                slog.error("game_launch_failed", version=version_id)
             self.launch_btn.configure(state=ctk.NORMAL)
 
         elif task_type == "launch_error":
@@ -990,6 +995,9 @@ class EventHandlerMixin(object):
             exit_code = data["exit_code"]
             crash_files = data["crash_files"]
             self.set_status(f"游戏异常退出 (退出码: {exit_code})", "error")
+            slog.error("game_crashed", exit_code=exit_code,
+                       has_crash_report="crash_report" in crash_files,
+                       has_game_log="game_log" in crash_files)
             # 恢复最小化的窗口
             try:
                 self.deiconify()

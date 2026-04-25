@@ -474,7 +474,99 @@ class CrashHandlerMixin(object):
             log_lines = launcher_log.strip().splitlines()[-200:]
             parts.append(f"[启动器日志（最后200行）]\n" + "\n".join(log_lines))
 
+        # 结构化日志（JSONL 格式，包含安装/启动/崩溃等核心流程的结构化记录）
+        try:
+            from config import config
+            structured_log_path = config.base_dir / "latest_structured.log"
+            if structured_log_path.exists():
+                structured_content = self._read_file_tail(str(structured_log_path), 100)
+                if structured_content:
+                    parts.append(f"[结构化日志（最后100行）]\n{structured_content}")
+        except Exception:
+            pass
+
+        from structured_logger import slog
+        slog.info("ai_context_collected", exit_code=exit_code,
+                  has_crash_report=bool(crash_files.get("crash_report")),
+                  has_game_log=bool(crash_files.get("game_log")),
+                  has_debug_log=bool(crash_files.get("debug_log")),
+                  has_jvm_log=bool(crash_files.get("jvm_crash_log")),
+                  has_launcher_log=bool(launcher_log.strip()),
+                  context_length=len("\n\n".join(parts)))
+
         return "\n\n".join(parts)
+
+    def _show_privacy_consent_dialog(self, on_accept):
+        """显示 AI 分析隐私同意弹窗，同意后调用 on_accept 回调"""
+        import tkinter as tk
+        from ui.i18n import _
+
+        dialog = tk.Toplevel(self)
+        dialog.title(_("ai_privacy_title"))
+        dialog.resizable(False, False)
+        dialog.attributes('-topmost', True)
+        dialog.configure(bg='#1a1a2e')
+        dialog.transient(self)
+        dialog.grab_set()
+
+        w, h = 440, 320
+        dialog.geometry(f"{w}x{h}")
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() - w) // 2
+        y = (dialog.winfo_screenheight() - h) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        pad = 24
+
+        # 标题
+        tk.Label(dialog, text=_("ai_privacy_title"),
+                 font=(FONT_FAMILY, 14, 'bold'), fg='#e94560', bg='#1a1a2e').place(x=pad, y=pad)
+
+        # 隐私说明内容
+        content_frame = tk.Frame(dialog, bg='#16213e', highlightbackground='#0f3460', highlightthickness=1)
+        content_frame.place(x=pad, y=pad + 36, width=w - 2 * pad, height=160)
+
+        content_text = _("ai_privacy_content")
+        content_label = tk.Label(content_frame, text=content_text,
+                                font=(FONT_FAMILY, 10), fg='#a0a0b0', bg='#16213e',
+                                wraplength=w - 2 * pad - 20, justify='left', anchor='nw')
+        content_label.pack(padx=10, pady=10, fill='both', expand=True)
+
+        # 同意复选框
+        consent_var = tk.BooleanVar(value=False)
+        consent_cb = tk.Checkbutton(dialog, text=_("ai_privacy_agreement"),
+                                    variable=consent_var,
+                                    font=(FONT_FAMILY, 10), fg='#a0a0b0', bg='#1a1a2e',
+                                    selectcolor='#16213e', activebackground='#1a1a2e',
+                                    activeforeground='#ffffff')
+        consent_cb.place(x=pad, y=pad + 204)
+
+        # 按钮区
+        def _on_confirm():
+            if consent_var.get():
+                # 保存同意状态
+                from config import config
+                config.ai_privacy_consent = True
+                config.save_config()
+                dialog.destroy()
+                on_accept()
+            else:
+                consent_cb.configure(fg='#e94560')
+                dialog.after(1500, lambda: consent_cb.configure(fg='#a0a0b0'))
+
+        confirm_btn = tk.Button(dialog, text=_("ai_privacy_accept"),
+                                command=_on_confirm,
+                                font=(FONT_FAMILY, 10, 'bold'), relief='flat', cursor='hand2',
+                                bg='#6c5ce7', fg='white', activebackground='#a29bfe',
+                                activeforeground='white', bd=0)
+        confirm_btn.place(x=pad, y=h - 52, width=(w - 2 * pad) // 2 - 4, height=36)
+
+        cancel_btn = tk.Button(dialog, text=_("confirm"),
+                               command=dialog.destroy,
+                               font=(FONT_FAMILY, 10), relief='flat', cursor='hand2',
+                               bg='#0f3460', fg='white', activebackground='#2d3a5c',
+                               activeforeground='white', bd=0)
+        cancel_btn.place(x=pad + (w - 2 * pad) // 2 + 4, y=h - 52, width=(w - 2 * pad) // 2 - 4, height=36)
 
     def _ai_analyze_crash(self, crash_files: dict, exit_code: int):
         """AI 分析崩溃（后台线程请求，主线程弹窗）"""
@@ -482,6 +574,19 @@ class CrashHandlerMixin(object):
         if not token:
             messagebox.showwarning("提示", "请先在设置中登录净读账号", parent=self)
             return
+
+        # 检查隐私同意
+        from config import config
+        if not config.ai_privacy_consent:
+            self._show_privacy_consent_dialog(lambda: self._do_ai_analyze(crash_files, exit_code, token))
+            return
+
+        self._do_ai_analyze(crash_files, exit_code, token)
+
+    def _do_ai_analyze(self, crash_files: dict, exit_code: int, token: str = None):
+        """执行 AI 分析（已通过隐私检查）"""
+        if token is None:
+            token = self.callbacks.get("get_jdz_token", lambda: None)() if self.callbacks else None
 
         # 收集上下文
         context = self._collect_ai_context(crash_files, exit_code)
@@ -549,6 +654,8 @@ class CrashHandlerMixin(object):
                 ai_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
                 if not ai_content:
                     ai_content = "AI 未返回有效分析结果。"
+                from structured_logger import slog
+                slog.info("ai_crash_analysis", exit_code=exit_code, result_length=len(ai_content))
                 self.after(0, lambda: _show_result(ai_content))
             except urllib.error.HTTPError as e:
                 _code = e.code
@@ -558,9 +665,13 @@ class CrashHandlerMixin(object):
                 except Exception:
                     pass
                 _err_msg = f"HTTP {_code}: {body[:200]}"
+                from structured_logger import slog
+                slog.error("ai_crash_analysis_failed", exit_code=exit_code, error=_err_msg)
                 self.after(0, lambda: _show_error(_err_msg))
             except Exception as e:
                 _err_msg = str(e)
+                from structured_logger import slog
+                slog.error("ai_crash_analysis_failed", exit_code=exit_code, error=_err_msg)
                 self.after(0, lambda: _show_error(_err_msg))
             finally:
                 self.after(0, loading.destroy)
