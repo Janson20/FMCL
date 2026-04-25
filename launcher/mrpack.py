@@ -4,7 +4,9 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Callable, Any
 
@@ -13,6 +15,9 @@ from logzero import logger
 
 class MrpackMixin:
     """整合包（mrpack）安装 Mixin 类"""
+
+    # 并行下载模组时的线程数
+    PARALLEL_DOWNLOADS = 32
 
     # ─── 整合包（mrpack）安装 ───────────────────────────────────
 
@@ -40,6 +45,119 @@ class MrpackMixin:
             logger.error(f"读取整合包信息失败: {e}")
             raise ValueError(f"无法解析 .mrpack 文件: {e}") from e
 
+    def _read_mrpack_index(self, mrpack_path: str) -> Dict[str, Any]:
+        import minecraft_launcher_lib as _mcllib
+        with zipfile.ZipFile(mrpack_path, "r") as zf:
+            with zf.open("modrinth.index.json", "r") as f:
+                return json.load(f)
+
+    def _download_mrpack_files_parallel(
+        self,
+        mrpack_path: str,
+        minecraft_directory: str,
+        modpack_directory: str,
+        optional_files: List[str],
+        callback: Dict,
+    ):
+        from minecraft_launcher_lib._helper import download_file, check_path_inside_minecraft_directory
+
+        mp_dir_abs = os.path.abspath(modpack_directory)
+
+        index = self._read_mrpack_index(mrpack_path)
+        files_data = index.get("files", [])
+
+        # ── 1. 过滤要安装的文件 ──
+        file_list: List[Dict] = []
+        for f in files_data:
+            env = f.get("env")
+            if env is None:
+                file_list.append(f)
+            elif env.get("client") == "required":
+                file_list.append(f)
+            elif env.get("client") == "optional" and f["path"] in optional_files:
+                file_list.append(f)
+
+        if not file_list:
+            logger.info("没有需要下载的整合包文件")
+            set_max = callback.get("setMax", lambda x: None)
+            set_max(0)
+
+        total = len(file_list)
+        set_max = callback.get("setMax", lambda x: None)
+        set_status = callback.get("setStatus", lambda x: None)
+        set_progress = callback.get("setProgress", lambda x: None)
+        set_max(total)
+
+        completed = 0
+        lock = threading.Lock()
+
+        def _download_one(file_info: Dict) -> tuple:
+            nonlocal completed
+            file_path = file_info["path"]
+            full_path = os.path.abspath(os.path.join(mp_dir_abs, file_path))
+
+            check_path_inside_minecraft_directory(mp_dir_abs, full_path)
+
+            url = file_info["downloads"][0]
+            sha1 = file_info["hashes"].get("sha1")
+
+            result = download_file(url, full_path, sha1=sha1)
+
+            with lock:
+                completed += 1
+                set_progress(completed)
+
+            return file_path, result
+
+        set_status("并行下载整合包文件")
+        logger.info(f"并行下载 {total} 个整合包文件 (线程数: {self.PARALLEL_DOWNLOADS})")
+
+        failed_files: List[str] = []
+
+        with ThreadPoolExecutor(max_workers=self.PARALLEL_DOWNLOADS) as executor:
+            futures = {executor.submit(_download_one, f): f for f in file_list}
+
+            for future in as_completed(futures):
+                try:
+                    file_path, ok = future.result()
+                    if not ok:
+                        failed_files.append(file_path)
+                except Exception as e:
+                    file_info = futures[future]
+                    failed_files.append(file_info["path"])
+                    logger.warning(f"下载文件失败 {file_info['path']}: {e}")
+
+        if failed_files:
+            logger.warning(f"{len(failed_files)}/{total} 个文件下载失败: {failed_files}")
+
+        # ── 2. 解压 overrides ──
+        set_status("解压整合包配置")
+        logger.info("解压 overrides...")
+        with zipfile.ZipFile(mrpack_path, "r") as zf:
+            for zip_name in zf.namelist():
+                if (not zip_name.startswith("overrides/") and not zip_name.startswith("client-overrides/")) \
+                        or zf.getinfo(zip_name).file_size == 0:
+                    continue
+
+                if zip_name.startswith("client-overrides/"):
+                    file_name = zip_name[len("client-overrides/"):]
+                else:
+                    file_name = zip_name[len("overrides/"):]
+
+                full_path = os.path.abspath(os.path.join(mp_dir_abs, file_name))
+                check_path_inside_minecraft_directory(mp_dir_abs, full_path)
+
+                try:
+                    os.makedirs(os.path.dirname(full_path))
+                except FileExistsError:
+                    pass
+
+                with open(full_path, "wb") as f:
+                    f.write(zf.read(zip_name))
+
+        logger.info("整合包文件并行下载 + overrides 解压完成")
+        return failed_files
+
     def install_mrpack(
         self,
         mrpack_path: str,
@@ -47,11 +165,10 @@ class MrpackMixin:
         modpack_directory: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """
-        安装 .mrpack 整合包（默认启用版本隔离）
+        安装 .mrpack 整合包（默认启用版本隔离，并行下载优化）
 
-        整合包的模组、配置文件等资源默认安装到
-        .minecraft/versions/<launch_version>/ 目录，实现版本隔离。
-        启动游戏时 launch_game 会自动为含模组加载器的版本设置 gameDirectory。
+        优化：mrpack 文件下载与 vanilla Minecraft 安装并行执行，
+        当两者都完成后安装 mod loader，显著提升安装速度。
 
         Args:
             mrpack_path: .mrpack 文件的绝对路径
@@ -61,6 +178,8 @@ class MrpackMixin:
         Returns:
             (是否成功, 启动版本ID 或 错误信息) 元组
         """
+        import minecraft_launcher_lib as _mcllib
+
         if not os.path.isfile(mrpack_path):
             msg = f"文件不存在: {mrpack_path}"
             logger.error(msg)
@@ -68,7 +187,6 @@ class MrpackMixin:
 
         mc_dir = self.minecraft_dir
 
-        # 先获取启动版本ID，用于确定版本隔离目录
         try:
             launch_version = self._mcllib.mrpack.get_mrpack_launch_version(mrpack_path)
         except Exception as e:
@@ -76,7 +194,6 @@ class MrpackMixin:
             logger.error(msg)
             return False, msg
 
-        # 默认使用版本隔离目录：versions/<launch_version>/
         if modpack_directory:
             mp_dir = modpack_directory
         else:
@@ -84,21 +201,101 @@ class MrpackMixin:
             os.makedirs(mp_dir, exist_ok=True)
             logger.info(f"版本隔离模式: 整合包资源将安装到 {mp_dir}")
 
-        install_options: dict = {
-            "optionalFiles": optional_files or [],
-        }
+        optional = optional_files or []
 
         try:
-            logger.info(f"正在安装整合包: {mrpack_path} -> {mc_dir}")
-            self._mcllib.mrpack.install_mrpack(
-                mrpack_path,
-                mc_dir,
-                modpack_directory=mp_dir,
-                mrpack_install_options=install_options,
-                callback=self._get_callback(),
-            )
+            callback = self._get_callback()
+            mrpack_error: Optional[Exception] = None
+            vanilla_error: Optional[Exception] = None
+
+            def _install_mrpack_files():
+                nonlocal mrpack_error
+                try:
+                    logger.info("并行任务 A: 并行下载整合包文件...")
+                    self._download_mrpack_files_parallel(
+                        mrpack_path,
+                        mc_dir,
+                        mp_dir,
+                        optional,
+                        callback,
+                    )
+                    logger.info("并行任务 A: 整合包文件下载完成")
+                except Exception as e:
+                    mrpack_error = e
+                    logger.error(f"并行任务 A 失败: {e}")
+
+            def _install_vanilla():
+                nonlocal vanilla_error
+                try:
+                    index = self._read_mrpack_index(mrpack_path)
+                    mc_version = index["dependencies"]["minecraft"]
+                    logger.info(f"并行任务 B: 安装 Minecraft {mc_version}...")
+                    set_status = callback.get("setStatus", lambda x: None)
+                    set_status(f"安装 Minecraft {mc_version}")
+                    _mcllib.install.install_minecraft_version(
+                        mc_version,
+                        mc_dir,
+                        callback=callback,
+                    )
+                    logger.info(f"并行任务 B: Minecraft {mc_version} 安装完成")
+                except Exception as e:
+                    vanilla_error = e
+                    logger.error(f"并行任务 B 失败: {e}")
+
+            logger.info("启动并行安装: 整合包文件下载 + Minecraft 原版安装")
+            t_a = threading.Thread(target=_install_mrpack_files, daemon=True)
+            t_b = threading.Thread(target=_install_vanilla, daemon=True)
+            t_a.start()
+            t_b.start()
+            t_a.join()
+            t_b.join()
+
+            if mrpack_error or vanilla_error:
+                err_msg = []
+                if mrpack_error:
+                    err_msg.append(f"整合包文件: {mrpack_error}")
+                if vanilla_error:
+                    err_msg.append(f"原版安装: {vanilla_error}")
+                combined = "; ".join(err_msg)
+                logger.error(f"并行安装失败: {combined}")
+                return False, combined
+
+            logger.info("并行阶段完成，开始安装模组加载器...")
+
+            index = self._read_mrpack_index(mrpack_path)
+            deps = index["dependencies"]
+
+            if "forge" in deps:
+                callback.get("setStatus", lambda x: None)(
+                    f"安装 Forge {deps['forge']} for Minecraft {deps['minecraft']}"
+                )
+                forge = self._mcllib.mod_loader.get_mod_loader("forge")
+                forge.install(deps["minecraft"], mc_dir, loader_version=deps["forge"], callback=callback)
+
+            if "neoforge" in deps:
+                callback.get("setStatus", lambda x: None)(
+                    f"安装 NeoForge {deps['neoforge']} for Minecraft {deps['minecraft']}"
+                )
+                neoforge = self._mcllib.mod_loader.get_mod_loader("neoforge")
+                neoforge.install(deps["minecraft"], mc_dir, loader_version=deps["neoforge"], callback=callback)
+
+            if "fabric-loader" in deps:
+                callback.get("setStatus", lambda x: None)(
+                    f"安装 Fabric {deps['fabric-loader']} for Minecraft {deps['minecraft']}"
+                )
+                fabric = self._mcllib.mod_loader.get_mod_loader("fabric")
+                fabric.install(deps["minecraft"], mc_dir, loader_version=deps["fabric-loader"], callback=callback)
+
+            if "quilt-loader" in deps:
+                callback.get("setStatus", lambda x: None)(
+                    f"安装 Quilt {deps['quilt-loader']} for Minecraft {deps['minecraft']}"
+                )
+                quilt = self._mcllib.mod_loader.get_mod_loader("quilt")
+                quilt.install(deps["minecraft"], mc_dir, loader_version=deps["quilt-loader"], callback=callback)
+
             logger.info(f"整合包安装完成，启动版本: {launch_version}")
             return True, launch_version
+
         except Exception as e:
             logger.error(f"整合包安装失败: {e}")
             return False, str(e)

@@ -1,6 +1,6 @@
 """Modrinth API 集成模块
 
-提供模组搜索、版本查询和下载功能，基于 Modrinth V2 API。
+提供模组/整合包搜索、版本查询和下载功能，基于 Modrinth V2 API。
 API 文档: https://docs.modrinth.com/api/
 
 功能:
@@ -8,6 +8,9 @@ API 文档: https://docs.modrinth.com/api/
 - 获取模组详情
 - 获取模组的特定版本文件
 - 下载模组 jar 文件到 mods 目录
+- 搜索整合包（支持关键词 + 游戏版本筛选）
+- 获取整合包的版本文件
+- 下载整合包 .mrpack 文件
 """
 
 from typing import List, Dict, Optional, Set, Tuple
@@ -832,3 +835,238 @@ def compress_game_versions(versions: List[str]) -> str:
     # 合并旧格式和新格式结果
     result = merged + new_merged
     return ", ".join(result)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 整合包 (Modpack) API
+# ═══════════════════════════════════════════════════════════════
+
+def search_modpacks(
+    query: str = "",
+    game_version: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> Dict:
+    """
+    搜索 Modrinth 上的整合包
+
+    Args:
+        query: 搜索关键词，为空时返回热门整合包
+        game_version: 游戏版本筛选 (如 "1.20.4")
+        offset: 分页偏移量
+        limit: 每页数量 (最大 100)
+
+    Returns:
+        {
+            "hits": [整合包信息列表],
+            "offset": 当前偏移,
+            "limit": 每页数量,
+            "total_hits": 总结果数
+        }
+    """
+    facets = []
+
+    facets.append(["project_type:modpack"])
+
+    if game_version:
+        facets.append([f"versions:{game_version}"])
+
+    params: Dict = {
+        "offset": offset,
+        "limit": limit,
+        "index": "relevance",
+    }
+
+    if facets:
+        import json
+        params["facets"] = json.dumps(facets)
+
+    if query:
+        params["query"] = query
+
+    logger.debug(
+        f"Modrinth 整合包搜索: query='{query}', version={game_version}, "
+        f"offset={offset}"
+    )
+
+    try:
+        resp = requests.get(
+            f"{MODRINTH_API_BASE}/search",
+            params=params,
+            headers=_get_headers(),
+            timeout=15,
+            verify=False,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        logger.info(
+            f"Modrinth 整合包搜索: query='{query}', version={game_version}, "
+            f"offset={offset}, 总结果={data.get('total_hits', 0)}"
+        )
+        return data
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Modrinth 整合包搜索失败: {e}")
+        return {"hits": [], "offset": offset, "limit": limit, "total_hits": 0}
+
+
+def get_modpack_versions(
+    project_id: str,
+    game_version: Optional[str] = None,
+) -> List[Dict]:
+    """
+    获取整合包的版本列表
+
+    返回的每个版本包含 files 列表，其中 .mrpack 文件通常是 primary 文件。
+
+    Args:
+        project_id: Modrinth 项目 ID
+        game_version: 游戏版本筛选
+
+    Returns:
+        版本信息列表，每个版本包含 id, name, version_number, files 等
+    """
+    import json as _json
+
+    params: Dict = {}
+
+    if game_version:
+        params["game_versions"] = _json.dumps([game_version])
+
+    try:
+        resp = requests.get(
+            f"{MODRINTH_API_BASE}/project/{project_id}/version",
+            params=params,
+            headers=_get_headers(),
+            timeout=15,
+            verify=False,
+        )
+        resp.raise_for_status()
+        versions = resp.json()
+
+        logger.info(
+            f"获取整合包 {project_id} 版本列表: {len(versions)} 个 "
+            f"(game_version={game_version})"
+        )
+        return versions
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"获取整合包版本失败: {e}")
+        return []
+
+
+def download_modpack_file(
+    project_id: str,
+    game_version: Optional[str] = None,
+    save_dir: Optional[str] = None,
+    status_callback=None,
+    version_data: Optional[Dict] = None,
+) -> Tuple[bool, str]:
+    """
+    从 Modrinth 下载整合包的 .mrpack 文件
+
+    自动获取最新兼容版本并下载主 .mrpack 文件。
+
+    Args:
+        project_id: Modrinth 项目 ID
+        game_version: 游戏版本筛选 (None 表示不筛选)
+        save_dir: 保存目录，默认保存到系统临时目录
+        status_callback: 状态回调函数，接受 str 参数
+        version_data: 指定版本数据字典。如果提供，直接使用该版本，
+                      无需调用 API 获取版本列表。
+
+    Returns:
+        (是否成功, .mrpack 文件路径 或 错误信息) 元组
+    """
+    import tempfile
+
+    if version_data is not None:
+        versions = [version_data]
+    else:
+        if status_callback:
+            status_callback(f"正在获取整合包 {project_id} 的版本信息...")
+
+        versions = get_modpack_versions(project_id, game_version=game_version)
+
+        if not versions:
+            msg = f"整合包 {project_id} 没有可用的版本"
+            logger.warning(msg)
+            return False, msg
+
+    version = versions[0]
+    version_number = version.get("version_number", "未知")
+    files = version.get("files", [])
+
+    primary_file = None
+    for f in files:
+        if f.get("primary", False):
+            primary_file = f
+            break
+    if not primary_file and files:
+        for f in files:
+            if f.get("filename", "").endswith(".mrpack"):
+                primary_file = f
+                break
+    if not primary_file and files:
+        primary_file = files[0]
+
+    if not primary_file:
+        msg = f"整合包 {project_id} 版本 {version_number} 没有可下载的文件"
+        logger.warning(msg)
+        return False, msg
+
+    download_url = primary_file.get("url", "")
+    filename = primary_file.get("filename", f"{project_id}.mrpack")
+
+    if not download_url:
+        msg = f"整合包 {project_id} 下载链接无效"
+        logger.warning(msg)
+        return False, msg
+
+    if save_dir:
+        target_dir = Path(save_dir)
+    else:
+        target_dir = Path(tempfile.gettempdir()) / "FMCL_modpack_downloads"
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    file_path = target_dir / filename
+
+    if file_path.exists():
+        logger.info(f"整合包文件已存在，跳过下载: {file_path}")
+        if status_callback:
+            status_callback(f"文件已存在: {filename}")
+        return True, str(file_path)
+
+    if status_callback:
+        status_callback(f"正在下载 {filename}...")
+
+    logger.info(f"开始下载整合包: {filename} ({download_url[:80]}...)")
+
+    try:
+        resp = requests.get(
+            download_url,
+            headers=_get_headers(),
+            timeout=120,
+            stream=True,
+            verify=False,
+        )
+        resp.raise_for_status()
+
+        total_size = int(resp.headers.get("Content-Length", 0))
+        downloaded = 0
+
+        with open(str(file_path), "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    downloaded += len(chunk)
+
+        logger.info(f"整合包下载完成: {filename} ({downloaded}/{total_size} bytes)")
+        slog.info("modpack_download_complete", filename=filename, size_bytes=downloaded)
+        return True, str(file_path)
+
+    except Exception as e:
+        logger.error(f"下载整合包失败: {e}")
+        slog.error("modpack_download_failed", filename=filename, error=str(e)[:200])
+        return False, str(e)

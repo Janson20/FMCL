@@ -90,6 +90,16 @@ class ModpackInstallWindow(ctk.CTkToplevel):
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             command=self._select_file,
+        ).pack(side=ctk.LEFT, padx=(0, 8))
+
+        ctk.CTkButton(
+            btn_row,
+            text="🌐 从 Modrinth 下载",
+            height=34,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["success"],
+            hover_color="#27ae60",
+            command=self._open_modrinth_browser,
         ).pack(side=ctk.LEFT)
 
         # ── 整合包信息区域（初始隐藏）──
@@ -239,6 +249,21 @@ class ModpackInstallWindow(ctk.CTkToplevel):
             return
         self._custom_modpack_dir = path
         self._dir_label.configure(text=path)
+
+    def _open_modrinth_browser(self):
+        """打开 Modrinth 整合包浏览窗口"""
+        from ui.windows.modpack_browser import ModpackBrowserWindow
+        ModpackBrowserWindow(self, on_modpack_selected=self._on_modrinth_downloaded)
+
+    def _on_modrinth_downloaded(self, mrpack_path: str):
+        """Modrinth 整合包下载完成后的回调"""
+        self._mrpack_path = mrpack_path
+        self._file_label.configure(
+            text=os.path.basename(mrpack_path),
+            text_color=COLORS["text_primary"],
+        )
+        self._install_btn.configure(state=ctk.DISABLED, text="读取中...")
+        self._run_in_thread(self._load_mrpack_info)
 
     def _load_mrpack_info(self):
         """读取整合包信息（后台线程）"""
