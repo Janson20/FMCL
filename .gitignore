@@ -43,6 +43,8 @@ htmlcov/
 .minecraft/
 config/
 backups/
+ModTranslations/
+.physics_mod_cache/
 
 # Build outputs
 *.exe

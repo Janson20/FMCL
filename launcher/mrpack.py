@@ -208,6 +208,47 @@ class MrpackMixin:
             mrpack_error: Optional[Exception] = None
             vanilla_error: Optional[Exception] = None
 
+            progress_lock = threading.Lock()
+
+            mp_state = {"current": 0, "max": 1, "label": "等待中"}
+            mc_state = {"current": 0, "max": 1, "label": "等待中"}
+
+            self._mp_progress = {
+                "mrpack": mp_state,
+                "vanilla": mc_state,
+                "overall": 0,
+                "phase": "parallel",
+            }
+
+            def _update_overall():
+                mp_pct = (mp_state["current"] / mp_state["max"]) if mp_state["max"] > 0 else 0
+                mc_pct = (mc_state["current"] / mc_state["max"]) if mc_state["max"] > 0 else 0
+                overall = int((mp_pct + mc_pct) / 2 * 100)
+                self._mp_progress["overall"] = overall / 100.0
+                status_text = f"整合包: {mp_state['label']} | 原版: {mc_state['label']}"
+                self._mp_progress["status_text"] = status_text
+
+            def _make_cb(state: dict, label_prefix: str):
+                def _set_status(msg: str):
+                    with progress_lock:
+                        state["label"] = f"{label_prefix}{msg}"
+                        _update_overall()
+
+                def _set_max(n: int):
+                    with progress_lock:
+                        state["max"] = max(n, 1)
+                        _update_overall()
+
+                def _set_progress(n: int):
+                    with progress_lock:
+                        state["current"] = n
+                        _update_overall()
+
+                return {"setStatus": _set_status, "setMax": _set_max, "setProgress": _set_progress}
+
+            mrpack_cb = _make_cb(mp_state, "")
+            vanilla_cb = _make_cb(mc_state, "")
+
             def _install_mrpack_files():
                 nonlocal mrpack_error
                 try:
@@ -217,8 +258,12 @@ class MrpackMixin:
                         mc_dir,
                         mp_dir,
                         optional,
-                        callback,
+                        mrpack_cb,
                     )
+                    with progress_lock:
+                        mp_state["current"] = mp_state["max"]
+                        mp_state["label"] = "完成"
+                    _update_overall()
                     logger.info("并行任务 A: 整合包文件下载完成")
                 except Exception as e:
                     mrpack_error = e
@@ -230,13 +275,18 @@ class MrpackMixin:
                     index = self._read_mrpack_index(mrpack_path)
                     mc_version = index["dependencies"]["minecraft"]
                     logger.info(f"并行任务 B: 安装 Minecraft {mc_version}...")
-                    set_status = callback.get("setStatus", lambda x: None)
-                    set_status(f"安装 Minecraft {mc_version}")
+                    with progress_lock:
+                        mc_state["label"] = f"安装 Minecraft {mc_version}"
+                    _update_overall()
                     _mcllib.install.install_minecraft_version(
                         mc_version,
                         mc_dir,
-                        callback=callback,
+                        callback=vanilla_cb,
                     )
+                    with progress_lock:
+                        mc_state["current"] = mc_state["max"]
+                        mc_state["label"] = "完成"
+                    _update_overall()
                     logger.info(f"并行任务 B: Minecraft {mc_version} 安装完成")
                 except Exception as e:
                     vanilla_error = e
@@ -262,36 +312,34 @@ class MrpackMixin:
 
             logger.info("并行阶段完成，开始安装模组加载器...")
 
+            self._mp_progress["phase"] = "loader"
+            self._mp_progress["mrpack"] = {"current": 1, "max": 1, "label": "完成"}
+            self._mp_progress["vanilla"] = {"current": 1, "max": 1, "label": "完成"}
+
             index = self._read_mrpack_index(mrpack_path)
             deps = index["dependencies"]
 
             if "forge" in deps:
-                callback.get("setStatus", lambda x: None)(
-                    f"安装 Forge {deps['forge']} for Minecraft {deps['minecraft']}"
-                )
+                self._mp_progress["loader_label"] = f"安装 Forge {deps['forge']}"
                 forge = self._mcllib.mod_loader.get_mod_loader("forge")
                 forge.install(deps["minecraft"], mc_dir, loader_version=deps["forge"], callback=callback)
 
             if "neoforge" in deps:
-                callback.get("setStatus", lambda x: None)(
-                    f"安装 NeoForge {deps['neoforge']} for Minecraft {deps['minecraft']}"
-                )
+                self._mp_progress["loader_label"] = f"安装 NeoForge {deps['neoforge']}"
                 neoforge = self._mcllib.mod_loader.get_mod_loader("neoforge")
                 neoforge.install(deps["minecraft"], mc_dir, loader_version=deps["neoforge"], callback=callback)
 
             if "fabric-loader" in deps:
-                callback.get("setStatus", lambda x: None)(
-                    f"安装 Fabric {deps['fabric-loader']} for Minecraft {deps['minecraft']}"
-                )
+                self._mp_progress["loader_label"] = f"安装 Fabric {deps['fabric-loader']}"
                 fabric = self._mcllib.mod_loader.get_mod_loader("fabric")
                 fabric.install(deps["minecraft"], mc_dir, loader_version=deps["fabric-loader"], callback=callback)
 
             if "quilt-loader" in deps:
-                callback.get("setStatus", lambda x: None)(
-                    f"安装 Quilt {deps['quilt-loader']} for Minecraft {deps['minecraft']}"
-                )
+                self._mp_progress["loader_label"] = f"安装 Quilt {deps['quilt-loader']}"
                 quilt = self._mcllib.mod_loader.get_mod_loader("quilt")
                 quilt.install(deps["minecraft"], mc_dir, loader_version=deps["quilt-loader"], callback=callback)
+
+            self._mp_progress["phase"] = "done"
 
             logger.info(f"整合包安装完成，启动版本: {launch_version}")
             return True, launch_version

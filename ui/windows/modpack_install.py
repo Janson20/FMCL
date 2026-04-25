@@ -1,5 +1,6 @@
 """整合包安装窗口 - 选择 .mrpack 文件，确认信息，执行安装"""
 import os
+import queue
 import threading
 import tkinter.messagebox as messagebox
 from typing import List, Dict, Optional, Callable, Any
@@ -163,15 +164,35 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         # ── 进度区域（初始隐藏）──
         self._progress_frame = ctk.CTkFrame(main_frame, fg_color=COLORS["card_bg"], corner_radius=10)
 
+        ctk.CTkLabel(
+            self._progress_frame, text="安装进度",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(padx=15, pady=(12, 8), anchor=ctk.W)
+
+        self._mp_progress_label = ctk.CTkLabel(
+            self._progress_frame, text="整合包文件: --",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_secondary"], anchor=ctk.W,
+        )
+        self._mp_progress_label.pack(padx=15, pady=(0, 2), fill=ctk.X)
+
+        self._mc_progress_label = ctk.CTkLabel(
+            self._progress_frame, text="原版安装: --",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_secondary"], anchor=ctk.W,
+        )
+        self._mc_progress_label.pack(padx=15, pady=(0, 8), fill=ctk.X)
+
         self._progress_status = ctk.CTkLabel(
             self._progress_frame, text="正在安装...",
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["text_primary"],
         )
-        self._progress_status.pack(padx=15, pady=(12, 5), fill=ctk.X)
+        self._progress_status.pack(padx=15, pady=(0, 5), fill=ctk.X)
 
         self._progress_bar = ctk.CTkProgressBar(
-            self._progress_frame, height=10,
+            self._progress_frame, height=12,
             fg_color=COLORS["bg_medium"], progress_color=COLORS["accent"],
         )
         self._progress_bar.pack(fill=ctk.X, padx=15, pady=(0, 12))
@@ -341,28 +362,74 @@ class ModpackInstallWindow(ctk.CTkToplevel):
 
     def _do_install(self, optional_files: list):
         """执行安装（后台线程）"""
-        def _log_append(text: str):
-            """线程安全地追加日志行"""
-            def _ui_append():
-                self._log_text.configure(state=ctk.NORMAL)
-                self._log_text.insert(ctk.END, text + "\n")
-                self._log_text.see(ctk.END)
-                self._log_text.configure(state=ctk.DISABLED)
-            self.after(0, _ui_append)
+        log_queue: queue.Queue = queue.Queue()
+
+        def _enqueue_log(text: str):
+            log_queue.put_nowait(text)
 
         def _hook_progress(current, total, status):
-            """临时进度回调：同时更新进度条和日志"""
             if status:
-                _log_append(status)
-            if self.on_progress_original and total > 0 and current > 0:
-                self.on_progress_original(current, total, "")
+                _enqueue_log(status)
 
-        # 获取 launcher 实例并替换 on_progress
         launcher = getattr(self.callbacks.get("install_mrpack"), "__self__", None)
         if launcher:
             self._launcher_instance = launcher
             self._orig_on_progress = getattr(launcher, "on_progress", None)
             launcher.on_progress = _hook_progress
+
+        self._polling = True
+
+        def _poll_progress():
+            if not self._polling or not self.winfo_exists():
+                return
+            try:
+                while True:
+                    try:
+                        line = log_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    self._log_text.configure(state=ctk.NORMAL)
+                    self._log_text.insert(ctk.END, line + "\n")
+                    self._log_text.see(ctk.END)
+                    self._log_text.configure(state=ctk.DISABLED)
+
+                launcher_inst = self._launcher_instance
+                if launcher_inst and hasattr(launcher_inst, "_mp_progress"):
+                    mp = launcher_inst._mp_progress
+                    mp_data = mp.get("mrpack", {})
+                    mc_data = mp.get("vanilla", {})
+                    phase = mp.get("phase", "")
+
+                    mp_pct = (mp_data.get("current", 0) / max(mp_data.get("max", 1), 1)) * 100
+                    mc_pct = (mc_data.get("current", 0) / max(mc_data.get("max", 1), 1)) * 100
+
+                    self._mp_progress_label.configure(
+                        text=f"整合包文件: {mp_pct:.0f}%  ({mp_data.get('label', '')})"
+                    )
+                    self._mc_progress_label.configure(
+                        text=f"原版安装: {mc_pct:.0f}%  ({mc_data.get('label', '')})"
+                    )
+
+                    overall = mp.get("overall", 0)
+                    self._progress_bar.set(overall)
+
+                    if phase == "loader":
+                        self._progress_status.configure(
+                            text=f"安装模组加载器: {mp.get('loader_label', '')}"
+                        )
+                    elif phase == "done":
+                        self._polling = False
+                        return
+                    else:
+                        status_text = mp.get("status_text", "并行安装中...")
+                        self._progress_status.configure(text=status_text)
+            except Exception:
+                pass
+
+            if self._polling:
+                self.after(200, _poll_progress)
+
+        self.after(0, _poll_progress)
 
         try:
             success, result = self.callbacks["install_mrpack"](
@@ -374,7 +441,7 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         except Exception as e:
             self.after(0, lambda: self._on_install_done(False, str(e)))
         finally:
-            # 恢复原始 on_progress
+            self._polling = False
             if launcher and self._orig_on_progress is not None:
                 launcher.on_progress = self._orig_on_progress
             elif launcher:
