@@ -19,7 +19,11 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, Callable
 
 import requests
+import urllib3
 from logzero import logger
+
+# 禁用 SSL 证书验证警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # GitHub 仓库信息
 GITHUB_OWNER = "Janson20"
@@ -68,7 +72,7 @@ def check_for_update() -> Optional[Dict[str, Any]]:
         current = get_current_version()
         logger.info(f"检查更新: 当前版本 {current}")
 
-        resp = requests.get(GITHUB_API_URL, timeout=10)
+        resp = requests.get(GITHUB_API_URL, timeout=10, verify=False)
         resp.raise_for_status()
 
         release = resp.json()
@@ -252,7 +256,7 @@ def download_update(
 
         logger.info(f"开始下载更新: {filename}")
 
-        resp = requests.get(url, stream=True, timeout=60)
+        resp = requests.get(url, stream=True, timeout=60, verify=False)
         resp.raise_for_status()
 
         # 优先使用 Content-Length

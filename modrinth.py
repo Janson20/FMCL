@@ -14,7 +14,11 @@ from typing import List, Dict, Optional, Set, Tuple
 from pathlib import Path
 
 import requests
+import urllib3
 from logzero import logger
+
+# 禁用 SSL 证书验证警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 MODRINTH_API_BASE = "https://api.modrinth.com/v2"
@@ -98,6 +102,7 @@ def search_mods(
             params=params,
             headers=_get_headers(),
             timeout=15,
+            verify=False,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -145,6 +150,7 @@ def get_mod_versions(
             params=params,
             headers=_get_headers(),
             timeout=15,
+            verify=False,
         )
         resp.raise_for_status()
         versions = resp.json()
@@ -193,6 +199,7 @@ def download_mod(
             headers=_get_headers(),
             timeout=60,
             stream=True,
+            verify=False,
         )
         resp.raise_for_status()
 
@@ -228,6 +235,7 @@ def get_project_info(project_id: str) -> Optional[Dict]:
             f"{MODRINTH_API_BASE}/project/{project_id}",
             headers=_get_headers(),
             timeout=15,
+            verify=False,
         )
         resp.raise_for_status()
         return resp.json()
@@ -424,6 +432,7 @@ def _fetch_all_game_versions() -> Dict[int, Set[int]]:
             f"{MODRINTH_API_BASE}/tag/game_version",
             headers=_get_headers(),
             timeout=15,
+            verify=False,
         )
         resp.raise_for_status()
         data = resp.json()
