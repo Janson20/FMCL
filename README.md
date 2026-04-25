@@ -781,6 +781,7 @@ chore: 构建/工具变动
 | **Linux 配置目录权限错误** | 运行 `sudo mkdir -p /etc/fmcl && sudo chown $USER:$USER /etc/fmcl` |
 | **Linux 日志目录权限错误** | 程序会自动回退到 `~/.fmcl/latest.log`，无需手动处理 |
 | **Linux 无图形环境崩溃** | 在 WSL/无头服务器等无 X11/Wayland 环境时，鼠标检测线程会自动跳过，不会崩溃 |
+| **Linux emoji 表情无法显示** | 程序会自动检测并安装 emoji 字体（如 fonts-noto-color-emoji），如提示权限请手动安装字体包 |
 
 ---
 

@@ -25,7 +25,8 @@ COLORS = {
 def _detect_font_family() -> str:
     """
     检测当前平台可用的中文字体，并返回字体名称。
-    
+    Linux 优先选择支持 emoji 的字体组合。
+
     - Windows: 使用 Microsoft YaHei
     - macOS: 使用 PingFang SC
     - Linux: 通过 fc-list 检测，若无中文字体则尝试自动安装
@@ -38,48 +39,116 @@ def _detect_font_family() -> str:
     if system == "darwin":
         return "PingFang SC"
 
-    # ── Linux: 使用 fc-list 检测中文字体 ──
+    # ── Linux: 使用 fc-list 检测中文字体和 emoji 字体 ──
+    emoji_fonts = set()
+    chinese_fonts = set()
+
     try:
-        result = subprocess.run(
-            ["fc-list", ":lang=zh", "family"],
+        # 检测 emoji 字体
+        emoji_result = subprocess.run(
+            ["fc-list", ":lang=emoji", "family"],
             capture_output=True, text=True, timeout=5,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            fonts = set()
-            for line in result.stdout.strip().split("\n"):
+        if emoji_result.returncode == 0 and emoji_result.stdout.strip():
+            for line in emoji_result.stdout.strip().split("\n"):
                 for f in line.split(","):
                     f = f.strip()
                     if f:
-                        fonts.add(f)
+                        emoji_fonts.add(f)
 
-            # 按优先级选择
-            for preferred in [
-                "Noto Sans CJK SC", "Noto Sans SC",
-                "WenQuanYi Micro Hei", "WenQuanYi Zen Hei",
-                "Droid Sans Fallback",
-            ]:
-                if preferred in fonts:
-                    return preferred
-
-            # 返回第一个可用的中文字体
-            if fonts:
-                return next(iter(fonts))
-    except Exception:
-        pass
-
-    # ── 无中文字体，尝试自动安装 ──
-    _install_chinese_font()
-
-    # 安装后再检测一次
-    try:
-        result = subprocess.run(
+        # 检测中文字体
+        chinese_result = subprocess.run(
             ["fc-list", ":lang=zh", "family"],
             capture_output=True, text=True, timeout=5,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip().split("\n")[0].split(",")[0].strip()
+        if chinese_result.returncode == 0 and chinese_result.stdout.strip():
+            for line in chinese_result.stdout.strip().split("\n"):
+                for f in line.split(","):
+                    f = f.strip()
+                    if f:
+                        chinese_fonts.add(f)
     except Exception:
         pass
+
+    # 优先 emoji 字体
+    emoji_priority = ["Noto Color Emoji", "Symbola", "DejaVu Sans", "EmojiOne"]
+    selected_emoji = None
+    for pref in emoji_priority:
+        if pref in emoji_fonts:
+            selected_emoji = pref
+            break
+    if not selected_emoji and emoji_fonts:
+        selected_emoji = next(iter(emoji_fonts))
+
+    # 中文字体
+    chinese_priority = [
+        "Noto Sans CJK SC", "Noto Sans SC",
+        "WenQuanYi Micro Hei", "WenQuanYi Zen Hei",
+        "Droid Sans Fallback",
+    ]
+    selected_chinese = None
+    for pref in chinese_priority:
+        if pref in chinese_fonts:
+            selected_chinese = pref
+            break
+    if not selected_chinese and chinese_fonts:
+        selected_chinese = next(iter(chinese_fonts))
+
+    # 如果有中文字体但没有 emoji 字体，尝试自动安装
+    if selected_chinese and not selected_emoji:
+        _install_emoji_font()
+        # 再检测一次
+        try:
+            emoji_result = subprocess.run(
+                ["fc-list", ":lang=emoji", "family"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if emoji_result.returncode == 0 and emoji_result.stdout.strip():
+                for line in emoji_result.stdout.strip().split("\n"):
+                    for f in line.split(","):
+                        f = f.strip()
+                        if f:
+                            emoji_fonts.add(f)
+                for pref in emoji_priority:
+                    if pref in emoji_fonts:
+                        selected_emoji = pref
+                        break
+                if not selected_emoji and emoji_fonts:
+                    selected_emoji = next(iter(emoji_fonts))
+        except Exception:
+            pass
+
+    # 如果连中文字体都没有，尝试自动安装
+    if not selected_chinese:
+        _install_chinese_font()
+        # 安装后再检测一次
+        try:
+            chinese_result = subprocess.run(
+                ["fc-list", ":lang=zh", "family"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if chinese_result.returncode == 0 and chinese_result.stdout.strip():
+                for line in chinese_result.stdout.strip().split("\n"):
+                    for f in line.split(","):
+                        f = f.strip()
+                        if f:
+                            chinese_fonts.add(f)
+                for pref in chinese_priority:
+                    if pref in chinese_fonts:
+                        selected_chinese = pref
+                        break
+                if not selected_chinese and chinese_fonts:
+                    selected_chinese = next(iter(chinese_fonts))
+        except Exception:
+            pass
+
+    # 组合字体链（emoji 字体优先）
+    if selected_emoji and selected_chinese:
+        return f"{selected_emoji}, {selected_chinese}"
+    elif selected_chinese:
+        return selected_chinese
+    elif selected_emoji:
+        return selected_emoji
 
     return ""  # 使用系统默认字体
 
@@ -87,7 +156,7 @@ def _detect_font_family() -> str:
 def _install_chinese_font():
     """
     尝试在 Linux 上自动安装中文字体。
-    
+
     支持 apt(Debian/Ubuntu)、dnf(Fedora)、pacman(Arch) 包管理器。
     优先使用 pkexec 进行图形化认证，回退到 sudo。
     """
@@ -121,6 +190,39 @@ def _install_chinese_font():
         logging.info("中文字体安装完成")
     except Exception as e:
         logging.warning(f"安装中文字体失败: {e}")
+
+
+def _install_emoji_font():
+    """
+    尝试在 Linux 上自动安装 emoji 字体。
+    支持 apt(Debian/Ubuntu)、dnf(Fedora)、pacman(Arch) 包管理器。
+    """
+    import shutil
+
+    # 检测包管理器和对应的字体包名
+    if shutil.which("apt"):
+        pkg_cmd = ["apt", "install", "-y", "fonts-noto-color-emoji", "fonts-symbola"]
+    elif shutil.which("dnf"):
+        pkg_cmd = ["dnf", "install", "-y", "google-noto-color-emoji-fonts", "fonts-symbola"]
+    elif shutil.which("pacman"):
+        pkg_cmd = ["pacman", "-S", "--noconfirm", "noto-fonts-emoji", "ttf-symbola"]
+    else:
+        return
+
+    if shutil.which("pkexec"):
+        cmd = ["pkexec"] + pkg_cmd
+    elif shutil.which("sudo"):
+        cmd = ["sudo"] + pkg_cmd
+    else:
+        return
+
+    try:
+        logging.info(f"正在尝试安装 emoji 字体: {' '.join(cmd)}")
+        subprocess.run(cmd, timeout=180, check=False)
+        subprocess.run(["fc-cache", "-f"], timeout=30, check=False)
+        logging.info("emoji 字体安装完成")
+    except Exception as e:
+        logging.warning(f"安装 emoji 字体失败: {e}")
 
 
 FONT_FAMILY = _detect_font_family()
