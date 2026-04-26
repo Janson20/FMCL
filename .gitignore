@@ -6,6 +6,7 @@ dist/
 wheels/
 main.build/
 main.dist/
+local/
 *.egg-info
 *.log
 *.xml

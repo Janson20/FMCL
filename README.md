@@ -14,7 +14,7 @@
 - 每个版本条目提供 ⚙ 版本设置、🧩 安装模组、X 删除三个快捷按钮
 
 ### 🔗 链接标签页
-- **四标签页布局**：主界面包含"🎮 游戏"、"💾 备份"、"🖥 开服"和"🔗 链接"四个标签页
+- **五标签页布局**：主界面包含"🎮 游戏"、"💾 备份"、"🖥 开服"、"🔗 链接"和"🤖 AGENT"五个标签页
 - **默认游戏标签页**：保留原有的三栏布局（侧边栏、已安装版本、操作面板），所有游戏功能保持不变
 - **链接标签页**：收录了15个常用的Minecraft相关网站，包括官方网站、中文社区、资源平台和实用工具
 - **网站卡片**：每个网站以卡片形式展示，包含名称、描述、标签和直达链接
@@ -192,6 +192,20 @@
 - **隐私保护**：首次使用 AI 分析时弹出隐私说明，需用户勾选同意后才可使用；同意状态持久化保存，后续无需重复确认
 - **安全存储**：登录 Token 使用 Fernet (AES-128-CBC + HMAC-SHA256) 加密存储于 `config.json`，密钥文件保存在 `<base_dir>/.fmcl_key`，支持跨机器迁移
 
+### 🤖 AGENT 智能助手
+- **自然语言控制**：新增"🤖 AGENT"标签页，集成聊天界面，支持通过自然语言管理 Minecraft
+- **AI 驱动**：基于净读 AI（OpenAI 兼容 API），通过 function calling 实现智能决策
+- **核心工具集**：封装了版本获取、安装、启动、模组搜索与安装等 6 个工具供 AI 调用
+- **智能工作流**：AI 自动分析用户意图 -> 顺序调用工具 -> 分析结果 -> 需要时弹出选项让用户选择 -> 继续执行
+- **XML 标准回复**：AI 回复采用标准 XML 格式（`<thinking>`、`<message>`、`<action>` 等标签），前端解析后友好展示
+- **选项弹窗**：当 AI 判断需要用户选择时（如多个版本匹配），弹出选项对话框供用户点选
+- **使用场景示例**：
+  1. "帮我下载最新版 Minecraft" -> AI 获取版本列表 -> 安装最新正式版
+  2. "帮我启动 1.20.1" -> AI 获本地版本列表 -> 发现多个 1.20.1 版本 -> 弹出选项（原版/Forge/Fabric）-> 用户选择后启动
+  3. "给 1.20.1 装个钠" -> AI 搜索 Modrinth -> 找到 Sodium -> 自动匹配版本和加载器 -> 安装
+- **Token 配置**：在 AGENT 标签页点击"设置 Token"按钮，输入净读 AI Token 即可启用
+- **隐私说明**：Token 仅保存在本地配置文件中，不会上传至任何第三方
+
 ### 🔒 安全特性
 - **SSL 证书验证**：所有 HTTP 请求（Modrinth API、GitHub Release、镜像源等）均启用 SSL 证书验证，防止中间人攻击
 - **数据加密存储**：敏感 Token 使用随机密钥文件 + Fernet 对称加密存储，支持密码派生密钥（环境变量 `FMCL_ENC_KEY_PASSWORD`）
@@ -223,7 +237,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │  ⛏ FMCL   Minecraft Launcher   ⬆ 更新  🔄 刷新  ⚙ 设置  │
-│  [🎮 游戏] [💾 备份] [🖥 开服] [🔗 链接]                       │
+│  [🎮 游戏] [💾 备份] [🖥 开服] [🔗 链接] [🤖 AGENT]            │
 ├────────────┬──────────────────────────────┬──────────────────────────────────────┤
 │ 👤 角色名  │  📦 已安装版本  ⚙  3 个版本 │  📥 安装新版本               │
 │ [Steve   ] │  ─────────────────────────── │  ──────────────────────      │
@@ -531,12 +545,20 @@ FMCL/
 │   └── verify.py          # 并发文件校验（ThreadPoolExecutor）
 ├── ui/                    # CustomTkinter 现代化 UI（包）
 │   ├── __init__.py        # 向后兼容导出
-│   ├── app.py             # ModernApp 组合类（多继承自 app_base/app_server/app_handlers/app_crash）
+│   ├── app.py             # ModernApp 组合类（多继承自 app_base/app_server/app_handlers/app_crash/agent）
 │   ├── app_base.py        # ModernAppBase(ctk.CTk) - 主窗口 UI 构建、侧边栏、日志捕获
 │   ├── app_server.py      # ServerTabMixin - 开服标签页（服务器安装/启动/停止 + 版本管理）
 │   ├── app_handlers.py    # EventHandlerMixin - 版本管理、游戏操作、更新检查、队列处理
 │   ├── app_crash.py       # CrashHandlerMixin - 崩溃诊断、AI 分析
 │   ├── app_backup.py      # BackupTabMixin - 存档备份标签页
+│   ├── agent/             # AGENT 智能助手模块（包）
+│   │   ├── __init__.py    # 模块导出
+│   │   ├── agent_mixin.py # AgentMixin - AGENT 标签页集成
+│   │   ├── agent_chat.py  # 聊天 UI 组件 + 选项弹窗
+│   │   ├── provider.py    # AI API 调用封装（OpenAI 兼容）
+│   │   ├── tools.py       # Tool 定义 + 系统提示词
+│   │   ├── engine.py      # Tool 执行引擎
+│   │   └── xml_parser.py  # XML 响应解析器
 │   ├── constants.py       # 颜色主题、字体检测、资源类型配置
 │   ├── dialogs.py         # 通用对话框（确认/提示）、版本选择对话框
 │   └── windows/           # 独立窗口类

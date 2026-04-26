@@ -184,7 +184,7 @@ def main():
         setup_logging()
 
         logger.info("=" * 60)
-        logger.info("Fusion Minecraft Launcher v3.3 启动")
+        logger.info("Fusion Minecraft Launcher v3.4 启动")
         logger.info("=" * 60)
 
         # 确保目录存在
@@ -297,6 +297,10 @@ def main():
 
             # 启动环境初始化流程
             app._on_app_ready()
+
+            # 更新 AGENT 助手的回调和 Token
+            if hasattr(app, '_update_agent_callbacks'):
+                app._update_agent_callbacks()
 
             # 启动时自动检查更新（后台静默）
             if config.auto_check_update:

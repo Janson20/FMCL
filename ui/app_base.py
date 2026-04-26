@@ -183,6 +183,10 @@ class ModernAppBase(ctk.CTk):
         self.links_tab = self.tabview.add(_("tab_links"))
         self.links_tab.configure(fg_color="transparent")
         
+        # 添加"AGENT"标签页
+        self.agent_tab = self.tabview.add("🤖 AGENT")
+        self.agent_tab.configure(fg_color="transparent")
+        
         # 设置默认标签页为"游戏"
         self.tabview.set(_("tab_game"))
         
@@ -197,6 +201,9 @@ class ModernAppBase(ctk.CTk):
         
         # 构建链接标签页内容
         self._build_links_tab_content()
+
+        # 构建 AGENT 标签页内容
+        self._build_agent_tab_content()
     
     def _build_game_tab_content(self):
         """构建游戏标签页内容"""
@@ -691,6 +698,12 @@ class ModernAppBase(ctk.CTk):
         def _do_append():
             self.log_text.insert(ctk.END, message + "\n")
             self.log_text.see(ctk.END)
+            if hasattr(self, "_agent_log_text"):
+                try:
+                    self._agent_log_text.insert(ctk.END, message + "\n")
+                    self._agent_log_text.see(ctk.END)
+                except Exception:
+                    pass
         if self.winfo_exists():
             self.after(0, _do_append)
 
