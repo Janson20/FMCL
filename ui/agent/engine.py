@@ -211,14 +211,14 @@ def _install_mod(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
 
         target_full_version = None
         for v in installed:
-            if v == version_id or v.startswith(version_id + "-"):
+            if v == version_id or v.startswith(version_id + "-") or v.endswith("-" + version_id):
                 if mod_loader in v.lower():
                     target_full_version = v
                     break
 
         if not target_full_version:
             for v in installed:
-                if v == version_id or v.startswith(version_id + "-"):
+                if v == version_id or v.startswith(version_id + "-") or v.endswith("-" + version_id):
                     target_full_version = v
                     break
 

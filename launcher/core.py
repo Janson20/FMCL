@@ -313,11 +313,13 @@ class MinecraftLauncher:
             else:
                 # 尝试模糊匹配：用户可能选了原版ID，但实际安装的是loader版本
                 # 例如用户选 "1.20.4"，但安装的是 "1.20.4-forge-49.0.26"
-                # 使用精确前缀匹配：版本ID完全相同 或 以 "版本ID-" 开头
-                # 避免新格式下 "26.1" 错误匹配 "26.1.1" (旧格式无此问题)
+                # 或选 "26.1"，但安装的是 "fabric-loader-0.16.0-26.1"
+                # 前缀匹配 (如 Forge/NeoForge: 26.1-forge-xxx)
+                # 后缀匹配 (如 Fabric/Quilt: fabric-loader-0.16.0-26.1)
+                # 使用 "-" 做边界避免新格式下 "26.1" 错误匹配 "26.1.1"
                 matches = [
                     v for v in installed_versions
-                    if v == version_id or v.startswith(version_id + "-")
+                    if v == version_id or v.startswith(version_id + "-") or v.endswith("-" + version_id)
                 ]
                 if len(matches) == 1:
                     target_version = matches[0]
