@@ -216,6 +216,7 @@
 - **密钥文件可迁移**：`.fmcl_key` 密钥文件可随 `config.json` 一起拷贝到新机器，Token 无缝迁移
 - **输入验证与防注入**：所有用户输入（版本 ID、服务器 IP、内存参数等）均经过白名单验证，防止命令注入和路径穿越攻击
 - **文件完整性校验**：Modrinth 模组下载后自动验证 SHA1/SHA512 哈希，更新包下载后验证文件大小和 SHA256，确保文件未被篡改
+- **健壮下载引擎**：Modrinth 下载集成连接池复用（避免重复 TLS 握手）、指数退避重试（超时/中断自动重试 3 次）、断点续传（Range 头 + 追加写入），确保差劲网络下的下载可靠性
 - **原子写入**：配置文件、备份索引等更新时使用临时文件 + 重命名机制，防止写入中断导致文件损坏
 - **安装回滚**：整合包安装失败时自动清理部分下载的文件和目录，避免残留损坏
 
@@ -577,14 +578,17 @@ FMCL/
 │   ├── MultiThreadDownloader  # 多线程分段下载 + 文件合并
 │   ├── AsyncBatchDownloader   # asyncio + aiohttp 异步并发下载
 │   └── install_mod_loader # Forge/Fabric/NeoForge 统一安装
-├── modrinth.py            # Modrinth API 集成
+├── modrinth.py            # Modrinth API 集成 & 健壮下载引擎
 │   ├── search_mods        # 搜索模组（关键词 + 版本/加载器筛选）
 │   ├── search_modpacks    # 搜索整合包（关键词 + 版本筛选）
 │   ├── get_mod_versions   # 获取模组版本列表
 │   ├── get_modpack_versions # 获取整合包版本列表
-│   ├── download_mod       # 下载模组文件
-│   ├── download_modpack_file  # 下载整合包 .mrpack 文件
+│   ├── download_mod       # 下载模组文件（断点续传 + 指数退避重试）
+│   ├── download_modpack_file  # 下载整合包 .mrpack 文件（断点续传 + 指数退避重试）
 │   ├── install_mod_with_deps  # 安装模组及依赖（递归）
+│   ├── 连接池复用         # 共享 requests.Session + HTTPAdapter，复用 TCP 连接避免重复 TLS 握手
+│   ├── 指数退避重试       # 网络超时/中断自动重试 3 次，退避时间 2^retry 秒
+│   ├── 断点续传下载       # Range 头支持，下载中断后从断点继续
 │   ├── 版本解析工具       # 从版本 ID 解析加载器/游戏版本（含 NeoForge 特殊处理 + 新版 YY.D.H 格式）
 │   └── 版本压缩展示       # 智能压缩版本列表（基于 Modrinth 完整版本判断全版本覆盖，支持旧版 + 新版格式）
 ├── updater.py             # 自动更新模块
@@ -662,13 +666,15 @@ main.py
 | 拖拽支持 | tkinterdnd2 | 文件拖拽安装资源 |
 | 日志 | logzero | 轻量级日志框架 |
 | 结构化日志 | JSONL 格式 | 核心流程结构化记录，方便程序化分析 |
-| HTTP | requests | API 请求与文件下载 |
+| HTTP | requests.Session + HTTPAdapter | 连接池复用（20 池/50 最大），避免重复 TLS 握手 |
 | 加密 | cryptography (Fernet) | 敏感 Token AES-128-CBC + HMAC-SHA256 加密存储 |
 | 密钥管理 | PBKDF2-HMAC-SHA256 | 密码派生密钥（600000 次迭代） |
 | 输入验证 | 正则 + 白名单 | 防止命令注入和路径穿越攻击 |
 | 文件完整性 | SHA1 / SHA256 / SHA512 | 模组和更新包下载后自动校验哈希 |
 | 模组搜索 | Modrinth API V2 | 在线搜索和安装模组/整合包 |
 | 下载 | 多线程分段下载 | 大文件并行下载加速 |
+| 断点续传 | Range 头 + 追加写入 | 下载中断后自动从断点继续 |
+| 指数退避重试 | 3 次重试，退避 2^retry 秒 | 网络超时/中断自动恢复 |
 | 截图 | pyautogui + keyboard | 区域截图 + 快捷键监听 |
 | 自动更新 | GitHub Release API | 版本检查 + 静默安装 |
 | 构建打包 | PyInstaller + NSIS | 可执行文件 + Windows 安装包 |

@@ -14,17 +14,27 @@ API 文档: https://docs.modrinth.com/api/
 """
 
 import hashlib
+import time
 from typing import List, Dict, Optional, Set, Tuple
 from pathlib import Path
 
 import requests
 from logzero import logger
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 from structured_logger import slog
 
 
 MODRINTH_API_BASE = "https://api.modrinth.com/v2"
 MODRINTH_USER_AGENT = "FMCL-MinecraftLauncher/1.0 (github.com/Janson20/FMCL)"
+
+DOWNLOAD_CHUNK_SIZE = 8192
+# 重试配置
+MAX_RETRIES = 3
+RETRY_BACKOFF_FACTOR = 2
+# 应重试的 HTTP 状态码
+RETRY_STATUS_FORCELIST = [429, 500, 502, 503, 504]
 
 # 缓存：旧格式版本号 {major: {minor1, minor2, ...}}
 # 如 {16: {0,1,2,3,4,5}, 20: {0,1,2,3,4,5,6}, 21: {0,1,2,...,11}}
@@ -35,10 +45,129 @@ _legacy_versions_cache: Optional[Dict[int, Set[int]]] = None
 # 每个热修复版本 {yy: {d: {h1, h2, ...}}}
 _new_versions_cache: Optional[Dict[int, Dict[int, Set[int]]]] = None
 
+# 共享 Session（连接池 + 重试机制）
+_shared_session: Optional[requests.Session] = None
+
 
 def _get_headers() -> Dict[str, str]:
     """获取 API 请求头"""
     return {"User-Agent": MODRINTH_USER_AGENT}
+
+
+def _get_session() -> requests.Session:
+    """获取共享 Session（连接池 + 自动重试）
+
+    使用连接池复用 TCP 连接，避免重复 TLS 握手。
+    配置指数退避重试：失败后等待 2^retry 秒，最多 3 次。
+    """
+    global _shared_session
+    if _shared_session is None:
+        _shared_session = requests.Session()
+        retry_strategy = Retry(
+            total=MAX_RETRIES,
+            backoff_factor=RETRY_BACKOFF_FACTOR,
+            status_forcelist=RETRY_STATUS_FORCELIST,
+            allowed_methods=["GET", "HEAD"],
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=20,
+            pool_maxsize=50,
+        )
+        _shared_session.mount("https://", adapter)
+        _shared_session.mount("http://", adapter)
+        _shared_session.headers.update(_get_headers())
+    return _shared_session
+
+
+def _download_with_resume(
+    url: str,
+    file_path: Path,
+    timeout: int = 120,
+) -> bool:
+    """支持断点续传和重试的文件下载
+
+    流程：
+    1. 检查本地已有文件大小，构造 Range 头请求续传
+    2. 若服务器返回 206，以追加模式写入
+    3. 若服务器不支持 Range（返回 200），从头下载
+    4. 网络异常时指数退避重试
+
+    Args:
+        url: 下载 URL
+        file_path: 保存路径
+        timeout: 请求超时秒数
+
+    Returns:
+        是否下载成功
+    """
+    session = _get_session()
+    downloaded = 0
+
+    if file_path.exists():
+        downloaded = file_path.stat().st_size
+
+    last_error = None
+
+    for attempt in range(1, MAX_RETRIES + 2):
+        try:
+            headers = _get_headers()
+            if downloaded > 0:
+                headers["Range"] = f"bytes={downloaded}-"
+
+            resp = session.get(url, headers=headers, timeout=timeout, stream=True)
+
+            if downloaded > 0 and resp.status_code == 206:
+                mode = "ab"
+            else:
+                if resp.status_code != 206:
+                    downloaded = 0
+                mode = "wb"
+
+            resp.raise_for_status()
+
+            total_size = int(resp.headers.get("Content-Length", 0)) + downloaded
+
+            with open(str(file_path), mode) as f:
+                for chunk in resp.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+                    if chunk:
+                        f.write(chunk)
+
+            logger.info(f"下载完成: {file_path.name} ({total_size} bytes)")
+            return True
+
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
+                requests.exceptions.ChunkedEncodingError) as e:
+            last_error = e
+            if file_path.exists():
+                downloaded = file_path.stat().st_size
+            if attempt <= MAX_RETRIES:
+                wait = RETRY_BACKOFF_FACTOR ** attempt
+                logger.warning(
+                    f"下载中断 (尝试 {attempt}/{MAX_RETRIES + 1}): {e}，"
+                    f"{wait} 秒后重试 (已下载 {downloaded} bytes)"
+                )
+                time.sleep(wait)
+            else:
+                logger.error(f"下载失败，已达最大重试次数: {e}")
+                return False
+
+        except requests.exceptions.RequestException as e:
+            last_error = e
+            if attempt <= MAX_RETRIES:
+                wait = RETRY_BACKOFF_FACTOR ** attempt
+                logger.warning(
+                    f"下载请求异常 (尝试 {attempt}/{MAX_RETRIES + 1}): {e}，"
+                    f"{wait} 秒后重试"
+                )
+                time.sleep(wait)
+            else:
+                logger.error(f"下载失败，已达最大重试次数: {e}")
+                return False
+
+    logger.error(f"下载失败: {last_error}")
+    return False
 
 
 def search_mods(
@@ -99,10 +228,10 @@ def search_mods(
     )
 
     try:
-        resp = requests.get(
+        session = _get_session()
+        resp = session.get(
             f"{MODRINTH_API_BASE}/search",
             params=params,
-            headers=_get_headers(),
             timeout=15,
         )
         resp.raise_for_status()
@@ -146,10 +275,10 @@ def get_mod_versions(
         params["loaders"] = _json.dumps([mod_loader])
 
     try:
-        resp = requests.get(
+        session = _get_session()
+        resp = session.get(
             f"{MODRINTH_API_BASE}/project/{project_id}/version",
             params=params,
-            headers=_get_headers(),
             timeout=15,
         )
         resp.raise_for_status()
@@ -190,50 +319,35 @@ def download_mod(
 
         file_path = save_dir / filename
 
-        # 如果文件已存在，跳过下载
-        if file_path.exists():
-            # 验证已有文件的哈希
-            if expected_hashes:
-                for algorithm, expected in expected_hashes.items():
-                    try:
-                        h = hashlib.new(algorithm)
-                        with open(file_path, "rb") as f:
-                            while chunk := f.read(65536):
-                                h.update(chunk)
-                        actual = h.hexdigest().lower()
-                        expected = expected.lower()
-                        if actual == expected:
-                            logger.info(f"模组文件已存在且哈希匹配: {filename}")
-                            return True, str(file_path)
-                        logger.warning(f"模组文件哈希不匹配 {filename}: 实际={actual}, 期望={expected}，重新下载")
-                        file_path.unlink()
-                        break
-                    except (ValueError, OSError) as e:
-                        logger.debug(f"验证已有文件哈希失败: {e}")
-                        break
-            else:
-                logger.info(f"模组文件已存在，跳过: {file_path}")
-                return True, str(file_path)
+        if file_path.exists() and expected_hashes:
+            for algorithm, expected in expected_hashes.items():
+                try:
+                    h = hashlib.new(algorithm)
+                    with open(file_path, "rb") as f:
+                        while chunk := f.read(65536):
+                            h.update(chunk)
+                    actual = h.hexdigest().lower()
+                    expected = expected.lower()
+                    if actual == expected:
+                        logger.info(f"模组文件已存在且哈希匹配: {filename}")
+                        return True, str(file_path)
+                    logger.warning(f"模组文件哈希不匹配 {filename}，重新下载")
+                    file_path.unlink()
+                    break
+                except (ValueError, OSError) as e:
+                    logger.debug(f"验证已有文件哈希失败: {e}")
+                    break
+        elif file_path.exists() and not expected_hashes:
+            logger.info(f"模组文件已存在，跳过: {file_path}")
+            return True, str(file_path)
 
         logger.info(f"开始下载模组: {filename}")
-        resp = requests.get(
-            download_url,
-            headers=_get_headers(),
-            timeout=60,
-            stream=True,
-        )
-        resp.raise_for_status()
+        download_ok = _download_with_resume(download_url, file_path, timeout=120)
 
-        total_size = int(resp.headers.get("Content-Length", 0))
-        downloaded = 0
+        if not download_ok:
+            slog.error("mod_download_failed", filename=filename, error="下载失败，已达最大重试次数")
+            return False, f"{filename} 下载失败"
 
-        with open(str(file_path), "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-
-        # 下载后校验哈希
         if expected_hashes:
             for algorithm, expected in expected_hashes.items():
                 try:
@@ -245,15 +359,16 @@ def download_mod(
                     expected = expected.lower()
                     if actual != expected:
                         file_path.unlink()
-                        logger.error(f"模组文件哈希校验失败 {filename}: 实际={actual}, 期望={expected}")
-                        return False, f"{filename} 哈希校验失败（可能文件已被篡改）"
+                        logger.error(f"模组文件哈希校验失败 {filename}")
+                        return False, f"{filename} 哈希校验失败"
                     logger.debug(f"哈希校验通过 ({algorithm}): {filename}")
                 except (ValueError, OSError) as e:
                     logger.warning(f"无法校验哈希 {algorithm}: {e}")
                     break
 
-        logger.info(f"模组下载完成: {filename} ({downloaded}/{total_size} bytes)")
-        slog.info("mod_download_complete", filename=filename, size_bytes=downloaded)
+        file_size = file_path.stat().st_size
+        logger.info(f"模组下载完成: {filename} ({file_size} bytes)")
+        slog.info("mod_download_complete", filename=filename, size_bytes=file_size)
         return True, str(file_path)
 
     except Exception as e:
@@ -273,9 +388,9 @@ def get_project_info(project_id: str) -> Optional[Dict]:
         项目信息字典，包含 title, id 等；失败返回 None
     """
     try:
-        resp = requests.get(
+        session = _get_session()
+        resp = session.get(
             f"{MODRINTH_API_BASE}/project/{project_id}",
-            headers=_get_headers(),
             timeout=15,
         )
         resp.raise_for_status()
@@ -479,9 +594,9 @@ def _fetch_all_game_versions() -> Dict[int, Set[int]]:
         return _legacy_versions_cache
 
     try:
-        resp = requests.get(
+        session = _get_session()
+        resp = session.get(
             f"{MODRINTH_API_BASE}/tag/game_version",
-            headers=_get_headers(),
             timeout=15,
         )
         resp.raise_for_status()
@@ -924,10 +1039,10 @@ def search_modpacks(
     )
 
     try:
-        resp = requests.get(
+        session = _get_session()
+        resp = session.get(
             f"{MODRINTH_API_BASE}/search",
             params=params,
-            headers=_get_headers(),
             timeout=15,
         )
         resp.raise_for_status()
@@ -968,10 +1083,10 @@ def get_modpack_versions(
         params["game_versions"] = _json.dumps([game_version])
 
     try:
-        resp = requests.get(
+        session = _get_session()
+        resp = session.get(
             f"{MODRINTH_API_BASE}/project/{project_id}/version",
             params=params,
-            headers=_get_headers(),
             timeout=15,
         )
         resp.raise_for_status()
@@ -1075,29 +1190,14 @@ def download_modpack_file(
 
     logger.info(f"开始下载整合包: {filename} ({download_url[:80]}...)")
 
-    try:
-        resp = requests.get(
-            download_url,
-            headers=_get_headers(),
-            timeout=120,
-            stream=True,
-        )
-        resp.raise_for_status()
+    download_ok = _download_with_resume(download_url, file_path, timeout=300)
 
-        total_size = int(resp.headers.get("Content-Length", 0))
-        downloaded = 0
-
-        with open(str(file_path), "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    downloaded += len(chunk)
-
-        logger.info(f"整合包下载完成: {filename} ({downloaded}/{total_size} bytes)")
-        slog.info("modpack_download_complete", filename=filename, size_bytes=downloaded)
+    if download_ok:
+        file_size = file_path.stat().st_size
+        logger.info(f"整合包下载完成: {filename} ({file_size} bytes)")
+        slog.info("modpack_download_complete", filename=filename, size_bytes=file_size)
         return True, str(file_path)
-
-    except Exception as e:
-        logger.error(f"下载整合包失败: {e}")
-        slog.error("modpack_download_failed", filename=filename, error=str(e)[:200])
-        return False, str(e)
+    else:
+        logger.error(f"下载整合包失败: {filename}")
+        slog.error("modpack_download_failed", filename=filename, error="下载失败，已达最大重试次数")
+        return False, f"{filename} 下载失败"
