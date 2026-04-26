@@ -641,6 +641,77 @@ class EventHandlerMixin(object):
         # 启动日志轮询
         if self._log_capture_active:
             self._poll_log_buffer()
+        # 检查是否需要显示使用条款同意弹窗
+        self._check_terms_consent()
+
+    def _check_terms_consent(self):
+        """检查使用条款/AI隐私同意状态，任一未同意则显示弹窗"""
+        from config import config
+        if not config.terms_consent or not config.ai_privacy_consent:
+            self.after(500, self._show_terms_consent_dialog)
+
+    def _show_terms_consent_dialog(self):
+        """显示使用条款与隐私协议同意弹窗"""
+        import tkinter as tk
+        from config import config
+
+        dialog = tk.Toplevel(self)
+        dialog.title(_("terms_title"))
+        dialog.resizable(False, False)
+        dialog.attributes('-topmost', True)
+        dialog.configure(bg='#1a1a2e')
+        dialog.transient(self)
+        dialog.grab_set()
+
+        w, h = 480, 320
+        dialog.geometry(f"{w}x{h}")
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() - w) // 2
+        y = (dialog.winfo_screenheight() - h) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        pad = 24
+
+        # 标题
+        tk.Label(dialog, text=_("terms_title"),
+                 font=(FONT_FAMILY, 16, 'bold'), fg='#e94560', bg='#1a1a2e').place(x=pad, y=pad)
+
+        # 内容区域
+        content_frame = tk.Frame(dialog, bg='#16213e', highlightbackground='#0f3460', highlightthickness=1)
+        content_frame.place(x=pad, y=pad + 40, width=w - 2 * pad, height=180)
+
+        content_text = _("terms_content")
+        content_label = tk.Label(content_frame, text=content_text,
+                                font=(FONT_FAMILY, 11), fg='#a0a0b0', bg='#16213e',
+                                wraplength=w - 2 * pad - 20, justify='left', anchor='nw')
+        content_label.pack(padx=10, pady=10, fill='both', expand=True)
+
+        # 同意复选框
+        consent_var = tk.BooleanVar(value=False)
+        consent_cb = tk.Checkbutton(dialog, text=_("terms_agree"),
+                                    variable=consent_var,
+                                    font=(FONT_FAMILY, 10), fg='#a0a0b0', bg='#1a1a2e',
+                                    selectcolor='#16213e', activebackground='#1a1a2e',
+                                    activeforeground='#ffffff')
+        consent_cb.place(x=pad, y=h - 72)
+
+        # 确认按钮
+        def _on_confirm():
+            if consent_var.get():
+                config.terms_consent = True
+                config.ai_privacy_consent = True
+                config.save_config()
+                dialog.destroy()
+            else:
+                consent_cb.configure(fg='#e94560')
+                dialog.after(1500, lambda: consent_cb.configure(fg='#a0a0b0'))
+
+        confirm_btn = tk.Button(dialog, text=_("confirm"),
+                                command=_on_confirm,
+                                font=(FONT_FAMILY, 10, 'bold'), relief='flat', cursor='hand2',
+                                bg='#6c5ce7', fg='white', activebackground='#a29bfe',
+                                activeforeground='white', bd=0)
+        confirm_btn.place(x=w - pad - 120, y=h - 52, width=120, height=36)
 
     def _reload_user_settings(self):
         """重新加载用户设置（callbacks 设置后调用）"""

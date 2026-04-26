@@ -145,6 +145,9 @@ class Config:
         # AI 隐私同意
         self.ai_privacy_consent: bool = False
 
+        # 使用条款同意（Minecraft EULA + 净读协议）
+        self.terms_consent: bool = False
+
         # 语言设置
         self.language: str = self.DEFAULT_LANGUAGE
 
@@ -202,6 +205,8 @@ class Config:
                 self.language = data["language"]
             if "ai_privacy_consent" in data:
                 self.ai_privacy_consent = data["ai_privacy_consent"]
+            if "terms_consent" in data:
+                self.terms_consent = data["terms_consent"]
 
             logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}, 语言={self.language}")
 
@@ -222,6 +227,7 @@ class Config:
                 "jdz_token": encrypt_token(self.jdz_token) if self.jdz_token else None,
                 "language": self.language,
                 "ai_privacy_consent": self.ai_privacy_consent,
+                "terms_consent": self.terms_consent,
                 "backup_dir": self.backup_dir,
                 "backup_compress_level": self.backup_compress_level,
                 "backup_max_per_world": self.backup_max_per_world,

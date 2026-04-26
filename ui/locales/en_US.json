@@ -340,5 +340,9 @@
   "agent_tool_result": "Result",
   "agent_processing_error": "Processing error: {error}\nHint: Please check your AI Token configuration",
   "agent_chat_cleared": "Chat cleared",
-  "agent_choose_option": "Choice: {value}"
+  "agent_choose_option": "Choice: {value}",
+
+  "terms_title": "Terms & Privacy Agreement",
+  "terms_content": "By using this launcher, you agree to the Minecraft EULA, Jingdu AI Privacy Agreement, and Jingdu Terms of Service.\n\nTerms link: https://jingdu.qzz.io/terms",
+  "terms_agree": "I Agree"
 }

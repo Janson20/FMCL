@@ -117,6 +117,7 @@
 ### 🖥️ 现代化界面
 - 基于 CustomTkinter 的深色主题，流畅美观
 - **跨平台中文字体适配**：自动检测系统并选择合适的中文字体（Windows: Microsoft YaHei / macOS: PingFang SC / Linux: Noto Sans CJK SC 等）；Linux 下若无中文字体则自动通过包管理器安装
+- **首次使用协议弹窗**：首次启动时弹出使用条款与隐私协议同意窗口，需勾选同意后方可继续使用，协议内容包含 Minecraft EULA、净读 AI 隐私协议及净读使用条款
 - 启动画面：加载时在屏幕中央展示应用图标，加载完成后自动切换到主窗口
 - 三栏布局：左侧边栏（角色名、皮肤、日志）、中间已安装版本、右侧操作面板
 - 异步操作：所有网络与安装任务在后台线程执行，UI 不卡顿
@@ -739,6 +740,7 @@ main.py
 | `jdz_token` | string/null | `null` | 净读 AI Token（Fernet 加密存储，不可手动编辑） |
 | `language` | string | `"zh_CN"` | 界面语言（zh_CN/en_US/ja_JP/zh_TW） |
 | `ai_privacy_consent` | bool | `false` | 是否已同意 AI 分析隐私说明 |
+| `terms_consent` | bool | `false` | 是否已同意使用条款（Minecraft EULA + 净读协议），首次启动时弹窗确认 |
 | `backup_dir` | string/null | `null` | 备份存储路径（null 则使用程序目录/backups） |
 | `backup_compress_level` | int | `6` | 备份压缩等级（1=最快, 9=最小体积） |
 | `backup_max_per_world` | int | `10` | 每个存档最大备份数（0=不限制） |

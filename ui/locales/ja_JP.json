@@ -340,5 +340,9 @@
   "agent_tool_result": "結果",
   "agent_processing_error": "処理エラー: {error}\nヒント：AI Tokenの設定を確認してください",
   "agent_chat_cleared": "チャットをクリアしました",
-  "agent_choose_option": "選択: {value}"
+  "agent_choose_option": "選択: {value}",
+
+  "terms_title": "利用規約とプライバシー契約",
+  "terms_content": "このランチャーを使用することにより、Minecraft EULA、Jingdu AIプライバシー契約、Jingdu利用規約に同意したことになります。\n\n規約リンク: https://jingdu.qzz.io/terms",
+  "terms_agree": "同意する"
 }

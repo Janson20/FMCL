@@ -340,5 +340,9 @@
   "agent_tool_result": "结果",
   "agent_processing_error": "处理出错: {error}\n提示：请检查 AI Token 是否正确配置",
   "agent_chat_cleared": "对话已清空",
-  "agent_choose_option": "选择: {value}"
+  "agent_choose_option": "选择: {value}",
+
+  "terms_title": "使用条款与隐私协议",
+  "terms_content": "使用该启动器代表你已同意Minecraft EULA，净读AI隐私协议，净读使用条款\n\n条款链接: https://jingdu.qzz.io/terms",
+  "terms_agree": "我同意"
 }
