@@ -13,17 +13,14 @@ API 文档: https://docs.modrinth.com/api/
 - 下载整合包 .mrpack 文件
 """
 
+import hashlib
 from typing import List, Dict, Optional, Set, Tuple
 from pathlib import Path
 
 import requests
-import urllib3
 from logzero import logger
 
 from structured_logger import slog
-
-# 禁用 SSL 证书验证警告
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 MODRINTH_API_BASE = "https://api.modrinth.com/v2"
@@ -107,7 +104,6 @@ def search_mods(
             params=params,
             headers=_get_headers(),
             timeout=15,
-            verify=False,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -155,7 +151,6 @@ def get_mod_versions(
             params=params,
             headers=_get_headers(),
             timeout=15,
-            verify=False,
         )
         resp.raise_for_status()
         versions = resp.json()
@@ -175,14 +170,16 @@ def download_mod(
     download_url: str,
     save_path: str,
     filename: str,
+    expected_hashes: Optional[Dict[str, str]] = None,
 ) -> Tuple[bool, str]:
     """
-    下载模组文件
+    下载模组文件，可选地校验文件哈希
 
     Args:
         download_url: 下载 URL
         save_path: 保存目录路径
         filename: 文件名
+        expected_hashes: 期望的文件哈希 {算法: 哈希值}，如 {"sha1": "abc123", "sha512": "def456"}
 
     Returns:
         (是否成功, 保存路径或错误信息) 元组
@@ -195,8 +192,28 @@ def download_mod(
 
         # 如果文件已存在，跳过下载
         if file_path.exists():
-            logger.info(f"模组文件已存在，跳过: {file_path}")
-            return True, str(file_path)
+            # 验证已有文件的哈希
+            if expected_hashes:
+                for algorithm, expected in expected_hashes.items():
+                    try:
+                        h = hashlib.new(algorithm)
+                        with open(file_path, "rb") as f:
+                            while chunk := f.read(65536):
+                                h.update(chunk)
+                        actual = h.hexdigest().lower()
+                        expected = expected.lower()
+                        if actual == expected:
+                            logger.info(f"模组文件已存在且哈希匹配: {filename}")
+                            return True, str(file_path)
+                        logger.warning(f"模组文件哈希不匹配 {filename}: 实际={actual}, 期望={expected}，重新下载")
+                        file_path.unlink()
+                        break
+                    except (ValueError, OSError) as e:
+                        logger.debug(f"验证已有文件哈希失败: {e}")
+                        break
+            else:
+                logger.info(f"模组文件已存在，跳过: {file_path}")
+                return True, str(file_path)
 
         logger.info(f"开始下载模组: {filename}")
         resp = requests.get(
@@ -204,7 +221,6 @@ def download_mod(
             headers=_get_headers(),
             timeout=60,
             stream=True,
-            verify=False,
         )
         resp.raise_for_status()
 
@@ -216,6 +232,25 @@ def download_mod(
                 if chunk:
                     f.write(chunk)
                     downloaded += len(chunk)
+
+        # 下载后校验哈希
+        if expected_hashes:
+            for algorithm, expected in expected_hashes.items():
+                try:
+                    h = hashlib.new(algorithm)
+                    with open(file_path, "rb") as f:
+                        while chunk := f.read(65536):
+                            h.update(chunk)
+                    actual = h.hexdigest().lower()
+                    expected = expected.lower()
+                    if actual != expected:
+                        file_path.unlink()
+                        logger.error(f"模组文件哈希校验失败 {filename}: 实际={actual}, 期望={expected}")
+                        return False, f"{filename} 哈希校验失败（可能文件已被篡改）"
+                    logger.debug(f"哈希校验通过 ({algorithm}): {filename}")
+                except (ValueError, OSError) as e:
+                    logger.warning(f"无法校验哈希 {algorithm}: {e}")
+                    break
 
         logger.info(f"模组下载完成: {filename} ({downloaded}/{total_size} bytes)")
         slog.info("mod_download_complete", filename=filename, size_bytes=downloaded)
@@ -242,7 +277,6 @@ def get_project_info(project_id: str) -> Optional[Dict]:
             f"{MODRINTH_API_BASE}/project/{project_id}",
             headers=_get_headers(),
             timeout=15,
-            verify=False,
         )
         resp.raise_for_status()
         return resp.json()
@@ -381,7 +415,8 @@ def install_mod_with_deps(
     if status_callback:
         status_callback(f"正在下载 {filename}...")
 
-    success, result = download_mod(download_url, mods_dir, filename)
+    expected_hashes = primary_file.get("hashes")
+    success, result = download_mod(download_url, mods_dir, filename, expected_hashes=expected_hashes)
 
     if success:
         installed_names.append(mod_title)
@@ -448,7 +483,6 @@ def _fetch_all_game_versions() -> Dict[int, Set[int]]:
             f"{MODRINTH_API_BASE}/tag/game_version",
             headers=_get_headers(),
             timeout=15,
-            verify=False,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -895,7 +929,6 @@ def search_modpacks(
             params=params,
             headers=_get_headers(),
             timeout=15,
-            verify=False,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -940,7 +973,6 @@ def get_modpack_versions(
             params=params,
             headers=_get_headers(),
             timeout=15,
-            verify=False,
         )
         resp.raise_for_status()
         versions = resp.json()
@@ -1049,7 +1081,6 @@ def download_modpack_file(
             headers=_get_headers(),
             timeout=120,
             stream=True,
-            verify=False,
         )
         resp.raise_for_status()
 

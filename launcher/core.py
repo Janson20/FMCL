@@ -15,6 +15,7 @@ from logzero import logger
 from config import Config
 from structured_logger import slog
 from mirror import MirrorSource
+from validation import validate_version_id, validate_server_ip, validate_server_port
 
 
 def concurrent_file_verify(
@@ -218,6 +219,11 @@ class MinecraftLauncher:
             安装原版时返回 version_id
             安装模组加载器时返回 loader 创建的版本ID (如 "1.20.4-forge-49.0.26" 或 "26.1-forge-1.0.0")
         """
+        # 验证版本ID合法性
+        if not validate_version_id(version_id):
+            logger.error(f"非法版本ID格式: {version_id}")
+            return False, version_id
+
         try:
             # 检查版本是否有效 — 用 set 实现 O(1) 查找
             available_versions = self.get_available_versions()
@@ -280,6 +286,20 @@ class MinecraftLauncher:
         Returns:
             (success, target_version) 是否启动成功及实际启动的版本ID
         """
+        # 验证版本ID合法性
+        if not validate_version_id(version_id):
+            logger.error(f"非法版本ID格式: {version_id}")
+            return False, None
+
+        # 验证服务器IP和端口
+        if server_ip:
+            if not validate_server_ip(server_ip):
+                logger.error(f"非法服务器IP格式: {server_ip}")
+                return False, None
+        if not validate_server_port(server_port):
+            logger.error(f"非法服务器端口: {server_port}")
+            return False, None
+
         try:
             # 检查版本是否已安装
             installed_versions = self.get_installed_versions()
@@ -567,6 +587,11 @@ class MinecraftLauncher:
         Returns:
             (是否成功, 版本ID) 元组
         """
+        # 验证版本ID合法性（防止路径穿越）
+        if not validate_version_id(version_id):
+            logger.error(f"非法版本ID格式，拒绝删除: {version_id}")
+            return False, version_id
+
         try:
             versions_dir = self.config.get_versions_dir()
             version_dir = versions_dir / version_id

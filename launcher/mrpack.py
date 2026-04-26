@@ -308,6 +308,13 @@ class MrpackMixin:
                     err_msg.append(f"原版安装: {vanilla_error}")
                 combined = "; ".join(err_msg)
                 logger.error(f"并行安装失败: {combined}")
+                # 清理部分下载的文件
+                try:
+                    if os.path.isdir(mp_dir):
+                        shutil.rmtree(mp_dir)
+                        logger.info(f"已清理部分安装目录: {mp_dir}")
+                except Exception as cleanup_err:
+                    logger.warning(f"清理部分安装目录失败: {cleanup_err}")
                 return False, combined
 
             logger.info("并行阶段完成，开始安装模组加载器...")
@@ -346,6 +353,13 @@ class MrpackMixin:
 
         except Exception as e:
             logger.error(f"整合包安装失败: {e}")
+            # 清理部分下载的文件
+            try:
+                if 'mp_dir' in locals() and os.path.isdir(mp_dir):
+                    shutil.rmtree(mp_dir)
+                    logger.info(f"已清理部分安装目录: {mp_dir}")
+            except Exception as cleanup_err:
+                logger.warning(f"清理部分安装目录失败: {cleanup_err}")
             return False, str(e)
 
     def get_mrpack_launch_version(self, mrpack_path: str) -> str:
@@ -528,6 +542,13 @@ class MrpackMixin:
                     err_msg.append(f"原版安装: {vanilla_error}")
                 combined = "; ".join(err_msg)
                 logger.error(f"并行安装失败: {combined}")
+                # 清理部分下载的文件
+                try:
+                    if 'server_dir' in locals() and server_dir.exists():
+                        shutil.rmtree(str(server_dir))
+                        logger.info(f"已清理部分安装目录: {server_dir}")
+                except Exception as cleanup_err:
+                    logger.warning(f"清理部分安装目录失败: {cleanup_err}")
                 return False, combined
 
             self._mp_progress["phase"] = "loader"
@@ -622,6 +643,13 @@ class MrpackMixin:
 
         except Exception as e:
             logger.error(f"整合包服务器安装失败: {e}")
+            # 清理部分下载的文件
+            try:
+                if 'server_dir' in locals() and server_dir.exists():
+                    shutil.rmtree(str(server_dir))
+                    logger.info(f"已清理部分安装目录: {server_dir}")
+            except Exception as cleanup_err:
+                logger.warning(f"清理部分安装目录失败: {cleanup_err}")
             return False, str(e)
 
     def _install_server_mod_loader(

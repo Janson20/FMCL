@@ -10,6 +10,7 @@
 5. 执行静默安装（/S 或 /silent）
 """
 
+import hashlib
 import os
 import platform
 import subprocess
@@ -19,13 +20,9 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, Callable
 
 import requests
-import urllib3
 from logzero import logger
 
 from structured_logger import slog
-
-# 禁用 SSL 证书验证警告
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # GitHub 仓库信息
 GITHUB_OWNER = "Janson20"
@@ -76,7 +73,7 @@ def check_for_update() -> Optional[Dict[str, Any]]:
         slog.info("update_check_start", current_version=current,
                   platform=f"{platform.system().lower()}_{platform.machine().lower()}")
 
-        resp = requests.get(GITHUB_API_URL, timeout=10, verify=False)
+        resp = requests.get(GITHUB_API_URL, timeout=10)
         resp.raise_for_status()
 
         release = resp.json()
@@ -266,7 +263,7 @@ def download_update(
 
         logger.info(f"开始下载更新: {filename}")
 
-        resp = requests.get(url, stream=True, timeout=60, verify=False)
+        resp = requests.get(url, stream=True, timeout=60)
         resp.raise_for_status()
 
         # 优先使用 Content-Length
@@ -275,16 +272,29 @@ def download_update(
         downloaded = 0
         chunk_size = 8192
 
+        # 下载时同时计算 SHA256（用于完整性校验）
+        sha256_hash = hashlib.sha256()
+
         with open(save_path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=chunk_size):
                 if chunk:
                     f.write(chunk)
+                    sha256_hash.update(chunk)
                     downloaded += len(chunk)
                     if progress_callback and content_length > 0:
                         progress_callback(downloaded, content_length)
 
-        logger.info(f"更新下载完成: {save_path}")
-        slog.info("update_download_complete", installer_path=save_path, size_bytes=downloaded)
+        # 验证文件大小
+        actual_size = os.path.getsize(save_path)
+        if content_length > 0 and actual_size != content_length:
+            os.unlink(save_path)
+            logger.error(f"更新文件大小不匹配: 期望 {content_length} 字节，实际 {actual_size} 字节")
+            slog.error("update_install_failed", failure_stage="verify_size", error="size_mismatch")
+            return None
+
+        logger.info(f"更新下载完成: {save_path} (SHA256: {sha256_hash.hexdigest()})")
+        slog.info("update_download_complete", installer_path=save_path, size_bytes=downloaded,
+                  sha256=sha256_hash.hexdigest())
         return save_path
 
     except Exception as e:

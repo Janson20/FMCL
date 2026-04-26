@@ -11,6 +11,7 @@ from typing import List, Dict, Optional, Tuple, Callable, Any
 from logzero import logger
 
 from structured_logger import slog
+from validation import validate_version_id, validate_server_ip, validate_server_port, validate_memory
 
 
 class ServerMixin:
@@ -130,6 +131,11 @@ class ServerMixin:
         Returns:
             (是否成功, 版本号) 元组
         """
+        # 验证版本ID合法性
+        if not validate_version_id(version_id):
+            logger.error(f"非法版本ID格式: {version_id}")
+            return False, version_id
+
         import requests as req
 
         try:
@@ -300,6 +306,16 @@ class ServerMixin:
         Returns:
             (是否成功, 进程对象) 元组
         """
+        # 验证版本ID合法性
+        if not validate_version_id(version_id):
+            logger.error(f"非法版本ID格式: {version_id}")
+            return False, None
+
+        # 验证内存参数合法性
+        if not validate_memory(max_memory):
+            logger.error(f"非法内存参数格式: {max_memory}")
+            return False, None
+
         try:
             server_dir = self._get_server_versions_dir() / version_id
             if not server_dir.exists():
@@ -487,6 +503,11 @@ class ServerMixin:
 
     def remove_server(self, version_id: str) -> Tuple[bool, str]:
         """删除已安装的服务器版本"""
+        # 验证版本ID合法性（防止路径穿越）
+        if not validate_version_id(version_id):
+            logger.error(f"非法版本ID格式，拒绝删除: {version_id}")
+            return False, version_id
+
         try:
             server_dir = self._get_server_versions_dir() / version_id
             if not server_dir.exists():

@@ -17,13 +17,9 @@ from typing import Optional, Callable, Dict, Tuple, List
 from pathlib import Path
 
 import requests
-import urllib3
 from logzero import logger
 
 from structured_logger import slog
-
-# 禁用 SSL 证书验证警告
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class MultiThreadDownloader:
@@ -48,7 +44,7 @@ class MultiThreadDownloader:
     ) -> None:
         headers = {'Range': f'bytes={start_byte}-{end_byte}'}
         try:
-            response = requests.get(url, headers=headers, stream=True, timeout=30, verify=False)
+            response = requests.get(url, headers=headers, stream=True, timeout=30)
             response.raise_for_status()
 
             part_filename = f"{filename}.part{part_number}"
@@ -79,7 +75,7 @@ class MultiThreadDownloader:
 
     def download(self, url: str, output_dir: Optional[str] = None) -> str:
         try:
-            response = requests.head(url, timeout=10, verify=False)
+            response = requests.head(url, timeout=10)
             response.raise_for_status()
 
             self.total_size = int(response.headers.get('Content-Length', 0))
@@ -267,7 +263,7 @@ class AsyncBatchDownloader:
         for i, (url, save_path) in enumerate(tasks):
             try:
                 Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-                resp = requests.get(url, timeout=30, verify=False)
+                resp = requests.get(url, timeout=30)
                 resp.raise_for_status()
                 with open(save_path, "wb") as f:
                     f.write(resp.content)

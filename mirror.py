@@ -8,11 +8,7 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 import requests
-import urllib3
 from logzero import logger
-
-# 禁用 SSL 证书验证警告
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 高性能 JSON 解析
 try:
@@ -126,7 +122,6 @@ class MirrorSource:
         self.enabled = enabled
         self._session = requests.Session()
         self._session.timeout = 15
-        self._session.verify = False
 
         # URL 重写缓存：避免对同一 URL 重复匹配规则
         self._url_cache: Dict[str, str] = {}

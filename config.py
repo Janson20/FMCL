@@ -7,6 +7,8 @@ from typing import Optional
 import logzero
 from logzero import logger
 
+from secure_storage import encrypt_token, decrypt_token, set_key_dir
+
 # 高性能 JSON 解析：orjson 比 stdlib json 快 3-10 倍
 try:
     import orjson as _json_mod
@@ -114,6 +116,9 @@ class Config:
             self.log_file = platform_paths['log_file']
             self.config_file = platform_paths['config_file']
 
+        # 设置密钥存储目录
+        set_key_dir(self.base_dir)
+
         # 下载配置
         self.download_threads = 4
         self.chunk_size = 8192
@@ -176,7 +181,11 @@ class Config:
             if "skin_path" in data:
                 self.skin_path = data["skin_path"]
             if "jdz_token" in data:
-                self.jdz_token = data["jdz_token"]
+                stored = data["jdz_token"]
+                if stored:
+                    self.jdz_token = decrypt_token(stored)
+                else:
+                    self.jdz_token = None
             if "backup_dir" in data:
                 self.backup_dir = data["backup_dir"]
             if "backup_compress_level" in data:
@@ -200,7 +209,8 @@ class Config:
             logger.error(f"加载配置文件失败: {e}")
 
     def save_config(self) -> None:
-        """保存配置到文件"""
+        """保存配置到文件（使用原子写入防止文件损坏）"""
+        import tempfile
         try:
             data = {
                 "mirror_enabled": self.mirror_enabled,
@@ -209,7 +219,7 @@ class Config:
                 "auto_check_update": self.auto_check_update,
                 "player_name": self.player_name,
                 "skin_path": self.skin_path,
-                "jdz_token": self.jdz_token,
+                "jdz_token": encrypt_token(self.jdz_token) if self.jdz_token else None,
                 "language": self.language,
                 "ai_privacy_consent": self.ai_privacy_consent,
                 "backup_dir": self.backup_dir,
@@ -219,8 +229,19 @@ class Config:
                 "backup_auto_launch": self.backup_auto_launch,
                 "backup_auto_exit": self.backup_auto_exit,
             }
-            with open(self.config_file, "w", encoding="utf-8") as f:
-                f.write(_json_dumps(data, indent=2, ensure_ascii=False))
+            content = _json_dumps(data, indent=2, ensure_ascii=False)
+            # 原子写入：先写临时文件，再重命名，防止写入过程中崩溃导致配置文件损坏
+            fd, tmp_path = tempfile.mkstemp(dir=str(self.config_file.parent), suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                os.replace(tmp_path, str(self.config_file))
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+                raise
             logger.info("配置已保存")
         except Exception as e:
             logger.error(f"保存配置文件失败: {e}")

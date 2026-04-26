@@ -27,7 +27,7 @@
 - 一键开关镜像源，切换即时生效
 - 自动连接测试，状态栏显示连接结果
 - 覆盖范围：版本清单、游戏资源、库文件、Forge/Fabric/NeoForge 安装器
-- **SSL 证书容错**：获取版本列表时忽略证书验证错误，适配网络代理和自签名证书环境
+- **SSL 证书验证**：所有网络请求默认验证 SSL 证书，确保通信安全可靠
 
 ### 🔧 多模组加载器
 - **Forge** - 最广泛使用的模组加载器
@@ -190,6 +190,16 @@
 - 分析结果以弹窗展示，包含崩溃原因分析和建议操作
 - 支持将 AI 分析结果保存为 TXT 文件
 - **隐私保护**：首次使用 AI 分析时弹出隐私说明，需用户勾选同意后才可使用；同意状态持久化保存，后续无需重复确认
+- **安全存储**：登录 Token 使用 Fernet (AES-128-CBC + HMAC-SHA256) 加密存储于 `config.json`，密钥文件保存在 `<base_dir>/.fmcl_key`，支持跨机器迁移
+
+### 🔒 安全特性
+- **SSL 证书验证**：所有 HTTP 请求（Modrinth API、GitHub Release、镜像源等）均启用 SSL 证书验证，防止中间人攻击
+- **数据加密存储**：敏感 Token 使用随机密钥文件 + Fernet 对称加密存储，支持密码派生密钥（环境变量 `FMCL_ENC_KEY_PASSWORD`）
+- **密钥文件可迁移**：`.fmcl_key` 密钥文件可随 `config.json` 一起拷贝到新机器，Token 无缝迁移
+- **输入验证与防注入**：所有用户输入（版本 ID、服务器 IP、内存参数等）均经过白名单验证，防止命令注入和路径穿越攻击
+- **文件完整性校验**：Modrinth 模组下载后自动验证 SHA1/SHA512 哈希，更新包下载后验证文件大小和 SHA256，确保文件未被篡改
+- **原子写入**：配置文件、备份索引等更新时使用临时文件 + 重命名机制，防止写入中断导致文件损坏
+- **安装回滚**：整合包安装失败时自动清理部分下载的文件和目录，避免残留损坏
 
 ### 🌐 多语言界面
 - 支持简体中文、English、繁體中文、日本語四种语言
@@ -561,7 +571,8 @@ FMCL/
 │   ├── URL 重写规则       # 官方 URL -> BMCLAPI 映射（前缀长度排序）
 │   └── Monkey Patch       # minecraft_launcher_lib 补丁
 ├── backup_manager.py      # 存档备份管理（备份/恢复/删除/校验/导出）
-│   └── Config             # 配置类（持久化到 config.json）
+├── secure_storage.py      # 安全存储模块（Fernet 加密 Token，密钥文件管理）
+├── validation.py          # 输入验证模块（版本ID/IP/端口/内存校验，路径穿越防护）
 ├── screen_shot.py         # 截图工具（Ctrl+Alt+T 触发）
 ├── structured_logger.py   # 结构化日志（JSONL 格式，核心流程结构化记录）
 ├── config.json            # 用户配置（镜像源开关、下载线程数等）
@@ -586,6 +597,8 @@ FMCL/
 ```
 main.py
   ├── config.py (全局配置)
+  │   └── secure_storage.py (Token 加密存储)
+  ├── validation.py (输入验证)
   ├── backup_manager.py (存档备份管理)
   ├── launcher/ (核心逻辑包)
   │   ├── core.py (环境检查、版本安装、游戏启动)
@@ -624,6 +637,10 @@ main.py
 | 日志 | logzero | 轻量级日志框架 |
 | 结构化日志 | JSONL 格式 | 核心流程结构化记录，方便程序化分析 |
 | HTTP | requests | API 请求与文件下载 |
+| 加密 | cryptography (Fernet) | 敏感 Token AES-128-CBC + HMAC-SHA256 加密存储 |
+| 密钥管理 | PBKDF2-HMAC-SHA256 | 密码派生密钥（600000 次迭代） |
+| 输入验证 | 正则 + 白名单 | 防止命令注入和路径穿越攻击 |
+| 文件完整性 | SHA1 / SHA256 / SHA512 | 模组和更新包下载后自动校验哈希 |
 | 模组搜索 | Modrinth API V2 | 在线搜索和安装模组/整合包 |
 | 下载 | 多线程分段下载 | 大文件并行下载加速 |
 | 截图 | pyautogui + keyboard | 区域截图 + 快捷键监听 |
@@ -641,11 +658,13 @@ main.py
 
 **Windows/macOS:**
 - 配置文件: `config.json`（程序根目录）
+- 密钥文件: `.fmcl_key`（程序根目录，用于加密存储敏感 Token）
 - 日志文件: `latest.log`（程序根目录）
 - Minecraft 目录: `.minecraft/`（程序根目录）
 
 **Linux (FHS 标准):**
 - 配置文件: `/etc/fmcl/config.json`
+- 密钥文件: `~/.fmcl/.fmcl_key`
 - 日志文件: `/var/log/fmcl/latest.log`
 - Minecraft 目录: `~/.minecraft/`
 - 运行时目录: `~/.fmcl/`
@@ -675,6 +694,7 @@ main.py
   "auto_check_update": true,
   "player_name": "Steve",
   "skin_path": null,
+  "jdz_token": "gAAAAABm...（Fernet 加密密文）",
   "language": "zh_CN",
   "ai_privacy_consent": false,
   "backup_dir": null,
@@ -694,6 +714,7 @@ main.py
 | `auto_check_update` | bool | `true` | 启动时是否自动检查更新 |
 | `player_name` | string | `"Steve"` | 自定义游戏角色名 |
 | `skin_path` | string/null | `null` | 自定义皮肤文件路径 |
+| `jdz_token` | string/null | `null` | 净读 AI Token（Fernet 加密存储，不可手动编辑） |
 | `language` | string | `"zh_CN"` | 界面语言（zh_CN/en_US/ja_JP/zh_TW） |
 | `ai_privacy_consent` | bool | `false` | 是否已同意 AI 分析隐私说明 |
 | `backup_dir` | string/null | `null` | 备份存储路径（null 则使用程序目录/backups） |
