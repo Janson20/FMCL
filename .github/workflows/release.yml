@@ -84,6 +84,7 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
+          rm -rf dmg_temp FMCL-*-mac-amd64.dmg
           mkdir -p dmg_temp
           cp -R dist/FMCL.app dmg_temp/
           ln -sf /Applications dmg_temp/Applications
@@ -124,6 +125,7 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
+          rm -rf dmg_temp FMCL-*-mac-arm64.dmg
           mkdir -p dmg_temp
           cp -R dist/FMCL.app dmg_temp/
           ln -sf /Applications dmg_temp/Applications
