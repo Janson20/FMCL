@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Any, Tuple
@@ -208,7 +209,10 @@ class MinecraftLauncher:
 
         安装逻辑：
         - 无模组加载器: 仅安装原版 Minecraft
-        - 有模组加载器: mod_loader.install() 会自动先装原版再装loader
+        - 有模组加载器: 原版安装和模组加载器安装并行等待（线程 A 安装原版，
+          线程 B 等待原版完成后调用 `install_mod_loader()`），
+          避免并发下载同一主机（`resources.download.minecraft.net`）导致 SSL 连接池耗尽，
+          同时保持安装流程清晰、复用经过充分测试的安装路径。
 
         Args:
             version_id: 版本ID (如 "1.20.4" 或 "26.1")
@@ -237,17 +241,57 @@ class MinecraftLauncher:
                 return False, version_id
 
             if mod_loader and mod_loader != "无":
-                # 安装模组加载器 (会自动安装原版)
-                from downloader import install_mod_loader
-                logger.info(f"正在安装 {mod_loader} for Minecraft {version_id}")
-                installed_version_id, loader_version = install_mod_loader(
-                    loader=mod_loader,
-                    version=version_id,
-                    minecraft_dir=self.minecraft_dir,
-                    num_threads=self.config.download_threads,
-                    mirror=self._mirror,
-                    callback=self._get_callback(),
-                )
+                logger.info(f"正在并行安装 {mod_loader} for Minecraft {version_id}")
+
+                vanilla_done = threading.Event()
+                vanilla_error = [None]
+                loader_result = [None]
+                loader_error = [None]
+
+                def _install_vanilla():
+                    try:
+                        self._mcllib.install.install_minecraft_version(
+                            version_id,
+                            self.minecraft_dir,
+                            callback=self._get_callback(),
+                        )
+                        vanilla_done.set()
+                    except Exception as e:
+                        vanilla_error[0] = e
+                        vanilla_done.set()
+
+                def _install_loader():
+                    try:
+                        vanilla_done.wait()
+
+                        from downloader import install_mod_loader as _install_mod_loader
+
+                        result = _install_mod_loader(
+                            loader=mod_loader,
+                            version=version_id,
+                            minecraft_dir=self.minecraft_dir,
+                            num_threads=self.config.download_threads,
+                            mirror=self._mirror,
+                            callback=self._get_callback(),
+                        )
+                        loader_result[0] = result
+                    except Exception as e:
+                        loader_error[0] = e
+
+                t1 = threading.Thread(target=_install_vanilla, daemon=True)
+                t2 = threading.Thread(target=_install_loader, daemon=True)
+                t1.start()
+                t2.start()
+                t2.join()
+
+                if loader_error[0]:
+                    raise loader_error[0]
+
+                installed_version_id, loader_version = loader_result[0]
+
+                if vanilla_error[0]:
+                    logger.warning(f"原版安装失败（模组加载器安装已自行处理）: {vanilla_error[0]}")
+
                 logger.info(f"安装完成: {installed_version_id} (Loader: {mod_loader} {loader_version})")
                 slog.info("version_installed", version=version_id, loader=mod_loader,
                           installed_version_id=installed_version_id, loader_version=loader_version)
