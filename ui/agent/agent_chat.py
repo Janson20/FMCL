@@ -200,6 +200,21 @@ class AgentChatView(ctk.CTkFrame):
         self._append_system_message(_("agent_chat_cleared"))
         self._append_divider()
 
+    def send_message(self, text: str):
+        """外部快速发送消息（供快速输入框调用）"""
+        text = text.strip()
+        if not text:
+            return
+        if not self._provider:
+            self._append_message("system", _("agent_no_token_hint"))
+            return
+        self._input_entry.delete(0, ctk.END)
+        self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
+        self._append_message("user", text)
+        self._append_divider()
+        self._messages.append({"role": "user", "content": text})
+        threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
+
     def _on_send(self):
         user_input = self._input_entry.get().strip()
         logger.info(f"[Agent] _on_send 触发, 输入: '{user_input}'")

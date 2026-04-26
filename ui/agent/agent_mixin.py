@@ -100,6 +100,16 @@ class AgentMixin(object):
             return result
         return ""
 
+    def _on_agent_quick_send(self, event=None):
+        """从顶部快速输入框发送消息到 AGENT 标签页"""
+        text = self._agent_quick_input.get().strip()
+        if not text:
+            return
+        self._agent_quick_input.delete(0, ctk.END)
+        self.tabview.set("🤖 AGENT")
+        if hasattr(self, "_agent_chat") and self._agent_chat:
+            self._agent_chat.send_message(text)
+
     def _sync_agent_status(self):
         """根据当前 callbacks 同步状态标签和 provider"""
         has_token = bool(self._get_agent_token())

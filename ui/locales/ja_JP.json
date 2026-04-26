@@ -330,6 +330,7 @@
   "agent_chat_title": "💬 チャット",
   "agent_clear": "クリア",
   "agent_input_placeholder": "リクエストを入力してください。例：最新のMinecraftをダウンロード...",
+  "agent_quick_input_placeholder": "🤖 AI アシスタントに質問...",
   "agent_send": "送信",
   "agent_welcome1": "こんにちは！私はFMCL AIアシスタントです。自然言語でMinecraftを管理できます。",
   "agent_welcome2": "例：",

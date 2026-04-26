@@ -330,6 +330,7 @@
   "agent_chat_title": "💬 對話",
   "agent_clear": "清空",
   "agent_input_placeholder": "輸入你的需求，例如：幫我下載最新版Minecraft...",
+  "agent_quick_input_placeholder": "🤖 向 AI 助手提問...",
   "agent_send": "傳送",
   "agent_welcome1": "你好！我是 FMCL 智能助手，可以透過自然語言幫你管理 Minecraft。",
   "agent_welcome2": "例如：",

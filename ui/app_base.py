@@ -99,6 +99,18 @@ class ModernAppBase(ctk.CTk):
         )
         subtitle.pack(side=ctk.LEFT, padx=(15, 0), pady=(10, 0))
 
+        # Agent 快速输入框
+        self._agent_quick_input = ctk.CTkEntry(
+            header,
+            height=35,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=COLORS["bg_medium"],
+            border_color=COLORS["card_border"],
+            placeholder_text=_("agent_quick_input_placeholder"),
+        )
+        self._agent_quick_input.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(20, 10))
+        self._agent_quick_input.bind("<Return>", self._on_agent_quick_send)
+
         # 刷新按钮
         refresh_btn = ctk.CTkButton(
             header,
