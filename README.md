@@ -209,6 +209,12 @@
   3. "给 1.20.1 装个钠" -> AI 搜索 Modrinth -> 找到 Sodium -> 自动匹配版本和加载器 -> 安装
 - **Token 配置**：在 AGENT 标签页点击"设置 Token"按钮，输入净读 AI Token 即可启用
 - **隐私说明**：Token 仅保存在本地配置文件中，不会上传至任何第三方
+- **命令行模式**：支持通过命令行参数使用，无需 GUI：
+  - `python main.py login -name <用户名> -pwd <密码>` - 登录净读 AI（省略 `-pwd` 则交互输入密码）
+  - `python main.py -agent "帮我安装最新版"` - 执行单条指令
+  - `python main.py -A "给1.20.1装钠"` - 执行单条指令（简写）
+  - `python main.py -A` - 进入交互模式，连续对话
+  - 交互模式支持 `/quit` 退出、`/clear` 清空对话
 
 ### 🔒 安全特性
 - **SSL 证书验证**：所有 HTTP 请求（Modrinth API、GitHub Release、镜像源等）均启用 SSL 证书验证，防止中间人攻击
@@ -316,8 +322,13 @@ cd FMCL
 # 安装 Python 依赖
 pip install -r requirements.txt
 
-# 运行启动器
+# 运行启动器（GUI 模式）
 python main.py
+
+# 运行 Agent CLI 模式
+python main.py login -name <用户名> -pwd <密码>   # 登录净读 AI
+python main.py -agent "帮我安装最新版"
+python main.py -A              # 交互模式
 ```
 
 > 💡 建议使用虚拟环境：`python -m venv .venv && source .venv/bin/activate`
@@ -541,7 +552,8 @@ python main.py
 
 ```
 FMCL/
-├── main.py                # 主程序入口，延迟导入优化、日志配置、UI 创建、线程管理
+├── main.py                # 主程序入口，延迟导入优化、日志配置、UI 创建、线程管理，支持 -A/-agent CLI 模式
+├── cli_agent.py           # Agent CLI 模式（无 GUI，复用 agent 核心组件，支持单指令/交互模式）
 ├── launcher/              # 启动器核心逻辑（包）
 │   ├── __init__.py        # MinecraftLauncher 组合类（多继承自 core/server/mrpack）
 │   ├── core.py            # MinecraftLauncherCore - 环境检查、版本安装、游戏启动、镜像源管理
@@ -626,6 +638,10 @@ FMCL/
 
 ```
 main.py
+  ├── -A / -agent 参数 → cli_agent.py (CLI Agent 模式，无 GUI)
+  │   ├── config.py (全局配置，读取 jdz_token)
+  │   ├── launcher/ (核心逻辑包)
+  │   └── ui/agent/ (复用 AI Provider、工具定义、执行引擎、XML 解析器)
   ├── config.py (全局配置)
   │   └── secure_storage.py (Token 加密存储)
   ├── validation.py (输入验证)

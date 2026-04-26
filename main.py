@@ -336,5 +336,86 @@ def main():
         sys.exit(0)
 
 
+def _parse_cli_args():
+    """解析命令行参数，支持以下 CLI 模式:
+
+      python main.py login -name <username> -pwd <password>
+      python main.py login -name <username>
+      python main.py -agent <指令>
+      python main.py -A <指令>
+      python main.py -A          (交互模式)
+
+    Returns:
+        ("agent", instruction) | ("login", (username, password)) | (None, None)
+    """
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "login":
+            username, password = None, None
+            j = i + 1
+            while j < len(args):
+                if args[j] in ("-name", "--name"):
+                    if j + 1 < len(args):
+                        username = args[j + 1]
+                        j += 2
+                    else:
+                        _print_cli_error("缺少用户名参数")
+                        sys.exit(1)
+                elif args[j] in ("-pwd", "--pwd", "-password", "--password"):
+                    if j + 1 < len(args):
+                        password = args[j + 1]
+                        j += 2
+                    else:
+                        _print_cli_error("缺少密码参数")
+                        sys.exit(1)
+                else:
+                    break
+            if not username:
+                _print_cli_error("用法: python main.py login -name <用户名> -pwd <密码>")
+                sys.exit(1)
+            return "login", (username, password)
+        if arg in ("-A", "-agent", "--agent"):
+            if i + 1 < len(args) and not args[i + 1].startswith("-"):
+                return "agent", args[i + 1]
+            return "agent", None
+        i += 1
+    return None, None
+
+
+def _print_cli_error(msg: str):
+    print(f"\033[91m❌  {msg}\033[0m", flush=True)
+
+
+def run_agent_cli_mode(instruction=None):
+    """以 CLI Agent 模式运行（无 GUI 依赖）"""
+    from cli_agent import run_agent_cli
+    try:
+        run_agent_cli(instruction=instruction)
+    except Exception as e:
+        logger.error(f"Agent CLI 异常退出: {e}", exc_info=True)
+    finally:
+        sys.exit(0)
+
+
+def run_login_mode(username: str, password: str | None):
+    """以 CLI 模式登录净读 AI"""
+    from cli_agent import run_login
+    try:
+        run_login(username, password)
+    except Exception as e:
+        logger.error(f"登录异常: {e}", exc_info=True)
+    finally:
+        sys.exit(0)
+
+
 if __name__ == "__main__":
-    main()
+    mode, payload = _parse_cli_args()
+    if mode == "login" and isinstance(payload, tuple):
+        username, password = payload
+        run_login_mode(username, password)
+    elif mode == "agent":
+        run_agent_cli_mode(payload)
+    else:
+        main()
