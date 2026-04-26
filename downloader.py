@@ -22,6 +22,43 @@ from logzero import logger
 from structured_logger import slog
 
 
+def _patch_neoforge_normalize():
+    """修复 NeoForge 模块的 _normalize_minecraft_version 方法，
+    使其支持 Minecraft 新版本命名格式 (YY.D, YY.D.H)
+    
+    NeoForge 的 maven API 返回版本如 20.4.234、26.1.0，
+    其 _normalize_minecraft_version 实现为 f"1.{prefix}"，
+    这对旧格式 (20.4→1.20.4) 正确，但新格式 (26.1→1.26.1) 会匹配失败。
+    """
+    try:
+        from minecraft_launcher_lib.mod_loader._neoforge import Neoforge
+
+        _original_normalize = Neoforge._normalize_minecraft_version
+
+        def _patched_normalize(self, minecraft_version: str) -> str:
+            # 检测新格式版本 (YY.D, YY.D.H, YY >= 26)
+            parts = minecraft_version.split(".")
+            if len(parts) >= 2 and not minecraft_version.startswith("1."):
+                try:
+                    yy = int(parts[0])
+                    if yy >= 26:
+                        # 新格式直接返回原值，不需要加 "1." 前缀
+                        return minecraft_version
+                except ValueError:
+                    pass
+            # 旧格式保持原行为
+            return _original_normalize(self, minecraft_version)
+
+        Neoforge._normalize_minecraft_version = _patched_normalize
+        logger.info("已修补 NeoForge._normalize_minecraft_version (支持新版本格式)")
+    except Exception as e:
+        logger.debug(f"修补 NeoForge._normalize_minecraft_version 失败: {e}")
+
+
+# 应用 NeoForge 版本规范化补丁
+_patch_neoforge_normalize()
+
+
 class MultiThreadDownloader:
     """多线程下载器"""
 

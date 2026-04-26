@@ -35,6 +35,7 @@
 - **NeoForge** - Forge 的社区分支
 - 安装模组加载器时自动安装原版 Minecraft，无需重复操作
 - **版本隔离**：安装了模组加载器的版本自动启用版本隔离，游戏从 `.minecraft/versions/{版本名}/` 读取 mods、config 等资源，各版本互不干扰
+- **新版本格式支持**：NeoForge 安装器已适配 Minecraft 2026 年起的新版本命名规则 `YY.D.H`（如 `26.1`、`26.1.1`），兼容旧版 `1.X.Y` 格式
 
 ### 🧩 Modrinth 模组浏览与安装
 - 集成 [Modrinth](https://modrinth.com/) API，在线搜索和安装模组
