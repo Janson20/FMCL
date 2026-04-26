@@ -11,6 +11,7 @@ main.dist/
 *.xml
 pos.txt
 config.json
+.fmcl_key
 
 # Virtual environments
 .venv
