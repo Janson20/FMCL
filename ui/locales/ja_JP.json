@@ -345,5 +345,22 @@
 
   "terms_title": "利用規約とプライバシー契約",
   "terms_content": "このランチャーを使用することにより、Minecraft EULA、Jingdu AIプライバシー契約、Jingdu利用規約に同意したことになります。\n\n規約リンク: https://jingdu.qzz.io/terms",
-  "terms_agree": "同意する"
+  "terms_agree": "同意する",
+
+  "predownload_title": "事前ダウンロード",
+  "predownload_prompt": "今後のダウンロードを高速化するためにファイルを事前ダウンロードしますか？",
+  "predownload_hint": "事前ダウンロードによりMinecraftバージョンのインストールが高速化されます",
+  "predownload_yes": "フル版",
+  "predownload_lite": "軽量版",
+  "predownload_cancel": "キャンセル",
+  "predownload_progress_title": "事前ダウンロードの進捗",
+  "predownload_progress_label": "Minecraftリソースパックを事前ダウンロード中...",
+  "predownload_status_downloading": "ダウンロード中...",
+  "predownload_status_merging": "ファイルを結合中...",
+  "predownload_status_extracting": "ファイルを展開中...",
+  "predownload_cancel_btn": "ダウンロードをキャンセル",
+  "predownload_complete_title": "事前ダウンロード完了",
+  "predownload_complete_msg": "Minecraftリソースパックの事前ダウンロードが完了しました！",
+  "predownload_error_title": "事前ダウンロード失敗",
+  "predownload_error_msg": "ダウンロードに失敗しました。ネットワーク接続を確認して再試行してください。\nランチャーは通常通り使用できます。"
 }

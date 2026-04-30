@@ -22,6 +22,8 @@ RequestExecutionLevel admin
 
 ; 现代UI
 !include "MUI2.nsh"
+!include "LogicLib.nsh"
+!include "x64.nsh"
 
 !define MUI_ABORTWARNING
 !define MUI_ICON "${NSISDIR}\Contrib\Graphics\Icons\modern-install.ico"
@@ -73,6 +75,77 @@ Section -Post
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\FMCL.exe"
+SectionEnd
+
+Section "-7ZipCheck" SEC07Z
+  SetOutPath "$INSTDIR"
+  DetailPrint "检查 7-Zip 安装状态..."
+
+  ReadRegStr $0 HKLM "SOFTWARE\7-Zip" "Path"
+  ${If} $0 != ""
+    IfFileExists "$0\7z.exe" 0 check_wow64
+    DetailPrint "检测到 7-Zip 已安装: $0"
+    Goto 7z_done
+  ${EndIf}
+
+check_wow64:
+  ReadRegStr $0 HKLM "SOFTWARE\WOW6432Node\7-Zip" "Path"
+  ${If} $0 != ""
+    IfFileExists "$0\7z.exe" 0 check_path
+    DetailPrint "检测到 7-Zip 已安装 (WOW64): $0"
+    Goto 7z_done
+  ${EndIf}
+
+check_path:
+  StrCpy $0 "$PROGRAMFILES\7-Zip\7z.exe"
+  IfFileExists $0 7z_done
+  StrCpy $0 "$PROGRAMFILES32\7-Zip\7z.exe"
+  IfFileExists $0 7z_done
+  StrCpy $0 "$PROGRAMFILES64\7-Zip\7z.exe"
+  IfFileExists $0 7z_done
+
+  DetailPrint "未检测到 7-Zip，正在下载..."
+  MessageBox MB_OK "FMCL 预下载功能需要 7-Zip 来解压资源包。$\n$\n点击确定后将自动下载并安装 7-Zip（静默安装）。" /SD IDOK
+
+  ${If} ${RunningX64}
+    StrCpy $1 "https://www.7-zip.org/a/7z2409-x64.exe"
+  ${Else}
+    StrCpy $1 "https://www.7-zip.org/a/7z2409.exe"
+  ${EndIf}
+
+  StrCpy $2 "$TEMP\7z_fmcl_installer.exe"
+  DetailPrint "下载地址: $1"
+  DetailPrint "保存到: $2"
+
+  NSISdl::download "$1" "$2"
+  Pop $0
+  ${If} $0 != "success"
+    DetailPrint "7-Zip 下载失败: $0"
+    MessageBox MB_ICONWARNING "7-Zip 自动下载失败。$\n$\n请手动安装 7-Zip: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
+    Goto 7z_done
+  ${EndIf}
+
+  DetailPrint "正在静默安装 7-Zip..."
+  ExecWait '"$2" /S' $0
+
+  Delete "$2"
+
+  Sleep 2000
+
+  ReadRegStr $0 HKLM "SOFTWARE\7-Zip" "Path"
+  ${If} $0 == ""
+    ReadRegStr $0 HKLM "SOFTWARE\WOW6432Node\7-Zip" "Path"
+  ${EndIf}
+
+  ${If} $0 != ""
+    DetailPrint "7-Zip 安装成功: $0"
+  ${Else}
+    DetailPrint "7-Zip 安装验证失败，请手动安装"
+    MessageBox MB_ICONWARNING "7-Zip 安装可能未成功。$\n$\n请手动安装: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
+  ${EndIf}
+
+7z_done:
+  DetailPrint "7-Zip 检查完成"
 SectionEnd
 
 Section Uninstall

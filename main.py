@@ -11,6 +11,7 @@ v3.1 - perf: lazy imports, deferred heavy initialization
 v3.2 - perf: orjson JSON parsing, concurrent file verify, async batch download,
        JVM args optimization (G1GC), GC release after launch, URL rewrite cache
 v3.3 - feat: multi-language support (English, Japanese, Traditional Chinese)
+v3.4 - feat: pre-download Minecraft resource pack for faster version installation
 """
 
 import os
@@ -294,6 +295,16 @@ def main():
                 app.backup_auto_exit_var.set(config.backup_auto_exit)
 
             app.set_status("启动器就绪", "success")
+
+            # 预下载检查（在窗口显示后延迟执行，确保主窗口已渲染）
+            def _do_predownload_check():
+                from ui.i18n import _
+                from launcher.predownload import run_predownload_check
+                run_predownload_check(app, config.minecraft_dir, _)
+                app.lift()
+                app.focus_force()
+
+            app.after(200, _do_predownload_check)
 
             # 启动环境初始化流程
             app._on_app_ready()

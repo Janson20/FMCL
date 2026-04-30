@@ -345,5 +345,22 @@
 
   "terms_title": "Terms & Privacy Agreement",
   "terms_content": "By using this launcher, you agree to the Minecraft EULA, Jingdu AI Privacy Agreement, and Jingdu Terms of Service.\n\nTerms link: https://jingdu.qzz.io/terms",
-  "terms_agree": "I Agree"
+  "terms_agree": "I Agree",
+
+  "predownload_title": "Pre-download",
+  "predownload_prompt": "Pre-download files to speed up future downloads?",
+  "predownload_hint": "Pre-downloading will help you install Minecraft versions faster",
+  "predownload_yes": "Full",
+  "predownload_lite": "Lite",
+  "predownload_cancel": "Cancel",
+  "predownload_progress_title": "Pre-download Progress",
+  "predownload_progress_label": "Pre-downloading Minecraft resource pack...",
+  "predownload_status_downloading": "Downloading...",
+  "predownload_status_merging": "Merging files...",
+  "predownload_status_extracting": "Extracting files...",
+  "predownload_cancel_btn": "Cancel Download",
+  "predownload_complete_title": "Pre-download Complete",
+  "predownload_complete_msg": "Minecraft resource pack pre-download complete!",
+  "predownload_error_title": "Pre-download Failed",
+  "predownload_error_msg": "Download failed. Please check your network and try again.\nYou can still use the launcher normally."
 }

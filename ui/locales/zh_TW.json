@@ -345,5 +345,22 @@
 
   "terms_title": "使用條款與隱私協議",
   "terms_content": "使用該啟動器代表你已同意Minecraft EULA，淨讀AI隱私協議，淨讀使用條款\n\n條款連結: https://jingdu.qzz.io/terms",
-  "terms_agree": "我同意"
+  "terms_agree": "我同意",
+
+  "predownload_title": "預下載",
+  "predownload_prompt": "是否預下載檔案以便加速以後的下載？",
+  "predownload_hint": "預下載將幫助您更快地安裝 Minecraft 版本",
+  "predownload_yes": "完整版",
+  "predownload_lite": "輕量版",
+  "predownload_cancel": "取消",
+  "predownload_progress_title": "預下載進度",
+  "predownload_progress_label": "正在預下載 Minecraft 資源包...",
+  "predownload_status_downloading": "正在下載...",
+  "predownload_status_merging": "正在合併檔案...",
+  "predownload_status_extracting": "正在解壓檔案...",
+  "predownload_cancel_btn": "取消下載",
+  "predownload_complete_title": "預下載完成",
+  "predownload_complete_msg": "Minecraft 資源包預下載完成！",
+  "predownload_error_title": "預下載失敗",
+  "predownload_error_msg": "下載失敗，請檢查網路連接後重試。\n您仍可正常使用啟動器。"
 }

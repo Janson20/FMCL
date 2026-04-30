@@ -80,6 +80,7 @@ hidden_imports = [
     'customtkinter',
     'orjson',
     'urllib3',
+    'rarfile',
 ]
 
 # 平台特定导入
