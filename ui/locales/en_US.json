@@ -261,6 +261,11 @@
   "crash_analyze_success": "AI analysis complete",
   "crash_analyze_failed": "AI analysis failed: {error}",
   "crash_save_result": "Save Result",
+  "crash_share_log": "📤 Upload & Share Log",
+  "crash_share_uploading": "Uploading game log...",
+  "crash_share_success": "Log uploaded! Share link copied to clipboard",
+  "crash_share_failed": "Upload failed: {error}",
+  "crash_share_no_log": "No game log file found",
   
   "netread_ai": "🤖 Jingdu (Smart Crash Analysis)",
   "netread_status": "Status",

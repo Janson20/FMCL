@@ -261,6 +261,11 @@
   "crash_analyze_success": "AI 分析完成",
   "crash_analyze_failed": "AI 分析失败: {error}",
   "crash_save_result": "保存结果",
+  "crash_share_log": "📤 上传日志并分享",
+  "crash_share_uploading": "正在上传游戏日志...",
+  "crash_share_success": "日志上传成功！分享链接已复制到剪贴板",
+  "crash_share_failed": "上传失败: {error}",
+  "crash_share_no_log": "未找到游戏日志文件",
   
   "netread_ai": "🤖 净读（崩溃智能分析）",
   "netread_status": "状态",

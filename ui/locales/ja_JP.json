@@ -261,6 +261,11 @@
   "crash_analyze_success": "AI分析が完了しました",
   "crash_analyze_failed": "AI分析に失敗しました: {error}",
   "crash_save_result": "結果を保存",
+  "crash_share_log": "📤 ログをアップロードして共有",
+  "crash_share_uploading": "ゲームログをアップロード中...",
+  "crash_share_success": "ログのアップロードに成功しました！共有リンクをクリップボードにコピーしました",
+  "crash_share_failed": "アップロードに失敗しました: {error}",
+  "crash_share_no_log": "ゲームログファイルが見つかりません",
   
   "netread_ai": "🤖 Jingdu（クラッシュ分析）",
   "netread_status": "ステータス",

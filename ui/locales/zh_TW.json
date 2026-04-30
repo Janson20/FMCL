@@ -261,6 +261,11 @@
   "crash_analyze_success": "AI 分析完成",
   "crash_analyze_failed": "AI 分析失敗: {error}",
   "crash_save_result": "儲存結果",
+  "crash_share_log": "📤 上傳日誌並分享",
+  "crash_share_uploading": "正在上傳遊戲日誌...",
+  "crash_share_success": "日誌上傳成功！分享連結已複製到剪貼簿",
+  "crash_share_failed": "上傳失敗: {error}",
+  "crash_share_no_log": "未找到遊戲日誌檔案",
   
   "netread_ai": "🤖 淨讀（崩潰智慧分析）",
   "netread_status": "狀態",

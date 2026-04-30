@@ -352,38 +352,83 @@ class CrashHandlerMixin(object):
                          bg='#0f3460', fg='white', activebackground='#2d3a5c', activeforeground='white',
                          bd=0, highlightthickness=0)
 
-        btn1 = tk.Button(dialog, text="📄 打开崩溃报告", command=_open_crash_report,
+        from ui.i18n import _
+
+        btn1 = tk.Button(dialog, text=f"📄 {_('crash_report')}", command=_open_crash_report,
                          state='normal' if has_crash_report else 'disabled', **btn_style)
         btn1.place(x=pad, y=btn_y, width=w - 2 * pad, height=btn_h)
 
-        btn2 = tk.Button(dialog, text="📋 打开游戏日志", command=_open_game_log,
+        btn2 = tk.Button(dialog, text=f"📋 {_('crash_game_log')}", command=_open_game_log,
                          state='normal' if has_game_log else 'normal', **btn_style)
         btn2.place(x=pad, y=btn_y + btn_h + 8, width=w - 2 * pad, height=btn_h)
 
-        btn3 = tk.Button(dialog, text="📦 导出崩溃报告", command=_export_crash_report,
+        btn3 = tk.Button(dialog, text=f"📦 {_('crash_export')}", command=_export_crash_report,
                          bg='#e94560', fg='white', activebackground='#ff6b81', activeforeground='white',
                          font=(FONT_FAMILY, 10, 'bold'), relief='flat', cursor='hand2',
                          bd=0, highlightthickness=0)
         btn3.place(x=pad, y=btn_y + (btn_h + 8) * 2, width=w - 2 * pad, height=btn_h)
 
+        # 上传分享日志按钮
+        def _share_game_log():
+            game_log_path = crash_files.get("game_log")
+            if not game_log_path or not os.path.exists(game_log_path):
+                messagebox.showinfo(_("crash_title"), _("crash_share_no_log"), parent=dialog)
+                return
+
+            share_btn.configure(state='disabled', text=_("crash_share_uploading") + "...")
+            dialog.update_idletasks()
+
+            def _do_upload():
+                from api.logshare import upload_game_log, LogShareError
+                try:
+                    url = upload_game_log(game_log_path)
+                    if url:
+                        dialog.clipboard_clear()
+                        dialog.clipboard_append(url)
+                        dialog.after(0, lambda: messagebox.showinfo(
+                            _("crash_title"), f"{_('crash_share_success')}\n\n{url}", parent=dialog))
+                    else:
+                        dialog.after(0, lambda: messagebox.showerror(
+                            _("crash_title"), _("crash_share_no_log"), parent=dialog))
+                except LogShareError as e:
+                    dialog.after(0, lambda: messagebox.showerror(
+                        _("crash_title"), _("crash_share_failed", error=str(e)), parent=dialog))
+                except Exception as e:
+                    dialog.after(0, lambda: messagebox.showerror(
+                        _("crash_title"), _("crash_share_failed", error=str(e)), parent=dialog))
+                finally:
+                    dialog.after(0, lambda: share_btn.configure(
+                        state='normal' if game_log_path and os.path.exists(game_log_path) else 'disabled',
+                        text=_("crash_share_log")))
+
+            threading.Thread(target=_do_upload, daemon=True).start()
+
+        share_btn = tk.Button(dialog, text=_("crash_share_log"),
+                              command=_share_game_log,
+                              bg='#0f3460', fg='white', activebackground='#2d3a5c', activeforeground='white',
+                              font=(FONT_FAMILY, 10), relief='flat', cursor='hand2',
+                              bd=0, highlightthickness=0,
+                              state='normal' if has_game_log else 'disabled')
+        share_btn.place(x=pad, y=btn_y + (btn_h + 8) * 3, width=w - 2 * pad, height=btn_h)
+
         # AI 分析按钮
         _jdz_token = self.callbacks.get("get_jdz_token", lambda: None)() if self.callbacks else None
 
-        ai_btn = tk.Button(dialog, text="🤖 AI 智能分析（净读 AI）",
+        ai_btn = tk.Button(dialog, text=_("crash_ai_analyze"),
                            command=lambda: self._ai_analyze_crash(crash_files, exit_code),
                            bg='#6c5ce7', fg='white', activebackground='#a29bfe', activeforeground='white',
                            font=(FONT_FAMILY, 10, 'bold'), relief='flat', cursor='hand2',
                            bd=0, highlightthickness=0,
                            state='normal' if _jdz_token else 'disabled')
-        ai_btn.place(x=pad, y=btn_y + (btn_h + 8) * 3, width=w - 2 * pad, height=btn_h)
+        ai_btn.place(x=pad, y=btn_y + (btn_h + 8) * 4, width=w - 2 * pad, height=btn_h)
 
         if not _jdz_token:
             tk.Label(dialog, text="请先在设置中登录净读账号",
                      font=(FONT_FAMILY, 8), fg='#667788', bg='#1a1a2e').place(
-                x=pad, y=btn_y + (btn_h + 8) * 3 + btn_h + 2)
+                x=pad, y=btn_y + (btn_h + 8) * 4 + btn_h + 2)
 
         # 调整窗口高度以容纳新按钮
-        h += btn_h + 8 + (12 if not _jdz_token else 0)
+        h += (btn_h + 8) + (btn_h + 8) + (12 if not _jdz_token else 0)
         dialog.geometry(f"{w}x{h}")
         dialog.update_idletasks()
         x = (dialog.winfo_screenwidth() - w) // 2
