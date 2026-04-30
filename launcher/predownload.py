@@ -40,6 +40,7 @@ class Predownloader:
         self._lock = threading.Lock()
         self._downloaded_bytes = 0
         self._total_size = 0
+        self._range_supported = True
 
     def set_progress_callback(self, callback: Callable):
         self._progress_callback = callback
@@ -62,24 +63,38 @@ class Predownloader:
             rar_path = self.minecraft_dir / "minecraft.rar"
             self._downloaded_bytes = 0
 
-            part_size = self._total_size // self.num_threads
-            threads = []
+            if self.num_threads > 1:
+                self._range_supported = True
+                part_size = self._total_size // self.num_threads
+                threads = []
 
-            for i in range(self.num_threads):
-                start_byte = i * part_size
-                end_byte = start_byte + part_size - 1 if i < self.num_threads - 1 else self._total_size - 1
-                t = threading.Thread(target=self._download_part, args=(i, start_byte, end_byte, rar_path))
-                threads.append(t)
-                t.start()
+                for i in range(self.num_threads):
+                    start_byte = i * part_size
+                    end_byte = start_byte + part_size - 1 if i < self.num_threads - 1 else self._total_size - 1
+                    t = threading.Thread(target=self._download_part, args=(i, start_byte, end_byte, rar_path))
+                    threads.append(t)
+                    t.start()
 
-            for t in threads:
-                t.join()
+                for t in threads:
+                    t.join()
 
-            if self._cancel_event.is_set():
-                self._cleanup(rar_path)
-                return RESULT_CANCELLED
-
-            self._merge_parts(rar_path)
+                if self._cancel_event.is_set():
+                    if not self._range_supported:
+                        logger.info("服务器不支持 Range 请求，回退到单线程下载")
+                        self._cleanup(rar_path)
+                        self._cancel_event.clear()
+                        result = self._download_single_thread(rar_path)
+                        if result != RESULT_COMPLETED:
+                            return result
+                    else:
+                        self._cleanup(rar_path)
+                        return RESULT_CANCELLED
+                else:
+                    self._merge_parts(rar_path)
+            else:
+                result = self._download_single_thread(rar_path)
+                if result != RESULT_COMPLETED:
+                    return result
 
             if self._cancel_event.is_set():
                 self._cleanup(rar_path)
@@ -94,12 +109,45 @@ class Predownloader:
             logger.error(f"预下载失败: {e}")
             return RESULT_ERROR
 
+    def _download_single_thread(self, rar_path: Path) -> str:
+        self._downloaded_bytes = 0
+        try:
+            response = requests.get(self.url, stream=True, timeout=60)
+            response.raise_for_status()
+
+            content_length = response.headers.get('Content-Length')
+            if content_length:
+                self._total_size = int(content_length)
+
+            with open(rar_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=self.chunk_size):
+                    if self._cancel_event.is_set():
+                        return RESULT_CANCELLED
+                    if chunk:
+                        f.write(chunk)
+                        with self._lock:
+                            self._downloaded_bytes += len(chunk)
+                            clamped = min(self._downloaded_bytes, self._total_size) if self._total_size > 0 else self._downloaded_bytes
+                            if self._progress_callback:
+                                self._progress_callback(clamped, max(self._total_size, clamped), "download")
+            return RESULT_COMPLETED
+        except Exception as e:
+            logger.error(f"单线程下载失败: {e}")
+            return RESULT_ERROR
+
     def _download_part(self, part_num: int, start_byte: int, end_byte: int, filepath: Path):
         headers = {'Range': f'bytes={start_byte}-{end_byte}'}
         part_file = Path(f"{filepath}.part{part_num}")
         try:
             response = requests.get(self.url, headers=headers, stream=True, timeout=60)
             response.raise_for_status()
+
+            if response.status_code != 206:
+                logger.warning(f"服务器返回 {response.status_code} 而非 206，不支持 Range 分块下载")
+                self._range_supported = False
+                self._cancel_event.set()
+                return
+
             with open(part_file, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=self.chunk_size):
                     if self._cancel_event.is_set():
@@ -109,7 +157,9 @@ class Predownloader:
                         with self._lock:
                             self._downloaded_bytes += len(chunk)
                             if self._progress_callback:
-                                self._progress_callback(self._downloaded_bytes, self._total_size, "download")
+                                display_bytes = min(self._downloaded_bytes, self._total_size)
+                                display_total = max(self._total_size, 1)
+                                self._progress_callback(display_bytes, display_total, "download")
         except Exception as e:
             logger.error(f"下载分段 {part_num} 失败: {e}")
             self._cancel_event.set()
