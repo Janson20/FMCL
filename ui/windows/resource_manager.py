@@ -26,7 +26,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self.version_id = version_id
         self.callbacks = callbacks
 
-        self.title(f"资源管理 - {version_id}")
+        self.title(_("resource_manager", version=version_id))
         self.geometry("760x600")
         self.minsize(680, 520)
         self.configure(fg_color=COLORS["bg_dark"])
@@ -86,6 +86,24 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         logger.info(f"使用全局目录: {global_dir}")
         return global_dir
 
+    def _get_resource_label(self, rtype: str) -> str:
+        labels = {
+            "mods": "resource_mods",
+            "resourcepacks": "resource_packs",
+            "saves": "resource_maps",
+            "shaderpacks": "resource_shaders",
+        }
+        return _(labels.get(rtype, rtype))
+
+    def _get_resource_desc(self, rtype: str) -> str:
+        descs = {
+            "mods": "rm_mods_desc",
+            "resourcepacks": "rm_resourcepacks_desc",
+            "saves": "rm_saves_desc",
+            "shaderpacks": "rm_shaderpacks_desc",
+        }
+        return _(descs.get(rtype, ""))
+
     def _build_ui(self):
         """构建界面"""
         # 主容器
@@ -95,7 +113,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         # 标题
         title_label = ctk.CTkLabel(
             main_frame,
-            text=f"📁 {self.version_id} - 资源管理",
+            text=_("rm_title", version=self.version_id),
             font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["text_primary"],
         )
@@ -110,7 +128,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._tab_buttons: Dict[str, ctk.CTkButton] = {}
 
         for rtype, rconf in RESOURCE_TYPES.items():
-            label_text: str = rconf["label"]
+            label_text: str = self._get_resource_label(rtype)
             btn = ctk.CTkButton(
                 tab_frame,
                 text=label_text,
@@ -136,7 +154,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         self._drag_hint_label = ctk.CTkLabel(
             top_bar,
-            text=RESOURCE_TYPES["mods"]["description"],
+            text=self._get_resource_desc("mods"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         )
@@ -145,7 +163,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         # 打开文件夹 + 选择文件安装 按钮
         self._open_folder_btn = ctk.CTkButton(
             top_bar,
-            text="📂 打开文件夹",
+            text=_("resource_open_folder"),
             width=110,
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -157,7 +175,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         self._add_file_btn = ctk.CTkButton(
             top_bar,
-            text="➕ 选择文件安装",
+            text=_("resource_add"),
             width=130,
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -200,7 +218,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         # 空状态提示（拖拽区域背景）
         self._empty_label = ctk.CTkLabel(
             self._drop_frame,
-            text="将文件拖拽到此处\n或点击「选择文件安装」",
+            text=_("rm_drop_hint"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_secondary"],
             justify=ctk.CENTER,
@@ -216,7 +234,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         # 底部状态栏
         self._status_label = ctk.CTkLabel(
             main_frame,
-            text="就绪",
+            text=_("rm_status_ready"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
         )
@@ -273,10 +291,10 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                     installed += 1
 
         if installed > 0:
-            self._set_status(f"成功安装 {installed} 个资源")
+            self._set_status(_("rm_install_count", count=installed))
             self._refresh_current_list()
         else:
-            self._set_status("没有可安装的文件（请检查文件格式）")
+            self._set_status(_("rm_no_valid_files"))
 
     def _switch_tab(self, tab_name: str):
         """切换标签页"""
@@ -290,7 +308,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                 btn.configure(fg_color="transparent")
 
         # 更新提示文字
-        self._drag_hint_label.configure(text=RESOURCE_TYPES[tab_name]["description"])
+        self._drag_hint_label.configure(text=self._get_resource_desc(tab_name))
 
         # 模组标签页显示搜索栏，其他标签页隐藏
         if tab_name == "mods":
@@ -331,7 +349,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         if not resource_dir.exists():
             self._empty_label.pack(fill=ctk.BOTH, expand=True)
-            self._set_status(f"文件夹不存在: {resource_dir}")
+            self._set_status(_("rm_folder_not_exist", path=str(resource_dir)))
             return
 
         # 获取资源文件列表
@@ -340,7 +358,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         if not items:
             self._empty_label.pack(fill=ctk.BOTH, expand=True)
-            self._set_status(f"{RESOURCE_TYPES[current_type]['label']} 文件夹为空")
+            self._set_status(_("rm_folder_empty", label=self._get_resource_label(current_type)))
             return
 
         self._list_frame.pack(fill=ctk.BOTH, expand=True)
@@ -348,7 +366,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         for item in items:
             self._create_resource_item(item, current_type)
 
-        self._set_status(f"共 {len(items)} 个{RESOURCE_TYPES[current_type]['label']}")
+        self._set_status(_("rm_item_count", count=len(items), label=self._get_resource_label(current_type)))
 
     def _refresh_mod_list(self, mods_dir: Path):
         """刷新模组列表（含元数据提取）"""
@@ -469,7 +487,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         # 第一行: 名称
         name_text = item.get("name", item.get("filename", "???"))
         if item.get("disabled"):
-            name_text += " (已禁用)"
+            name_text += _("rm_disabled_suffix")
         name_label = ctk.CTkLabel(
             info_frame,
             text=name_text,
@@ -652,9 +670,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         name_text = item["name"]
         if item.get("disabled"):
-            name_text += " (已禁用)"
+            name_text += _("rm_disabled_suffix")
         if item.get("is_dir") and not item.get("has_level_dat"):
-            name_text += " (非标准地图)"
+            name_text += _("rm_non_standard_map")
 
         name_label = ctk.CTkLabel(
             row,
@@ -677,7 +695,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         # 启用/禁用按钮（仅模组）
         if resource_type == "mods" and not item.get("is_dir"):
-            toggle_text = "启用" if item.get("disabled") else "禁用"
+            toggle_text = _("rm_enable") if item.get("disabled") else _("rm_disable")
             toggle_btn = ctk.CTkButton(
                 row,
                 text=toggle_text,
@@ -720,7 +738,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                 dst = resource_dir / src.name
                 if dst.exists():
                     logger.warning(f"资源已存在: {dst}")
-                    self._set_status(f"文件已存在: {src.name}")
+                    self._set_status(_("rm_file_exists", name=src.name))
                     return False
                 shutil.copy2(str(src), str(dst))
                 logger.info(f"资源安装成功: {src.name} -> {dst}")
@@ -728,7 +746,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         except Exception as e:
             logger.error(f"安装资源失败: {e}")
-            self._set_status(f"安装失败: {e}")
+            self._set_status(_("rm_install_failed", error=str(e)))
             return False
 
     def _install_save(self, src: Path, saves_dir: Path) -> bool:
@@ -741,7 +759,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             dst = saves_dir / src.name
             if dst.exists():
                 logger.warning(f"地图已存在: {dst}")
-                self._set_status(f"地图已存在: {src.name}")
+                self._set_status(_("rm_map_exists", name=src.name))
                 return False
             shutil.copytree(str(src), str(dst))
             logger.info(f"地图安装成功(文件夹): {src.name} -> {dst}")
@@ -754,7 +772,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             dst = saves_dir / map_name
             if dst.exists():
                 logger.warning(f"地图已存在: {dst}")
-                self._set_status(f"地图已存在: {map_name}")
+                self._set_status(_("rm_map_exists", name=map_name))
                 return False
 
             with zipfile.ZipFile(str(src), "r") as zf:
@@ -798,7 +816,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         else:
             logger.warning(f"不支持的地图格式: {src.suffix}")
-            self._set_status(f"不支持的地图格式: {src.suffix}")
+            self._set_status(_("rm_unsupported_format", ext=src.suffix))
             return False
 
     def _select_file_install(self):
@@ -808,11 +826,11 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         # 构建文件类型过滤
         ext_list = " ".join(f"*{e}" for e in ext_filter)
-        filetypes = [(RESOURCE_TYPES[current_type]["label"], ext_list), ("所有文件", "*.*")]  # type: ignore[list-item]
+        filetypes = [(self._get_resource_label(current_type), ext_list), ("所有文件", "*.*")]  # type: ignore[list-item]
 
         from tkinter import filedialog
         files = filedialog.askopenfilenames(
-            title=f"选择{RESOURCE_TYPES[current_type]['label']}文件",
+            title=_("rm_select_file_title", label=self._get_resource_label(current_type)),
             filetypes=filetypes,
         )
 
@@ -825,10 +843,10 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                 installed += 1
 
         if installed > 0:
-            self._set_status(f"成功安装 {installed} 个资源")
+            self._set_status(_("rm_install_count", count=installed))
             self._refresh_current_list()
         else:
-            self._set_status("未安装任何资源")
+            self._set_status(_("rm_no_resources_installed"))
 
     def _open_folder(self):
         """打开当前资源类型的文件夹"""
@@ -840,13 +858,13 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             os.startfile(str(resource_dir))
         except Exception as e:
             logger.error(f"打开文件夹失败: {e}")
-            self._set_status(f"打开文件夹失败: {e}")
+            self._set_status(_("rm_open_folder_failed", error=str(e)))
 
     def _delete_resource(self, path: str, name: str):
         """删除资源"""
         import shutil  # 延迟导入
 
-        if not messagebox.askyesno("确认删除", f"确定要删除 {name} 吗？"):
+        if not messagebox.askyesno(_("rm_delete_confirm_title"), _("rm_delete_confirm_msg", name=name)):
             return
 
         try:
@@ -856,11 +874,11 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             else:
                 p.unlink()
             logger.info(f"已删除: {name}")
-            self._set_status(f"已删除: {name}")
+            self._set_status(_("rm_deleted", name=name))
             self._refresh_current_list()
         except Exception as e:
             logger.error(f"删除失败: {e}")
-            self._set_status(f"删除失败: {e}")
+            self._set_status(_("rm_delete_failed", error=str(e)))
 
     def _toggle_mod(self, path: str, is_disabled: bool):
         """启用/禁用模组"""
@@ -873,20 +891,20 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                 new_path = p.with_suffix("")
                 p.rename(new_path)
                 logger.info(f"模组已启用: {p.name} -> {new_path.name}")
-                self._set_status(f"已启用: {new_path.name}")
+                self._set_status(_("rm_enabled_status", name=new_path.name))
                 slog.info("mod_enabled", mod_name=mod_name, new_name=new_path.name)
             else:
                 # 禁用：添加 .disabled 后缀
                 new_path = Path(str(p) + ".disabled")
                 p.rename(new_path)
                 logger.info(f"模组已禁用: {p.name} -> {new_path.name}")
-                self._set_status(f"已禁用: {new_path.name}")
+                self._set_status(_("rm_disabled_status", name=new_path.name))
                 slog.info("mod_disabled", mod_name=mod_name, new_name=new_path.name)
             self._refresh_current_list()
         except Exception as e:
             logger.error(f"切换模组状态失败: {e}")
             slog.error("mod_toggle_failed", mod_name=Path(path).name, action="enable" if is_disabled else "disable", error=str(e)[:200])
-            self._set_status(f"操作失败: {e}")
+            self._set_status(_("rm_operation_failed", error=str(e)))
 
     def _set_status(self, text: str):
         """更新状态栏"""

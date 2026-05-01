@@ -3,6 +3,7 @@ import customtkinter as ctk
 from pathlib import Path
 
 from ui.constants import COLORS, FONT_FAMILY
+from ui.i18n import _
 
 
 class BackupSettingsWindow(ctk.CTkToplevel):
@@ -11,7 +12,7 @@ class BackupSettingsWindow(ctk.CTkToplevel):
     def __init__(self, parent, config):
         super().__init__(parent)
         self.config = config
-        self.title("备份设置")
+        self.title(_("backup_settings_window_title"))
         self.geometry("420x520")
         self.configure(fg_color=COLORS["bg_dark"])
         self.transient(parent)
@@ -30,7 +31,7 @@ class BackupSettingsWindow(ctk.CTkToplevel):
     def _build_ui(self):
         # 标题
         ctk.CTkLabel(
-            self, text="⚙ 备份设置",
+            self, text=_("backup_settings_window_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(pady=(20, 15))
@@ -41,7 +42,7 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         # ── 备份存储路径 ──
         ctk.CTkLabel(
-            scroll, text="备份存储路径",
+            scroll, text=_("backup_settings_path_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor=ctk.W, pady=(10, 5))
@@ -64,7 +65,7 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         ctk.CTkButton(
             path_frame,
-            text="浏览",
+            text=_("backup_settings_browse"),
             width=60,
             height=35,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -75,7 +76,7 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         ctk.CTkButton(
             path_frame,
-            text="重置",
+            text=_("backup_settings_reset"),
             width=60,
             height=35,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -86,13 +87,13 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         # ── 压缩等级 ──
         ctk.CTkLabel(
-            scroll, text="压缩等级",
+            scroll, text=_("backup_settings_compress_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor=ctk.W, pady=(15, 5))
 
         ctk.CTkLabel(
-            scroll, text="低压缩 = 更快速度，大体积 | 高压缩 = 慢速度，小体积",
+            scroll, text=_("backup_settings_compress_desc"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
             wraplength=360,
@@ -101,10 +102,10 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         current_level = getattr(self.config, "backup_compress_level", 6)
         level_labels = {
-            "1 - 最快 (低压缩)": 1,
-            "3 - 较快": 3,
-            "6 - 适中 (推荐)": 6,
-            "9 - 最小体积 (慢)": 9,
+            _("backup_settings_compress_1"): 1,
+            _("backup_settings_compress_3"): 3,
+            _("backup_settings_compress_6"): 6,
+            _("backup_settings_compress_9"): 9,
         }
         level_options = list(level_labels.keys())
         self._compress_var = ctk.StringVar()
@@ -130,19 +131,19 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         # ── 每个存档最大备份数 ──
         ctk.CTkLabel(
-            scroll, text="每个存档最大备份数",
+            scroll, text=_("backup_settings_max_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor=ctk.W, pady=(15, 5))
 
         ctk.CTkLabel(
-            scroll, text="超出数量的旧备份将自动删除",
+            scroll, text=_("backup_settings_max_desc"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
         ).pack(anchor=ctk.W, pady=(0, 5))
 
         current_max = getattr(self.config, "backup_max_per_world", 10)
-        max_options = ["5", "10", "20", "30", "50", "不限制"]
+        max_options = ["5", "10", "20", "30", "50", _("backup_settings_max_unlimited")]
         self._max_var = ctk.StringVar(value=str(current_max))
 
         self._max_menu = ctk.CTkOptionMenu(
@@ -161,18 +162,22 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         # ── 恢复时旧存档处理方式 ──
         ctk.CTkLabel(
-            scroll, text="恢复时旧存档处理",
+            scroll, text=_("backup_settings_restore_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor=ctk.W, pady=(15, 5))
 
         current_restore = getattr(self.config, "backup_restore_mode", "rename")
-        restore_options = ["重命名为 .bak (推荐)", "直接覆盖", "移至回收站"]
+        restore_options = [
+            _("backup_settings_restore_rename_opt"),
+            _("backup_settings_restore_overwrite_opt"),
+            _("backup_settings_restore_trash_opt"),
+        ]
         self._restore_var = ctk.StringVar(value={
-            "rename": "重命名为 .bak (推荐)",
-            "overwrite": "直接覆盖",
-            "trash": "移至回收站",
-        }.get(current_restore, "重命名为 .bak (推荐)"))
+            "rename": _("backup_settings_restore_rename_opt"),
+            "overwrite": _("backup_settings_restore_overwrite_opt"),
+            "trash": _("backup_settings_restore_trash_opt"),
+        }.get(current_restore, _("backup_settings_restore_rename_opt")))
 
         self._restore_menu = ctk.CTkOptionMenu(
             scroll,
@@ -194,7 +199,7 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         ctk.CTkButton(
             btn_frame,
-            text="取消",
+            text=_("backup_settings_cancel"),
             width=100,
             height=35,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
@@ -205,7 +210,7 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         ctk.CTkButton(
             btn_frame,
-            text="保存",
+            text=_("backup_settings_save_btn"),
             width=100,
             height=35,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
@@ -216,7 +221,7 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
     def _browse_backup_dir(self):
         from tkinter import filedialog
-        path = filedialog.askdirectory(title="选择备份存储目录")
+        path = filedialog.askdirectory(title=_("backup_settings_select_dir"))
         if path:
             self._backup_path_var.set(path)
 
@@ -228,16 +233,16 @@ class BackupSettingsWindow(ctk.CTkToplevel):
             # 保存压缩等级
             compress_text = self._compress_var.get()
             level_map = {
-                "1 - 最快 (低压缩)": 1,
-                "3 - 较快": 3,
-                "6 - 适中 (推荐)": 6,
-                "9 - 最小体积 (慢)": 9,
+                _("backup_settings_compress_1"): 1,
+                _("backup_settings_compress_3"): 3,
+                _("backup_settings_compress_6"): 6,
+                _("backup_settings_compress_9"): 9,
             }
             self.config.backup_compress_level = level_map.get(compress_text, 6)
 
             # 保存最大备份数
             max_text = self._max_var.get()
-            if max_text == "不限制":
+            if max_text == _("backup_settings_max_unlimited"):
                 self.config.backup_max_per_world = 0
             else:
                 self.config.backup_max_per_world = int(max_text)
@@ -245,9 +250,9 @@ class BackupSettingsWindow(ctk.CTkToplevel):
             # 保存恢复模式
             restore_text = self._restore_var.get()
             restore_map = {
-                "重命名为 .bak (推荐)": "rename",
-                "直接覆盖": "overwrite",
-                "移至回收站": "trash",
+                _("backup_settings_restore_rename_opt"): "rename",
+                _("backup_settings_restore_overwrite_opt"): "overwrite",
+                _("backup_settings_restore_trash_opt"): "trash",
             }
             self.config.backup_restore_mode = restore_map.get(restore_text, "rename")
 
@@ -257,10 +262,10 @@ class BackupSettingsWindow(ctk.CTkToplevel):
             self.config.backup_dir = custom_path if custom_path != default_path else None
 
             self.config.save_config()
-            self.set_status("备份设置已保存", "success") if hasattr(self, "set_status") else None
+            self.set_status(_("backup_settings_save_success"), "success") if hasattr(self, "set_status") else None
             self.destroy()
 
         except Exception as e:
             from logzero import logger
             logger.error(f"保存备份设置失败: {e}")
-            self.set_status(f"保存失败: {e}", "error") if hasattr(self, "set_status") else None
+            self.set_status(_("backup_settings_save_failed", error=str(e)), "error") if hasattr(self, "set_status") else None

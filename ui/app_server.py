@@ -12,6 +12,7 @@ import customtkinter as ctk
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY
+from ui.i18n import _
 from ui.windows.modpack_server import ModpackServerWindow
 
 
@@ -45,14 +46,14 @@ class ServerTabMixin(object):
 
         ctk.CTkLabel(
             title_frame,
-            text="📜 服务器控制台",
+            text=_("server_log_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(side=ctk.LEFT)
 
         self.server_log_status_label = ctk.CTkLabel(
             title_frame,
-            text="未运行",
+            text=_("server_not_running"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         )
@@ -155,7 +156,7 @@ class ServerTabMixin(object):
             fg_color=COLORS["bg_medium"],
             border_color=COLORS["card_border"],
             text_color=COLORS["text_primary"],
-            placeholder_text="输入服务器命令...",
+            placeholder_text=_("server_cmd_placeholder"),
             height=34,
         )
         self.server_cmd_entry.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(5, 5))
@@ -164,7 +165,7 @@ class ServerTabMixin(object):
 
         self.server_cmd_send_btn = ctk.CTkButton(
             cmd_frame,
-            text="发送",
+            text=_("server_send_btn"),
             width=55,
             height=34,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
@@ -175,7 +176,7 @@ class ServerTabMixin(object):
         self.server_cmd_send_btn.pack(side=ctk.RIGHT)
 
         # 插入初始提示
-        self._append_server_log("[FMCL] 等待服务器启动...")
+        self._append_server_log(_("server_waiting_start"))
 
     def _build_server_installed_panel(self, parent):
         """构建服务器已安装版本面板"""
@@ -189,14 +190,14 @@ class ServerTabMixin(object):
 
         ctk.CTkLabel(
             title_frame,
-            text="📦 已安装服务器",
+            text=_("server_installed_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(side=ctk.LEFT)
 
         self.server_count_label = ctk.CTkLabel(
             title_frame,
-            text="0 个版本",
+            text=_("server_version_count", count=0),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         )
@@ -237,7 +238,7 @@ class ServerTabMixin(object):
 
         self.server_start_btn = ctk.CTkButton(
             launch_frame,
-            text="🚀 启动服务器",
+            text=_("server_start_btn"),
             height=40,
             font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
             fg_color=COLORS["success"],
@@ -248,7 +249,7 @@ class ServerTabMixin(object):
 
         self.server_join_btn = ctk.CTkButton(
             launch_frame,
-            text="🎮 加入服务器",
+            text=_("server_join_btn"),
             width=120,
             height=40,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
@@ -260,7 +261,7 @@ class ServerTabMixin(object):
 
         self.server_stop_btn = ctk.CTkButton(
             launch_frame,
-            text="⏹ 停止",
+            text=_("server_stop_btn"),
             width=80,
             height=40,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
@@ -283,7 +284,7 @@ class ServerTabMixin(object):
         # ── 安装服务器区域 ──
         ctk.CTkLabel(
             panel,
-            text="📥 安装服务器",
+            text=_("server_install_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(15, 8), anchor=ctk.W)
@@ -295,7 +296,7 @@ class ServerTabMixin(object):
         # 版本ID输入
         ctk.CTkLabel(
             panel,
-            text="版本 ID（仅正式版）:",
+            text=_("server_version_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         ).pack(padx=15, anchor=ctk.W)
@@ -306,7 +307,7 @@ class ServerTabMixin(object):
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],
             border_color=COLORS["card_border"],
-            placeholder_text="例如: 1.21.4",
+            placeholder_text=_("server_version_placeholder"),
         )
         self.server_version_entry.pack(fill=ctk.X, padx=15, pady=(5, 10))
 
@@ -316,7 +317,7 @@ class ServerTabMixin(object):
 
         self.server_install_btn = ctk.CTkButton(
             btn_row,
-            text="📥 安装服务器",
+            text=_("server_install_btn_text"),
             height=38,
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             fg_color=COLORS["bg_light"],
@@ -327,7 +328,7 @@ class ServerTabMixin(object):
 
         self.server_modpack_btn = ctk.CTkButton(
             btn_row,
-            text="📦 整合包开服",
+            text=_("server_modpack_btn"),
             height=38,
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             fg_color=COLORS["bg_light"],
@@ -339,7 +340,7 @@ class ServerTabMixin(object):
         # ── 快速选择版本 ──
         ctk.CTkLabel(
             panel,
-            text="📋 快速选择",
+            text=_("server_quick_select_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(5, 8), anchor=ctk.W)
@@ -403,7 +404,7 @@ class ServerTabMixin(object):
         # ── 服务器设置 ──
         ctk.CTkLabel(
             panel,
-            text="⚙ 服务器设置",
+            text=_("server_settings_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(10, 8), anchor=ctk.W)
@@ -415,7 +416,7 @@ class ServerTabMixin(object):
         # 最大内存设置
         ctk.CTkLabel(
             panel,
-            text="最大内存:",
+            text=_("server_max_memory_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         ).pack(padx=15, anchor=ctk.W)
@@ -438,7 +439,7 @@ class ServerTabMixin(object):
         # 服务器端口提示
         ctk.CTkLabel(
             panel,
-            text="默认端口: 25565 (离线模式)",
+            text=_("server_port_hint"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
             wraplength=260,
@@ -447,7 +448,7 @@ class ServerTabMixin(object):
 
         ctk.CTkLabel(
             panel,
-            text="EULA 将自动同意",
+            text=_("server_eula_hint"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["warning"],
             wraplength=260,
@@ -460,12 +461,12 @@ class ServerTabMixin(object):
             widget.destroy()
         self.server_buttons.clear()
 
-        self.server_count_label.configure(text=f"{len(versions)} 个版本")
+        self.server_count_label.configure(text=_("server_version_count", count=len(versions)))
 
         if not versions:
             ctk.CTkLabel(
                 self.server_list_frame,
-                text="暂无已安装的服务器\n请在右侧安装服务器版本",
+                text=_("server_no_installed"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=13),
                 text_color=COLORS["text_secondary"],
                 justify=ctk.CENTER,
@@ -526,7 +527,7 @@ class ServerTabMixin(object):
                 item["frame"].configure(fg_color=COLORS["bg_medium"])
                 item["button"].configure(text_color=COLORS["text_primary"])
 
-        self.set_status(f"已选择服务器: {version}", "info")
+        self.set_status(_("server_version_selected", version=version), "info")
 
     def _render_server_available_versions(self, versions: List[Dict[str, Any]]):
         """渲染服务器可用版本列表"""
@@ -572,7 +573,7 @@ class ServerTabMixin(object):
         """快速选择服务器版本"""
         self.server_version_entry.delete(0, ctk.END)
         self.server_version_entry.insert(0, version_id)
-        self.set_status(f"已选择服务器版本: {version_id}", "info")
+        self.set_status(_("server_quick_select_status", version_id=version_id), "info")
 
     def _on_server_prev_page(self):
         """服务器版本上一页"""
@@ -603,10 +604,10 @@ class ServerTabMixin(object):
         """安装服务器按钮回调"""
         version_id = self.server_version_entry.get().strip()
         if not version_id:
-            self.set_status("请输入服务器版本 ID", "error")
+            self.set_status(_("server_install_error"), "error")
             return
 
-        self.set_status(f"正在安装服务器 {version_id} ...", "loading")
+        self.set_status(_("server_install_loading", version_id=version_id), "loading")
         self.server_install_btn.configure(state=ctk.DISABLED)
         self._run_in_thread(self._install_server, version_id)
 
@@ -626,17 +627,17 @@ class ServerTabMixin(object):
     def _on_server_start(self):
         """启动服务器按钮回调"""
         if not self.selected_server_version:
-            self.set_status("请先选择一个服务器版本", "error")
+            self.set_status(_("server_no_version_selected"), "error")
             return
 
         # 检查是否已有服务器在运行
         if "is_server_running" in self.callbacks and self.callbacks["is_server_running"]():
-            self.set_status("已有服务器正在运行", "warning")
+            self.set_status(_("server_already_running"), "warning")
             return
 
         version_id = self.selected_server_version
         max_memory = self.server_memory_var.get()
-        self.set_status(f"正在启动服务器 {version_id} ...", "loading")
+        self.set_status(_("server_starting", version=version_id), "loading")
         self.server_start_btn.configure(state=ctk.DISABLED)
         self._run_in_thread(self._start_server, version_id, max_memory)
 
@@ -654,18 +655,18 @@ class ServerTabMixin(object):
         if "stop_server" in self.callbacks:
             success = self.callbacks["stop_server"]()
             if success:
-                self.set_status("正在停止服务器...", "warning")
+                self.set_status(_("server_stopping"), "warning")
             else:
-                self.set_status("没有正在运行的服务器", "info")
+                self.set_status(_("server_no_running_server"), "info")
             self.server_stop_btn.configure(state=ctk.DISABLED)
             self.server_start_btn.configure(state=ctk.NORMAL)
 
     def _on_server_remove(self, version_id: str):
         """删除服务器版本"""
-        if not messagebox.askyesno("确认删除", f"确定要删除服务器版本 {version_id} 吗？\n\n服务器文件将被永久删除。"):
+        if not messagebox.askyesno(_("server_delete_confirm_title"), _("server_delete_confirm_msg", version=version_id)):
             return
 
-        self.set_status(f"正在删除服务器 {version_id} ...", "loading")
+        self.set_status(_("server_deleting", version=version_id), "loading")
         self._run_in_thread(self._remove_server, version_id)
 
     def _remove_server(self, version_id: str):
@@ -680,10 +681,10 @@ class ServerTabMixin(object):
     def _on_server_join(self):
         """一键加入服务器按钮回调"""
         if not self.selected_server_version:
-            self.set_status("请先选择一个服务器版本", "error")
+            self.set_status(_("server_no_version_selected"), "error")
             return
         version_id = self.selected_server_version
-        self.set_status(f"正在准备加入服务器 {version_id}...", "loading")
+        self.set_status(_("server_joining", version=version_id), "loading")
         self.server_join_btn.configure(state=ctk.DISABLED)
         self._run_in_thread(self._join_server, version_id)
 
@@ -787,7 +788,7 @@ class ServerTabMixin(object):
                         if mem_mb >= 1024:
                             text = f"{mem_mb / 1024:.1f} GB"
                         else:
-                            text = f"{mem_mb} MB"
+                            text = f"{mem_mb} {_('mb')}"
                         self.server_mem_label.configure(text=text)
         except Exception:
             pass
@@ -837,14 +838,14 @@ class ServerTabMixin(object):
         self.server_cmd_entry.delete(0, ctk.END)
 
         if "send_server_command" not in self.callbacks:
-            self._append_server_log(f"[FMCL] 错误: 无法发送命令（回调未注册）")
+            self._append_server_log(_("server_cmd_error_no_callback"))
             return
 
         success = self.callbacks["send_server_command"](cmd)
         if success:
             self._append_server_log(f"> {cmd}")
         else:
-            self._append_server_log(f"[FMCL] 无法发送命令: 服务器未运行")
+            self._append_server_log(_("server_cmd_error_not_running"))
 
     def _watch_server_exit(self):
         """监控服务器进程退出并实时读取日志（后台线程）"""

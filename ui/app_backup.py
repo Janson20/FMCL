@@ -10,6 +10,7 @@ import customtkinter as ctk
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY
+from ui.i18n import _
 
 
 class BackupTabMixin(object):
@@ -39,7 +40,7 @@ class BackupTabMixin(object):
 
         ctk.CTkLabel(
             title_frame,
-            text="📁 存档列表",
+            text=_("backup_world_list_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(side=ctk.LEFT)
@@ -79,7 +80,7 @@ class BackupTabMixin(object):
 
         ctk.CTkLabel(
             panel,
-            text="⚙ 自动备份",
+            text=_("backup_auto_section"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=12, anchor=ctk.W, pady=(0, 5))
@@ -87,7 +88,7 @@ class BackupTabMixin(object):
         self.backup_auto_launch_var = ctk.BooleanVar(value=getattr(self._get_config(), 'backup_auto_launch', False))
         ctk.CTkCheckBox(
             panel,
-            text="启动游戏前备份",
+            text=_("backup_auto_launch_label"),
             variable=self.backup_auto_launch_var,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["accent"],
@@ -99,7 +100,7 @@ class BackupTabMixin(object):
         self.backup_auto_exit_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(
             panel,
-            text="游戏退出后备份",
+            text=_("backup_auto_exit_label"),
             variable=self.backup_auto_exit_var,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["accent"],
@@ -120,14 +121,14 @@ class BackupTabMixin(object):
 
         ctk.CTkLabel(
             toolbar,
-            text="💾 备份管理",
+            text=_("backup_manage_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(side=ctk.LEFT)
 
         self.backup_count_label = ctk.CTkLabel(
             toolbar,
-            text="选择一个存档",
+            text=_("backup_select_world_hint"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         )
@@ -136,7 +137,7 @@ class BackupTabMixin(object):
         # 打开备份文件夹按钮
         ctk.CTkButton(
             toolbar,
-            text="📂 文件夹",
+            text=_("backup_open_folder_btn"),
             width=70,
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
@@ -148,7 +149,7 @@ class BackupTabMixin(object):
         # 设置按钮
         ctk.CTkButton(
             toolbar,
-            text="⚙ 设置",
+            text=_("backup_settings_btn"),
             width=60,
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
@@ -169,7 +170,7 @@ class BackupTabMixin(object):
 
         self.backup_note_entry = ctk.CTkEntry(
             action_frame,
-            placeholder_text="添加备份备注（可选）...",
+            placeholder_text=_("backup_note_hint"),
             height=32,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["bg_medium"],
@@ -179,7 +180,7 @@ class BackupTabMixin(object):
 
         self.backup_btn = ctk.CTkButton(
             action_frame,
-            text="📥 备份",
+            text=_("backup_now"),
             width=90,
             height=32,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
@@ -196,11 +197,11 @@ class BackupTabMixin(object):
         header_frame.pack_propagate(False)
 
         headers = [
-            ("时间", 18),
-            ("大小", 10),
-            ("版本", 16),
-            ("备注", 26),
-            ("操作", 20),
+            (_("backup_header_time"), 18),
+            (_("backup_header_size"), 10),
+            (_("backup_header_version"), 16),
+            (_("backup_header_note"), 26),
+            (_("backup_header_actions"), 20),
         ]
         for text, weight in headers:
             ctk.CTkLabel(
@@ -223,7 +224,7 @@ class BackupTabMixin(object):
         # 无选中提示
         self._backup_empty_label = ctk.CTkLabel(
             list_frame,
-            text="← 请先选择左侧的一个存档",
+            text=_("backup_select_world_first"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_secondary"],
             justify=ctk.CENTER,
@@ -234,7 +235,7 @@ class BackupTabMixin(object):
 
     def _refresh_world_list(self):
         """刷新存档列表"""
-        self.set_status("正在扫描存档...", "loading")
+        self.set_status(_("backup_scanning"), "loading")
         self._run_in_thread(self._load_world_list)
 
     def _load_world_list(self):
@@ -277,7 +278,7 @@ class BackupTabMixin(object):
         if not worlds:
             ctk.CTkLabel(
                 self.backup_world_list_frame,
-                text="未找到存档\n请先在游戏中创建存档",
+                text=_("backup_no_worlds"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=12),
                 text_color=COLORS["text_secondary"],
                 justify=ctk.CENTER,
@@ -314,7 +315,7 @@ class BackupTabMixin(object):
             else:
                 item["button"].configure(fg_color="transparent")
 
-        self.set_status(f"已选择存档: {world_name}", "info")
+        self.set_status(_("backup_world_selected", world=world_name), "info")
         self._run_in_thread(self._load_backup_list, world_name)
 
     # ─── 备份列表操作 ─────────────────────────────────────────
@@ -336,12 +337,12 @@ class BackupTabMixin(object):
             widget.destroy()
         self._backup_entries.clear()
 
-        self.backup_count_label.configure(text=f"{len(backups)} 个备份")
+        self.backup_count_label.configure(text=_("backup_backup_count", count=len(backups)))
 
         if not backups:
             ctk.CTkLabel(
                 self.backup_list_frame,
-                text=f"暂无 {world_name} 的备份\n点击上方「备份」按钮创建第一个备份",
+                text=_("backup_no_backups_hint", world=world_name),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=13),
                 text_color=COLORS["text_secondary"],
                 justify=ctk.CENTER,
@@ -367,7 +368,7 @@ class BackupTabMixin(object):
             dt = entry.timestamp_dt
             time_str = dt.strftime("%m-%d %H:%M")
         except Exception:
-            time_str = entry.timestamp[:16] if entry.timestamp else "未知"
+            time_str = entry.timestamp[:16] if entry.timestamp else _("backup_unknown_time")
 
         ctk.CTkLabel(
             row,
@@ -395,7 +396,7 @@ class BackupTabMixin(object):
         ).pack(side=ctk.LEFT, expand=True, fill=ctk.X, padx=5, pady=6)
 
         # 备注
-        note_text = entry.note if entry.note else "-"
+        note_text = entry.note if entry.note else _("backup_no_note")
         ctk.CTkLabel(
             row,
             text=note_text[:30] + ("..." if len(note_text) > 30 else ""),
@@ -449,14 +450,14 @@ class BackupTabMixin(object):
     def _on_create_backup(self):
         """手动备份按钮回调"""
         if not self._selected_backup_world:
-            self.set_status("请先选择一个存档", "error")
+            self.set_status(_("backup_no_world_selected"), "error")
             return
 
         world_name = self._selected_backup_world
         note = self.backup_note_entry.get().strip()
         self.backup_note_entry.delete(0, ctk.END)
 
-        self.set_status(f"正在备份 {world_name}...", "loading")
+        self.set_status(_("backup_creating", world=world_name), "loading")
         self.backup_btn.configure(state=ctk.DISABLED)
         self._run_in_thread(self._do_create_backup, world_name, note)
 
@@ -480,16 +481,15 @@ class BackupTabMixin(object):
             return
 
         world_name = self._selected_backup_world
+        time_str = entry.timestamp[:19] if entry.timestamp else _("backup_unknown_time")
+        note_str = entry.note or _("backup_no_note")
         if not messagebox.askyesno(
-            "确认恢复",
-            f"确定要将存档「{world_name}」恢复到此备份吗？\n\n"
-            f"当前存档将被重命名保留（_bak_时间戳）。\n"
-            f"备份时间: {entry.timestamp[:19] if entry.timestamp else '未知'}\n"
-            f"备注: {entry.note or '无'}",
+            _("backup_restore_confirm_title"),
+            _("backup_restore_confirm_msg", world=world_name, time=time_str, note=note_str),
         ):
             return
 
-        self.set_status(f"正在恢复 {world_name}...", "loading")
+        self.set_status(_("backup_restoring", world=world_name), "loading")
         self._run_in_thread(self._do_restore_backup, world_name, entry.id)
 
     def _do_restore_backup(self, world_name: str, entry_id: str):
@@ -512,16 +512,12 @@ class BackupTabMixin(object):
             return
 
         world_name = self._selected_backup_world
-        time_str = entry.timestamp[:19] if entry.timestamp else "未知"
-        note_str = entry.note or "无备注"
+        time_str = entry.timestamp[:19] if entry.timestamp else _("backup_unknown_time")
+        note_str = entry.note or _("backup_no_note")
 
         if not messagebox.askyesno(
-            "确认删除",
-            f"确定要删除此备份吗？\n\n"
-            f"时间: {time_str}\n"
-            f"大小: {entry.size_display}\n"
-            f"备注: {note_str}\n\n"
-            f"此操作不可恢复。",
+            _("backup_delete_confirm_title"),
+            _("backup_delete_confirm_msg", time=time_str, size=entry.size_display, note=note_str),
         ):
             return
 
@@ -544,10 +540,10 @@ class BackupTabMixin(object):
 
         default_name = entry.file_name
         filepath = filedialog.asksaveasfilename(
-            title="导出备份",
+            title=_("backup_export_title"),
             defaultextension=".zip",
             initialfile=default_name,
-            filetypes=[("ZIP 压缩包", "*.zip")],
+            filetypes=[(_("backup_zip_filter"), "*.zip")],
         )
         if not filepath:
             return
@@ -581,7 +577,7 @@ class BackupTabMixin(object):
                 import subprocess
                 subprocess.Popen(['xdg-open', path])
         except Exception as e:
-            self.set_status(f"打开文件夹失败: {e}", "error")
+            self.set_status(_("backup_folder_open_failed", error=str(e)), "error")
 
     def _open_backup_settings(self):
         """打开备份设置弹窗"""
@@ -636,7 +632,7 @@ class BackupTabMixin(object):
 
             # 备份最近修改的存档
             world = worlds[0]
-            note = f"自动备份({trigger}) - {trigger == 'launch' and '启动前' or '退出后'}"
+            note = _("backup_auto_note_launch") if trigger == "launch" else _("backup_auto_note_exit")
             success, msg = bm.create_backup(world["name"], note)
             if success:
                 logger.info(f"自动备份成功: {world['name']}")
@@ -653,7 +649,7 @@ class BackupTabMixin(object):
         if task_type == "backup_worlds_loaded":
             worlds = data
             self._render_world_list(worlds)
-            self.set_status(f"找到 {len(worlds)} 个存档", "success")
+            self.set_status(_("backup_worlds_found", count=len(worlds)), "success")
             return True
 
         elif task_type == "backup_list_loaded":
@@ -674,10 +670,10 @@ class BackupTabMixin(object):
             world_name, success, msg = data
             self.backup_btn.configure(state=ctk.NORMAL)
             if success:
-                self.set_status(f"备份成功: {world_name}", "success")
+                self.set_status(_("backup_status_success", world=world_name), "success")
                 self._run_in_thread(self._load_backup_list, world_name)
             else:
-                self.set_status(f"备份失败: {msg}", "error")
+                self.set_status(_("backup_status_failed", msg=msg), "error")
             self.progress_bar.set(0)
             self.progress_label.configure(text="")
             return True
@@ -685,10 +681,10 @@ class BackupTabMixin(object):
         elif task_type == "restore_done":
             world_name, success, msg = data
             if success:
-                self.set_status(f"恢复成功: {world_name}", "success")
+                self.set_status(_("backup_restore_status_success", world=world_name), "success")
                 self._run_in_thread(self._load_backup_list, world_name)
             else:
-                self.set_status(f"恢复失败: {msg}", "error")
+                self.set_status(_("backup_restore_status_failed", msg=msg), "error")
             self.progress_bar.set(0)
             self.progress_label.configure(text="")
             return True
@@ -696,23 +692,23 @@ class BackupTabMixin(object):
         elif task_type == "delete_backup_done":
             world_name, success, msg = data
             if success:
-                self.set_status("备份已删除", "success")
+                self.set_status(_("backup_delete_status_success"), "success")
                 self._run_in_thread(self._load_backup_list, world_name)
             else:
-                self.set_status(f"删除失败: {msg}", "error")
+                self.set_status(_("backup_delete_status_failed", msg=msg), "error")
             return True
 
         elif task_type == "export_backup_done":
             success, msg = data
             if success:
-                self.set_status("导出成功", "success")
+                self.set_status(_("backup_export_status_success"), "success")
             else:
-                self.set_status(f"导出失败: {msg}", "error")
+                self.set_status(_("backup_export_status_failed", msg=msg), "error")
             return True
 
         elif task_type == "auto_backup_done":
             world_name, msg = data
-            self.set_status(f"自动备份完成: {world_name}", "success")
+            self.set_status(_("backup_auto_complete", world=world_name), "success")
             return True
 
         return False
