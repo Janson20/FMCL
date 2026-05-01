@@ -14,6 +14,12 @@ TOOL_REGISTRY: Dict[str, str] = {
     "launch_game": "启动游戏",
     "search_mods": "搜索模组",
     "install_mod": "安装模组",
+    "delete_version": "删除版本",
+    "get_installed_servers": "获取已安装服务器列表",
+    "start_server": "启动服务器",
+    "delete_server_version": "删除服务器版本",
+    "install_modpack": "安装整合包",
+    "install_modpack_server": "整合包开服",
 }
 
 
@@ -33,6 +39,18 @@ def execute_tool(tool_name: str, params: Dict[str, str], callbacks: Dict[str, Ca
         return _search_mods(params, callbacks)
     elif tool_name == "install_mod":
         return _install_mod(params, callbacks)
+    elif tool_name == "delete_version":
+        return _delete_version(params, callbacks)
+    elif tool_name == "get_installed_servers":
+        return _get_installed_servers(callbacks)
+    elif tool_name == "start_server":
+        return _start_server(params, callbacks)
+    elif tool_name == "delete_server_version":
+        return _delete_server_version(params, callbacks)
+    elif tool_name == "install_modpack":
+        return _install_modpack(params, callbacks)
+    elif tool_name == "install_modpack_server":
+        return _install_modpack_server(params, callbacks)
     else:
         return f"错误: 未知工具 '{tool_name}'"
 
@@ -267,3 +285,158 @@ def _install_mod(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     except Exception as e:
         logger.error(f"安装模组失败: {e}")
         return f"❌ 模组安装失败: {str(e)}"
+
+
+def _delete_version(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """删除已安装的客户端版本"""
+    if "remove_version" not in callbacks:
+        return "错误: 删除版本功能不可用"
+
+    version_id = params.get("version_id", "").strip()
+    if not version_id:
+        return "错误: 缺少 version_id 参数"
+
+    try:
+        success, result_id = callbacks["remove_version"](version_id)
+    except Exception as e:
+        logger.error(f"[Agent] delete_version 异常: {e}", exc_info=True)
+        return f"❌ 删除失败: 版本 {version_id} 删除过程出现异常 ({e})"
+
+    if success:
+        return f"✅ 版本 {result_id} 已成功删除"
+    else:
+        return f"❌ 删除失败: 版本 {version_id} 可能未安装或删除时出错"
+
+
+def _get_installed_servers(callbacks: Dict[str, Callable]) -> str:
+    """获取已安装服务器列表"""
+    if "get_installed_servers" not in callbacks:
+        return "错误: 获取已安装服务器功能不可用"
+
+    servers = callbacks["get_installed_servers"]()
+    if not servers:
+        return "本地没有任何已安装的服务器"
+
+    result = f"本地已安装 {len(servers)} 个服务器:\n"
+    for s in servers:
+        result += f"  - {s}\n"
+    return result
+
+
+def _start_server(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """启动服务器"""
+    if "start_server" not in callbacks:
+        return "错误: 启动服务器功能不可用"
+
+    version_id = params.get("version_id", "").strip()
+    max_memory = params.get("max_memory", "2G").strip()
+
+    if not version_id:
+        return "错误: 缺少 version_id 参数"
+
+    try:
+        success, process = callbacks["start_server"](version_id, max_memory)
+    except Exception as e:
+        logger.error(f"[Agent] start_server 异常: {e}", exc_info=True)
+        return f"❌ 服务器启动失败: {e}"
+
+    if success:
+        if process and process.stdout:
+            def _drain_pipe():
+                try:
+                    for line in process.stdout:
+                        pass
+                except Exception:
+                    pass
+            threading.Thread(target=_drain_pipe, daemon=True, name="AgentServerStdoutDrain").start()
+            logger.info("[Agent] 已启动后台线程 drain 服务器 stdout 管道，防止 IO 阻塞")
+        return f"🚀 服务器 {version_id} 已启动！内存: {max_memory}，端口: 25565"
+    else:
+        return f"❌ 服务器启动失败: 版本 {version_id} 可能未安装或启动时出错"
+
+
+def _delete_server_version(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """删除已安装的服务器版本"""
+    if "remove_server" not in callbacks:
+        return "错误: 删除服务器版本功能不可用"
+
+    version_id = params.get("version_id", "").strip()
+    if not version_id:
+        return "错误: 缺少 version_id 参数"
+
+    try:
+        success, result_id = callbacks["remove_server"](version_id)
+    except Exception as e:
+        logger.error(f"[Agent] delete_server_version 异常: {e}", exc_info=True)
+        return f"❌ 删除服务器失败: {version_id} 删除过程出现异常 ({e})"
+
+    if success:
+        return f"✅ 服务器版本 {result_id} 已成功删除"
+    else:
+        return f"❌ 删除服务器失败: 版本 {version_id} 可能未安装或删除时出错"
+
+
+def _install_modpack(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """安装整合包"""
+    if "get_mrpack_information" not in callbacks or "install_mrpack" not in callbacks:
+        return "错误: 整合包安装功能不可用"
+
+    mrpack_path = params.get("mrpack_path", "").strip()
+    if not mrpack_path:
+        return "错误: 缺少 mrpack_path 参数（.mrpack 文件的绝对路径）"
+
+    import os
+    if not os.path.isfile(mrpack_path):
+        return f"错误: 文件不存在: {mrpack_path}"
+
+    try:
+        info = callbacks["get_mrpack_information"](mrpack_path)
+    except Exception as e:
+        return f"❌ 无法读取整合包信息: {e}"
+
+    pack_name = info.get("name", "未知")
+    mc_version = info.get("minecraftVersion", "未知")
+
+    try:
+        success, result = callbacks["install_mrpack"](mrpack_path)
+    except Exception as e:
+        logger.error(f"[Agent] install_modpack 异常: {e}", exc_info=True)
+        return f"❌ 整合包安装失败: {e}"
+
+    if success:
+        return f"✅ 整合包安装成功！\n名称: {pack_name}\nMinecraft 版本: {mc_version}\n启动版本: {result}"
+    else:
+        return f"❌ 整合包安装失败: {result}"
+
+
+def _install_modpack_server(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """安装整合包作为服务器"""
+    if "install_mrpack_server" not in callbacks or "get_mrpack_information" not in callbacks:
+        return "错误: 整合包开服功能不可用"
+
+    mrpack_path = params.get("mrpack_path", "").strip()
+    if not mrpack_path:
+        return "错误: 缺少 mrpack_path 参数（.mrpack 文件的绝对路径）"
+
+    import os
+    if not os.path.isfile(mrpack_path):
+        return f"错误: 文件不存在: {mrpack_path}"
+
+    try:
+        info = callbacks["get_mrpack_information"](mrpack_path)
+    except Exception as e:
+        return f"❌ 无法读取整合包信息: {e}"
+
+    pack_name = info.get("name", "未知")
+    mc_version = info.get("minecraftVersion", "未知")
+
+    try:
+        success, server_name = callbacks["install_mrpack_server"](mrpack_path)
+    except Exception as e:
+        logger.error(f"[Agent] install_modpack_server 异常: {e}", exc_info=True)
+        return f"❌ 整合包服务器安装失败: {e}"
+
+    if success:
+        return f"✅ 整合包服务器安装成功！\n名称: {pack_name}\nMinecraft 版本: {mc_version}\n服务器名: {server_name}"
+    else:
+        return f"❌ 整合包服务器安装失败: {server_name}"

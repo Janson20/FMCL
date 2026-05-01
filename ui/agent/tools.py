@@ -126,20 +126,134 @@ def get_tool_definitions() -> List[Dict]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "delete_version",
+                "description": "删除本地已安装的 Minecraft 客户端版本",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "version_id": {
+                            "type": "string",
+                            "description": "要删除的版本ID，如 1.20.1、1.20.1-forge-49.0.26 等",
+                        },
+                    },
+                    "required": ["version_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_installed_servers",
+                "description": "获取本地已安装的服务器版本列表",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "start_server",
+                "description": "启动指定版本的 Minecraft 服务器",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "version_id": {
+                            "type": "string",
+                            "description": "服务器版本号，如 1.21.4 或 1.20.1-forge-xxx 等",
+                        },
+                        "max_memory": {
+                            "type": "string",
+                            "description": "最大内存，如 2G、4G、8G，默认 2G",
+                        },
+                    },
+                    "required": ["version_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "delete_server_version",
+                "description": "删除本地已安装的 Minecraft 服务器版本",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "version_id": {
+                            "type": "string",
+                            "description": "要删除的服务器版本号，如 1.21.4",
+                        },
+                    },
+                    "required": ["version_id"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "install_modpack",
+                "description": "安装 .mrpack 整合包文件",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "mrpack_path": {
+                            "type": "string",
+                            "description": ".mrpack 整合包文件的绝对路径",
+                        },
+                    },
+                    "required": ["mrpack_path"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "install_modpack_server",
+                "description": "安装 .mrpack 整合包作为服务器",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "mrpack_path": {
+                            "type": "string",
+                            "description": ".mrpack 整合包文件的绝对路径",
+                        },
+                    },
+                    "required": ["mrpack_path"],
+                },
+            },
+        },
     ]
 
 
 def get_system_prompt() -> str:
     """获取 AI 系统提示词"""
-    return """你是一个 Minecraft 启动器智能助手，可以通过调用工具帮助用户管理 Minecraft 版本和模组。
+    return """你是一个 Minecraft 启动器智能助手，可以通过调用工具帮助用户管理 Minecraft 版本、模组、服务器和整合包。
 
 ## 可用工具
+### 客户端管理
 - get_available_versions: 获取可安装的版本列表
 - get_installed_versions: 获取本地已安装版本
 - install_version: 安装版本（支持 Forge/Fabric/NeoForge）
+- delete_version: 删除已安装的客户端版本
 - launch_game: 启动游戏
+
+### 模组管理
 - search_mods: 搜索 Modrinth 模组
 - install_mod: 安装模组
+
+### 服务器管理
+- get_installed_servers: 获取已安装的服务器版本列表
+- start_server: 启动服务器（可指定内存大小）
+- delete_server_version: 删除已安装的服务器版本
+
+### 整合包管理
+- install_modpack: 安装 .mrpack 整合包
+- install_modpack_server: 安装 .mrpack 整合包作为服务器
 
 ## 工作流程
 1. 分析用户需求，确定需要调用哪些工具
@@ -151,6 +265,11 @@ def get_system_prompt() -> str:
 - 安装模组前必须先获取已安装版本列表确认版本存在
 - 搜索模组时必须指定游戏版本和加载器
 - 启动游戏前需要确认版本确实已安装
+- 删除版本前必须先用 get_installed_versions 确认版本存在
+- 开服前必须先用 get_installed_servers 确认服务器版本已安装
+- 删除服务器前必须先用 get_installed_servers 确认服务器版本存在
+- 整合包安装需要用户提供 .mrpack 文件的绝对路径
+- 整合包开服同样需要用户提供 .mrpack 文件的绝对路径
 - 当有多个匹配时，必须让用户选择
 - 每次只调用一个工具，等待结果后再决定下一步
 - 用友好、热情的语气回复
@@ -196,4 +315,6 @@ def get_system_prompt() -> str:
 - install_mod 需要 mod_loader 参数来指定加载器（fabric/forge/neoforge）
 - 安装模组前必须先用 get_installed_versions 确认版本已安装
 - 搜索模组时 search_mods 需要指定 game_version 和 mod_loader
+- start_server 的 max_memory 参数可选，默认 2G
+- install_modpack 和 install_modpack_server 需要绝对路径
 """
