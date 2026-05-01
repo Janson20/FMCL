@@ -85,7 +85,7 @@ Section "-7ZipCheck" SEC07Z
   ${If} $0 != ""
     IfFileExists "$0\7z.exe" 0 check_wow64
     DetailPrint "检测到 7-Zip 已安装: $0"
-    Goto 7z_done
+    Goto sevenz_done
   ${EndIf}
 
 check_wow64:
@@ -93,16 +93,16 @@ check_wow64:
   ${If} $0 != ""
     IfFileExists "$0\7z.exe" 0 check_path
     DetailPrint "检测到 7-Zip 已安装 (WOW64): $0"
-    Goto 7z_done
+    Goto sevenz_done
   ${EndIf}
 
 check_path:
   StrCpy $0 "$PROGRAMFILES\7-Zip\7z.exe"
-  IfFileExists $0 7z_done
+  IfFileExists $0 sevenz_done
   StrCpy $0 "$PROGRAMFILES32\7-Zip\7z.exe"
-  IfFileExists $0 7z_done
+  IfFileExists $0 sevenz_done
   StrCpy $0 "$PROGRAMFILES64\7-Zip\7z.exe"
-  IfFileExists $0 7z_done
+  IfFileExists $0 sevenz_done
 
   DetailPrint "未检测到 7-Zip，正在下载..."
   MessageBox MB_OK "FMCL 预下载功能需要 7-Zip 来解压资源包。$\n$\n点击确定后将自动下载并安装 7-Zip（静默安装）。" /SD IDOK
@@ -122,7 +122,7 @@ check_path:
   ${If} $0 != "success"
     DetailPrint "7-Zip 下载失败: $0"
     MessageBox MB_ICONWARNING "7-Zip 自动下载失败。$\n$\n请手动安装 7-Zip: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
-    Goto 7z_done
+    Goto sevenz_done
   ${EndIf}
 
   DetailPrint "正在静默安装 7-Zip..."
@@ -144,7 +144,7 @@ check_path:
     MessageBox MB_ICONWARNING "7-Zip 安装可能未成功。$\n$\n请手动安装: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
   ${EndIf}
 
-7z_done:
+sevenz_done:
   DetailPrint "7-Zip 检查完成"
 SectionEnd
 
