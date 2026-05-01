@@ -227,6 +227,48 @@ def get_tool_definitions() -> List[Dict]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_modpack",
+                "description": "在 Modrinth 上搜索整合包",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "搜索关键词，如 skyblock、RLCraft 等",
+                        },
+                        "game_version": {
+                            "type": "string",
+                            "description": "Minecraft 版本号，如 1.20.1",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "download_modpack",
+                "description": "从 Modrinth 下载整合包 .mrpack 文件，返回下载完成的文件路径。需要先从 search_modpack 获取 project_id",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "project_id": {
+                            "type": "string",
+                            "description": "Modrinth 整合包项目ID（从 search_modpack 结果中获得）",
+                        },
+                        "game_version": {
+                            "type": "string",
+                            "description": "Minecraft 版本号筛选，如 1.20.1",
+                        },
+                    },
+                    "required": ["project_id"],
+                },
+            },
+        },
     ]
 
 
@@ -252,6 +294,8 @@ def get_system_prompt() -> str:
 - delete_server_version: 删除已安装的服务器版本
 
 ### 整合包管理
+- search_modpack: 在 Modrinth 搜索整合包
+- download_modpack: 从 Modrinth 下载整合包 .mrpack（返回下载路径）
 - install_modpack: 安装 .mrpack 整合包
 - install_modpack_server: 安装 .mrpack 整合包作为服务器
 
@@ -270,11 +314,13 @@ def get_system_prompt() -> str:
 - 删除服务器前必须先用 get_installed_servers 确认服务器版本存在
 - 整合包安装需要用户提供 .mrpack 文件的绝对路径
 - 整合包开服同样需要用户提供 .mrpack 文件的绝对路径
+- 从 Modrinth 下载整合包：先用 search_modpack 搜索获取 project_id，再用 download_modpack 下载，下载完成后文件路径可用于 install_modpack 安装
+- download_modpack 返回的路径可直接传给 install_modpack 使用
 - 当有多个匹配时，必须让用户选择
 - 每次只调用一个工具，等待结果后再决定下一步
 - 用友好、热情的语气回复
 
-## 输出格式（必须严格使用以下 XML 格式）
+## 输出格式（必须 **严格使用** 以下 XML 格式，无额外内容）
 
 如果调用工具：
 <response>
@@ -317,4 +363,6 @@ def get_system_prompt() -> str:
 - 搜索模组时 search_mods 需要指定 game_version 和 mod_loader
 - start_server 的 max_memory 参数可选，默认 2G
 - install_modpack 和 install_modpack_server 需要绝对路径
+- search_modpack 的 game_version 参数可选，用于筛选特定版本
+- download_modpack 的 project_id 来自 search_modpack 结果，game_version 可选
 """

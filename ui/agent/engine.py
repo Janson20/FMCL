@@ -20,6 +20,8 @@ TOOL_REGISTRY: Dict[str, str] = {
     "delete_server_version": "删除服务器版本",
     "install_modpack": "安装整合包",
     "install_modpack_server": "整合包开服",
+    "search_modpack": "搜索整合包",
+    "download_modpack": "下载整合包",
 }
 
 
@@ -51,6 +53,10 @@ def execute_tool(tool_name: str, params: Dict[str, str], callbacks: Dict[str, Ca
         return _install_modpack(params, callbacks)
     elif tool_name == "install_modpack_server":
         return _install_modpack_server(params, callbacks)
+    elif tool_name == "search_modpack":
+        return _search_modpack(params, callbacks)
+    elif tool_name == "download_modpack":
+        return _download_modpack(params, callbacks)
     else:
         return f"错误: 未知工具 '{tool_name}'"
 
@@ -440,3 +446,78 @@ def _install_modpack_server(params: Dict[str, str], callbacks: Dict[str, Callabl
         return f"✅ 整合包服务器安装成功！\n名称: {pack_name}\nMinecraft 版本: {mc_version}\n服务器名: {server_name}"
     else:
         return f"❌ 整合包服务器安装失败: {server_name}"
+
+
+def _search_modpack(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """在 Modrinth 搜索整合包"""
+    try:
+        from modrinth import search_modpacks as modrinth_search, compress_game_versions
+
+        query = params.get("query", "").strip()
+        game_version = params.get("game_version", "").strip() or None
+
+        if not query:
+            return "错误: 缺少搜索关键词"
+
+        result = modrinth_search(
+            query=query,
+            game_version=game_version,
+            limit=10,
+        )
+
+        hits = result.get("hits", [])
+        if not hits:
+            return f"未找到与 '{query}' 相关的整合包"
+
+        output = f"找到 {result.get('total_hits', len(hits))} 个整合包:\n"
+        for i, mp in enumerate(hits, 1):
+            title = mp.get("title", "未知")
+            project_id = mp.get("project_id", "未知")
+            author = mp.get("author", "未知")
+            description = mp.get("description", "")
+            if len(description) > 120:
+                description = description[:120] + "..."
+            downloads = mp.get("downloads", 0)
+            versions = mp.get("versions", [])
+            version_str = compress_game_versions(versions) if versions else "未知"
+            output += (
+                f"\n{i}. {title}\n"
+                f"   项目ID: {project_id}\n"
+                f"   作者: {author}\n"
+                f"   下载量: {downloads}\n"
+                f"   版本: {version_str}\n"
+                f"   简介: {description}\n"
+            )
+
+        return output
+    except Exception as e:
+        logger.error(f"搜索整合包失败: {e}")
+        return f"❌ 搜索整合包失败: {str(e)}"
+
+
+def _download_modpack(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """从 Modrinth 下载整合包 .mrpack 文件"""
+    try:
+        from modrinth import download_modpack_file
+
+        project_id = params.get("project_id", "").strip()
+        game_version = params.get("game_version", "").strip() or None
+
+        if not project_id:
+            return "错误: 缺少 project_id 参数"
+
+        success, result = download_modpack_file(
+            project_id,
+            game_version=game_version,
+        )
+
+        if success:
+            import os
+            filename = os.path.basename(result)
+            return f"✅ 整合包下载成功！\n文件名: {filename}\n路径: {result}"
+        else:
+            return f"❌ 整合包下载失败: {result}"
+
+    except Exception as e:
+        logger.error(f"下载整合包失败: {e}")
+        return f"❌ 下载整合包失败: {str(e)}"
