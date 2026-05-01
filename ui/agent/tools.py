@@ -383,6 +383,39 @@ def get_tool_definitions() -> List[Dict]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "exec_command",
+                "description": "在指定路径下执行终端命令。高危命令（如 rm -rf、dd、shutdown、DROP TABLE 等）需要用户手动确认后才会执行",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "执行命令的工作目录（绝对路径），不填则在启动器所在目录执行",
+                        },
+                        "command": {
+                            "type": "string",
+                            "description": "要执行的命令",
+                        },
+                    },
+                    "required": ["command"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_launcher_path",
+                "description": "获取启动器所在的目录路径",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                },
+            },
+        },
     ]
 
 
@@ -423,6 +456,10 @@ def get_system_prompt() -> str:
 
 ### 版本资源查询
 - list_version_resources: 列出指定版本已安装的资源（模组/资源包/光影/地图），通过 resource_type 参数区分类型
+
+### 终端命令执行
+- exec_command: 在指定路径下执行终端命令。需要提供 path（工作目录）和 command（命令）。path 不填则在启动器所在目录执行。注意：高危命令（如 rm -rf、dd、shutdown、DROP TABLE 等）需要用户确认后执行
+- get_launcher_path: 获取启动器所在的目录路径，用于 exec_command 的 path 参数参考
 
 ## 工作流程
 1. 分析用户需求，确定需要调用哪些工具

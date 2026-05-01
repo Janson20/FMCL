@@ -528,6 +528,12 @@
   "agent_chat_cleared": "对话已清空",
   "agent_choose_option": "选择: {value}",
 
+  "agent_exec_dangerous_title": "⚠ 检测到高危命令",
+  "agent_exec_dangerous_warning": "以下命令可能造成不可逆的系统损坏：\n\n路径: {path}\n命令: {command}\n\n是否确认执行？",
+  "agent_exec_confirmed": "用户确认执行高危命令: {command}",
+  "agent_exec_cancelled": "用户取消了高危命令执行: {command}",
+  "agent_disclaimer": "AI也会犯错，净读及启动器不对AI生成的任何内容负责。",
+
   "terms_title": "使用条款与隐私协议",
   "terms_content": "使用该启动器代表你已同意Minecraft EULA，净读AI隐私协议，净读使用条款\n\n条款链接: https://jingdu.qzz.io/terms",
   "terms_agree": "我同意",

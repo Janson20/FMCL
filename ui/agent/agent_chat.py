@@ -11,8 +11,9 @@ from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
 from ui.agent.provider import AIProvider
 from ui.agent.tools import get_tool_definitions, get_system_prompt
-from ui.agent.engine import execute_tool
+from ui.agent.engine import execute_tool, DANGEROUS_MARKER, execute_dangerous_command
 from ui.agent.xml_parser import ParsedResponse
+from ui.dialogs import show_confirmation
 
 
 class OptionSelectDialog(ctk.CTkToplevel):
@@ -79,6 +80,7 @@ class AgentChatView(ctk.CTkFrame):
         self._provider: Optional[AIProvider] = None
         self._messages: List[Dict] = []
         self._running = False
+        self._pending_dangerous = None
 
         self._init_messages()
         self._build_ui()
@@ -153,6 +155,14 @@ class AgentChatView(ctk.CTkFrame):
             command=self._on_send,
         )
         self._send_btn.pack(side=ctk.RIGHT)
+
+        disclaimer_label = ctk.CTkLabel(
+            chat_container,
+            text=_("agent_disclaimer"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+        )
+        disclaimer_label.pack(pady=(4, 0))
 
         self._append_system_message(_("agent_welcome1"))
         self._append_system_message(_("agent_welcome2") + "\n" + _("agent_example1") + "\n" + _("agent_example2") + "\n" + _("agent_example3") + "\n" + _("agent_example4") + "\n" + _("agent_example5") + "\n" + _("agent_example6"))
@@ -249,6 +259,31 @@ class AgentChatView(ctk.CTkFrame):
         self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
 
+    def _on_dangerous_command_confirmed(self, confirmed: bool):
+        if not self._pending_dangerous:
+            return
+        exec_path, exec_command = self._pending_dangerous
+        self._pending_dangerous = None
+
+        if confirmed:
+            logger.info(f"[Agent] 用户确认执行高危命令: {exec_command}")
+            self._append_message("tool", _("agent_exec_confirmed", command=exec_command), tag=_("agent_tool_result"))
+            result_text = execute_dangerous_command(exec_path, exec_command)
+        else:
+            logger.info(f"[Agent] 用户取消了高危命令: {exec_command}")
+            self._append_message("tool", _("agent_exec_cancelled", command=exec_command), tag=_("agent_tool_result"))
+            result_text = f"⚠️ 用户取消了命令执行\n路径: {exec_path}\n命令: {exec_command}"
+
+        self._append_message("tool", result_text[:500], tag=_("agent_tool_result"))
+        self._messages.append({
+            "role": "user",
+            "content": f"工具 exec_command 执行结果:\n{result_text}",
+        })
+        logger.info("[Agent] 工具结果已追加到消息列表，继续下一轮迭代")
+
+        self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
+        threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
+
     def _process_ai_loop(self):
         max_iterations = 10
         max_format_retries = 3
@@ -305,6 +340,8 @@ class AgentChatView(ctk.CTkFrame):
                     tool_name = parsed.tool_name
                     tool_params = parsed.tool_params
                     logger.info(f"[Agent] 工具调用: {tool_name}, 参数: {tool_params}")
+                    if not tool_params and tool_name == "exec_command":
+                        logger.warning(f"[Agent] exec_command 参数为空, 原始回复: {response_text[:500]}")
 
                     if not tool_name:
                         logger.warning("[Agent] tool_name 为空，跳过工具执行")
@@ -323,6 +360,28 @@ class AgentChatView(ctk.CTkFrame):
 
                     result_text = execute_tool(tool_name, tool_params, self._callbacks)
                     logger.info(f"[Agent] 工具执行结果 (前300字): {result_text[:300]}")
+
+                    if result_text.startswith(DANGEROUS_MARKER):
+                        parts = result_text.split("|", 2)
+                        exec_path = parts[1]
+                        exec_command = parts[2]
+                        self._pending_dangerous = (exec_path, exec_command)
+                        logger.info(f"[Agent] 需要用户确认高危命令: {exec_command}")
+
+                        def _show_danger_dialog():
+                            if not self._pending_dangerous:
+                                return
+                            dp, dc = self._pending_dangerous
+                            confirmed = show_confirmation(
+                                _("agent_exec_dangerous_warning",
+                                  command=dc,
+                                  path=dp),
+                                title=_("agent_exec_dangerous_title"),
+                            )
+                            self.after(0, lambda c=confirmed: self._on_dangerous_command_confirmed(c))
+
+                        self.after(0, _show_danger_dialog)
+                        return
 
                     self.after(0, lambda r=result_text[:500]: self._append_message(
                         "tool", r, tag=_("agent_tool_result")

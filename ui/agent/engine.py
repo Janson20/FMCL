@@ -3,9 +3,102 @@
 import json
 import subprocess
 import threading
+import os
 from typing import Dict, Any, Callable, Optional
 from logzero import logger
 
+
+DANGEROUS_PREFIXES = [
+    "rm -rf ",
+    "rm -fr ",
+    "rm --no-preserve-root ",
+    "del /s ",
+    "del /q ",
+    "del /f ",
+    "rd /s ",
+    "rd /q ",
+    "format ",
+    "diskpart",
+    "mv /dev/null ",
+    "/dev/sd",
+    "echo > /dev/sd",
+    "chmod -R 777 ",
+    "chmod -R 000 ",
+    "chown -R /",
+    "dd if=/dev/zero ",
+    "dd of=/dev/sda",
+    "mkfs.",
+    "fdisk ",
+    "fdisk\n",
+    "parted ",
+    "parted\n",
+    "gdisk ",
+    "gdisk\n",
+    "shutdown ",
+    "shutdown\n",
+    "poweroff ",
+    "poweroff\n",
+    "halt ",
+    "halt\n",
+    "shred ",
+    "wipefs ",
+    "blkdiscard ",
+    "cryptsetup luksFormat ",
+    ":(){ ",
+    ":(){",
+    "curl | bash",
+    "wget -O- | sh",
+    "curl -s http",
+    "nohup ",
+    "sudo rm ",
+    "sudo dd ",
+    "sudo chmod ",
+    "echo >> /etc/passwd",
+    "echo >> /etc/shadow",
+    "nc -e ",
+    "nc -l -p ",
+    "ssh -R ",
+    "ssh -L ",
+    "ssh -D ",
+    "iptables -F",
+    "iptables -P DROP",
+    "service iptables stop",
+    "DROP TABLE ",
+    "DROP DATABASE ",
+    "TRUNCATE TABLE ",
+    "DELETE FROM ",
+    'psql -c "DROP ',
+    'mysql -e "DROP ',
+    "redis-cli FLUSHALL",
+    "mongorestore --drop",
+    "git push --force",
+    "git reset --hard",
+    "kubectl delete namespace ",
+    "terraform destroy",
+    "aws s3 sync --delete",
+    "docker run --privileged ",
+    "docker run -v /:/host",
+    "systemctl disable ",
+    "crontab -r",
+    "killall -9 ",
+    "mount ",
+    "chattr +i ",
+    "kubectl delete all --all-namespaces",
+    "helm uninstall ",
+    "docker system prune -a --volumes",
+    "docker rmi ",
+    "docker image rm ",
+    "docker exec ",
+    "docker commit ",
+    "$(rm ",
+    "`rm ",
+    'bash -c "rm ',
+    'sh -c "rm ',
+    'cmd /c "del ',
+    'powershell -Command "Remove-Item',
+]
+
+DANGEROUS_MARKER = "__DANGEROUS__"
 
 TOOL_REGISTRY: Dict[str, str] = {
     "get_available_versions": "获取可用版本列表",
@@ -27,6 +120,8 @@ TOOL_REGISTRY: Dict[str, str] = {
     "search_shaders": "搜索光影",
     "install_shader": "安装光影",
     "list_version_resources": "列出版本资源",
+    "exec_command": "执行终端命令",
+    "get_launcher_path": "获取启动器路径",
 }
 
 
@@ -72,6 +167,10 @@ def execute_tool(tool_name: str, params: Dict[str, str], callbacks: Dict[str, Ca
         return _install_shader(params, callbacks)
     elif tool_name == "list_version_resources":
         return _list_version_resources(params, callbacks)
+    elif tool_name == "exec_command":
+        return _exec_command(params, callbacks)
+    elif tool_name == "get_launcher_path":
+        return _get_launcher_path()
     else:
         return f"错误: 未知工具 '{tool_name}'"
 
@@ -105,6 +204,70 @@ def _get_available_versions(callbacks: Dict[str, Callable]) -> str:
             result += f"  - {sid}\n"
 
     return result
+
+
+def _is_dangerous_command(command: str) -> Optional[str]:
+    for prefix in DANGEROUS_PREFIXES:
+        if command.startswith(prefix):
+            return prefix
+    return None
+
+
+def _exec_command(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    path = params.get("path", "").strip()
+    command = params.get("command", "").strip()
+
+    if not path:
+        path = os.getcwd()
+    if not command:
+        return "错误: 缺少 command 参数"
+
+    if not os.path.isdir(path):
+        return f"错误: 路径不存在或不是目录: {path}"
+
+    dangerous_prefix = _is_dangerous_command(command)
+    if dangerous_prefix:
+        logger.warning(f"[Agent] 检测到高危命令: '{command}' (匹配前缀: '{dangerous_prefix}')")
+        return f"{DANGEROUS_MARKER}|{path}|{command}"
+
+    return _run_command(path, command)
+
+
+def execute_dangerous_command(path: str, command: str) -> str:
+    return _run_command(path, command)
+
+
+def _run_command(path: str, command: str) -> str:
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=path,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        output = ""
+        if result.stdout:
+            output += result.stdout
+        if result.stderr:
+            if output:
+                output += "\n"
+            output += f"[stderr]\n{result.stderr}"
+        if not output:
+            output = f"(退出码: {result.returncode})"
+
+        status = "✅ 命令执行成功" if result.returncode == 0 else f"⚠️ 命令执行完成 (退出码: {result.returncode})"
+        return f"{status}\n路径: {path}\n命令: {command}\n\n输出:\n{output[:4000]}"
+    except subprocess.TimeoutExpired:
+        return f"⚠️ 命令执行超时 (超过300秒)\n路径: {path}\n命令: {command}"
+    except Exception as e:
+        logger.error(f"[Agent] exec_command 异常: {e}", exc_info=True)
+        return f"❌ 命令执行失败: {e}\n路径: {path}\n命令: {command}"
+
+
+def _get_launcher_path() -> str:
+    return f"启动器所在路径: {os.getcwd()}"
 
 
 def _get_installed_versions(callbacks: Dict[str, Callable]) -> str:

@@ -528,6 +528,12 @@
   "agent_chat_cleared": "チャットをクリアしました",
   "agent_choose_option": "選択: {value}",
 
+  "agent_exec_dangerous_title": "⚠ 危険なコマンドを検出",
+  "agent_exec_dangerous_warning": "以下のコマンドはシステムに回復不能な損害を与える可能性があります：\n\nパス: {path}\nコマンド: {command}\n\n実行しますか？",
+  "agent_exec_confirmed": "ユーザーが危険なコマンドの実行を確認: {command}",
+  "agent_exec_cancelled": "ユーザーが危険なコマンドの実行をキャンセル: {command}",
+  "agent_disclaimer": "AIは間違えることがあります。Jingdu AIおよびランチャーはAIが生成したコンテンツについて一切の責任を負いません。",
+
   "terms_title": "利用規約とプライバシー契約",
   "terms_content": "このランチャーを使用することにより、Minecraft EULA、Jingdu AIプライバシー契約、Jingdu利用規約に同意したことになります。\n\n規約リンク: https://jingdu.qzz.io/terms",
   "terms_agree": "同意する",

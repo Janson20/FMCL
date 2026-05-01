@@ -71,7 +71,7 @@ def show_confirmation(message: str, title: str = "确认") -> bool:
         command=on_no,
     ).pack(side=ctk.LEFT, padx=10)
 
-    dialog.mainloop()
+    dialog.wait_window()
     return result[0]
 
 
@@ -105,7 +105,7 @@ def show_alert(message: str, title: str = "提示") -> None:
         command=lambda: (dialog.grab_release(), dialog.destroy()),
     ).pack()
 
-    dialog.mainloop()
+    dialog.wait_window()
 
 
 class VersionSelectorDialog(ctk.CTkToplevel):

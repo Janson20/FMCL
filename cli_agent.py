@@ -17,7 +17,7 @@ from config import config
 from secure_storage import encrypt_token
 from ui.agent.provider import AIProvider
 from ui.agent.tools import get_tool_definitions, get_system_prompt
-from ui.agent.engine import execute_tool
+from ui.agent.engine import execute_tool, DANGEROUS_MARKER, execute_dangerous_command
 from ui.agent.xml_parser import ParsedResponse
 
 
@@ -70,6 +70,19 @@ def _get_callbacks() -> Dict:
     callbacks = launcher.get_callbacks()
     logger.info(f"[CLI Agent] 回调初始化完成，包含 {len(callbacks)} 个回调")
     return callbacks
+
+
+def _confirm_dangerous_command(path: str, command: str) -> bool:
+    _print(f"\033[91m⚠️  高危命令警告!\033[0m")
+    _print(f"   路径: {path}")
+    _print(f"   命令: {command}")
+    _print(f"\033[91m   此命令可能造成不可逆的系统损坏\033[0m")
+    try:
+        choice = input("   确认执行? (输入 yes 确认, 其他取消): ").strip()
+        return choice.lower() == "yes"
+    except (EOFError, KeyboardInterrupt):
+        _print()
+        return False
 
 
 def _process_once(
@@ -126,6 +139,18 @@ def _process_once(
 
             _print_tool(tool_name, tool_params)
             result_text = execute_tool(tool_name, tool_params, callbacks)
+
+            if result_text.startswith(DANGEROUS_MARKER):
+                parts = result_text.split("|", 2)
+                exec_path = parts[1]
+                exec_command = parts[2]
+                if _confirm_dangerous_command(exec_path, exec_command):
+                    _print_system(f"用户确认执行高危命令: {exec_command}")
+                    result_text = execute_dangerous_command(exec_path, exec_command)
+                else:
+                    _print_system(f"用户取消了高危命令: {exec_command}")
+                    result_text = f"⚠️ 用户取消了命令执行\n路径: {exec_path}\n命令: {exec_command}"
+
             _print_tool_result(result_text)
             _print_divider()
 
