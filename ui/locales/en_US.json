@@ -168,6 +168,13 @@
   "resource_disable": "🔗 Disable",
   "resource_delete": "🗑️ Delete",
   "resource_delete_confirm": "Are you sure you want to delete resource {name}?",
+
+  "mod_search_placeholder": "🔍 Search mod name, author, modid...",
+  "mod_loading_metadata": "⏳ Loading mod information...",
+  "mod_loading_progress": "⏳ Loading mod information... ({done}/{total})",
+  "mod_folder_empty": "Mod folder is empty\nDrag .jar files here or click \"Add File\"",
+  "mod_search_no_results": "No matching mods found",
+  "mod_list_count": "{count} mods total",
   
   "modpack_install": "📦 Install Modpack",
   "modpack_select": "📂 Select .mrpack File",

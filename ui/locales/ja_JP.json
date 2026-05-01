@@ -168,6 +168,13 @@
   "resource_disable": "🔗 無効化",
   "resource_delete": "🗑️ 削除",
   "resource_delete_confirm": "リソース {name} を削除してもよろしいですか？",
+
+  "mod_search_placeholder": "🔍 MOD名、作者、ModIDで検索...",
+  "mod_loading_metadata": "⏳ MOD情報を読み込み中...",
+  "mod_loading_progress": "⏳ MOD情報を読み込み中... ({done}/{total})",
+  "mod_folder_empty": "MODフォルダが空です\n.jarファイルをドラッグするか「ファイルを追加」をクリック",
+  "mod_search_no_results": "一致するMODが見つかりません",
+  "mod_list_count": "全 {count} 個のMOD",
   
   "modpack_install": "📦 MODパックをインストール",
   "modpack_select": "📂 .mrpackファイルを選択",

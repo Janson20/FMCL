@@ -1469,3 +1469,209 @@ def download_modpack_file(
         logger.error(f"下载整合包失败: {filename}")
         slog.error("modpack_download_failed", filename=filename, error="下载失败，已达最大重试次数")
         return False, f"{filename} 下载失败"
+
+
+def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
+    """
+    从模组 jar 文件中提取元数据
+
+    支持 Fabric (fabric.mod.json)、Forge (META-INF/mods.toml)、旧版 Forge (mcmod.info)
+
+    Args:
+        jar_path: jar 文件路径
+
+    Returns:
+        包含 name, modid, author, description, icon_base64 的字典，或 None
+    """
+    import json as _json_module
+    import zipfile
+    import base64
+
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+
+    if not jar_path.exists() or not jar_path.is_file():
+        return None
+
+    try:
+        with zipfile.ZipFile(str(jar_path), "r") as zf:
+            namelist = zf.namelist()
+
+            mod_name = None
+            mod_id = None
+            mod_author = None
+            mod_description = None
+            icon_path_in_jar = None
+            icon_base64 = None
+
+            # ── 尝试 fabric.mod.json ──
+            if "fabric.mod.json" in namelist:
+                try:
+                    with zf.open("fabric.mod.json") as f:
+                        fabric_data = _json_module.load(f)
+                    if isinstance(fabric_data, dict):
+                        mod_name = fabric_data.get("name")
+                        mod_id = fabric_data.get("id")
+                        mod_description = fabric_data.get("description")
+                        author_list = fabric_data.get("authors", [])
+                        contributors = fabric_data.get("contributors", [])
+                        all_authors = list(author_list) + list(contributors)
+                        if all_authors:
+                            mod_author = ", ".join(str(a) for a in all_authors[:3])
+                        icon_path_in_jar = fabric_data.get("icon")
+                except Exception as e:
+                    logger.debug(f"读取 fabric.mod.json 失败 ({jar_path.name}): {e}")
+
+            # ── 尝试 META-INF/mods.toml (Forge/NeoForge) ──
+            if "META-INF/mods.toml" in namelist:
+                try:
+                    with zf.open("META-INF/mods.toml") as f:
+                        toml_data = tomllib.loads(f.read().decode("utf-8", errors="replace"))
+                    mods_list = toml_data.get("mods", [])
+                    if mods_list and isinstance(mods_list, list):
+                        first_mod = mods_list[0]
+                        if not mod_name:
+                            mod_name = first_mod.get("displayName")
+                        if not mod_id:
+                            mod_id = first_mod.get("modId")
+                        if not mod_description:
+                            mod_description = first_mod.get("description")
+                        if not mod_author:
+                            mod_author = first_mod.get("authors")
+                        if not icon_path_in_jar:
+                            icon_path_in_jar = first_mod.get("logoFile")
+                except Exception as e:
+                    logger.debug(f"读取 META-INF/mods.toml 失败 ({jar_path.name}): {e}")
+
+            # ── 尝试 mcmod.info (旧版 Forge) ──
+            if "mcmod.info" in namelist and not (mod_id and mod_name):
+                try:
+                    with zf.open("mcmod.info") as f:
+                        mcmod_data = _json_module.load(f)
+                    if isinstance(mcmod_data, list) and mcmod_data:
+                        info = mcmod_data[0]
+                    elif isinstance(mcmod_data, dict):
+                        info = mcmod_data.get("modList", [{}]) if isinstance(mcmod_data.get("modList"), list) else {}
+                        if isinstance(info, list) and info:
+                            info = info[0]
+                        else:
+                            info = {}
+                    else:
+                        info = {}
+                    if not mod_name:
+                        mod_name = info.get("name")
+                    if not mod_id:
+                        mod_id = info.get("modid")
+                    if not mod_description:
+                        mod_description = info.get("description")
+                    if not mod_author:
+                        authors_list = info.get("authorList", [])
+                        if authors_list:
+                            mod_author = ", ".join(str(a) for a in authors_list[:3])
+                        elif info.get("authors"):
+                            mod_author = ", ".join(str(a) for a in info["authors"][:3]) if isinstance(info.get("authors"), list) else str(info.get("authors"))
+                        elif info.get("author"):
+                            mod_author = str(info.get("author"))
+                    if not icon_path_in_jar:
+                        icon_path_in_jar = info.get("logoFile")
+                except Exception as e:
+                    logger.debug(f"读取 mcmod.info 失败 ({jar_path.name}): {e}")
+
+            # ── 回退：从文件名猜测 ──
+            if not mod_name:
+                mod_name = jar_path.stem
+
+            # ── 提取图标 ──
+            if icon_path_in_jar:
+                icon_path_in_jar = icon_path_in_jar.lstrip("/")
+                if icon_path_in_jar in namelist:
+                    try:
+                        with zf.open(icon_path_in_jar) as img_f:
+                            img_data = img_f.read()
+                            if img_data:
+                                icon_base64 = base64.b64encode(img_data).decode("ascii")
+                    except Exception as e:
+                        logger.debug(f"提取图标失败 ({jar_path.name}): {e}")
+                else:
+                    # 尝试在 assets/ 下递归查找
+                    for alt_name in namelist:
+                        if alt_name.endswith(icon_path_in_jar) or icon_path_in_jar in alt_name:
+                            try:
+                                with zf.open(alt_name) as img_f:
+                                    img_data = img_f.read()
+                                    if img_data:
+                                        icon_base64 = base64.b64encode(img_data).decode("ascii")
+                                        break
+                            except Exception:
+                                pass
+
+            return {
+                "name": mod_name or jar_path.stem,
+                "modid": mod_id or "",
+                "author": mod_author or "",
+                "description": mod_description or "",
+                "icon_base64": icon_base64,
+            }
+
+    except (zipfile.BadZipFile, Exception) as e:
+        logger.debug(f"无法读取 jar 文件 {jar_path.name}: {e}")
+        return None
+
+
+def extract_all_mods_metadata(mods_dir: Path, status_callback=None) -> List[Dict]:
+    """
+    批量提取模组目录中所有 jar 的元数据
+
+    Args:
+        mods_dir: 模组目录路径
+        status_callback: 状态回调函数
+
+    Returns:
+        元数据列表，每项包含 name, modid, author, description, icon_base64, path, size, disabled
+    """
+    results = []
+    if not mods_dir.exists():
+        return results
+
+    entries = sorted(mods_dir.iterdir())
+    total = len([e for e in entries if e.is_file() and e.suffix.lower() in {".jar", ".zip"} or
+                 (e.suffix.lower() == ".disabled" and len(e.suffixes) >= 2 and e.suffixes[-2].lower() in {".jar", ".zip"})])
+
+    processed = 0
+    for entry in entries:
+        if not entry.is_file():
+            continue
+
+        is_disabled = entry.suffix.lower() == ".disabled"
+        actual_ext = entry.suffixes[-2].lower() if is_disabled and len(entry.suffixes) >= 2 else entry.suffix.lower()
+        if actual_ext not in {".jar", ".zip"}:
+            continue
+
+        processed += 1
+        if status_callback:
+            status_callback(processed, total)
+
+        try:
+            size = entry.stat().st_size
+        except Exception:
+            size = 0
+
+        metadata = extract_mod_metadata(entry)
+        if metadata is None:
+            metadata = {
+                "name": entry.name,
+                "modid": "",
+                "author": "",
+                "description": "",
+                "icon_base64": None,
+            }
+
+        metadata["path"] = str(entry)
+        metadata["size"] = size
+        metadata["disabled"] = is_disabled
+        metadata["filename"] = entry.name
+        results.append(metadata)
+
+    return results

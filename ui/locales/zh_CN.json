@@ -168,6 +168,13 @@
   "resource_disable": "🔗 禁用",
   "resource_delete": "🗑️ 删除",
   "resource_delete_confirm": "确定要删除资源 {name} 吗？",
+
+  "mod_search_placeholder": "🔍 搜索模组名称、作者、modid...",
+  "mod_loading_metadata": "⏳ 正在读取模组信息...",
+  "mod_loading_progress": "⏳ 正在读取模组信息... ({done}/{total})",
+  "mod_folder_empty": "模组文件夹为空\n将 .jar 文件拖拽到此处或点击「选择文件安装」",
+  "mod_search_no_results": "未找到匹配的模组",
+  "mod_list_count": "共 {count} 个模组",
   
   "modpack_install": "📦 安装整合包",
   "modpack_select": "📂 选择 .mrpack 文件",

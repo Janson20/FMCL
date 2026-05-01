@@ -1,6 +1,7 @@
 """资源管理窗口 - 模组/资源包/地图/光影管理"""
 import os
 import logging
+import threading
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Any
 
@@ -8,6 +9,7 @@ import customtkinter as ctk
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY, RESOURCE_TYPES
+from ui.i18n import _
 
 try:
     from tkinterdnd2 import DND_FILES
@@ -25,8 +27,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self.callbacks = callbacks
 
         self.title(f"资源管理 - {version_id}")
-        self.geometry("720x560")
-        self.minsize(640, 480)
+        self.geometry("760x600")
+        self.minsize(680, 520)
         self.configure(fg_color=COLORS["bg_dark"])
         self.transient(parent)
 
@@ -36,10 +38,14 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         ph = parent.winfo_height()
         px = parent.winfo_x()
         py = parent.winfo_y()
-        w, h = 720, 560
+        w, h = 760, 600
         x = px + (pw - w) // 2
         y = py + (ph - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
+
+        self._mod_metadata: List[Dict] = []
+        self._mod_loading: bool = False
+        self._mod_search_text: str = ""
 
         self._build_ui()
 
@@ -166,6 +172,27 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             fill=ctk.X, padx=12, pady=(0, 5)
         )
 
+        # 模组搜索栏（仅模组标签页可见）
+        self._search_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
+        self._search_entry = ctk.CTkEntry(
+            self._search_frame,
+            placeholder_text=_("mod_search_placeholder"),
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_light"],
+            border_color=COLORS["card_border"],
+            text_color=COLORS["text_primary"],
+        )
+        self._search_entry.pack(fill=ctk.X, padx=12, pady=(0, 5))
+
+        # 加载中提示（仅模组标签页可见）
+        self._loading_label = ctk.CTkLabel(
+            content_frame,
+            text=_("mod_loading_metadata"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLORS["text_secondary"],
+        )
+
         # 拖拽放置区 + 资源列表
         self._drop_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
         self._drop_frame.pack(fill=ctk.BOTH, expand=True, padx=12, pady=(0, 10))
@@ -264,6 +291,22 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         # 更新提示文字
         self._drag_hint_label.configure(text=RESOURCE_TYPES[tab_name]["description"])
+
+        # 模组标签页显示搜索栏，其他标签页隐藏
+        if tab_name == "mods":
+            self._search_frame.pack(before=self._drop_frame, fill=ctk.X, padx=0, pady=(0, 0))
+            self._search_entry.delete(0, "end")
+            self._mod_search_text = ""
+            self._search_entry.bind("<KeyRelease>", self._on_mod_search)
+            self._search_entry.bind("<Return>", self._on_mod_search)
+        else:
+            self._search_entry.unbind("<KeyRelease>")
+            self._search_entry.unbind("<Return>")
+            self._search_frame.pack_forget()
+
+        # 隐藏加载中标签
+        self._loading_label.pack_forget()
+
         self._refresh_current_list()
 
     def _refresh_current_list(self):
@@ -276,10 +319,15 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         # 先隐藏两个区域
         self._empty_label.pack_forget()
         self._list_frame.pack_forget()
+        self._loading_label.pack_forget()
 
         # 清空列表
         for w in self._list_frame.winfo_children():
             w.destroy()
+
+        if current_type == "mods":
+            self._refresh_mod_list(resource_dir)
+            return
 
         if not resource_dir.exists():
             self._empty_label.pack(fill=ctk.BOTH, expand=True)
@@ -301,6 +349,226 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._create_resource_item(item, current_type)
 
         self._set_status(f"共 {len(items)} 个{RESOURCE_TYPES[current_type]['label']}")
+
+    def _refresh_mod_list(self, mods_dir: Path):
+        """刷新模组列表（含元数据提取）"""
+        from modrinth import extract_all_mods_metadata
+
+        self._mod_loading = True
+        self._loading_label.pack(before=self._drop_frame, fill=ctk.X, padx=12, pady=(5, 10))
+
+        def _load_metadata():
+            try:
+                results = extract_all_mods_metadata(
+                    mods_dir,
+                    status_callback=lambda done, total: self.after(0, lambda d=done, t=total: self._update_mod_loading(d, t)),
+                )
+                self.after(0, lambda r=results: self._on_mod_metadata_loaded(r))
+            except Exception as e:
+                logger.error(f"提取模组元数据失败: {e}")
+                self.after(0, lambda: self._on_mod_metadata_loaded([]))
+
+        thread = threading.Thread(target=_load_metadata, daemon=True)
+        thread.start()
+
+    def _update_mod_loading(self, done: int, total: int):
+        """更新模组加载进度"""
+        if self._mod_loading:
+            self._loading_label.configure(text=_("mod_loading_progress", done=done, total=total))
+
+    def _on_mod_metadata_loaded(self, results: List[Dict]):
+        """模组元数据加载完成回调"""
+        self._mod_loading = False
+        self._mod_metadata = results
+        self._loading_label.pack_forget()
+        self._render_mod_list()
+
+    def _on_mod_search(self, event=None):
+        """搜索模组"""
+        self._mod_search_text = self._search_entry.get().strip().lower()
+        self._render_mod_list()
+
+    def _render_mod_list(self):
+        """渲染模组列表"""
+        # 清空列表
+        for w in self._list_frame.winfo_children():
+            w.destroy()
+        self._empty_label.pack_forget()
+        self._list_frame.pack_forget()
+
+        if self._mod_loading:
+            return
+
+        if not self._mod_metadata:
+            self._empty_label.pack(fill=ctk.BOTH, expand=True)
+            self._set_status(_("mod_folder_empty"))
+            return
+
+        # 搜索过滤
+        if self._mod_search_text:
+            filtered = [
+                m for m in self._mod_metadata
+                if self._mod_search_text in m.get("name", "").lower()
+                or self._mod_search_text in m.get("modid", "").lower()
+                or self._mod_search_text in m.get("author", "").lower()
+                or self._mod_search_text in m.get("description", "").lower()
+                or self._mod_search_text in m.get("filename", "").lower()
+            ]
+        else:
+            filtered = self._mod_metadata
+
+        if not filtered:
+            self._empty_label.pack(fill=ctk.BOTH, expand=True)
+            self._set_status(_("mod_search_no_results"))
+            return
+
+        self._list_frame.pack(fill=ctk.BOTH, expand=True)
+
+        for item in filtered:
+            self._create_mod_card(item)
+
+        self._set_status(_("mod_list_count", count=len(filtered)))
+
+    def _create_mod_card(self, item: Dict):
+        """创建模组卡片"""
+        row = ctk.CTkFrame(
+            self._list_frame,
+            fg_color=COLORS["bg_medium"],
+            corner_radius=8,
+        )
+        row.pack(fill=ctk.X, pady=3, padx=2)
+
+        # 左侧: 图标
+        icon_size = 48
+        icon_frame = ctk.CTkFrame(row, fg_color="transparent", width=icon_size, height=icon_size)
+        icon_frame.pack(side=ctk.LEFT, padx=(8, 8), pady=8)
+        icon_frame.pack_propagate(False)
+
+        icon_base64 = item.get("icon_base64")
+        if icon_base64:
+            try:
+                import base64
+                from io import BytesIO
+                from PIL import Image, ImageTk
+                img_data = base64.b64decode(icon_base64)
+                img = Image.open(BytesIO(img_data))
+                img = img.resize((icon_size, icon_size), Image.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                icon_label = ctk.CTkLabel(icon_frame, image=photo, text="")
+                icon_label.image = photo
+                icon_label.pack(fill=ctk.BOTH, expand=True)
+            except Exception:
+                self._create_fallback_icon(icon_frame, item, icon_size)
+        else:
+            self._create_fallback_icon(icon_frame, item, icon_size)
+
+        # 右侧: 信息区
+        info_frame = ctk.CTkFrame(row, fg_color="transparent")
+        info_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 8), pady=6)
+
+        # 第一行: 名称
+        name_text = item.get("name", item.get("filename", "???"))
+        if item.get("disabled"):
+            name_text += " (已禁用)"
+        name_label = ctk.CTkLabel(
+            info_frame,
+            text=name_text,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_secondary"] if item.get("disabled") else COLORS["text_primary"],
+            anchor=ctk.W,
+        )
+        name_label.pack(fill=ctk.X)
+
+        # 第二行: 作者 + 简介
+        author = item.get("author", "")
+        description = item.get("description", "")
+        if author or description:
+            author_desc_text = ""
+            if author:
+                author_desc_text = author
+            if description:
+                if author_desc_text:
+                    author_desc_text += " · "
+                desc_short = description[:80] + "..." if len(description) > 80 else description
+                author_desc_text += desc_short
+            author_desc_label = ctk.CTkLabel(
+                info_frame,
+                text=author_desc_text,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLORS["text_secondary"],
+                anchor=ctk.W,
+            )
+            author_desc_label.pack(fill=ctk.X, pady=(2, 0))
+
+        # 第三行: modid + 文件名
+        bottom_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
+        bottom_frame.pack(fill=ctk.X, pady=(3, 0))
+
+        modid = item.get("modid", "")
+        if modid:
+            modid_label = ctk.CTkLabel(
+                bottom_frame,
+                text=modid,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=COLORS["accent"],
+                anchor=ctk.W,
+            )
+            modid_label.pack(side=ctk.LEFT)
+
+        filename = item.get("filename", "")
+        if filename:
+            filename_label = ctk.CTkLabel(
+                bottom_frame,
+                text=filename,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=COLORS["text_secondary"],
+                anchor=ctk.W,
+            )
+            filename_label.pack(side=ctk.LEFT, padx=(8, 0))
+
+        # 右侧按钮区
+        btn_frame = ctk.CTkFrame(row, fg_color="transparent")
+        btn_frame.pack(side=ctk.RIGHT, padx=(0, 5), pady=4)
+
+        # 启用/禁用按钮（仅模组）
+        toggle_text = _("resource_enable") if item.get("disabled") else _("resource_disable")
+        toggle_btn = ctk.CTkButton(
+            btn_frame,
+            text=toggle_text,
+            width=45,
+            height=24,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            fg_color="transparent",
+            hover_color=COLORS["bg_light"],
+            text_color=COLORS["text_secondary"],
+            command=lambda p=item["path"], d=item.get("disabled", False): self._toggle_mod(p, d),
+        )
+        toggle_btn.pack(side=ctk.RIGHT, padx=(2, 2))
+
+        # 删除按钮
+        del_btn = ctk.CTkButton(
+            btn_frame,
+            text="🗑",
+            width=26,
+            height=24,
+            font=ctk.CTkFont(size=11),
+            fg_color="transparent",
+            hover_color=COLORS["accent"],
+            text_color=COLORS["text_secondary"],
+            command=lambda p=item["path"], n=item.get("name", item.get("filename", "")): self._delete_resource(p, n),
+        )
+        del_btn.pack(side=ctk.RIGHT, padx=(0, 2))
+
+    def _create_fallback_icon(self, parent: ctk.CTkFrame, item: Dict, size: int):
+        """创建默认图标"""
+        icon_text = "🔕" if item.get("disabled") else "🧩"
+        icon_label = ctk.CTkLabel(
+            parent,
+            text=icon_text,
+            font=ctk.CTkFont(size=size // 2),
+            text_color=COLORS["text_secondary"],
+        )
+        icon_label.pack(fill=ctk.BOTH, expand=True)
 
     def _scan_resources(self, resource_dir: Path, resource_type: str) -> List[Dict]:
         """扫描资源目录"""
