@@ -26,6 +26,7 @@ TOOL_REGISTRY: Dict[str, str] = {
     "install_resource_pack": "安装资源包",
     "search_shaders": "搜索光影",
     "install_shader": "安装光影",
+    "list_version_resources": "列出版本资源",
 }
 
 
@@ -69,6 +70,8 @@ def execute_tool(tool_name: str, params: Dict[str, str], callbacks: Dict[str, Ca
         return _search_shaders(params, callbacks)
     elif tool_name == "install_shader":
         return _install_shader(params, callbacks)
+    elif tool_name == "list_version_resources":
+        return _list_version_resources(params, callbacks)
     else:
         return f"错误: 未知工具 '{tool_name}'"
 
@@ -729,3 +732,71 @@ def _install_shader(params: Dict[str, str], callbacks: Dict[str, Callable]) -> s
     except Exception as e:
         logger.error(f"安装光影失败: {e}")
         return f"❌ 安装光影失败: {str(e)}"
+
+
+def _list_version_resources(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """列出指定版本的资源（模组/资源包/光影/地图）"""
+    resource_type = params.get("resource_type", "").strip()
+    version_id = params.get("version_id", "").strip()
+
+    if not version_id or not resource_type:
+        return "错误: 缺少必要参数 (version_id, resource_type)"
+
+    valid_types = {"mods", "resourcepacks", "shaderpacks", "saves"}
+    if resource_type not in valid_types:
+        return f"错误: resource_type 必须是 {', '.join(sorted(valid_types))} 之一，当前为 '{resource_type}'"
+
+    if "get_installed_versions" not in callbacks or "get_minecraft_dir" not in callbacks:
+        return "错误: 无法获取游戏信息"
+
+    installed = callbacks["get_installed_versions"]()
+    if version_id not in installed:
+        return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed) if installed else '无'}"
+
+    import os
+    from pathlib import Path
+
+    mc_dir = callbacks["get_minecraft_dir"]()
+    game_dir = Path(mc_dir)
+
+    if "-" in version_id:
+        target_dir = game_dir / "versions" / version_id / resource_type
+    else:
+        target_dir = game_dir / resource_type
+
+    if not target_dir.exists():
+        type_labels = {"mods": "模组", "resourcepacks": "资源包", "shaderpacks": "光影", "saves": "地图"}
+        label = type_labels.get(resource_type, resource_type)
+        return f"版本 {version_id} 的{label}目录不存在: {target_dir}"
+
+    try:
+        items = sorted(os.listdir(str(target_dir)))
+    except Exception as e:
+        logger.error(f"列出资源目录失败: {e}")
+        return f"❌ 无法读取目录: {target_dir}"
+
+    if not items:
+        type_labels = {"mods": "模组", "resourcepacks": "资源包", "shaderpacks": "光影", "saves": "地图"}
+        label = type_labels.get(resource_type, resource_type)
+        return f"版本 {version_id} 的{label}目录为空"
+
+    type_labels = {"mods": "模组", "resourcepacks": "资源包", "shaderpacks": "光影", "saves": "地图"}
+    label = type_labels.get(resource_type, resource_type)
+
+    result = f"版本 {version_id} 的{label}列表 (共 {len(items)} 个):\n"
+    result += f"目录: {target_dir}\n"
+    for i, item in enumerate(items, 1):
+        full_path = target_dir / item
+        if full_path.is_file():
+            size = full_path.stat().st_size
+            if size >= 1048576:
+                size_str = f"{size / 1048576:.1f} MB"
+            elif size >= 1024:
+                size_str = f"{size / 1024:.1f} KB"
+            else:
+                size_str = f"{size} B"
+            result += f"  {i}. 📄 {item} ({size_str})\n"
+        else:
+            result += f"  {i}. 📁 {item}/\n"
+
+    return result

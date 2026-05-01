@@ -361,6 +361,28 @@ def get_tool_definitions() -> List[Dict]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_version_resources",
+                "description": "获取指定 Minecraft 版本文件夹下的资源列表（模组/资源包/光影/地图）。需要先通过 get_installed_versions 确认目标版本已安装",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "version_id": {
+                            "type": "string",
+                            "description": "Minecraft 版本文件夹/实例名称，如 1.20.1、1.20.1-forge-49.0.26",
+                        },
+                        "resource_type": {
+                            "type": "string",
+                            "enum": ["mods", "resourcepacks", "shaderpacks", "saves"],
+                            "description": "资源类型：mods=模组, resourcepacks=资源包, shaderpacks=光影, saves=地图",
+                        },
+                    },
+                    "required": ["version_id", "resource_type"],
+                },
+            },
+        },
     ]
 
 
@@ -399,6 +421,9 @@ def get_system_prompt() -> str:
 - search_shaders: 搜索 Modrinth 光影
 - install_shader: 安装光影到指定版本
 
+### 版本资源查询
+- list_version_resources: 列出指定版本已安装的资源（模组/资源包/光影/地图），通过 resource_type 参数区分类型
+
 ## 工作流程
 1. 分析用户需求，确定需要调用哪些工具
 2. 按顺序调用工具，每次调用后分析结果
@@ -420,6 +445,7 @@ def get_system_prompt() -> str:
 - download_modpack 返回的路径可直接传给 install_modpack 使用
 - 安装资源包和光影前必须先用 get_installed_versions 确认版本已安装
 - install_resource_pack 和 install_shader 的 version_id 是版本文件夹/实例名称（如 1.20.1-forge-49.0.26），不是纯版本号。需要从 get_installed_versions 返回的完整版本ID中获取
+- list_version_resources 的 version_id 同样是版本文件夹/实例名称，resource_type 用于指定要查询的资源类型（mods/resourcepacks/shaderpacks/saves）
 - 当有多个匹配时，必须让用户选择
 - 每次只调用一个工具，等待结果后再决定下一步
 - 用友好、热情的语气回复

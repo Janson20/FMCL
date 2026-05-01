@@ -499,6 +499,7 @@
   "agent_example3": "• 1.20.1にSodiumをインストール",
   "agent_example4": "• 1.20.1にFaithfulリソースパックをインストール",
   "agent_example5": "• 1.20.1にBSLシェーダーをインストール",
+  "agent_example6": "• 1.20.1-forgeにインストールしたMODを表示",
   "agent_settings": "⚙ Token設定",
   "agent_status_ready": "ステータス: 準備完了",
   "agent_status_not_configured": "ステータス: 未設定",
