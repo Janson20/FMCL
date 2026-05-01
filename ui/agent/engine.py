@@ -177,9 +177,6 @@ def _search_mods(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
         game_version = params.get("game_version", "").strip() or None
         mod_loader = params.get("mod_loader", "").strip() or None
 
-        if not query:
-            return "错误: 缺少搜索关键词"
-
         result = modrinth_search(
             query=query,
             game_version=game_version,
@@ -455,9 +452,6 @@ def _search_modpack(params: Dict[str, str], callbacks: Dict[str, Callable]) -> s
 
         query = params.get("query", "").strip()
         game_version = params.get("game_version", "").strip() or None
-
-        if not query:
-            return "错误: 缺少搜索关键词"
 
         result = modrinth_search(
             query=query,

@@ -74,13 +74,13 @@ def get_tool_definitions() -> List[Dict]:
             "type": "function",
             "function": {
                 "name": "search_mods",
-                "description": "在 Modrinth 上搜索模组",
+                "description": "在 Modrinth 上搜索模组。不填 query 时返回默认热门模组",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "搜索关键词，如 sodium、jei 等",
+                            "description": "搜索关键词，如 sodium、jei 等。留空则返回热门模组",
                         },
                         "game_version": {
                             "type": "string",
@@ -92,7 +92,7 @@ def get_tool_definitions() -> List[Dict]:
                             "description": "模组加载器",
                         },
                     },
-                    "required": ["query"],
+                    "required": [],
                 },
             },
         },
@@ -231,20 +231,20 @@ def get_tool_definitions() -> List[Dict]:
             "type": "function",
             "function": {
                 "name": "search_modpack",
-                "description": "在 Modrinth 上搜索整合包",
+                "description": "在 Modrinth 上搜索整合包。不填 query 时返回默认热门整合包",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "搜索关键词，如 skyblock、RLCraft 等",
+                            "description": "搜索关键词，如 skyblock、RLCraft 等。留空则返回热门整合包",
                         },
                         "game_version": {
                             "type": "string",
                             "description": "Minecraft 版本号，如 1.20.1",
                         },
                     },
-                    "required": ["query"],
+                    "required": [],
                 },
             },
         },
@@ -306,8 +306,10 @@ def get_system_prompt() -> str:
 4. 当需要用户选择时，给出清晰选项
 
 ## 重要规则
+- 输出必须严格使用 XML 格式，无额外内容
 - 安装模组前必须先获取已安装版本列表确认版本存在
-- 搜索模组时必须指定游戏版本和加载器
+- 搜索模组时建议指定游戏版本和加载器以获得更准确结果，不填 query 则返回热门模组
+- 搜索整合包时不填 query 则返回热门整合包
 - 启动游戏前需要确认版本确实已安装
 - 删除版本前必须先用 get_installed_versions 确认版本存在
 - 开服前必须先用 get_installed_servers 确认服务器版本已安装
