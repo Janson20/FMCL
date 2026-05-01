@@ -269,6 +269,98 @@ def get_tool_definitions() -> List[Dict]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_resource_packs",
+                "description": "在 Modrinth 上搜索资源包。不填 query 时返回默认热门资源包",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "搜索关键词，如 Faithful、Default等。留空则返回热门资源包",
+                        },
+                        "game_version": {
+                            "type": "string",
+                            "description": "Minecraft 版本号，如 1.20.1",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "install_resource_pack",
+                "description": "从 Modrinth 安装资源包到指定 Minecraft 版本的 resourcepacks 目录。需要先通过 get_installed_versions 确认目标版本已安装",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "version_id": {
+                            "type": "string",
+                            "description": "Minecraft 版本文件夹/实例名称，如 1.20.1、1.20.1-forge-49.0.26。资源包将安装到该版本的 resourcepacks 目录",
+                        },
+                        "pack_name": {
+                            "type": "string",
+                            "description": "资源包名称，如 Faithful、Default 3D 等",
+                        },
+                        "project_id": {
+                            "type": "string",
+                            "description": "Modrinth 项目ID（如果已知）",
+                        },
+                    },
+                    "required": ["version_id", "pack_name"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_shaders",
+                "description": "在 Modrinth 上搜索光影。不填 query 时返回默认热门光影",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "搜索关键词，如 BSL、Complementary 等。留空则返回热门光影",
+                        },
+                        "game_version": {
+                            "type": "string",
+                            "description": "Minecraft 版本号，如 1.20.1",
+                        },
+                    },
+                    "required": [],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "install_shader",
+                "description": "从 Modrinth 安装光影到指定 Minecraft 版本的 shaderpacks 目录。需要先通过 get_installed_versions 确认目标版本已安装",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "version_id": {
+                            "type": "string",
+                            "description": "Minecraft 版本文件夹/实例名称，如 1.20.1、1.20.1-forge-49.0.26。光影将安装到该版本的 shaderpacks 目录",
+                        },
+                        "shader_name": {
+                            "type": "string",
+                            "description": "光影名称，如 BSL、Complementary Shaders 等",
+                        },
+                        "project_id": {
+                            "type": "string",
+                            "description": "Modrinth 项目ID（如果已知）",
+                        },
+                    },
+                    "required": ["version_id", "shader_name"],
+                },
+            },
+        },
     ]
 
 
@@ -299,6 +391,14 @@ def get_system_prompt() -> str:
 - install_modpack: 安装 .mrpack 整合包
 - install_modpack_server: 安装 .mrpack 整合包作为服务器
 
+### 资源包管理
+- search_resource_packs: 搜索 Modrinth 资源包
+- install_resource_pack: 安装资源包到指定版本
+
+### 光影管理
+- search_shaders: 搜索 Modrinth 光影
+- install_shader: 安装光影到指定版本
+
 ## 工作流程
 1. 分析用户需求，确定需要调用哪些工具
 2. 按顺序调用工具，每次调用后分析结果
@@ -318,6 +418,8 @@ def get_system_prompt() -> str:
 - 整合包开服同样需要用户提供 .mrpack 文件的绝对路径
 - 从 Modrinth 下载整合包：先用 search_modpack 搜索获取 project_id，再用 download_modpack 下载，下载完成后文件路径可用于 install_modpack 安装
 - download_modpack 返回的路径可直接传给 install_modpack 使用
+- 安装资源包和光影前必须先用 get_installed_versions 确认版本已安装
+- install_resource_pack 和 install_shader 的 version_id 是版本文件夹/实例名称（如 1.20.1-forge-49.0.26），不是纯版本号。需要从 get_installed_versions 返回的完整版本ID中获取
 - 当有多个匹配时，必须让用户选择
 - 每次只调用一个工具，等待结果后再决定下一步
 - 用友好、热情的语气回复
@@ -367,4 +469,7 @@ def get_system_prompt() -> str:
 - install_modpack 和 install_modpack_server 需要绝对路径
 - search_modpack 的 game_version 参数可选，用于筛选特定版本
 - download_modpack 的 project_id 来自 search_modpack 结果，game_version 可选
+- install_resource_pack 需要 version_id（版本文件夹/实例名称）和 pack_name，project_id 可选
+- install_shader 需要 version_id（版本文件夹/实例名称）和 shader_name，project_id 可选
+- 安装资源包/光影时，version_id 必须从 get_installed_versions 返回的列表中精确匹配
 """

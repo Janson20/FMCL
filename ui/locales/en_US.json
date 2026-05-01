@@ -497,6 +497,8 @@
   "agent_example1": "• Download the latest Minecraft",
   "agent_example2": "• Launch Minecraft 1.20.1",
   "agent_example3": "• Install Sodium for 1.20.1",
+  "agent_example4": "• Install Faithful resource pack for 1.20.1",
+  "agent_example5": "• Install BSL shader for 1.20.1",
   "agent_settings": "⚙ Set Token",
   "agent_status_ready": "Status: Ready",
   "agent_status_not_configured": "Status: Not configured",

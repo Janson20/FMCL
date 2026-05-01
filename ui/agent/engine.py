@@ -22,6 +22,10 @@ TOOL_REGISTRY: Dict[str, str] = {
     "install_modpack_server": "整合包开服",
     "search_modpack": "搜索整合包",
     "download_modpack": "下载整合包",
+    "search_resource_packs": "搜索资源包",
+    "install_resource_pack": "安装资源包",
+    "search_shaders": "搜索光影",
+    "install_shader": "安装光影",
 }
 
 
@@ -57,6 +61,14 @@ def execute_tool(tool_name: str, params: Dict[str, str], callbacks: Dict[str, Ca
         return _search_modpack(params, callbacks)
     elif tool_name == "download_modpack":
         return _download_modpack(params, callbacks)
+    elif tool_name == "search_resource_packs":
+        return _search_resource_packs(params, callbacks)
+    elif tool_name == "install_resource_pack":
+        return _install_resource_pack(params, callbacks)
+    elif tool_name == "search_shaders":
+        return _search_shaders(params, callbacks)
+    elif tool_name == "install_shader":
+        return _install_shader(params, callbacks)
     else:
         return f"错误: 未知工具 '{tool_name}'"
 
@@ -515,3 +527,205 @@ def _download_modpack(params: Dict[str, str], callbacks: Dict[str, Callable]) ->
     except Exception as e:
         logger.error(f"下载整合包失败: {e}")
         return f"❌ 下载整合包失败: {str(e)}"
+
+
+def _search_resource_packs(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """在 Modrinth 搜索资源包"""
+    try:
+        from modrinth import search_resource_packs as modrinth_search
+
+        query = params.get("query", "").strip()
+        game_version = params.get("game_version", "").strip() or None
+
+        result = modrinth_search(
+            query=query,
+            game_version=game_version,
+            limit=10,
+        )
+
+        hits = result.get("hits", [])
+        if not hits:
+            return f"未找到与 '{query}' 相关的资源包"
+
+        output = f"找到 {result.get('total_hits', len(hits))} 个资源包:\n"
+        for i, rp in enumerate(hits, 1):
+            title = rp.get("title", "未知")
+            project_id = rp.get("project_id", "未知")
+            author = rp.get("author", "未知")
+            description = rp.get("description", "")
+            if len(description) > 100:
+                description = description[:100] + "..."
+            downloads = rp.get("downloads", 0)
+            output += (
+                f"\n{i}. {title}\n"
+                f"   项目ID: {project_id}\n"
+                f"   作者: {author}\n"
+                f"   下载量: {downloads}\n"
+                f"   简介: {description}\n"
+            )
+
+        return output
+    except Exception as e:
+        logger.error(f"搜索资源包失败: {e}")
+        return f"❌ 搜索资源包失败: {str(e)}"
+
+
+def _install_resource_pack(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """安装资源包到指定版本"""
+    try:
+        from modrinth import install_resource_pack, search_resource_packs as modrinth_search
+
+        version_id = params.get("version_id", "").strip()
+        pack_name = params.get("pack_name", "").strip()
+        project_id = params.get("project_id", "").strip()
+
+        if not version_id or not pack_name:
+            return "错误: 缺少必要参数 (version_id, pack_name)"
+
+        if "get_installed_versions" not in callbacks or "get_minecraft_dir" not in callbacks:
+            return "错误: 无法获取游戏信息"
+
+        installed = callbacks["get_installed_versions"]()
+        if version_id not in installed:
+            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed) if installed else '无'}"
+
+        mc_dir = callbacks["get_minecraft_dir"]()
+        import os
+        from pathlib import Path
+        game_dir = Path(mc_dir)
+
+        if "-" in version_id:
+            rp_dir = str(game_dir / "versions" / version_id / "resourcepacks")
+        else:
+            rp_dir = str(game_dir / "resourcepacks")
+
+        os.makedirs(rp_dir, exist_ok=True)
+
+        if not project_id:
+            search_result = modrinth_search(
+                query=pack_name,
+                limit=5,
+            )
+            hits = search_result.get("hits", [])
+            if not hits:
+                return f"未找到资源包 '{pack_name}'"
+
+            project_id = hits[0].get("project_id", "")
+            if not project_id:
+                return f"无法获取资源包 '{pack_name}' 的项目ID"
+
+        ok, result = install_resource_pack(
+            project_id=project_id,
+            game_version=version_id.split("-")[0],
+            resourcepacks_dir=rp_dir,
+            status_callback=lambda s: None,
+        )
+
+        if ok:
+            return f"✅ 资源包安装成功: {pack_name} -> {rp_dir}"
+        else:
+            return f"❌ 资源包安装失败: {result}"
+    except Exception as e:
+        logger.error(f"安装资源包失败: {e}")
+        return f"❌ 安装资源包失败: {str(e)}"
+
+
+def _search_shaders(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """在 Modrinth 搜索光影"""
+    try:
+        from modrinth import search_shaders as modrinth_search
+
+        query = params.get("query", "").strip()
+        game_version = params.get("game_version", "").strip() or None
+
+        result = modrinth_search(
+            query=query,
+            game_version=game_version,
+            limit=10,
+        )
+
+        hits = result.get("hits", [])
+        if not hits:
+            return f"未找到与 '{query}' 相关的光影"
+
+        output = f"找到 {result.get('total_hits', len(hits))} 个光影:\n"
+        for i, sd in enumerate(hits, 1):
+            title = sd.get("title", "未知")
+            project_id = sd.get("project_id", "未知")
+            author = sd.get("author", "未知")
+            description = sd.get("description", "")
+            if len(description) > 100:
+                description = description[:100] + "..."
+            downloads = sd.get("downloads", 0)
+            output += (
+                f"\n{i}. {title}\n"
+                f"   项目ID: {project_id}\n"
+                f"   作者: {author}\n"
+                f"   下载量: {downloads}\n"
+                f"   简介: {description}\n"
+            )
+
+        return output
+    except Exception as e:
+        logger.error(f"搜索光影失败: {e}")
+        return f"❌ 搜索光影失败: {str(e)}"
+
+
+def _install_shader(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
+    """安装光影到指定版本"""
+    try:
+        from modrinth import install_shader, search_shaders as modrinth_search
+
+        version_id = params.get("version_id", "").strip()
+        shader_name = params.get("shader_name", "").strip()
+        project_id = params.get("project_id", "").strip()
+
+        if not version_id or not shader_name:
+            return "错误: 缺少必要参数 (version_id, shader_name)"
+
+        if "get_installed_versions" not in callbacks or "get_minecraft_dir" not in callbacks:
+            return "错误: 无法获取游戏信息"
+
+        installed = callbacks["get_installed_versions"]()
+        if version_id not in installed:
+            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed) if installed else '无'}"
+
+        mc_dir = callbacks["get_minecraft_dir"]()
+        import os
+        from pathlib import Path
+        game_dir = Path(mc_dir)
+
+        if "-" in version_id:
+            sd_dir = str(game_dir / "versions" / version_id / "shaderpacks")
+        else:
+            sd_dir = str(game_dir / "shaderpacks")
+
+        os.makedirs(sd_dir, exist_ok=True)
+
+        if not project_id:
+            search_result = modrinth_search(
+                query=shader_name,
+                limit=5,
+            )
+            hits = search_result.get("hits", [])
+            if not hits:
+                return f"未找到光影 '{shader_name}'"
+
+            project_id = hits[0].get("project_id", "")
+            if not project_id:
+                return f"无法获取光影 '{shader_name}' 的项目ID"
+
+        ok, result = install_shader(
+            project_id=project_id,
+            game_version=version_id.split("-")[0],
+            shaderpacks_dir=sd_dir,
+            status_callback=lambda s: None,
+        )
+
+        if ok:
+            return f"✅ 光影安装成功: {shader_name} -> {sd_dir}"
+        else:
+            return f"❌ 光影安装失败: {result}"
+    except Exception as e:
+        logger.error(f"安装光影失败: {e}")
+        return f"❌ 安装光影失败: {str(e)}"

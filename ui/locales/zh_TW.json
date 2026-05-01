@@ -497,6 +497,8 @@
   "agent_example1": "• 幫我下載最新版 Minecraft",
   "agent_example2": "• 幫我啟動 1.20.1",
   "agent_example3": "• 給 1.20.1 裝個鈉",
+  "agent_example4": "• 給 1.20.1 裝個 Faithful 資源包",
+  "agent_example5": "• 給 1.20.1 裝個 BSL 光影",
   "agent_settings": "⚙ 設定 Token",
   "agent_status_ready": "狀態: 已就緒",
   "agent_status_not_configured": "狀態: 未配置",

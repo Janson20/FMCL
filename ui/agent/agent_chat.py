@@ -155,7 +155,7 @@ class AgentChatView(ctk.CTkFrame):
         self._send_btn.pack(side=ctk.RIGHT)
 
         self._append_system_message(_("agent_welcome1"))
-        self._append_system_message(_("agent_welcome2") + "\n" + _("agent_example1") + "\n" + _("agent_example2") + "\n" + _("agent_example3"))
+        self._append_system_message(_("agent_welcome2") + "\n" + _("agent_example1") + "\n" + _("agent_example2") + "\n" + _("agent_example3") + "\n" + _("agent_example4") + "\n" + _("agent_example5"))
         self._append_divider()
 
     def set_provider(self, provider: AIProvider):
