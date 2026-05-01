@@ -367,5 +367,8 @@
   "predownload_complete_title": "預下載完成",
   "predownload_complete_msg": "Minecraft 資源包預下載完成！",
   "predownload_error_title": "預下載失敗",
-  "predownload_error_msg": "下載失敗，請檢查網路連接後重試。\n您仍可正常使用啟動器。"
+  "predownload_error_msg": "下載失敗，請檢查網路連接後重試。\n您仍可正常使用啟動器。",
+
+  "notice_title": "公告",
+  "notice_fetch_failed": "獲取公告失敗"
 }

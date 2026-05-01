@@ -317,6 +317,9 @@ def main():
             if config.auto_check_update:
                 threading.Thread(target=app._check_update, args=(True,), daemon=True).start()
 
+            # 启动时获取公告（后台静默）
+            _fetch_and_show_notice(app)
+
         # 启动后台初始化线程
         init_thread = threading.Thread(target=_init_launcher, daemon=True)
         init_thread.start()
@@ -346,6 +349,15 @@ def main():
             pass
         sys.exit(0)
 
+
+def _fetch_and_show_notice(app):
+    """获取并显示公告（后台线程）"""
+    def _do_fetch():
+        from ui.dialogs import fetch_notice, show_notice_dialog
+        content = fetch_notice()
+        if content:
+            app.after(0, lambda: show_notice_dialog(app, content))
+    threading.Thread(target=_do_fetch, daemon=True).start()
 
 def _parse_cli_args():
     """解析命令行参数，支持以下 CLI 模式:

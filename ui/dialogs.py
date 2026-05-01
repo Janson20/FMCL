@@ -4,6 +4,7 @@ import threading
 from typing import List, Dict, Optional, Callable, Any
 
 import customtkinter as ctk
+import requests
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
@@ -236,3 +237,68 @@ class VersionSelectorDialog(ctk.CTkToplevel):
         self.selected_version = None
         self.grab_release()
         self.destroy()
+
+
+NOTICE_URL = "https://jingdu.qzz.io/static/fmcl-notice.txt"
+
+
+def fetch_notice() -> Optional[str]:
+    try:
+        resp = requests.get(NOTICE_URL, timeout=10)
+        resp.raise_for_status()
+        resp.encoding = "utf-8"
+        text = resp.text.strip()
+        return text if text else None
+    except Exception as e:
+        logger.warning(f"获取公告失败: {e}")
+        return None
+
+
+def show_notice_dialog(parent, content: str) -> None:
+    from ui.i18n import _
+    dialog = ctk.CTkToplevel(parent)
+    dialog.title(_("notice_title"))
+    dialog.configure(fg_color=COLORS["bg_dark"])
+    dialog.transient(parent)
+    dialog.grab_set()
+
+    w, h = 500, 400
+    dialog.geometry(f"{w}x{h}")
+    dialog.update_idletasks()
+    x = (dialog.winfo_screenwidth() - w) // 2
+    y = (dialog.winfo_screenheight() - h) // 2
+    dialog.geometry(f"{w}x{h}+{x}+{y}")
+
+    ctk.CTkLabel(
+        dialog,
+        text=f"📢 {_('notice_title')}",
+        font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
+        text_color=COLORS["accent"],
+    ).pack(pady=(20, 10))
+
+    text_frame = ctk.CTkScrollableFrame(
+        dialog,
+        fg_color=COLORS["bg_medium"],
+    )
+    text_frame.pack(fill=ctk.BOTH, expand=True, padx=20, pady=(0, 10))
+
+    ctk.CTkLabel(
+        text_frame,
+        text=content,
+        font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+        text_color=COLORS["text_primary"],
+        wraplength=440,
+        justify=ctk.LEFT,
+        anchor=ctk.W,
+    ).pack(fill=ctk.BOTH, expand=True, padx=10, pady=10)
+
+    ctk.CTkButton(
+        dialog,
+        text=_("confirm"),
+        width=100,
+        height=35,
+        font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+        fg_color=COLORS["accent"],
+        hover_color=COLORS["accent_hover"],
+        command=lambda: (dialog.grab_release(), dialog.destroy()),
+    ).pack(pady=(0, 20))

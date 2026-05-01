@@ -367,5 +367,8 @@
   "predownload_complete_title": "事前ダウンロード完了",
   "predownload_complete_msg": "Minecraftリソースパックの事前ダウンロードが完了しました！",
   "predownload_error_title": "事前ダウンロード失敗",
-  "predownload_error_msg": "ダウンロードに失敗しました。ネットワーク接続を確認して再試行してください。\nランチャーは通常通り使用できます。"
+  "predownload_error_msg": "ダウンロードに失敗しました。ネットワーク接続を確認して再試行してください。\nランチャーは通常通り使用できます。",
+
+  "notice_title": "お知らせ",
+  "notice_fetch_failed": "お知らせの取得に失敗しました"
 }

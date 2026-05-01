@@ -367,5 +367,8 @@
   "predownload_complete_title": "Pre-download Complete",
   "predownload_complete_msg": "Minecraft resource pack pre-download complete!",
   "predownload_error_title": "Pre-download Failed",
-  "predownload_error_msg": "Download failed. Please check your network and try again.\nYou can still use the launcher normally."
+  "predownload_error_msg": "Download failed. Please check your network and try again.\nYou can still use the launcher normally.",
+
+  "notice_title": "Announcement",
+  "notice_fetch_failed": "Failed to fetch announcement"
 }
