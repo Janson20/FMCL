@@ -45,7 +45,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         self._mod_metadata: List[Dict] = []
         self._mod_loading: bool = False
-        self._mod_search_text: str = ""
+        self._search_text: str = ""
+        self._current_items: List[Dict] = []
 
         self._build_ui()
 
@@ -190,11 +191,11 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             fill=ctk.X, padx=12, pady=(0, 5)
         )
 
-        # 模组搜索栏（仅模组标签页可见）
+        # 通用搜索栏
         self._search_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
         self._search_entry = ctk.CTkEntry(
             self._search_frame,
-            placeholder_text=_("mod_search_placeholder"),
+            placeholder_text=_("rm_search_placeholder_mods"),
             height=32,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["bg_light"],
@@ -202,6 +203,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             text_color=COLORS["text_primary"],
         )
         self._search_entry.pack(fill=ctk.X, padx=12, pady=(0, 5))
+        self._search_frame.pack(fill=ctk.X, pady=(0, 0))
+        self._search_entry.bind("<KeyRelease>", self._on_search)
+        self._search_entry.bind("<Return>", self._on_search)
 
         # 加载中提示（仅模组标签页可见）
         self._loading_label = ctk.CTkLabel(
@@ -310,17 +314,18 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         # 更新提示文字
         self._drag_hint_label.configure(text=self._get_resource_desc(tab_name))
 
-        # 模组标签页显示搜索栏，其他标签页隐藏
-        if tab_name == "mods":
-            self._search_frame.pack(before=self._drop_frame, fill=ctk.X, padx=0, pady=(0, 0))
-            self._search_entry.delete(0, "end")
-            self._mod_search_text = ""
-            self._search_entry.bind("<KeyRelease>", self._on_mod_search)
-            self._search_entry.bind("<Return>", self._on_mod_search)
-        else:
-            self._search_entry.unbind("<KeyRelease>")
-            self._search_entry.unbind("<Return>")
-            self._search_frame.pack_forget()
+        # 更新搜索栏占位符
+        placeholder_keys = {
+            "mods": "rm_search_placeholder_mods",
+            "resourcepacks": "rm_search_placeholder_resourcepacks",
+            "saves": "rm_search_placeholder_saves",
+            "shaderpacks": "rm_search_placeholder_shaderpacks",
+        }
+        self._search_entry.configure(placeholder_text=_(placeholder_keys.get(tab_name, "rm_search_placeholder_mods")))
+
+        # 清空搜索
+        self._search_entry.delete(0, "end")
+        self._search_text = ""
 
         # 隐藏加载中标签
         self._loading_label.pack_forget()
@@ -348,6 +353,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             return
 
         if not resource_dir.exists():
+            self._current_items = []
             self._empty_label.pack(fill=ctk.BOTH, expand=True)
             self._set_status(_("rm_folder_not_exist", path=str(resource_dir)))
             return
@@ -355,6 +361,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         # 获取资源文件列表
         items = self._scan_resources(resource_dir, current_type)
         logger.info(f"扫描到 {len(items)} 个资源")
+
+        self._current_items = items
 
         if not items:
             self._empty_label.pack(fill=ctk.BOTH, expand=True)
@@ -401,10 +409,14 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._loading_label.pack_forget()
         self._render_mod_list()
 
-    def _on_mod_search(self, event=None):
-        """搜索模组"""
-        self._mod_search_text = self._search_entry.get().strip().lower()
-        self._render_mod_list()
+    def _on_search(self, event=None):
+        """搜索过滤"""
+        self._search_text = self._search_entry.get().strip().lower()
+        current_type = self._tab_var.get()
+        if current_type == "mods":
+            self._render_mod_list()
+        else:
+            self._render_filtered_list(current_type)
 
     def _render_mod_list(self):
         """渲染模组列表"""
@@ -423,14 +435,14 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             return
 
         # 搜索过滤
-        if self._mod_search_text:
+        if self._search_text:
             filtered = [
                 m for m in self._mod_metadata
-                if self._mod_search_text in m.get("name", "").lower()
-                or self._mod_search_text in m.get("modid", "").lower()
-                or self._mod_search_text in m.get("author", "").lower()
-                or self._mod_search_text in m.get("description", "").lower()
-                or self._mod_search_text in m.get("filename", "").lower()
+                if self._search_text in m.get("name", "").lower()
+                or self._search_text in m.get("modid", "").lower()
+                or self._search_text in m.get("author", "").lower()
+                or self._search_text in m.get("description", "").lower()
+                or self._search_text in m.get("filename", "").lower()
             ]
         else:
             filtered = self._mod_metadata
@@ -446,6 +458,33 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._create_mod_card(item)
 
         self._set_status(_("mod_list_count", count=len(filtered)))
+
+    def _render_filtered_list(self, resource_type: str):
+        """渲染非模组标签页的过滤列表"""
+        for w in self._list_frame.winfo_children():
+            w.destroy()
+        self._empty_label.pack_forget()
+        self._list_frame.pack_forget()
+
+        if self._search_text:
+            filtered = [
+                item for item in self._current_items
+                if self._search_text in item.get("name", "").lower()
+            ]
+        else:
+            filtered = self._current_items
+
+        if not filtered:
+            self._empty_label.pack(fill=ctk.BOTH, expand=True)
+            self._set_status(_("rm_search_no_results"))
+            return
+
+        self._list_frame.pack(fill=ctk.BOTH, expand=True)
+
+        for item in filtered:
+            self._create_resource_item(item, resource_type)
+
+        self._set_status(_("rm_item_count", count=len(filtered), label=self._get_resource_label(resource_type)))
 
     def _create_mod_card(self, item: Dict):
         """创建模组卡片"""

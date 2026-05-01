@@ -281,8 +281,12 @@
   "rm_resourcepacks_desc": "Drag .zip resource pack files here to install",
   "rm_saves_desc": "Drag .zip map saves here to install",
   "rm_shaderpacks_desc": "Drag .zip shader pack files here to install",
+  "rm_search_placeholder_mods": "🔍 Search mod name, author, modid...",
+  "rm_search_placeholder_resourcepacks": "🔍 Search resource pack filename...",
+  "rm_search_placeholder_saves": "🔍 Search map name...",
+  "rm_search_placeholder_shaderpacks": "🔍 Search shader pack filename...",
+  "rm_search_no_results": "No matching resources found",
 
-  "mod_search_placeholder": "🔍 Search mod name, author, modid...",
   "mod_loading_metadata": "⏳ Loading mod information...",
   "mod_loading_progress": "⏳ Loading mod information... ({done}/{total})",
   "mod_folder_empty": "Mod folder is empty\nDrag .jar files here or click \"Add File\"",

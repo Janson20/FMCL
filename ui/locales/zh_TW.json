@@ -281,8 +281,12 @@
   "rm_resourcepacks_desc": "將 .zip 資源包檔案拖曳到此處安裝",
   "rm_saves_desc": "將 .zip 地圖存檔拖曳到此處安裝",
   "rm_shaderpacks_desc": "將 .zip 光影包檔案拖曳到此處安裝",
+  "rm_search_placeholder_mods": "🔍 搜尋模組名稱、作者、modid...",
+  "rm_search_placeholder_resourcepacks": "🔍 搜尋資源包檔名...",
+  "rm_search_placeholder_saves": "🔍 搜尋地圖名稱...",
+  "rm_search_placeholder_shaderpacks": "🔍 搜尋光影包檔名...",
+  "rm_search_no_results": "未找到符合的資源",
 
-  "mod_search_placeholder": "🔍 搜尋模組名稱、作者、modid...",
   "mod_loading_metadata": "⏳ 正在讀取模組資訊...",
   "mod_loading_progress": "⏳ 正在讀取模組資訊... ({done}/{total})",
   "mod_folder_empty": "模組資料夾為空\n將 .jar 檔案拖曳到此處或點選「選擇檔案安裝」",

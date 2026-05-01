@@ -281,8 +281,12 @@
   "rm_resourcepacks_desc": ".zip リソースパックをここにドロップしてインストール",
   "rm_saves_desc": ".zip マップデータをここにドロップしてインストール",
   "rm_shaderpacks_desc": ".zip シェーダーパックをここにドロップしてインストール",
+  "rm_search_placeholder_mods": "🔍 MOD名、作者、ModIDで検索...",
+  "rm_search_placeholder_resourcepacks": "🔍 リソースパックのファイル名で検索...",
+  "rm_search_placeholder_saves": "🔍 マップ名で検索...",
+  "rm_search_placeholder_shaderpacks": "🔍 シェーダーパックのファイル名で検索...",
+  "rm_search_no_results": "一致するリソースが見つかりません",
 
-  "mod_search_placeholder": "🔍 MOD名、作者、ModIDで検索...",
   "mod_loading_metadata": "⏳ MOD情報を読み込み中...",
   "mod_loading_progress": "⏳ MOD情報を読み込み中... ({done}/{total})",
   "mod_folder_empty": "MODフォルダが空です\n.jarファイルをドラッグするか「ファイルを追加」をクリック",
