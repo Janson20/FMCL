@@ -330,11 +330,6 @@ class MinecraftLauncher:
         Returns:
             (success, target_version) 是否启动成功及实际启动的版本ID
         """
-        # 验证版本ID合法性
-        if not validate_version_id(version_id):
-            logger.error(f"非法版本ID格式: {version_id}")
-            return False, None
-
         # 验证服务器IP和端口
         if server_ip:
             if not validate_server_ip(server_ip):
@@ -633,11 +628,6 @@ class MinecraftLauncher:
         Returns:
             (是否成功, 版本ID) 元组
         """
-        # 验证版本ID合法性（防止路径穿越）
-        if not validate_version_id(version_id):
-            logger.error(f"非法版本ID格式，拒绝删除: {version_id}")
-            return False, version_id
-
         try:
             versions_dir = self.config.get_versions_dir()
             version_dir = versions_dir / version_id
