@@ -602,7 +602,7 @@ FMCL/
 │       ├── modpack_install.py    # Modrinth 整合包安装窗口
 │       ├── modpack_server.py     # 整合包开服窗口
 │       ├── modpack_browser.py    # Modrinth 整合包浏览与下载窗口
-│       ├── mod_browser.py        # Modrinth 模组浏览与安装窗口
+│       ├── mod_browser.py        # Modrinth 资源浏览与安装窗口（模组/资源包/光影 三标签页）
 │       └── backup_settings.py    # 备份设置窗口
 ├── downloader.py          # 多线程下载器 & 异步批量下载 & 模组加载器安装
 │   ├── MultiThreadDownloader  # 多线程分段下载 + 文件合并
@@ -610,12 +610,16 @@ FMCL/
 │   └── install_mod_loader # Forge/Fabric/NeoForge 统一安装
 ├── modrinth.py            # Modrinth API 集成 & 健壮下载引擎
 │   ├── search_mods        # 搜索模组（关键词 + 版本/加载器筛选）
+│   ├── search_resource_packs # 搜索资源包（关键词 + 版本筛选）
+│   ├── search_shaders     # 搜索光影（关键词 + 版本筛选）
 │   ├── search_modpacks    # 搜索整合包（关键词 + 版本筛选）
-│   ├── get_mod_versions   # 获取模组版本列表
+│   ├── get_mod_versions   # 获取版本列表
 │   ├── get_modpack_versions # 获取整合包版本列表
-│   ├── download_mod       # 下载模组文件（断点续传 + 指数退避重试）
+│   ├── download_mod       # 下载文件（断点续传 + 指数退避重试）
 │   ├── download_modpack_file  # 下载整合包 .mrpack 文件（断点续传 + 指数退避重试）
 │   ├── install_mod_with_deps  # 安装模组及依赖（递归）
+│   ├── install_resource_pack  # 安装资源包
+│   ├── install_shader     # 安装光影
 │   ├── 连接池复用         # 共享 requests.Session + HTTPAdapter，复用 TCP 连接避免重复 TLS 握手
 │   ├── 指数退避重试       # 网络超时/中断自动重试 3 次，退避时间 2^retry 秒
 │   ├── 断点续传下载       # Range 头支持，下载中断后从断点继续

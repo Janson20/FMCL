@@ -248,6 +248,144 @@ def search_mods(
         return {"hits": [], "offset": offset, "limit": limit, "total_hits": 0}
 
 
+def search_resource_packs(
+    query: str = "",
+    game_version: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> Dict:
+    """
+    搜索 Modrinth 上的资源包
+
+    Args:
+        query: 搜索关键词，为空时返回热门资源包
+        game_version: 游戏版本筛选 (如 "1.20.4")
+        offset: 分页偏移量
+        limit: 每页数量 (最大 100)
+
+    Returns:
+        {
+            "hits": [资源包信息列表],
+            "offset": 当前偏移,
+            "limit": 每页数量,
+            "total_hits": 总结果数
+        }
+    """
+    facets = []
+
+    facets.append(["project_type:resourcepack"])
+
+    if game_version:
+        facets.append([f"versions:{game_version}"])
+
+    params: Dict = {
+        "offset": offset,
+        "limit": limit,
+        "index": "relevance",
+    }
+
+    if facets:
+        import json
+        params["facets"] = json.dumps(facets)
+
+    if query:
+        params["query"] = query
+
+    logger.debug(
+        f"Modrinth 资源包搜索: query='{query}', version={game_version}, "
+        f"offset={offset}, facets={facets}"
+    )
+
+    try:
+        session = _get_session()
+        resp = session.get(
+            f"{MODRINTH_API_BASE}/search",
+            params=params,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        logger.info(
+            f"Modrinth 资源包搜索: query='{query}', version={game_version}, "
+            f"offset={offset}, 总结果={data.get('total_hits', 0)}"
+        )
+        return data
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Modrinth 资源包搜索失败: {e}")
+        return {"hits": [], "offset": offset, "limit": limit, "total_hits": 0}
+
+
+def search_shaders(
+    query: str = "",
+    game_version: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> Dict:
+    """
+    搜索 Modrinth 上的光影
+
+    Args:
+        query: 搜索关键词，为空时返回热门光影
+        game_version: 游戏版本筛选 (如 "1.20.4")
+        offset: 分页偏移量
+        limit: 每页数量 (最大 100)
+
+    Returns:
+        {
+            "hits": [光影信息列表],
+            "offset": 当前偏移,
+            "limit": 每页数量,
+            "total_hits": 总结果数
+        }
+    """
+    facets = []
+
+    facets.append(["project_type:shader"])
+
+    if game_version:
+        facets.append([f"versions:{game_version}"])
+
+    params: Dict = {
+        "offset": offset,
+        "limit": limit,
+        "index": "relevance",
+    }
+
+    if facets:
+        import json
+        params["facets"] = json.dumps(facets)
+
+    if query:
+        params["query"] = query
+
+    logger.debug(
+        f"Modrinth 光影搜索: query='{query}', version={game_version}, "
+        f"offset={offset}, facets={facets}"
+    )
+
+    try:
+        session = _get_session()
+        resp = session.get(
+            f"{MODRINTH_API_BASE}/search",
+            params=params,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        logger.info(
+            f"Modrinth 光影搜索: query='{query}', version={game_version}, "
+            f"offset={offset}, 总结果={data.get('total_hits', 0)}"
+        )
+        return data
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Modrinth 光影搜索失败: {e}")
+        return {"hits": [], "offset": offset, "limit": limit, "total_hits": 0}
+
+
 def get_mod_versions(
     project_id: str,
     game_version: Optional[str] = None,
@@ -547,6 +685,136 @@ def install_mod_with_deps(
         slog.error("mod_install_failed", mod_id=project_id, mod_title=mod_title,
                    mod_version=mod_version_number, error=result)
         return False, f"{mod_title} 安装失败: {result}", installed_names
+
+
+def install_resource_pack(
+    project_id: str,
+    game_version: str,
+    resourcepacks_dir: str,
+    status_callback=None,
+) -> Tuple[bool, str]:
+    """
+    安装资源包（下载到 resourcepacks 目录）
+
+    Args:
+        project_id: Modrinth 项目 ID
+        game_version: 游戏版本 (如 "1.20.6")
+        resourcepacks_dir: resourcepacks 目录路径
+        status_callback: 状态回调函数，接受 str 参数
+
+    Returns:
+        (是否成功, 结果消息 或 文件路径) 元组
+    """
+    project_info = get_project_info(project_id)
+    title = project_info.get("title", project_id) if project_info else project_id
+
+    versions = get_mod_versions(
+        project_id,
+        game_version=game_version,
+    )
+
+    if not versions:
+        logger.warning(f"资源包 {title} 没有兼容的版本 ({game_version})")
+        return False, f"{title} 没有兼容的版本"
+
+    version = versions[0]
+    version_number = version.get("version_number", "")
+    files = version.get("files", [])
+
+    primary_file = None
+    for f in files:
+        if f.get("primary", False):
+            primary_file = f
+            break
+    if not primary_file and files:
+        primary_file = files[0]
+
+    if not primary_file:
+        return False, f"{title} 没有可下载的文件"
+
+    download_url = primary_file.get("url", "")
+    filename = primary_file.get("filename", f"{title}.zip")
+
+    if not download_url:
+        return False, f"{title} 下载链接无效"
+
+    if status_callback:
+        status_callback(f"正在下载 {filename}...")
+
+    expected_hashes = primary_file.get("hashes")
+    success, result = download_mod(download_url, resourcepacks_dir, filename, expected_hashes=expected_hashes)
+
+    if success:
+        logger.info(f"资源包安装成功: {title} ({version_number}) -> {result}")
+        return True, result
+    else:
+        logger.error(f"资源包安装失败: {result}")
+        return False, f"{title} 安装失败: {result}"
+
+
+def install_shader(
+    project_id: str,
+    game_version: str,
+    shaderpacks_dir: str,
+    status_callback=None,
+) -> Tuple[bool, str]:
+    """
+    安装光影（下载到 shaderpacks 目录）
+
+    Args:
+        project_id: Modrinth 项目 ID
+        game_version: 游戏版本 (如 "1.20.6")
+        shaderpacks_dir: shaderpacks 目录路径
+        status_callback: 状态回调函数，接受 str 参数
+
+    Returns:
+        (是否成功, 结果消息 或 文件路径) 元组
+    """
+    project_info = get_project_info(project_id)
+    title = project_info.get("title", project_id) if project_info else project_id
+
+    versions = get_mod_versions(
+        project_id,
+        game_version=game_version,
+    )
+
+    if not versions:
+        logger.warning(f"光影 {title} 没有兼容的版本 ({game_version})")
+        return False, f"{title} 没有兼容的版本"
+
+    version = versions[0]
+    version_number = version.get("version_number", "")
+    files = version.get("files", [])
+
+    primary_file = None
+    for f in files:
+        if f.get("primary", False):
+            primary_file = f
+            break
+    if not primary_file and files:
+        primary_file = files[0]
+
+    if not primary_file:
+        return False, f"{title} 没有可下载的文件"
+
+    download_url = primary_file.get("url", "")
+    filename = primary_file.get("filename", f"{title}.zip")
+
+    if not download_url:
+        return False, f"{title} 下载链接无效"
+
+    if status_callback:
+        status_callback(f"正在下载 {filename}...")
+
+    expected_hashes = primary_file.get("hashes")
+    success, result = download_mod(download_url, shaderpacks_dir, filename, expected_hashes=expected_hashes)
+
+    if success:
+        logger.info(f"光影安装成功: {title} ({version_number}) -> {result}")
+        return True, result
+    else:
+        logger.error(f"光影安装失败: {result}")
+        return False, f"{title} 安装失败: {result}"
 
 
 def _is_new_version_format(version: str) -> bool:
