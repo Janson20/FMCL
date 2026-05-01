@@ -1,12 +1,12 @@
 """自动更新模块
 
-从 GitHub Release 检查更新，下载合适的安装包并执行静默安装。
+从代理服务器检查更新，下载合适的安装包并执行静默安装。
 
 流程：
-1. 获取 GitHub latest release 信息
+1. 通过代理获取最新 release 信息
 2. 对比当前版本与远程版本
 3. 根据当前平台选择合适的安装包
-4. 下载安装包到临时目录
+4. 通过代理下载安装包到临时目录
 5. 执行静默安装（/S 或 /silent）
 """
 
@@ -24,10 +24,10 @@ from logzero import logger
 
 from structured_logger import slog
 
-# GitHub 仓库信息
-GITHUB_OWNER = "Janson20"
-GITHUB_REPO = "FMCL"
-GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
+# 代理服务器地址
+PROXY_BASE_URL = "https://fmcl.jingdu.qzz.io"
+PROXY_API_URL = f"{PROXY_BASE_URL}/api/releases/latest"
+PROXY_DOWNLOAD_URL = f"{PROXY_BASE_URL}/download"
 
 # 当前版本（从 pyproject.toml 读取）
 CURRENT_VERSION = "2.7.6"
@@ -61,6 +61,7 @@ def check_for_update() -> Optional[Dict[str, Any]]:
         如果有新版本，返回 release 信息字典：
         {
             "version": "x.x.x",
+            "tag_name": "vx.x.x",
             "html_url": "https://github.com/...",
             "body": "release notes",
             "assets": [{"name": "...", "browser_download_url": "...", "size": 12345}, ...]
@@ -73,7 +74,7 @@ def check_for_update() -> Optional[Dict[str, Any]]:
         slog.info("update_check_start", current_version=current,
                   platform=f"{platform.system().lower()}_{platform.machine().lower()}")
 
-        resp = requests.get(GITHUB_API_URL, timeout=10)
+        resp = requests.get(PROXY_API_URL, timeout=10)
         resp.raise_for_status()
 
         release = resp.json()
@@ -101,6 +102,7 @@ def check_for_update() -> Optional[Dict[str, Any]]:
 
         result = {
             "version": remote_version,
+            "tag_name": tag_name,
             "html_url": release.get("html_url", ""),
             "body": release.get("body", ""),
             "assets": assets,
@@ -236,6 +238,7 @@ def find_suitable_asset(assets: list) -> Optional[Dict[str, Any]]:
 
 def download_update(
     asset: Dict[str, Any],
+    tag_name: str = "",
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> Optional[str]:
     """
@@ -243,14 +246,20 @@ def download_update(
 
     Args:
         asset: release asset 字典
+        tag_name: 版本 tag 名称，用于构造代理下载链接
         progress_callback: 进度回调 (已下载字节数, 总字节数)
 
     Returns:
         下载文件的路径，或 None（失败时）
     """
-    url = asset.get("browser_download_url", "")
     filename = asset.get("name", "update installer")
     total_size = asset.get("size", 0)
+
+    # 优先使用代理下载链接
+    if tag_name:
+        url = f"{PROXY_DOWNLOAD_URL}/{tag_name}/{filename}"
+    else:
+        url = asset.get("browser_download_url", "")
 
     if not url:
         logger.error("下载 URL 为空")
@@ -395,7 +404,7 @@ def perform_update(
     if status_callback:
         status_callback(f"正在下载 {asset['name']}...")
 
-    file_path = download_update(asset, progress_callback)
+    file_path = download_update(asset, tag_name=release_info["tag_name"], progress_callback=progress_callback)
     if not file_path:
         return False, "下载更新失败"
 
