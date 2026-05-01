@@ -121,7 +121,7 @@ check_path:
   Pop $0
   ${If} $0 != "success"
     DetailPrint "7-Zip 下载失败: $0"
-    MessageBox MB_ICONWARNING "7-Zip 自动下载失败。$\n$\n请手动安装 7-Zip: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
+    MessageBox MB_ICONEXCLAMATION "7-Zip 自动下载失败。$\n$\n请手动安装 7-Zip: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
     Goto sevenz_done
   ${EndIf}
 
@@ -141,7 +141,7 @@ check_path:
     DetailPrint "7-Zip 安装成功: $0"
   ${Else}
     DetailPrint "7-Zip 安装验证失败，请手动安装"
-    MessageBox MB_ICONWARNING "7-Zip 安装可能未成功。$\n$\n请手动安装: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
+    MessageBox MB_ICONEXCLAMATION "7-Zip 安装可能未成功。$\n$\n请手动安装: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
   ${EndIf}
 
 sevenz_done:
