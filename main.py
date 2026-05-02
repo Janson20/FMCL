@@ -280,6 +280,9 @@ def main():
             # 更新 UI 回调
             app.callbacks = callbacks
 
+            # 连接安装进度回调，使右下角进度条能实时反映安装进度
+            launcher.on_progress = app.update_progress
+
             # 同步镜像源开关状态
             if "get_mirror_enabled" in callbacks:
                 app.mirror_var.set(callbacks["get_mirror_enabled"]())
