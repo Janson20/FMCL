@@ -1471,6 +1471,50 @@ def download_modpack_file(
         return False, f"{filename} 下载失败"
 
 
+def _normalize_description(desc) -> str:
+    """
+    将 description 字段规范化为纯文本字符串。
+
+    处理 fabric.mod.json 中 description 为本地化对象的情况：
+    {"translate": "mod.xxx.desc", "fallback": "实际文本"}
+    """
+    if isinstance(desc, dict):
+        return desc.get("fallback", "") or desc.get("translate", "") or ""
+    if isinstance(desc, str):
+        return desc
+    return str(desc) if desc else ""
+
+
+def _normalize_author(author) -> str:
+    """
+    将 author 条目规范化为纯文本字符串。
+
+    处理 fabric.mod.json 中 author 为对象的情况：
+    {"name": "PlayerName", "contact": {...}}
+    """
+    if isinstance(author, str):
+        return author
+    if isinstance(author, dict):
+        return author.get("name", "") or author.get("username", "") or ""
+    return str(author)
+
+
+def _normalize_author_list(authors) -> str:
+    """
+    将 authors 字段规范化为逗号分隔的作者字符串。
+
+    支持字符串、列表、以及列表中的对象元素。
+    """
+    if isinstance(authors, str):
+        return authors
+    if isinstance(authors, (list, tuple)):
+        names = [_normalize_author(a) for a in authors]
+        return ", ".join(n for n in names if n)
+    if authors:
+        return str(authors)
+    return ""
+
+
 def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
     """
     从模组 jar 文件中提取元数据
@@ -1514,12 +1558,13 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
                     if isinstance(fabric_data, dict):
                         mod_name = fabric_data.get("name")
                         mod_id = fabric_data.get("id")
-                        mod_description = fabric_data.get("description")
-                        author_list = fabric_data.get("authors", [])
-                        contributors = fabric_data.get("contributors", [])
-                        all_authors = list(author_list) + list(contributors)
-                        if all_authors:
-                            mod_author = ", ".join(str(a) for a in all_authors[:3])
+                        mod_description = _normalize_description(fabric_data.get("description"))
+                        mod_author = _normalize_author_list(fabric_data.get("authors", []))
+                        contributors = _normalize_author_list(fabric_data.get("contributors", []))
+                        if mod_author and contributors:
+                            mod_author = mod_author + ", " + contributors
+                        elif contributors:
+                            mod_author = contributors
                         icon_path_in_jar = fabric_data.get("icon")
                 except Exception as e:
                     logger.debug(f"读取 fabric.mod.json 失败 ({jar_path.name}): {e}")
@@ -1537,9 +1582,9 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
                         if not mod_id:
                             mod_id = first_mod.get("modId")
                         if not mod_description:
-                            mod_description = first_mod.get("description")
+                            mod_description = _normalize_description(first_mod.get("description"))
                         if not mod_author:
-                            mod_author = first_mod.get("authors")
+                            mod_author = _normalize_author_list(first_mod.get("authors"))
                         if not icon_path_in_jar:
                             icon_path_in_jar = first_mod.get("logoFile")
                 except Exception as e:
@@ -1565,15 +1610,15 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
                     if not mod_id:
                         mod_id = info.get("modid")
                     if not mod_description:
-                        mod_description = info.get("description")
+                        mod_description = _normalize_description(info.get("description"))
                     if not mod_author:
                         authors_list = info.get("authorList", [])
                         if authors_list:
-                            mod_author = ", ".join(str(a) for a in authors_list[:3])
+                            mod_author = _normalize_author_list(authors_list)
                         elif info.get("authors"):
-                            mod_author = ", ".join(str(a) for a in info["authors"][:3]) if isinstance(info.get("authors"), list) else str(info.get("authors"))
+                            mod_author = _normalize_author_list(info.get("authors"))
                         elif info.get("author"):
-                            mod_author = str(info.get("author"))
+                            mod_author = _normalize_author(info.get("author"))
                     if not icon_path_in_jar:
                         icon_path_in_jar = info.get("logoFile")
                 except Exception as e:
