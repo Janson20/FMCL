@@ -280,6 +280,10 @@ def main():
             # 更新 UI 回调
             app.callbacks = callbacks
 
+            # 重新应用保存的主题颜色（UI 创建时用的是默认主题，需要刷新）
+            if hasattr(app, '_reapply_theme'):
+                app._reapply_theme()
+
             # 连接安装进度回调，使右下角进度条能实时反映安装进度
             launcher.on_progress = app.update_progress
 

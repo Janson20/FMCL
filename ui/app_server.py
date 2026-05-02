@@ -979,13 +979,22 @@ class ServerTabMixin(object):
                         if isinstance(child, ctk.CTkButton):
                             if child.cget("text", "").strip() == "X":
                                 child.configure(hover_color=COLORS["accent"],
-                                                text_color=COLORS["text_secondary"])
+                                                text_color=COLORS["text_secondary"],
+                                                fg_color="transparent")
                             else:
                                 child.configure(hover_color=COLORS["bg_light"],
                                                 text_color=COLORS["text_primary"],
                                                 fg_color="transparent")
                 except Exception:
                     pass
+        if hasattr(self, 'selected_server_version') and self.selected_server_version:
+            for item in self.server_buttons:
+                if item.get("version") == self.selected_server_version:
+                    try:
+                        item["frame"].configure(fg_color=COLORS["bg_light"])
+                    except Exception:
+                        pass
+                    break
         for item in getattr(self, 'server_available_version_buttons', []):
             btn = item.get("button")
             if btn and btn.winfo_exists():

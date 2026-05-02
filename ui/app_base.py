@@ -1245,19 +1245,33 @@ class ModernAppBase(ctk.CTk):
                 try:
                     for child in frame.winfo_children():
                         if isinstance(child, ctk.CTkButton):
-                            txt = child.cget("text",).strip()
+                            txt = child.cget("text", "").strip()
                             if txt == "X":
                                 child.configure(hover_color=COLORS["accent"],
-                                                text_color=COLORS["text_secondary"])
+                                                text_color=COLORS["text_secondary"],
+                                                fg_color="transparent")
                             elif txt.startswith("🧩"):
                                 child.configure(hover_color=COLORS["bg_light"],
-                                                text_color=COLORS["success"])
+                                                text_color=COLORS["success"],
+                                                fg_color="transparent")
+                            elif txt == "⚙":
+                                child.configure(hover_color=COLORS["bg_light"],
+                                                text_color=COLORS["text_secondary"],
+                                                fg_color="transparent")
                             else:
                                 child.configure(hover_color=COLORS["bg_light"],
                                                 text_color=COLORS["text_primary"],
                                                 fg_color="transparent")
                 except Exception:
                     pass
+        if hasattr(self, 'selected_version') and self.selected_version:
+            for item in self.version_buttons:
+                if item.get("version") == self.selected_version:
+                    try:
+                        item["frame"].configure(fg_color=COLORS["bg_light"])
+                    except Exception:
+                        pass
+                    break
         if hasattr(self, 'available_list_frame'):
             try:
                 for child in self.available_list_frame.winfo_children():
