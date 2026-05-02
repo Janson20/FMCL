@@ -1479,10 +1479,11 @@ def _normalize_description(desc) -> str:
     {"translate": "mod.xxx.desc", "fallback": "实际文本"}
     """
     if isinstance(desc, dict):
-        return desc.get("fallback", "") or desc.get("translate", "") or ""
+        result = desc.get("fallback", "") or desc.get("translate", "") or ""
+        return " ".join(result.split()) if result else ""
     if isinstance(desc, str):
-        return desc
-    return str(desc) if desc else ""
+        return " ".join(desc.split())
+    return " ".join(str(desc).split()) if desc else ""
 
 
 def _normalize_author(author) -> str:

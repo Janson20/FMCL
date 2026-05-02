@@ -580,7 +580,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             if description:
                 if author_desc_text:
                     author_desc_text += " · "
-                desc_short = description[:70] + "..." if len(description) > 50 else description
+                desc_clean = " ".join(description.split())
+                desc_short = desc_clean[:70] + "..." if len(desc_clean) > 70 else desc_clean
                 author_desc_text += desc_short
             author_desc_label = ctk.CTkLabel(
                 info_frame,
