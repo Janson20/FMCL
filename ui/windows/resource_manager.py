@@ -570,29 +570,34 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         )
         name_label.pack(fill=ctk.X)
 
-        # 第二行: 作者 + 简介
+        # 第二行: 作者
         author = item.get("author", "")
-        description = item.get("description", "")
-        if author or description:
-            author_desc_text = ""
-            if author:
-                author_desc_text = author
-            if description:
-                if author_desc_text:
-                    author_desc_text += " · "
-                desc_clean = " ".join(description.split())
-                desc_short = desc_clean[:70] + "..." if len(desc_clean) > 70 else desc_clean
-                author_desc_text += desc_short
-            author_desc_label = ctk.CTkLabel(
+        if author:
+            author_short = author[:70] + "..." if len(author) > 70 else author
+            author_label = ctk.CTkLabel(
                 info_frame,
-                text=author_desc_text,
+                text=author_short,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                 text_color=COLORS["text_secondary"],
                 anchor=ctk.W,
             )
-            author_desc_label.pack(fill=ctk.X, pady=(2, 0))
+            author_label.pack(fill=ctk.X, pady=(2, 0))
 
-        # 第三行: modid + 文件名
+        # 第三行: 简介
+        description = item.get("description", "")
+        if description:
+            desc_clean = " ".join(description.split())
+            desc_short = desc_clean[:100] + "..." if len(desc_clean) > 100 else desc_clean
+            desc_label = ctk.CTkLabel(
+                info_frame,
+                text=desc_short,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLORS["text_secondary"],
+                anchor=ctk.W,
+            )
+            desc_label.pack(fill=ctk.X, pady=(1, 0))
+
+        # 第四行: modid + 文件名
         bottom_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
         bottom_frame.pack(fill=ctk.X, pady=(3, 0))
 
