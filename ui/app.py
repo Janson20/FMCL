@@ -8,10 +8,11 @@ from ui.app_server import ServerTabMixin
 from ui.app_handlers import EventHandlerMixin
 from ui.app_crash import CrashHandlerMixin
 from ui.app_backup import BackupTabMixin
+from ui.app_online import OnlineTabMixin
 from ui.agent import AgentMixin
 
 
-class ModernApp(CrashHandlerMixin, EventHandlerMixin, BackupTabMixin, ServerTabMixin, AgentMixin, ModernAppBase):
+class ModernApp(CrashHandlerMixin, EventHandlerMixin, BackupTabMixin, OnlineTabMixin, ServerTabMixin, AgentMixin, ModernAppBase):
     """FMCL 启动器主窗口 - 组合自各功能 Mixin"""
     pass
 

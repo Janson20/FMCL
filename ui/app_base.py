@@ -209,6 +209,10 @@ class ModernAppBase(ctk.CTk):
         self.links_tab = self.tabview.add(_("tab_links"))
         self.links_tab.configure(fg_color="transparent")
         
+        # 添加"联机"标签页
+        self.online_tab = self.tabview.add(_("tab_online"))
+        self.online_tab.configure(fg_color="transparent")
+        
         # 添加"AGENT"标签页
         self.agent_tab = self.tabview.add("🤖 AGENT")
         self.agent_tab.configure(fg_color="transparent")
@@ -227,6 +231,9 @@ class ModernAppBase(ctk.CTk):
         
         # 构建链接标签页内容
         self._build_links_tab_content()
+
+        # 构建联机标签页内容
+        self._build_online_tab_content()
 
         # 构建 AGENT 标签页内容
         self._build_agent_tab_content()
