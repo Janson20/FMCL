@@ -35,9 +35,11 @@ class ServerTabMixin(object):
 
     def _build_server_log_panel(self, parent):
         """构建服务器日志面板（左侧）"""
-        panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=400)
-        panel.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
-        panel.pack_propagate(False)
+        self._server_log_panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=400)
+        self._server_log_panel.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
+        self._server_log_panel.pack_propagate(False)
+
+        panel = self._server_log_panel
 
         # 标题栏
         title_frame = ctk.CTkFrame(panel, fg_color="transparent", height=40)
@@ -81,9 +83,11 @@ class ServerTabMixin(object):
         self._server_log_lines: List[str] = []
 
         # 状态栏：玩家列表 + 内存占用
-        status_bar = ctk.CTkFrame(panel, fg_color=COLORS["bg_medium"], corner_radius=8, height=52)
-        status_bar.pack(fill=ctk.X, padx=10, pady=(0, 5))
-        status_bar.pack_propagate(False)
+        self._server_status_bar = ctk.CTkFrame(panel, fg_color=COLORS["bg_medium"], corner_radius=8, height=52)
+        self._server_status_bar.pack(fill=ctk.X, padx=10, pady=(0, 5))
+        self._server_status_bar.pack_propagate(False)
+
+        status_bar = self._server_status_bar
 
         # 玩家信息（左侧）
         player_frame = ctk.CTkFrame(status_bar, fg_color="transparent")
@@ -178,10 +182,24 @@ class ServerTabMixin(object):
         # 插入初始提示
         self._append_server_log(_("server_waiting_start"))
 
+        if not hasattr(self, '_theme_refs'):
+            self._theme_refs = []
+        self._theme_refs.append((self._server_log_panel, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self.server_log_text, {"fg_color": "bg_dark", "border_color": "card_border", "text_color": "text_primary"}))
+        self._theme_refs.append((self._server_status_bar, {"fg_color": "bg_medium"}))
+        self._theme_refs.append((self.server_player_label, {"text_color": "text_primary"}))
+        self._theme_refs.append((self.server_player_names_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self.server_mem_label, {"text_color": "text_primary"}))
+        self._theme_refs.append((self.server_cmd_entry, {"fg_color": "bg_medium", "border_color": "card_border", "text_color": "text_primary"}))
+        self._theme_refs.append((self.server_cmd_send_btn, {"fg_color": "accent", "hover_color": "bg_light"}))
+
     def _build_server_installed_panel(self, parent):
         """构建服务器已安装版本面板"""
-        panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12)
-        panel.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
+        self._server_installed_panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12)
+        self._server_installed_panel.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
+        self._server_installed_panel.pack_propagate(False)
+
+        panel = self._server_installed_panel
 
         # 标题栏
         title_frame = ctk.CTkFrame(panel, fg_color="transparent", height=45)
@@ -275,11 +293,19 @@ class ServerTabMixin(object):
 
         self.selected_server_version: Optional[str] = None
 
+        self._theme_refs.append((self._server_installed_panel, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self.server_start_btn, {"fg_color": "success"}))
+        self._theme_refs.append((self.server_join_btn, {"fg_color": "accent", "hover_color": "accent_hover"}))
+        self._theme_refs.append((self.server_stop_btn, {"fg_color": "error", "text_color": "text_primary"}))
+        self._theme_refs.append((self.server_list_frame, {"scrollbar_button_color": "bg_light"}))
+
     def _build_server_control_panel(self, parent):
         """构建右侧服务器控制面板"""
-        panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=300)
-        panel.pack(side=ctk.RIGHT, fill=ctk.Y, padx=(0, 0))
-        panel.pack_propagate(False)
+        self._server_control_panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=300)
+        self._server_control_panel.pack(side=ctk.RIGHT, fill=ctk.Y, padx=(0, 0))
+        self._server_control_panel.pack_propagate(False)
+
+        panel = self._server_control_panel
 
         # ── 安装服务器区域 ──
         ctk.CTkLabel(
@@ -454,6 +480,18 @@ class ServerTabMixin(object):
             wraplength=260,
             justify=ctk.LEFT,
         ).pack(padx=15, anchor=ctk.W)
+
+        self._theme_refs.append((self._server_control_panel, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self.server_version_entry, {"fg_color": "bg_medium", "border_color": "card_border"}))
+        self._theme_refs.append((self.server_install_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append((self.server_modpack_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append((self.server_memory_menu, {"fg_color": "bg_medium", "button_color": "bg_light",
+            "button_hover_color": "card_border", "dropdown_fg_color": "bg_medium",
+            "dropdown_hover_color": "bg_light"}))
+        self._theme_refs.append((self._server_prev_page_btn, {"hover_color": "bg_light", "text_color": "text_primary"}))
+        self._theme_refs.append((self._server_page_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self._server_next_page_btn, {"hover_color": "bg_light", "text_color": "text_primary"}))
+        self._theme_refs.append((self.server_available_list_frame, {"scrollbar_button_color": "bg_light"}))
 
     def _render_server_versions(self, versions: List[str]):
         """渲染已安装服务器版本列表"""
@@ -927,3 +965,33 @@ class ServerTabMixin(object):
                             bg='#0f3460', fg='white', activebackground='#2d3a5c', activeforeground='white',
                             **btn_style)
         yes_btn.pack(side=tk.LEFT, padx=8)
+
+    def _refresh_server_colors(self):
+        for item in getattr(self, 'server_buttons', []):
+            frame = item.get("frame")
+            if frame:
+                try:
+                    frame.configure(fg_color=COLORS["bg_medium"])
+                except Exception:
+                    pass
+                try:
+                    for child in frame.winfo_children():
+                        if isinstance(child, ctk.CTkButton):
+                            if child.cget("text", "").strip() == "X":
+                                child.configure(hover_color=COLORS["accent"],
+                                                text_color=COLORS["text_secondary"])
+                            else:
+                                child.configure(hover_color=COLORS["bg_light"],
+                                                text_color=COLORS["text_primary"],
+                                                fg_color="transparent")
+                except Exception:
+                    pass
+        for item in getattr(self, 'server_available_version_buttons', []):
+            btn = item.get("button")
+            if btn and btn.winfo_exists():
+                try:
+                    btn.configure(fg_color=COLORS["bg_medium"],
+                                  hover_color=COLORS["bg_light"],
+                                  text_color=COLORS["text_primary"])
+                except Exception:
+                    pass

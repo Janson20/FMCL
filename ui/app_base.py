@@ -83,21 +83,21 @@ class ModernAppBase(ctk.CTk):
         header.pack_propagate(False)
 
         # 标题
-        title_label = ctk.CTkLabel(
+        self.title_label = ctk.CTkLabel(
             header,
             text=_("title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=28, weight="bold"),
             text_color=COLORS["text_primary"],
         )
-        title_label.pack(side=ctk.LEFT, padx=(5, 0))
+        self.title_label.pack(side=ctk.LEFT, padx=(5, 0))
 
-        subtitle = ctk.CTkLabel(
+        self.subtitle = ctk.CTkLabel(
             header,
             text=_("subtitle"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_secondary"],
         )
-        subtitle.pack(side=ctk.LEFT, padx=(15, 0), pady=(10, 0))
+        self.subtitle.pack(side=ctk.LEFT, padx=(15, 0), pady=(10, 0))
 
         # Agent 快速输入框
         self._agent_quick_input = ctk.CTkEntry(
@@ -112,7 +112,7 @@ class ModernAppBase(ctk.CTk):
         self._agent_quick_input.bind("<Return>", self._on_agent_quick_send)
 
         # 刷新按钮
-        refresh_btn = ctk.CTkButton(
+        self.refresh_btn = ctk.CTkButton(
             header,
             text=_("refresh"),
             width=100,
@@ -122,7 +122,7 @@ class ModernAppBase(ctk.CTk):
             hover_color=COLORS["card_border"],
             command=self._refresh_versions,
         )
-        refresh_btn.pack(side=ctk.RIGHT, padx=(10, 0))
+        self.refresh_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
         # 检查更新按钮
         self.update_btn = ctk.CTkButton(
@@ -138,7 +138,7 @@ class ModernAppBase(ctk.CTk):
         self.update_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
         # 启动器设置按钮
-        settings_btn = ctk.CTkButton(
+        self.settings_btn = ctk.CTkButton(
             header,
             text=_("settings"),
             width=90,
@@ -148,10 +148,10 @@ class ModernAppBase(ctk.CTk):
             hover_color=COLORS["card_border"],
             command=self._open_launcher_settings,
         )
-        settings_btn.pack(side=ctk.RIGHT, padx=(10, 0))
+        self.settings_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
         # 关于按钮（winver 风格）
-        about_btn = ctk.CTkButton(
+        self.about_btn = ctk.CTkButton(
             header,
             text=_("about"),
             width=80,
@@ -161,11 +161,25 @@ class ModernAppBase(ctk.CTk):
             hover_color=COLORS["card_border"],
             command=self._show_about,
         )
-        about_btn.pack(side=ctk.RIGHT, padx=(10, 0))
+        self.about_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
         # 保留设置变量（供内部使用）
         self.minimize_var = ctk.BooleanVar(value=self.callbacks.get("get_minimize_on_game_launch", lambda: False)())
         self.mirror_var = ctk.BooleanVar(value=self.callbacks.get("get_mirror_enabled", lambda: True)())
+
+        # 收集主题依赖的组件，供 _reapply_theme 使用
+        self._theme_refs: list = [
+            (self, {"fg_color": "bg_dark"}),
+        ]
+
+        # 注册更多 UI 组件以支持主题更新
+        self._theme_refs.append((self.title_label, {"text_color": "text_primary"}))
+        self._theme_refs.append((self.subtitle, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self.refresh_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append((self.update_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append((self.settings_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append((self.about_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append((self._agent_quick_input, {"fg_color": "bg_medium", "border_color": "card_border"}))
 
     def _build_content(self):
         """构建内容区域 - 使用标签页"""
@@ -416,34 +430,39 @@ class ModernAppBase(ctk.CTk):
         main_container.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
         
         # 标题
-        title_label = ctk.CTkLabel(
+        self._links_title_label = ctk.CTkLabel(
             main_container,
             text=_("links_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
             text_color=COLORS["text_primary"],
         )
-        title_label.pack(anchor=ctk.W, pady=(0, 10))
+        self._links_title_label.pack(anchor=ctk.W, pady=(0, 10))
         
         # 描述
-        desc_label = ctk.CTkLabel(
+        self._links_desc_label = ctk.CTkLabel(
             main_container,
             text=_("links_description"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["text_secondary"],
         )
-        desc_label.pack(anchor=ctk.W, pady=(0, 20))
-        
+        self._links_desc_label.pack(anchor=ctk.W, pady=(0, 20))
+
         # 网站列表容器（可滚动）
-        scroll_frame = ctk.CTkScrollableFrame(
+        self._links_scroll_frame = ctk.CTkScrollableFrame(
             main_container,
             fg_color="transparent",
             scrollbar_button_color=COLORS["bg_light"],
         )
-        scroll_frame.pack(fill=ctk.BOTH, expand=True)
+        self._links_scroll_frame.pack(fill=ctk.BOTH, expand=True)
         
         # 创建网站卡片
+        self._links_site_cards = []
         for site in minecraft_sites:
-            self._create_site_card(scroll_frame, site)
+            self._create_site_card(self._links_scroll_frame, site)
+
+        self._theme_refs.append((self._links_title_label, {"text_color": "text_primary"}))
+        self._theme_refs.append((self._links_desc_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self._links_scroll_frame, {"scrollbar_button_color": "bg_light"}))
     
     def _create_site_card(self, parent, site):
         """创建网站卡片"""
@@ -455,6 +474,8 @@ class ModernAppBase(ctk.CTk):
             border_color=COLORS["card_border"],
         )
         card.pack(fill=ctk.X, pady=5)
+
+        self._links_site_cards.append(card)
         
         # 卡片内部容器
         card_inner = ctk.CTkFrame(card, fg_color="transparent")
@@ -562,25 +583,25 @@ class ModernAppBase(ctk.CTk):
 
     def _build_sidebar(self, parent):
         """构建左侧边栏：自定义角色名、自定义皮肤、启动器日志"""
-        sidebar = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=220)
-        sidebar.pack(side=ctk.LEFT, fill=ctk.Y, padx=(0, 10))
-        sidebar.pack_propagate(False)
+        self.sidebar_frame = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=220)
+        self.sidebar_frame.pack(side=ctk.LEFT, fill=ctk.Y, padx=(0, 10))
+        self.sidebar_frame.pack_propagate(False)
 
         # ── 自定义角色名 ──
-        ctk.CTkLabel(
-            sidebar,
+        self._sidebar_player_label = ctk.CTkLabel(
+            self.sidebar_frame,
             text=_("player_name"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
-        ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
-
-        ctk.CTkFrame(sidebar, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=12, pady=(0, 8)
         )
+        self._sidebar_player_label.pack(padx=12, pady=(15, 5), anchor=ctk.W)
+
+        self._sidebar_player_sep = ctk.CTkFrame(self.sidebar_frame, fg_color=COLORS["card_border"], height=1)
+        self._sidebar_player_sep.pack(fill=ctk.X, padx=12, pady=(0, 8))
 
         self.player_name_var = ctk.StringVar(value="")
         self.player_name_entry = ctk.CTkEntry(
-            sidebar,
+            self.sidebar_frame,
             textvariable=self.player_name_var,
             height=32,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -593,20 +614,20 @@ class ModernAppBase(ctk.CTk):
         self.player_name_entry.bind("<FocusOut>", self._on_player_name_change)
 
         # ── 自定义皮肤 ──
-        ctk.CTkLabel(
-            sidebar,
+        self._sidebar_skin_label = ctk.CTkLabel(
+            self.sidebar_frame,
             text=_("custom_skin"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
-        ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
-
-        ctk.CTkFrame(sidebar, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=12, pady=(0, 8)
         )
+        self._sidebar_skin_label.pack(padx=12, pady=(15, 5), anchor=ctk.W)
+
+        self._sidebar_skin_sep = ctk.CTkFrame(self.sidebar_frame, fg_color=COLORS["card_border"], height=1)
+        self._sidebar_skin_sep.pack(fill=ctk.X, padx=12, pady=(0, 8))
 
         # 皮肤预览区
         self.skin_preview_frame = ctk.CTkFrame(
-            sidebar, fg_color=COLORS["bg_medium"], corner_radius=8, height=80
+            self.sidebar_frame, fg_color=COLORS["bg_medium"], corner_radius=8, height=80
         )
         self.skin_preview_frame.pack(fill=ctk.X, padx=12, pady=(0, 5))
         self.skin_preview_frame.pack_propagate(False)
@@ -621,11 +642,11 @@ class ModernAppBase(ctk.CTk):
         self.skin_preview_label.pack(expand=True)
 
         # 皮肤操作按钮行
-        skin_btn_frame = ctk.CTkFrame(sidebar, fg_color="transparent", height=30)
+        skin_btn_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent", height=30)
         skin_btn_frame.pack(fill=ctk.X, padx=12, pady=(0, 5))
         skin_btn_frame.pack_propagate(False)
 
-        ctk.CTkButton(
+        self._sidebar_select_skin_btn = ctk.CTkButton(
             skin_btn_frame,
             text=_("select_skin"),
             height=28,
@@ -633,7 +654,8 @@ class ModernAppBase(ctk.CTk):
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._on_select_skin,
-        ).pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(0, 3))
+        )
+        self._sidebar_select_skin_btn.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(0, 3))
 
         self._skin_remove_btn = ctk.CTkButton(
             skin_btn_frame,
@@ -649,20 +671,20 @@ class ModernAppBase(ctk.CTk):
         self._skin_remove_btn.pack(side=ctk.RIGHT)
 
         # ── 启动器日志 ──
-        ctk.CTkLabel(
-            sidebar,
+        self._sidebar_log_label = ctk.CTkLabel(
+            self.sidebar_frame,
             text=_("launcher_log"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
-        ).pack(padx=12, pady=(15, 5), anchor=ctk.W)
-
-        ctk.CTkFrame(sidebar, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=12, pady=(0, 8)
         )
+        self._sidebar_log_label.pack(padx=12, pady=(15, 5), anchor=ctk.W)
+
+        self._sidebar_log_sep = ctk.CTkFrame(self.sidebar_frame, fg_color=COLORS["card_border"], height=1)
+        self._sidebar_log_sep.pack(fill=ctk.X, padx=12, pady=(0, 8))
 
         # 日志文本框（可滚动）
         self.log_text = ctk.CTkTextbox(
-            sidebar,
+            self.sidebar_frame,
             font=ctk.CTkFont(family="Consolas", size=10),
             fg_color=COLORS["bg_medium"],
             border_color=COLORS["card_border"],
@@ -675,15 +697,32 @@ class ModernAppBase(ctk.CTk):
         self.log_text.pack(fill=ctk.BOTH, expand=True, padx=12, pady=(0, 5))
 
         # 清空日志按钮
-        ctk.CTkButton(
-            sidebar,
+        self._sidebar_clear_log_btn = ctk.CTkButton(
+            self.sidebar_frame,
             text=_("clear_log"),
             height=26,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._on_clear_log,
-        ).pack(fill=ctk.X, padx=12, pady=(0, 12))
+        )
+        self._sidebar_clear_log_btn.pack(fill=ctk.X, padx=12, pady=(0, 12))
+
+        # 注册侧边栏主题组件
+        self._theme_refs.append((self.sidebar_frame, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self._sidebar_player_label, {"text_color": "text_primary"}))
+        self._theme_refs.append((self._sidebar_player_sep, {"fg_color": "card_border"}))
+        self._theme_refs.append((self.player_name_entry, {"fg_color": "bg_medium", "border_color": "card_border"}))
+        self._theme_refs.append((self._sidebar_skin_label, {"text_color": "text_primary"}))
+        self._theme_refs.append((self._sidebar_skin_sep, {"fg_color": "card_border"}))
+        self._theme_refs.append((self.skin_preview_frame, {"fg_color": "bg_medium"}))
+        self._theme_refs.append((self.skin_preview_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self._sidebar_select_skin_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append((self._skin_remove_btn, {"fg_color": "bg_medium", "hover_color": "accent", "text_color": "text_secondary"}))
+        self._theme_refs.append((self._sidebar_log_label, {"text_color": "text_primary"}))
+        self._theme_refs.append((self._sidebar_log_sep, {"fg_color": "card_border"}))
+        self._theme_refs.append((self.log_text, {"fg_color": "bg_medium", "border_color": "card_border", "text_color": "text_secondary"}))
+        self._theme_refs.append((self._sidebar_clear_log_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
 
         # 设置日志捕获
         self._setup_log_capture()
@@ -800,20 +839,21 @@ class ModernAppBase(ctk.CTk):
 
     def _build_installed_panel(self, parent):
         """构建已安装版本面板"""
-        panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12)
-        panel.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
+        self._installed_panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12)
+        self._installed_panel.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
 
         # 标题栏
-        title_frame = ctk.CTkFrame(panel, fg_color="transparent", height=45)
+        title_frame = ctk.CTkFrame(self._installed_panel, fg_color="transparent", height=45)
         title_frame.pack(fill=ctk.X, padx=15, pady=(12, 0))
         title_frame.pack_propagate(False)
 
-        ctk.CTkLabel(
+        self._installed_title_label = ctk.CTkLabel(
             title_frame,
             text=_("installed_versions"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
-        ).pack(side=ctk.LEFT)
+        )
+        self._installed_title_label.pack(side=ctk.LEFT)
 
         self.version_count_label = ctk.CTkLabel(
             title_frame,
@@ -824,7 +864,7 @@ class ModernAppBase(ctk.CTk):
         self.version_count_label.pack(side=ctk.RIGHT)
 
         # 设置按钮（资源管理）
-        settings_btn = ctk.CTkButton(
+        self._installed_settings_btn = ctk.CTkButton(
             title_frame,
             text="⚙",
             width=30,
@@ -835,16 +875,15 @@ class ModernAppBase(ctk.CTk):
             text_color=COLORS["text_secondary"],
             command=self._open_resource_manager,
         )
-        settings_btn.pack(side=ctk.RIGHT, padx=(0, 8))
+        self._installed_settings_btn.pack(side=ctk.RIGHT, padx=(0, 8))
 
         # 分割线
-        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(8, 5)
-        )
+        self._installed_sep = ctk.CTkFrame(self._installed_panel, fg_color=COLORS["card_border"], height=1)
+        self._installed_sep.pack(fill=ctk.X, padx=15, pady=(8, 5))
 
         # 版本列表 (带滚动)
         list_frame = ctk.CTkScrollableFrame(
-            panel, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
+            self._installed_panel, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
         list_frame.pack(fill=ctk.BOTH, expand=True, padx=10, pady=(0, 10))
 
@@ -852,7 +891,7 @@ class ModernAppBase(ctk.CTk):
         self.version_buttons: List[Dict[str, Any]] = []
 
         # 底部启动/结束按钮
-        launch_frame = ctk.CTkFrame(panel, fg_color="transparent", height=50)
+        launch_frame = ctk.CTkFrame(self._installed_panel, fg_color="transparent", height=50)
         launch_frame.pack(fill=ctk.X, padx=15, pady=(0, 12))
         launch_frame.pack_propagate(False)
 
@@ -883,34 +922,45 @@ class ModernAppBase(ctk.CTk):
 
         self.selected_version: Optional[str] = None
 
+        # 注册主题组件
+        self._theme_refs.append((self._installed_panel, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self._installed_title_label, {"text_color": "text_primary"}))
+        self._theme_refs.append((self.version_count_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self._installed_settings_btn, {"hover_color": "bg_light", "text_color": "text_secondary"}))
+        self._theme_refs.append((self._installed_sep, {"fg_color": "card_border"}))
+        self._theme_refs.append((self.launch_btn, {"fg_color": "accent", "hover_color": "accent_hover"}))
+        self._theme_refs.append((self.kill_btn, {"fg_color": "error", "text_color": "text_primary"}))
+        self._theme_refs.append((self.version_list_frame, {"scrollbar_button_color": "bg_light"}))
+
     def _build_action_panel(self, parent):
         """构建右侧操作面板"""
-        panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=300)
-        panel.pack(side=ctk.RIGHT, fill=ctk.Y, padx=(0, 0))
-        panel.pack_propagate(False)
+        self._action_panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=300)
+        self._action_panel.pack(side=ctk.RIGHT, fill=ctk.Y, padx=(0, 0))
+        self._action_panel.pack_propagate(False)
 
         # ── 安装新版本区域 ──
-        ctk.CTkLabel(
-            panel,
+        self._action_install_title = ctk.CTkLabel(
+            self._action_panel,
             text=_("install_new_version"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
-        ).pack(padx=15, pady=(15, 8), anchor=ctk.W)
-
-        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(0, 10)
         )
+        self._action_install_title.pack(padx=15, pady=(15, 8), anchor=ctk.W)
+
+        self._action_install_sep = ctk.CTkFrame(self._action_panel, fg_color=COLORS["card_border"], height=1)
+        self._action_install_sep.pack(fill=ctk.X, padx=15, pady=(0, 10))
 
         # 版本ID输入
-        ctk.CTkLabel(
-            panel,
+        self._action_version_label = ctk.CTkLabel(
+            self._action_panel,
             text=_("version_id"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
-        ).pack(padx=15, anchor=ctk.W)
+        )
+        self._action_version_label.pack(padx=15, anchor=ctk.W)
 
         self.version_entry = ctk.CTkEntry(
-            panel,
+            self._action_panel,
             height=35,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],
@@ -920,16 +970,17 @@ class ModernAppBase(ctk.CTk):
         self.version_entry.pack(fill=ctk.X, padx=15, pady=(5, 10))
 
         # 模组加载器选项
-        ctk.CTkLabel(
-            panel,
+        self._action_modloader_label = ctk.CTkLabel(
+            self._action_panel,
             text=_("mod_loader"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
-        ).pack(padx=15, anchor=ctk.W)
+        )
+        self._action_modloader_label.pack(padx=15, anchor=ctk.W)
 
         self.modloader_var = ctk.StringVar(value=_("mod_loader_none"))
         self.modloader_menu = ctk.CTkOptionMenu(
-            panel,
+            self._action_panel,
             variable=self.modloader_var,
             values=[_("mod_loader_none"), _("mod_loader_forge"), _("mod_loader_fabric"), _("mod_loader_neoforge")],
             height=35,
@@ -944,7 +995,7 @@ class ModernAppBase(ctk.CTk):
 
         # 模组加载器提示
         self.modloader_hint = ctk.CTkLabel(
-            panel,
+            self._action_panel,
             text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["warning"],
@@ -956,7 +1007,7 @@ class ModernAppBase(ctk.CTk):
         self._on_modloader_change()
 
         # 安装按钮 + 整合包按钮并排
-        btn_row = ctk.CTkFrame(panel, fg_color="transparent")
+        btn_row = ctk.CTkFrame(self._action_panel, fg_color="transparent")
         btn_row.pack(fill=ctk.X, padx=15, pady=(0, 15))
 
         self.install_btn = ctk.CTkButton(
@@ -982,24 +1033,24 @@ class ModernAppBase(ctk.CTk):
         self.modpack_btn.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(5, 0))
 
         # ── 版本选择器 ──
-        ctk.CTkLabel(
-            panel,
+        self._action_quick_title = ctk.CTkLabel(
+            self._action_panel,
             text=_("quick_select"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
-        ).pack(padx=15, pady=(5, 8), anchor=ctk.W)
-
-        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(0, 8)
         )
+        self._action_quick_title.pack(padx=15, pady=(5, 8), anchor=ctk.W)
+
+        self._action_quick_sep = ctk.CTkFrame(self._action_panel, fg_color=COLORS["card_border"], height=1)
+        self._action_quick_sep.pack(fill=ctk.X, padx=15, pady=(0, 8))
 
         # 正式版/测试版 Tab 切换
         self.version_tab_var = ctk.StringVar(value="release")
-        tab_frame = ctk.CTkFrame(panel, fg_color="transparent", height=32)
+        tab_frame = ctk.CTkFrame(self._action_panel, fg_color="transparent", height=32)
         tab_frame.pack(fill=ctk.X, padx=15, pady=(0, 5))
         tab_frame.pack_propagate(False)
 
-        release_tab = ctk.CTkRadioButton(
+        self._release_tab = ctk.CTkRadioButton(
             tab_frame,
             text=_("release_version"),
             variable=self.version_tab_var,
@@ -1010,9 +1061,9 @@ class ModernAppBase(ctk.CTk):
             border_color=COLORS["text_secondary"],
             command=self._on_version_tab_change,
         )
-        release_tab.pack(side=ctk.LEFT, padx=(0, 10))
+        self._release_tab.pack(side=ctk.LEFT, padx=(0, 10))
 
-        snapshot_tab = ctk.CTkRadioButton(
+        self._snapshot_tab = ctk.CTkRadioButton(
             tab_frame,
             text=_("snapshot_version"),
             variable=self.version_tab_var,
@@ -1023,11 +1074,11 @@ class ModernAppBase(ctk.CTk):
             border_color=COLORS["text_secondary"],
             command=self._on_version_tab_change,
         )
-        snapshot_tab.pack(side=ctk.LEFT)
+        self._snapshot_tab.pack(side=ctk.LEFT)
 
         # 可用版本列表
         avail_frame = ctk.CTkScrollableFrame(
-            panel, fg_color="transparent", height=155, scrollbar_button_color=COLORS["bg_light"]
+            self._action_panel, fg_color="transparent", height=155, scrollbar_button_color=COLORS["bg_light"]
         )
         avail_frame.pack(fill=ctk.X, padx=10, pady=(0, 5))
 
@@ -1038,7 +1089,7 @@ class ModernAppBase(ctk.CTk):
         self._snapshot_versions: List[Dict[str, Any]] = []
 
         # 分页控件
-        page_frame = ctk.CTkFrame(panel, fg_color="transparent", height=30)
+        page_frame = ctk.CTkFrame(self._action_panel, fg_color="transparent", height=30)
         page_frame.pack(fill=ctk.X, padx=10, pady=(0, 10))
         page_frame.pack_propagate(False)
 
@@ -1080,15 +1131,37 @@ class ModernAppBase(ctk.CTk):
         )
         self._next_page_btn.pack(side=ctk.LEFT)
 
+        # 注册操作面板主题组件
+        self._theme_refs.append((self._action_panel, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self._action_install_title, {"text_color": "text_primary"}))
+        self._theme_refs.append((self._action_install_sep, {"fg_color": "card_border"}))
+        self._theme_refs.append((self._action_version_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self.version_entry, {"fg_color": "bg_medium", "border_color": "card_border"}))
+        self._theme_refs.append((self._action_modloader_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self.install_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append((self.modpack_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append((self._action_quick_title, {"text_color": "text_primary"}))
+        self._theme_refs.append((self._action_quick_sep, {"fg_color": "card_border"}))
+        self._theme_refs.append((self._release_tab, {"fg_color": "accent", "hover_color": "accent_hover", "border_color": "text_secondary"}))
+        self._theme_refs.append((self._snapshot_tab, {"fg_color": "accent", "hover_color": "accent_hover", "border_color": "text_secondary"}))
+        self._theme_refs.append((self._page_info_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self._prev_page_btn, {"fg_color": "bg_medium", "hover_color": "bg_light", "text_color": "text_primary"}))
+        self._theme_refs.append((self._next_page_btn, {"fg_color": "bg_medium", "hover_color": "bg_light", "text_color": "text_primary"}))
+        self._theme_refs.append((self.modloader_menu, {"fg_color": "bg_medium", "button_color": "bg_light",
+                "button_hover_color": "card_border", "dropdown_fg_color": "bg_medium",
+                "dropdown_hover_color": "bg_light"}))
+        self._theme_refs.append((self.modloader_hint, {"text_color": "warning"}))
+        self._theme_refs.append((self.available_list_frame, {"scrollbar_button_color": "bg_light"}))
+
     def _build_footer(self):
         """构建底部状态栏"""
-        footer = ctk.CTkFrame(self.main_frame, fg_color=COLORS["card_bg"], corner_radius=8, height=45)
-        footer.pack(fill=ctk.X, pady=(12, 0))
-        footer.pack_propagate(False)
+        self._footer_frame = ctk.CTkFrame(self.main_frame, fg_color=COLORS["card_bg"], corner_radius=8, height=45)
+        self._footer_frame.pack(fill=ctk.X, pady=(12, 0))
+        self._footer_frame.pack_propagate(False)
 
         # 状态文本
         self.status_label = ctk.CTkLabel(
-            footer,
+            self._footer_frame,
             text=_("status_ready"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["success"],
@@ -1097,7 +1170,7 @@ class ModernAppBase(ctk.CTk):
 
         # 进度条
         self.progress_bar = ctk.CTkProgressBar(
-            footer,
+            self._footer_frame,
             width=200,
             height=8,
             fg_color=COLORS["bg_medium"],
@@ -1108,7 +1181,7 @@ class ModernAppBase(ctk.CTk):
 
         # 进度文本
         self.progress_label = ctk.CTkLabel(
-            footer,
+            self._footer_frame,
             text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
@@ -1116,3 +1189,88 @@ class ModernAppBase(ctk.CTk):
         self.progress_label.pack(side=ctk.RIGHT, padx=(0, 10))
 
         self._launch_anim_running = False
+
+        # 注册底部主题组件
+        self._theme_refs.append((self._footer_frame, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self.status_label, {"text_color": "success"}))
+        self._theme_refs.append((self.progress_bar, {"fg_color": "bg_medium", "progress_color": "accent"}))
+        self._theme_refs.append((self.progress_label, {"text_color": "text_secondary"}))
+
+    def _reapply_theme(self):
+        """重新应用当前主题的颜色到所有已注册的UI组件"""
+        for widget, config_map in self._theme_refs:
+            try:
+                kwargs = {attr: COLORS[key] for attr, key in config_map.items()}
+                widget.configure(**kwargs)
+            except Exception:
+                pass
+        self._refresh_version_list_colors()
+        if hasattr(self, '_refresh_server_colors'):
+            self._refresh_server_colors()
+        if hasattr(self, '_refresh_backup_colors'):
+            self._refresh_backup_colors()
+        if hasattr(self, '_refresh_agent_colors'):
+            self._refresh_agent_colors()
+        if hasattr(self, '_refresh_links_colors'):
+            self._refresh_links_colors()
+
+    def _refresh_links_colors(self):
+        for card in getattr(self, '_links_site_cards', []):
+            if card.winfo_exists():
+                try:
+                    card.configure(fg_color=COLORS["card_bg"],
+                                   border_color=COLORS["card_border"])
+                    for child in card.winfo_children():
+                        if isinstance(child, ctk.CTkFrame):
+                            for grandchild in child.winfo_children():
+                                if isinstance(grandchild, ctk.CTkFrame):
+                                    for ggchild in grandchild.winfo_children():
+                                        if isinstance(ggchild, ctk.CTkLabel):
+                                            try:
+                                                ggchild.configure(text_color=COLORS["text_primary"])
+                                            except Exception:
+                                                pass
+                except Exception:
+                    pass
+
+    def _refresh_version_list_colors(self):
+        """刷新动态创建的版本列表的所有颜色"""
+        for item in getattr(self, 'version_buttons', []):
+            frame = item.get("frame")
+            if frame:
+                try:
+                    frame.configure(fg_color=COLORS["bg_medium"])
+                except Exception:
+                    pass
+                try:
+                    for child in frame.winfo_children():
+                        if isinstance(child, ctk.CTkButton):
+                            txt = child.cget("text",).strip()
+                            if txt == "X":
+                                child.configure(hover_color=COLORS["accent"],
+                                                text_color=COLORS["text_secondary"])
+                            elif txt.startswith("🧩"):
+                                child.configure(hover_color=COLORS["bg_light"],
+                                                text_color=COLORS["success"])
+                            else:
+                                child.configure(hover_color=COLORS["bg_light"],
+                                                text_color=COLORS["text_primary"],
+                                                fg_color="transparent")
+                except Exception:
+                    pass
+        if hasattr(self, 'available_list_frame'):
+            try:
+                for child in self.available_list_frame.winfo_children():
+                    if isinstance(child, ctk.CTkFrame):
+                        for grandchild in child.winfo_children():
+                            if isinstance(grandchild, ctk.CTkButton):
+                                try:
+                                    grandchild.configure(
+                                        fg_color="transparent",
+                                        hover_color=COLORS["bg_light"],
+                                        text_color=COLORS["text_primary"],
+                                    )
+                                except Exception:
+                                    pass
+            except Exception:
+                pass

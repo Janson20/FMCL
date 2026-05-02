@@ -29,9 +29,11 @@ class BackupTabMixin(object):
 
     def _build_backup_world_list(self, parent):
         """构建左侧存档列表面板"""
-        panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=220)
-        panel.pack(side=ctk.LEFT, fill=ctk.Y, padx=(0, 10))
-        panel.pack_propagate(False)
+        self._backup_world_panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=220)
+        self._backup_world_panel.pack(side=ctk.LEFT, fill=ctk.Y, padx=(0, 10))
+        self._backup_world_panel.pack_propagate(False)
+
+        panel = self._backup_world_panel
 
         # 标题栏
         title_frame = ctk.CTkFrame(panel, fg_color="transparent", height=40)
@@ -109,10 +111,17 @@ class BackupTabMixin(object):
             command=self._on_auto_backup_setting_change,
         ).pack(padx=12, anchor=ctk.W, pady=(0, 12))
 
+        if not hasattr(self, '_theme_refs'):
+            self._theme_refs = []
+        self._theme_refs.append((self._backup_world_panel, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self.backup_world_list_frame, {"scrollbar_button_color": "bg_light"}))
+
     def _build_backup_panel(self, parent):
         """构建右侧备份列表面板"""
-        panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12)
-        panel.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 0))
+        self._backup_right_panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12)
+        self._backup_right_panel.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 0))
+
+        panel = self._backup_right_panel
 
         # 顶部工具栏
         toolbar = ctk.CTkFrame(panel, fg_color="transparent", height=50)
@@ -230,6 +239,12 @@ class BackupTabMixin(object):
             justify=ctk.CENTER,
         )
         self._backup_empty_label.pack(pady=40)
+
+        self._theme_refs.append((self._backup_right_panel, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self.backup_note_entry, {"fg_color": "bg_medium", "border_color": "card_border"}))
+        self._theme_refs.append((self.backup_btn, {"fg_color": "accent", "hover_color": "accent_hover"}))
+        self._theme_refs.append((self._backup_empty_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self.backup_list_frame, {"scrollbar_button_color": "bg_light"}))
 
     # ─── 存档列表操作 ─────────────────────────────────────────
 
@@ -445,6 +460,8 @@ class BackupTabMixin(object):
             command=lambda e=entry: self._on_delete_backup(e),
         ).pack(side=ctk.LEFT, padx=1)
 
+        self._backup_entries.append({"row": row, "entry": entry})
+
     # ─── 备份操作 ─────────────────────────────────────────────
 
     def _on_create_backup(self):
@@ -593,6 +610,24 @@ class BackupTabMixin(object):
             config.save_config()
         except Exception:
             pass
+
+    def _refresh_backup_colors(self):
+        for item in getattr(self, 'backup_world_buttons', []):
+            btn = item.get("button")
+            if btn and btn.winfo_exists():
+                try:
+                    btn.configure(hover_color=COLORS["bg_light"],
+                                  text_color=COLORS["text_primary"],
+                                  fg_color="transparent")
+                except Exception:
+                    pass
+        for entry in getattr(self, '_backup_entries', []):
+            row = entry.get("row")
+            if row and row.winfo_exists():
+                try:
+                    row.configure(fg_color=COLORS["bg_medium"])
+                except Exception:
+                    pass
 
     # ─── 自动备份触发 ─────────────────────────────────────────
 

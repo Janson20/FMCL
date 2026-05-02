@@ -18,6 +18,7 @@ from config import Config
 from structured_logger import slog
 from mirror import MirrorSource
 from validation import validate_version_id, validate_server_ip, validate_server_port
+from ui.theme_engine import init_theme_engine, get_theme_engine, Theme
 
 
 def concurrent_file_verify(
@@ -104,7 +105,13 @@ class MinecraftLauncher:
         self._mirror = MirrorSource(enabled=config.mirror_enabled)
         logger.info("MinecraftLauncher.__init__: 7. MirrorSource 初始化完成，正在应用补丁...")
         self._apply_mirror_patch()
-        logger.info("MinecraftLauncher.__init__: 8. 初始化完成")
+        logger.info("MinecraftLauncher.__init__: 8. 正在初始化主题引擎...")
+        engine = init_theme_engine(str(config.base_dir))
+        # 加载保存的主题
+        saved_theme = engine.load_theme(config.theme_name)
+        if saved_theme:
+            engine.apply_theme(saved_theme, config.accent_color)
+        logger.info("MinecraftLauncher.__init__: 9. 初始化完成")
 
     def _apply_mirror_patch(self):
         """应用镜像源补丁"""
@@ -690,6 +697,16 @@ class MinecraftLauncher:
             "set_jdz_token": self.set_jdz_token,
             "get_language": self.get_language,
             "set_language": self.set_language,
+            # 主题相关
+            "get_theme_engine": self.get_theme_engine,
+            "get_theme_name": self.get_theme_name,
+            "set_theme_name": self.set_theme_name,
+            "get_accent_color": self.get_accent_color,
+            "set_accent_color": self.set_accent_color,
+            "get_dynamic_version_theme": self.get_dynamic_version_theme,
+            "set_dynamic_version_theme": self.set_dynamic_version_theme,
+            "apply_version_theme": self.apply_version_theme,
+            "reapply_theme": self.reapply_theme,
             # 服务器相关
             "get_server_versions": self.get_server_versions,
             "get_installed_servers": self.get_installed_servers,
@@ -743,6 +760,72 @@ class MinecraftLauncher:
         """设置界面语言"""
         self.config.language = language
         self.config.save_config()
+
+    def get_theme_engine(self):
+        """获取主题引擎实例"""
+        return get_theme_engine()
+
+    def get_theme_name(self) -> str:
+        """获取当前主题名称"""
+        return self.config.theme_name
+
+    def set_theme_name(self, theme_name: str) -> None:
+        """设置主题名称并应用"""
+        self.config.theme_name = theme_name
+        engine = get_theme_engine()
+        theme = engine.load_theme(theme_name)
+        if theme:
+            engine.apply_theme(theme, self.config.accent_color)
+        self.config.save_config()
+
+    def get_accent_color(self) -> Optional[str]:
+        """获取自定义强调色"""
+        return self.config.accent_color
+
+    def set_accent_color(self, color: Optional[str]) -> None:
+        """设置自定义强调色"""
+        self.config.accent_color = color
+        engine = get_theme_engine()
+        theme = engine.load_theme(self.config.theme_name)
+        if theme:
+            engine.apply_theme(theme, color)
+        self.config.save_config()
+
+    def get_dynamic_version_theme(self) -> bool:
+        """获取是否启用版本动态主题"""
+        return self.config.dynamic_version_theme
+
+    def set_dynamic_version_theme(self, enabled: bool) -> None:
+        """设置是否启用版本动态主题"""
+        self.config.dynamic_version_theme = enabled
+        self.config.save_config()
+
+    def apply_version_theme(self, version_id: str) -> Optional[Dict[str, str]]:
+        """根据 Minecraft 版本应用动态主题"""
+        if not self.config.dynamic_version_theme:
+            return None
+        engine = get_theme_engine()
+        version_colors = engine.get_version_accent(version_id)
+        if version_colors:
+            theme = engine.load_theme(self.config.theme_name)
+            if theme:
+                colors = dict(theme.colors)
+                colors["accent"] = version_colors["accent"]
+                colors["accent_hover"] = version_colors["accent_hover"]
+                modified_theme = Theme(
+                    name=theme.name,
+                    author=theme.author,
+                    description=theme.description,
+                    version=theme.version,
+                    colors=colors,
+                )
+                engine.apply_theme(modified_theme, version_colors["accent"])
+                return dict(engine.get_current_colors())
+        return None
+
+    def reapply_theme(self):
+        """通知主窗口重新应用主题颜色"""
+        pass
 
     def verify_installed_version(self, version_id: str, max_workers: int = 4) -> Dict[str, Any]:
         """

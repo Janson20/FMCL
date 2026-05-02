@@ -77,3 +77,4 @@ config.json
 video/
 api/
 plan.md
+tmp/

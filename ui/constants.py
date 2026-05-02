@@ -20,6 +20,9 @@ COLORS = {
     "card_border": "#2d3a5c",
 }
 
+# 运行时颜色引用（主题引擎会直接更新此字典，所有引用自动同步）
+current_colors = COLORS
+
 
 # ─── 跨平台中文字体检测 ──────────────────────────────────────────
 def _detect_font_family() -> str:

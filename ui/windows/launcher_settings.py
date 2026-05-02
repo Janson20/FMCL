@@ -6,6 +6,7 @@ import tkinter.messagebox as messagebox
 from typing import Dict, Optional, Callable, Any
 
 import customtkinter as ctk
+from tkinter import filedialog
 
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _, get_available_languages, set_language, get_current_language
@@ -20,11 +21,17 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.parent = parent
 
         self.title(_("settings_title"))
-        self.geometry("450x620")
+        self.geometry("520x780")
         self.resizable(False, False)
         self.grab_set()
 
+        self._settings_theme_refs = []
         self._build_ui()
+
+    def _r(self, widget, **mapping):
+        """注册组件到主题刷新列表"""
+        self._settings_theme_refs.append((widget, mapping))
+        return widget
 
     def destroy(self):
         """销毁窗口，先处理 CTkSlider 的 bug"""
@@ -53,7 +60,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
     def _build_ui(self):
         """构建设置界面"""
-        container = ctk.CTkFrame(self, fg_color="transparent")
+        container = ctk.CTkScrollableFrame(self, fg_color="transparent")
         container.pack(fill=ctk.BOTH, expand=True, padx=20, pady=20)
 
         # 标题
@@ -76,9 +83,10 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             text_color=COLORS["text_primary"],
         )
         minimize_label.pack(side=ctk.LEFT)
+        self._r(minimize_label, text_color="text_primary")
 
         self.minimize_var = ctk.BooleanVar(value=self.callbacks.get("get_minimize_on_game_launch", lambda: False)())
-        minimize_switch = ctk.CTkSwitch(
+        self.minimize_switch = ctk.CTkSwitch(
             minimize_frame,
             text="",
             variable=self.minimize_var,
@@ -90,7 +98,9 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             text_color=COLORS["text_primary"],
             command=self._on_minimize_toggle,
         )
-        minimize_switch.pack(side=ctk.RIGHT)
+        self.minimize_switch.pack(side=ctk.RIGHT)
+        self._r(self.minimize_switch, fg_color="accent", button_color="text_primary",
+                button_hover_color="text_secondary", progress_color="accent_hover")
 
         # 国内镜像源开关
         mirror_frame = ctk.CTkFrame(container, fg_color="transparent")
@@ -103,9 +113,10 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             text_color=COLORS["text_primary"],
         )
         mirror_label.pack(side=ctk.LEFT)
+        self._r(mirror_label, text_color="text_primary")
 
         self.mirror_var = ctk.BooleanVar(value=self.callbacks.get("get_mirror_enabled", lambda: True)())
-        mirror_switch = ctk.CTkSwitch(
+        self.mirror_switch = ctk.CTkSwitch(
             mirror_frame,
             text="",
             variable=self.mirror_var,
@@ -117,7 +128,9 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             text_color=COLORS["text_primary"],
             command=self._on_mirror_toggle,
         )
-        mirror_switch.pack(side=ctk.RIGHT)
+        self.mirror_switch.pack(side=ctk.RIGHT)
+        self._r(self.mirror_switch, fg_color="accent", button_color="text_primary",
+                button_hover_color="text_secondary", progress_color="accent_hover")
 
         # ── 界面语言设置 ──
         language_frame = ctk.CTkFrame(container, fg_color="transparent")
@@ -157,6 +170,175 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         # 保存语言代码映射
         self._lang_display_to_code = {v: k for k, v in lang_map.items()}
+
+        # ── 主题设置 ──
+        theme_section = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
+        theme_section.pack(fill=ctk.X, pady=(15, 5))
+
+        theme_title = ctk.CTkLabel(
+            theme_section,
+            text=_("settings_theme"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        theme_title.pack(anchor=ctk.W, padx=12, pady=(10, 5))
+
+        # 主题选择
+        theme_select_frame = ctk.CTkFrame(theme_section, fg_color="transparent")
+        theme_select_frame.pack(fill=ctk.X, padx=12, pady=5)
+
+        theme_label = ctk.CTkLabel(
+            theme_select_frame,
+            text=_("settings_theme_select"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLORS["text_primary"],
+        )
+        theme_label.pack(side=ctk.LEFT)
+
+        # 获取主题引擎
+        theme_engine = self.callbacks.get("get_theme_engine", lambda: None)()
+        available_themes = []
+        theme_names = []
+        if theme_engine:
+            available_themes = theme_engine.get_available_themes()
+            theme_names = [t["name"] for t in available_themes]
+        if not theme_names:
+            theme_names = ["default"]
+            available_themes = [{"name": "default", "source": "preset"}]
+
+        current_theme = self.callbacks.get("get_theme_name", lambda: "default")()
+
+        # 主题名称显示映射
+        theme_display_map = {}
+        theme_display_list = []
+        for t in available_themes:
+            display = t["name"]
+            if t.get("source") == "user":
+                display = f"{t['name']} {_('settings_theme_user_tag')}"
+            theme_display_list.append(display)
+            theme_display_map[display] = t["name"]
+
+        self._theme_display_to_name = theme_display_map
+
+        current_display = current_theme
+        if current_theme in theme_names:
+            for display, name in theme_display_map.items():
+                if name == current_theme:
+                    current_display = display
+                    break
+
+        self.theme_var = ctk.StringVar(value=current_display)
+        self.theme_menu = ctk.CTkOptionMenu(
+            theme_select_frame,
+            variable=self.theme_var,
+            values=theme_display_list,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_dark"],
+            button_color=COLORS["bg_light"],
+            button_hover_color=COLORS["card_border"],
+            dropdown_fg_color=COLORS["bg_medium"],
+            dropdown_hover_color=COLORS["bg_light"],
+            command=self._on_theme_change,
+        )
+        self.theme_menu.pack(side=ctk.RIGHT)
+
+        # 导入主题按钮
+        import_theme_btn = ctk.CTkButton(
+            theme_section,
+            text=_("settings_theme_import"),
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_import_theme,
+        )
+        import_theme_btn.pack(anchor=ctk.W, padx=12, pady=(5, 2))
+
+        # 自定义强调色
+        accent_frame = ctk.CTkFrame(theme_section, fg_color="transparent")
+        accent_frame.pack(fill=ctk.X, padx=12, pady=5)
+
+        accent_label = ctk.CTkLabel(
+            accent_frame,
+            text=_("settings_accent_color"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLORS["text_primary"],
+        )
+        accent_label.pack(side=ctk.LEFT)
+
+        saved_accent = self.callbacks.get("get_accent_color", lambda: None)()
+        self.accent_var = ctk.StringVar(value=saved_accent or "")
+        accent_entry = ctk.CTkEntry(
+            accent_frame,
+            textvariable=self.accent_var,
+            width=100,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_dark"],
+            border_color=COLORS["card_border"],
+            placeholder_text="#e94560",
+        )
+        accent_entry.pack(side=ctk.RIGHT, padx=(5, 0))
+
+        accent_apply_btn = ctk.CTkButton(
+            accent_frame,
+            text=_("settings_apply"),
+            width=50,
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._on_accent_apply,
+        )
+        accent_apply_btn.pack(side=ctk.RIGHT, padx=(5, 0))
+
+        # 随机强调色按钮
+        random_accent_btn = ctk.CTkButton(
+            accent_frame,
+            text=_("settings_accent_random"),
+            width=50,
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_random_accent,
+        )
+        random_accent_btn.pack(side=ctk.RIGHT, padx=(5, 0))
+
+        # 版本动态主题开关
+        dynamic_frame = ctk.CTkFrame(theme_section, fg_color="transparent")
+        dynamic_frame.pack(fill=ctk.X, padx=12, pady=(5, 10))
+
+        dynamic_label = ctk.CTkLabel(
+            dynamic_frame,
+            text=_("settings_dynamic_theme"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLORS["text_primary"],
+        )
+        dynamic_label.pack(side=ctk.LEFT)
+
+        self.dynamic_var = ctk.BooleanVar(value=self.callbacks.get("get_dynamic_version_theme", lambda: False)())
+        dynamic_switch = ctk.CTkSwitch(
+            dynamic_frame,
+            text="",
+            variable=self.dynamic_var,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=COLORS["accent"],
+            button_color=COLORS["text_primary"],
+            button_hover_color=COLORS["text_secondary"],
+            progress_color=COLORS["accent_hover"],
+            text_color=COLORS["text_primary"],
+            command=self._on_dynamic_toggle,
+        )
+        dynamic_switch.pack(side=ctk.RIGHT)
+
+        dynamic_hint = ctk.CTkLabel(
+            theme_section,
+            text=_("settings_dynamic_theme_hint"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+        )
+        dynamic_hint.pack(anchor=ctk.W, padx=12, pady=(0, 10))
 
         # ── 净读 AI 账号 ──
         jdz_section = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
@@ -312,6 +494,44 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         )
         close_btn.pack(side=ctk.LEFT)
 
+        # 注册所有主题依赖组件
+        self._r(title, text_color="text_primary")
+        self._r(language_label, text_color="text_primary")
+        self._r(language_menu, fg_color="bg_medium", button_color="bg_light",
+                button_hover_color="card_border", dropdown_fg_color="bg_medium",
+                dropdown_hover_color="bg_light")
+        self._r(theme_section, fg_color="bg_medium")
+        self._r(theme_title, text_color="text_primary")
+        self._r(theme_label, text_color="text_primary")
+        self._r(import_theme_btn, fg_color="bg_light", hover_color="card_border")
+        self._r(self.theme_menu, fg_color="bg_dark", button_color="bg_light",
+                button_hover_color="card_border", dropdown_fg_color="bg_medium",
+                dropdown_hover_color="bg_light")
+        self._r(accent_label, text_color="text_primary")
+        self._r(accent_entry, fg_color="bg_dark", border_color="card_border")
+        self._r(accent_apply_btn, fg_color="accent", hover_color="accent_hover")
+        self._r(random_accent_btn, fg_color="bg_light", hover_color="card_border")
+        self._r(dynamic_label, text_color="text_primary")
+        self._r(dynamic_switch, fg_color="accent", button_color="text_primary",
+                button_hover_color="text_secondary", progress_color="accent_hover")
+        self._r(dynamic_hint, text_color="text_secondary")
+        self._r(jdz_section, fg_color="bg_medium")
+        self._r(jdz_title, text_color="text_primary")
+        self._r(self.jdz_user_entry, fg_color="bg_dark", border_color="card_border",
+                text_color="text_primary")
+        self._r(self.jdz_pass_entry, fg_color="bg_dark", border_color="card_border",
+                text_color="text_primary")
+        self._r(self.jdz_login_btn, fg_color="accent", hover_color="accent_hover")
+        self._r(self.jdz_logout_btn, fg_color="bg_light", hover_color="card_border")
+        self._r(register_btn, fg_color="accent", hover_color="accent_hover",
+                text_color="text_primary")
+        self._r(threads_label, text_color="text_primary")
+        self._r(self.threads_value_label, text_color="accent")
+        self._r(self._threads_slider, fg_color="bg_light", button_color="accent",
+                button_hover_color="accent_hover", progress_color="accent")
+        self._r(apply_btn, fg_color="accent", hover_color="accent_hover")
+        self._r(close_btn, fg_color="bg_light", hover_color="card_border")
+
     def _on_minimize_toggle(self):
         """启动后最小化开关切换"""
         enabled = self.minimize_var.get()
@@ -364,6 +584,110 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         if "set_download_threads" in self.callbacks:
             self.callbacks["set_download_threads"](threads)
         self.parent.set_status(_("settings_threads", threads=threads), "info")
+
+    def _on_theme_change(self, display_name: str):
+        """主题切换回调"""
+        theme_name = self._theme_display_to_name.get(display_name, display_name)
+        if "set_theme_name" in self.callbacks:
+            self.callbacks["set_theme_name"](theme_name)
+        self._refresh_theme()
+        self.parent.set_status(_("settings_theme_changed", theme=theme_name), "info")
+
+    def _on_import_theme(self):
+        """导入主题文件回调"""
+        file_path = filedialog.askopenfilename(
+            title=_("settings_theme_import_title"),
+            filetypes=[("JSON Theme", "*.json"), ("All Files", "*.*")],
+            parent=self,
+        )
+        if not file_path:
+            return
+        theme_engine = self.callbacks.get("get_theme_engine", lambda: None)()
+        if not theme_engine:
+            return
+        success, msg = theme_engine.import_theme_from_file(file_path)
+        if success:
+            self._refresh_theme_list()
+            self.parent.set_status(msg, "success")
+        else:
+            self.parent.set_status(msg, "error")
+
+    def _on_accent_apply(self):
+        """应用自定义强调色"""
+        color = self.accent_var.get().strip()
+        if not color:
+            self.parent.set_status(_("settings_accent_cleared"), "info")
+            if "set_accent_color" in self.callbacks:
+                self.callbacks["set_accent_color"](None)
+            self._refresh_theme()
+            return
+        if not color.startswith("#") or len(color) != 7:
+            self.parent.set_status(_("settings_accent_invalid"), "error")
+            return
+        try:
+            int(color[1:], 16)
+        except ValueError:
+            self.parent.set_status(_("settings_accent_invalid"), "error")
+            return
+        if "set_accent_color" in self.callbacks:
+            self.callbacks["set_accent_color"](color)
+        self._refresh_theme()
+        self.parent.set_status(_("settings_accent_applied"), "success")
+
+    def _on_random_accent(self):
+        """随机生成强调色"""
+        from ui.theme_engine import ThemeEngine
+        color = ThemeEngine.generate_random_accent()
+        self.accent_var.set(color)
+        if "set_accent_color" in self.callbacks:
+            self.callbacks["set_accent_color"](color)
+        self._refresh_theme()
+        self.parent.set_status(_("settings_accent_random_applied", color=color), "success")
+
+    def _on_dynamic_toggle(self):
+        """版本动态主题开关切换"""
+        enabled = self.dynamic_var.get()
+        if "set_dynamic_version_theme" in self.callbacks:
+            self.callbacks["set_dynamic_version_theme"](enabled)
+        status_key = "settings_dynamic_enabled" if enabled else "settings_dynamic_disabled"
+        self.parent.set_status(_(status_key), "info")
+
+    def _refresh_theme_list(self):
+        """刷新主题下拉列表"""
+        theme_engine = self.callbacks.get("get_theme_engine", lambda: None)()
+        if not theme_engine:
+            return
+        available_themes = theme_engine.get_available_themes()
+        theme_display_list = []
+        theme_display_map = {}
+        for t in available_themes:
+            display = t["name"]
+            if t.get("source") == "user":
+                display = f"{t['name']} {_('settings_theme_user_tag')}"
+            theme_display_list.append(display)
+            theme_display_map[display] = t["name"]
+        self._theme_display_to_name = theme_display_map
+        self.theme_menu.configure(values=theme_display_list)
+
+    def _refresh_theme(self):
+        """刷新当前设置窗口和主窗口的UI颜色"""
+        self._refresh_ui_colors()
+        try:
+            if hasattr(self.parent, '_reapply_theme'):
+                self.parent._reapply_theme()
+        except Exception:
+            pass
+
+    def _refresh_ui_colors(self):
+        """使用注册的 _settings_theme_refs 刷新所有组件颜色"""
+        self.configure(fg_color=COLORS["bg_dark"])
+        for widget, mapping in self._settings_theme_refs:
+            try:
+                kwargs = {attr: COLORS[key] for attr, key in mapping.items()}
+                if kwargs:
+                    widget.configure(**kwargs)
+            except Exception:
+                pass
 
     def _on_jdz_login(self):
         """净读 AI 登录"""

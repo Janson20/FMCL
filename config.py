@@ -151,6 +151,11 @@ class Config:
         # 语言设置
         self.language: str = self.DEFAULT_LANGUAGE
 
+        # 主题设置
+        self.theme_name: str = "default"
+        self.accent_color: Optional[str] = None
+        self.dynamic_version_theme: bool = False
+
         # 备份配置
         self.backup_dir: Optional[str] = None
         self.backup_compress_level: int = 6
@@ -203,6 +208,12 @@ class Config:
                 self.backup_auto_exit = data["backup_auto_exit"]
             if "language" in data:
                 self.language = data["language"]
+            if "theme_name" in data:
+                self.theme_name = data["theme_name"]
+            if "accent_color" in data:
+                self.accent_color = data["accent_color"]
+            if "dynamic_version_theme" in data:
+                self.dynamic_version_theme = data["dynamic_version_theme"]
             if "ai_privacy_consent" in data:
                 self.ai_privacy_consent = data["ai_privacy_consent"]
             if "terms_consent" in data:
@@ -226,6 +237,9 @@ class Config:
                 "skin_path": self.skin_path,
                 "jdz_token": encrypt_token(self.jdz_token) if self.jdz_token else None,
                 "language": self.language,
+                "theme_name": self.theme_name,
+                "accent_color": self.accent_color,
+                "dynamic_version_theme": self.dynamic_version_theme,
                 "ai_privacy_consent": self.ai_privacy_consent,
                 "terms_consent": self.terms_consent,
                 "backup_dir": self.backup_dir,

@@ -46,6 +46,7 @@ class AgentMixin(object):
         sidebar = ctk.CTkFrame(body, fg_color=COLORS["card_bg"], corner_radius=12, width=220)
         sidebar.pack(side=ctk.LEFT, fill=ctk.BOTH, padx=(0, 10))
         sidebar.pack_propagate(False)
+        self._agent_sidebar = sidebar
 
         ctk.CTkLabel(
             sidebar,
@@ -70,7 +71,7 @@ class AgentMixin(object):
         )
         self._agent_log_text.pack(fill=ctk.BOTH, expand=True, padx=12, pady=(0, 5))
 
-        ctk.CTkButton(
+        self._agent_clear_log_btn = ctk.CTkButton(
             sidebar,
             text=_("clear_log"),
             height=26,
@@ -78,14 +79,27 @@ class AgentMixin(object):
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=self._on_agent_clear_log,
-        ).pack(fill=ctk.X, padx=12, pady=(0, 12))
+        )
+        self._agent_clear_log_btn.pack(fill=ctk.X, padx=12, pady=(0, 12))
 
-        chat_frame = ctk.CTkFrame(body, fg_color=COLORS["card_bg"], corner_radius=12)
-        chat_frame.pack(side=ctk.RIGHT, fill=ctk.BOTH, expand=True)
+        self._agent_chat_frame = ctk.CTkFrame(body, fg_color=COLORS["card_bg"], corner_radius=12)
+        self._agent_chat_frame.pack(side=ctk.RIGHT, fill=ctk.BOTH, expand=True)
+
+        chat_frame = self._agent_chat_frame
 
         self._agent_chat = AgentChatView(chat_frame, callbacks=self.callbacks)
         self._agent_chat.pack(fill=ctk.BOTH, expand=True, padx=10, pady=10)
         logger.info("[Agent] 标签页 UI 构建完成")
+
+        if not hasattr(self, '_theme_refs'):
+            self._theme_refs = []
+        self._theme_refs.append((self._agent_sidebar, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self._agent_log_text, {"fg_color": "bg_medium", "border_color": "card_border", "text_color": "text_secondary"}))
+        self._theme_refs.append((self._agent_clear_log_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append((self._agent_chat_frame, {"fg_color": "card_bg"}))
+
+    def _refresh_agent_colors(self):
+        self._sync_agent_status()
 
     def _on_agent_clear_log(self):
         """清空 AGENT 标签页的日志"""
