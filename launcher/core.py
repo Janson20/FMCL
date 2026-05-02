@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Any, Tuple
@@ -120,8 +121,13 @@ class MinecraftLauncher:
             self.on_progress(0, 0, status)
 
     def _set_progress(self, progress: int) -> None:
-        """进度回调"""
+        """进度回调（节流：大量文件下载时避免高频回调导致UI卡死）"""
         if self.current_max != 0:
+            now = time.time()
+            last = getattr(self, '_last_progress_time', 0)
+            if progress != self.current_max and now - last < 0.1:
+                return
+            self._last_progress_time = now
             logger.debug(f"进度: {progress}/{self.current_max}")
             if self.on_progress:
                 self.on_progress(progress, self.current_max, "")

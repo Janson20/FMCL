@@ -817,12 +817,30 @@ class EventHandlerMixin(object):
             return
 
         try:
-            while True:
+            processed = 0
+            latest_progress = None
+            latest_status = ""
+            while processed < 100:
                 try:
                     task_type, data = self._task_queue.get_nowait()
-                    self._handle_task(task_type, data)
+                    if task_type == "progress_update":
+                        current, total, status = data
+                        if total > 0:
+                            latest_progress = (current, total)
+                        if status:
+                            latest_status = status
+                    else:
+                        self._handle_task(task_type, data)
+                    processed += 1
                 except queue.Empty:
                     break
+
+            if latest_progress:
+                current, total = latest_progress
+                self.progress_bar.set(current / total)
+                self.progress_label.configure(text=f"{current}/{total}")
+            if latest_status:
+                self.set_status(latest_status, "loading")
         except Exception as e:
             logger.error(f"队列处理错误: {e}")
 
