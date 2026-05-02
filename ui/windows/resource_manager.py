@@ -249,6 +249,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         if not HAS_DND:
             return
         try:
+            self.tk.call("package", "require", "tkdnd")
             self._drop_frame.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
             self._drop_frame.dnd_bind("<<Drop>>", self._on_drop)  # type: ignore[attr-defined]
             self._list_frame.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
@@ -519,7 +520,40 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         else:
             self._create_fallback_icon(icon_frame, item, icon_size)
 
-        # 右侧: 信息区
+        # 右侧按钮区（先打包，确保不被打扰文本遮挡）
+        btn_frame = ctk.CTkFrame(row, fg_color="transparent")
+        btn_frame.pack(side=ctk.RIGHT, padx=(0, 5), pady=4)
+
+        # 启用/禁用按钮（仅模组）
+        toggle_text = _("resource_enable") if item.get("disabled") else _("resource_disable")
+        toggle_btn = ctk.CTkButton(
+            btn_frame,
+            text=toggle_text,
+            width=45,
+            height=24,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            fg_color="transparent",
+            hover_color=COLORS["bg_light"],
+            text_color=COLORS["text_secondary"],
+            command=lambda p=item["path"], d=item.get("disabled", False): self._toggle_mod(p, d),
+        )
+        toggle_btn.pack(side=ctk.RIGHT, padx=(2, 2))
+
+        # 删除按钮
+        del_btn = ctk.CTkButton(
+            btn_frame,
+            text="🗑",
+            width=26,
+            height=24,
+            font=ctk.CTkFont(size=11),
+            fg_color="transparent",
+            hover_color=COLORS["accent"],
+            text_color=COLORS["text_secondary"],
+            command=lambda p=item["path"], n=item.get("name", item.get("filename", "")): self._delete_resource(p, n),
+        )
+        del_btn.pack(side=ctk.RIGHT, padx=(0, 2))
+
+        # 右侧: 信息区（后打包，自动填充按钮剩余空间）
         info_frame = ctk.CTkFrame(row, fg_color="transparent")
         info_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 8), pady=6)
 
@@ -546,7 +580,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             if description:
                 if author_desc_text:
                     author_desc_text += " · "
-                desc_short = description[:80] + "..." if len(description) > 80 else description
+                desc_short = description[:50] + "..." if len(description) > 50 else description
                 author_desc_text += desc_short
             author_desc_label = ctk.CTkLabel(
                 info_frame,
@@ -582,39 +616,6 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                 anchor=ctk.W,
             )
             filename_label.pack(side=ctk.LEFT, padx=(8, 0))
-
-        # 右侧按钮区
-        btn_frame = ctk.CTkFrame(row, fg_color="transparent")
-        btn_frame.pack(side=ctk.RIGHT, padx=(0, 5), pady=4)
-
-        # 启用/禁用按钮（仅模组）
-        toggle_text = _("resource_enable") if item.get("disabled") else _("resource_disable")
-        toggle_btn = ctk.CTkButton(
-            btn_frame,
-            text=toggle_text,
-            width=45,
-            height=24,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            fg_color="transparent",
-            hover_color=COLORS["bg_light"],
-            text_color=COLORS["text_secondary"],
-            command=lambda p=item["path"], d=item.get("disabled", False): self._toggle_mod(p, d),
-        )
-        toggle_btn.pack(side=ctk.RIGHT, padx=(2, 2))
-
-        # 删除按钮
-        del_btn = ctk.CTkButton(
-            btn_frame,
-            text="🗑",
-            width=26,
-            height=24,
-            font=ctk.CTkFont(size=11),
-            fg_color="transparent",
-            hover_color=COLORS["accent"],
-            text_color=COLORS["text_secondary"],
-            command=lambda p=item["path"], n=item.get("name", item.get("filename", "")): self._delete_resource(p, n),
-        )
-        del_btn.pack(side=ctk.RIGHT, padx=(0, 2))
 
     def _create_fallback_icon(self, parent: ctk.CTkFrame, item: Dict, size: int):
         """创建默认图标"""
@@ -707,6 +708,37 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         else:
             icon = "📄"
 
+        # 删除按钮（先打包右侧按钮，确保不被打扰文本遮挡）
+        del_btn = ctk.CTkButton(
+            row,
+            text="🗑",
+            width=30,
+            height=26,
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent",
+            hover_color=COLORS["accent"],
+            text_color=COLORS["text_secondary"],
+            command=lambda p=item["path"], n=item["name"]: self._delete_resource(p, n),
+        )
+        del_btn.pack(side=ctk.RIGHT, padx=(0, 2))
+
+        # 启用/禁用按钮（仅模组）
+        if resource_type == "mods" and not item.get("is_dir"):
+            toggle_text = _("rm_enable") if item.get("disabled") else _("rm_disable")
+            toggle_btn = ctk.CTkButton(
+                row,
+                text=toggle_text,
+                width=50,
+                height=26,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                fg_color="transparent",
+                hover_color=COLORS["bg_light"],
+                text_color=COLORS["text_secondary"],
+                command=lambda p=item["path"], d=item.get("disabled", False): self._toggle_mod(p, d),
+            )
+            toggle_btn.pack(side=ctk.RIGHT, padx=(2, 2))
+
+        # 名称（后打包，自动填充按钮剩余空间）
         name_text = item["name"]
         if item.get("disabled"):
             name_text += _("rm_disabled_suffix")
@@ -731,36 +763,6 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                 text_color=COLORS["text_secondary"],
             )
             size_label.pack(side=ctk.LEFT, padx=(0, 5))
-
-        # 启用/禁用按钮（仅模组）
-        if resource_type == "mods" and not item.get("is_dir"):
-            toggle_text = _("rm_enable") if item.get("disabled") else _("rm_disable")
-            toggle_btn = ctk.CTkButton(
-                row,
-                text=toggle_text,
-                width=50,
-                height=26,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                fg_color="transparent",
-                hover_color=COLORS["bg_light"],
-                text_color=COLORS["text_secondary"],
-                command=lambda p=item["path"], d=item.get("disabled", False): self._toggle_mod(p, d),
-            )
-            toggle_btn.pack(side=ctk.RIGHT, padx=(2, 2))
-
-        # 删除按钮
-        del_btn = ctk.CTkButton(
-            row,
-            text="🗑",
-            width=30,
-            height=26,
-            font=ctk.CTkFont(size=12),
-            fg_color="transparent",
-            hover_color=COLORS["accent"],
-            text_color=COLORS["text_secondary"],
-            command=lambda p=item["path"], n=item["name"]: self._delete_resource(p, n),
-        )
-        del_btn.pack(side=ctk.RIGHT, padx=(0, 2))
 
     def _install_resource(self, src_path: str, resource_type: str) -> bool:
         """安装资源文件到对应目录"""
