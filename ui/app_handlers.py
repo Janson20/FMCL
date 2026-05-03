@@ -633,7 +633,7 @@ class EventHandlerMixin(object):
             logger.error(f"更新失败: {e}")
             self._task_queue.put(("update_download_error", str(e)))
 
-    def _on_app_ready(self):
+    def _on_app_ready(self, on_agreement_complete=None):
         """应用初始化完成（由外部调用触发）"""
         self._launcher_ready = True
         # 重新加载用户设置
@@ -642,15 +642,17 @@ class EventHandlerMixin(object):
         if self._log_capture_active:
             self._poll_log_buffer()
         # 检查是否需要显示使用条款同意弹窗
-        self._check_terms_consent()
+        self._check_terms_consent(on_complete=on_agreement_complete)
 
-    def _check_terms_consent(self):
+    def _check_terms_consent(self, on_complete=None):
         """检查使用条款/AI隐私同意状态，任一未同意则显示弹窗"""
         from config import config
         if not config.terms_consent or not config.ai_privacy_consent:
-            self.after(500, self._show_terms_consent_dialog)
+            self.after(500, lambda: self._show_terms_consent_dialog(on_complete))
+        elif on_complete:
+            on_complete()
 
-    def _show_terms_consent_dialog(self):
+    def _show_terms_consent_dialog(self, on_complete=None):
         """显示使用条款与隐私协议同意弹窗"""
         import tkinter as tk
         from config import config
@@ -702,6 +704,8 @@ class EventHandlerMixin(object):
                 config.ai_privacy_consent = True
                 config.save_config()
                 dialog.destroy()
+                if on_complete:
+                    on_complete()
             else:
                 consent_cb.configure(fg='#e94560')
                 dialog.after(1500, lambda: consent_cb.configure(fg='#a0a0b0'))

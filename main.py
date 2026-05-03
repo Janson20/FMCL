@@ -303,18 +303,8 @@ def main():
 
             app.set_status("启动器就绪", "success")
 
-            # 预下载检查（在窗口显示后延迟执行，确保主窗口已渲染）
-            def _do_predownload_check():
-                from ui.i18n import _
-                from launcher.predownload import run_predownload_check
-                run_predownload_check(app, config.minecraft_dir, _)
-                app.lift()
-                app.focus_force()
-
-            app.after(200, _do_predownload_check)
-
-            # 启动环境初始化流程
-            app._on_app_ready()
+            # 启动顺序：协议同意 → 公告 → 预下载
+            app._on_app_ready(on_agreement_complete=lambda: _show_notice_then_predownload(app))
 
             # 更新 AGENT 助手的回调和 Token
             if hasattr(app, '_update_agent_callbacks'):
@@ -323,9 +313,6 @@ def main():
             # 启动时自动检查更新（后台静默）
             if config.auto_check_update:
                 threading.Thread(target=app._check_update, args=(True,), daemon=True).start()
-
-            # 启动时获取公告（后台静默）
-            _fetch_and_show_notice(app)
 
         # 启动后台初始化线程
         init_thread = threading.Thread(target=_init_launcher, daemon=True)
@@ -357,14 +344,26 @@ def main():
         sys.exit(0)
 
 
-def _fetch_and_show_notice(app):
-    """获取并显示公告（后台线程）"""
+def _show_notice_then_predownload(app):
+    """公告展示 → 确认后预下载检查"""
     def _do_fetch():
         from ui.dialogs import fetch_notice, show_notice_dialog
         content = fetch_notice()
         if content:
-            app.after(0, lambda: show_notice_dialog(app, content))
+            app.after(0, lambda: show_notice_dialog(app, content, on_dismiss=lambda: _do_predownload_check(app)))
+        else:
+            app.after(0, lambda: _do_predownload_check(app))
     threading.Thread(target=_do_fetch, daemon=True).start()
+
+
+def _do_predownload_check(app):
+    """预下载检查"""
+    from ui.i18n import _
+    from launcher.predownload import run_predownload_check
+    run_predownload_check(app, config.minecraft_dir, _)
+    app.lift()
+    app.focus_force()
+
 
 def _parse_cli_args():
     """解析命令行参数，支持以下 CLI 模式:

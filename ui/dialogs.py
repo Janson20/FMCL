@@ -254,7 +254,7 @@ def fetch_notice() -> Optional[str]:
         return None
 
 
-def show_notice_dialog(parent, content: str) -> None:
+def show_notice_dialog(parent, content: str, on_dismiss=None) -> None:
     from ui.i18n import _
     dialog = ctk.CTkToplevel(parent)
     dialog.title(_("notice_title"))
@@ -268,6 +268,12 @@ def show_notice_dialog(parent, content: str) -> None:
     x = (dialog.winfo_screenwidth() - w) // 2
     y = (dialog.winfo_screenheight() - h) // 2
     dialog.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _on_dismiss():
+        dialog.grab_release()
+        dialog.destroy()
+        if on_dismiss:
+            on_dismiss()
 
     ctk.CTkLabel(
         dialog,
@@ -300,5 +306,5 @@ def show_notice_dialog(parent, content: str) -> None:
         font=ctk.CTkFont(family=FONT_FAMILY, size=13),
         fg_color=COLORS["accent"],
         hover_color=COLORS["accent_hover"],
-        command=lambda: (dialog.grab_release(), dialog.destroy()),
+        command=_on_dismiss,
     ).pack(pady=(0, 20))
