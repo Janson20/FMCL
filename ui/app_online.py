@@ -27,7 +27,7 @@ from ui.i18n import _
 
 
 EASYTIER_VERSION = "2.5.0"
-EASYTIER_BASE_URL = "https://github.com/EasyTier/EasyTier/releases/download/v{version}/easytier-windows-x86_64-v{version}.zip"
+EASYTIER_BASE_URL = "https://easytier.jingdu.qzz.io/download/v{version}/easytier-windows-x86_64-v{version}.zip"
 EASYTIER_DOWNLOAD_MIRRORS = [
     "https://staticassets.naids.com/resources/pclce/static/easytier/easytier-windows-x86_64-v{version}.zip",
     "https://s3.pysio.online/pcl2-ce/static/easytier/easytier-windows-x86_64-v{version}.zip",
