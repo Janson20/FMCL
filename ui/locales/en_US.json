@@ -93,6 +93,7 @@
   "about_python": "Python",
   "about_system": "System",
   "about_arch": "Architecture",
+  "about_license": "Open source under GPLv3",
   "confirm": "OK",
   
   "skin_size_invalid": "Invalid skin size {width}x{height}. Please use 64x64 or 64x32",

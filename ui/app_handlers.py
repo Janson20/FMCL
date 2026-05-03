@@ -1232,7 +1232,7 @@ class EventHandlerMixin(object):
         about.configure(fg_color=COLORS["bg_dark"])
 
         # 窗口尺寸与居中
-        w, h = 460, 360
+        w, h = 460, 390
         about.geometry(f"{w}x{h}")
         about.update_idletasks()
         x = (about.winfo_screenwidth() - w) // 2
@@ -1326,6 +1326,14 @@ class EventHandlerMixin(object):
                 text_color=COLORS["text_primary"],
                 anchor=ctk.W,
             ).pack(side=ctk.LEFT, padx=(10, 0))
+
+        # 许可证信息
+        ctk.CTkLabel(
+            main_frame,
+            text=_("about_license"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        ).pack(pady=(0, 10))
 
         # 底部确定按钮
         ctk.CTkButton(

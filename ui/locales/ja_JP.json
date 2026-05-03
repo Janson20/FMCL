@@ -93,6 +93,7 @@
   "about_python": "Python",
   "about_system": "システム",
   "about_arch": "アーキテクチャ",
+  "about_license": "GPLv3 オープンソースライセンス",
   "confirm": "OK",
   
   "skin_size_invalid": "無効なスキンサイズ {width}x{height}。64x64 または 64x32 を使用してください",

@@ -93,6 +93,7 @@
   "about_python": "Python",
   "about_system": "系統",
   "about_arch": "架構",
+  "about_license": "使用 GPLv3 協議開源",
   "confirm": "確定",
   
   "skin_size_invalid": "皮膚尺寸 {width}x{height} 不支援，請使用 64x64 或 64x32",

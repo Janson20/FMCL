@@ -958,4 +958,7 @@ chore: 构建/工具变动
 
 ## 许可证
 
-[MIT License](LICENSE) - Copyright (c) 2026 FMCL Team
+- **v2.8.4 及以前版本**：使用 [MIT License](LICENSE)
+- **v2.8.4 以后版本**：使用 [GNU General Public License v3.0](LICENSE)
+
+Copyright (c) 2026 FMCL Team
