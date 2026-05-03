@@ -659,5 +659,16 @@
 
   "mod_updating": "Updating {name}...",
   "mod_update_success": "{name} updated successfully!",
-  "mod_update_failed": "Update failed: {error}"
+  "mod_update_failed": "Update failed: {error}",
+
+  "mod_update_dialog_title": "Mod Updates",
+  "mod_update_dialog_header": "{count} update(s) available",
+  "mod_update_dialog_hint": "Check mods to update, then click \"Update Selected\"",
+  "mod_update_cancel": "Cancel",
+  "mod_update_all": "📦 Update All",
+  "mod_update_selected": "⬆ Update Selected",
+  "mod_update_batch_starting": "Starting batch update of {count} mod(s)...",
+  "mod_update_batch_progress": "Updating... ({done}/{total})",
+  "mod_update_batch_done": "All {success} mod(s) updated!",
+  "mod_update_batch_done_partial": "{success} succeeded, {failed} failed"
 }

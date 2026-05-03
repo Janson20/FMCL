@@ -24,6 +24,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def __init__(self, parent, version_id: str, callbacks: Dict[str, Callable]):
         super().__init__(parent)
+        self._fix_customtkinter_icon(self)
         self.version_id = version_id
         self.callbacks = callbacks
 
@@ -575,23 +576,6 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(row, fg_color="transparent")
         btn_frame.pack(side=ctk.RIGHT, padx=(0, 5), pady=4)
 
-        # 更新按钮（仅当有可用更新时显示）
-        modid = item.get("modid", "")
-        if modid and modid in self._update_info:
-            update_info = self._update_info[modid]
-            update_btn = ctk.CTkButton(
-                btn_frame,
-                text=f"⬆ v{update_info['latest_version']}",
-                width=90,
-                height=24,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                fg_color=COLORS["success"],
-                hover_color="#27ae60",
-                text_color=COLORS["text_primary"],
-                command=lambda m=modid: self._update_single_mod(m),
-            )
-            update_btn.pack(side=ctk.RIGHT, padx=(2, 2))
-
         # 启用/禁用按钮（仅模组）
         toggle_text = _("resource_enable") if item.get("disabled") else _("resource_disable")
         toggle_btn = ctk.CTkButton(
@@ -655,15 +639,16 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         description = item.get("description", "")
         if description:
             desc_clean = " ".join(description.split())
-            desc_short = desc_clean[:100] + "..." if len(desc_clean) > 100 else desc_clean
-            desc_label = ctk.CTkLabel(
-                info_frame,
-                text=desc_short,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLORS["text_secondary"],
-                anchor=ctk.W,
-            )
-            desc_label.pack(fill=ctk.X, pady=(1, 0))
+            if desc_clean:
+                desc_short = desc_clean[:80] + "..." if len(desc_clean) > 80 else desc_clean
+                desc_label = ctk.CTkLabel(
+                    info_frame,
+                    text=desc_short,
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                    text_color=COLORS["text_secondary"],
+                    anchor=ctk.W,
+                )
+                desc_label.pack(fill=ctk.X, pady=(1, 0))
 
         # 第四行: modid + 版本 + 文件名
         bottom_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
@@ -1280,7 +1265,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         if updates_found > 0:
             self._set_status(_("mod_updates_available", count=updates_found))
-            self._render_mod_list()  # 重新渲染以显示更新按钮
+            self._show_update_dialog()
         else:
             self._set_status(_("mod_up_to_date", total=total))
 
@@ -1294,63 +1279,286 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         )
         self._set_status(_("mod_update_check_failed", error=error))
 
-    def _update_single_mod(self, modid: str):
-        """更新单个模组"""
-        info = self._update_info.get(modid)
-        if not info:
+    def _show_update_dialog(self):
+        """显示更新选择弹窗，用户勾选要更新的模组后一键批量更新"""
+        if not self._update_info:
             return
 
-        project_id = info["project_id"]
-        mod_name = info["mod_name"]
-        mod_path = info["mod_path"]
+        dialog = ctk.CTkToplevel(self)
+        self._fix_customtkinter_icon(dialog)
+        dialog.title(_("mod_update_dialog_title"))
+        dialog.geometry("580x480")
+        dialog.minsize(480, 360)
+        dialog.configure(fg_color=COLORS["bg_dark"])
+        dialog.transient(self)
+        dialog.grab_set()
 
-        self._set_status(_("mod_updating", name=mod_name))
+        dialog.update_idletasks()
+        pw = self.winfo_width()
+        ph = self.winfo_height()
+        px = self.winfo_x()
+        py = self.winfo_y()
+        dw, dh = 580, 480
+        x = px + (pw - dw) // 2
+        y = py + (ph - dh) // 2
+        dialog.geometry(f"{dw}x{dh}+{x}+{y}")
 
-        def _do_update():
+        main = ctk.CTkFrame(dialog, fg_color="transparent")
+        main.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
+
+        header = ctk.CTkLabel(
+            main,
+            text=_("mod_update_dialog_header", count=len(self._update_info)),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        header.pack(anchor=ctk.W, pady=(0, 5))
+
+        hint = ctk.CTkLabel(
+            main,
+            text=_("mod_update_dialog_hint"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        )
+        hint.pack(anchor=ctk.W, pady=(0, 8))
+
+        list_frame = ctk.CTkScrollableFrame(
+            main,
+            fg_color=COLORS["card_bg"],
+            corner_radius=8,
+            scrollbar_button_color=COLORS["bg_light"],
+        )
+        list_frame.pack(fill=ctk.BOTH, expand=True, pady=(0, 10))
+
+        checkbox_vars: Dict[str, ctk.BooleanVar] = {}
+
+        for modid, info in sorted(self._update_info.items(), key=lambda x: x[1].get("mod_name", x[0])):
+            row = ctk.CTkFrame(list_frame, fg_color=COLORS["bg_medium"], corner_radius=6, height=36)
+            row.pack(fill=ctk.X, pady=2, padx=2)
+            row.pack_propagate(False)
+
+            var = ctk.BooleanVar(value=True)
+            checkbox_vars[modid] = var
+
+            cb = ctk.CTkCheckBox(
+                row,
+                text="",
+                variable=var,
+                width=22,
+                height=22,
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                border_color=COLORS["card_border"],
+                checkmark_color=COLORS["text_primary"],
+            )
+            cb.pack(side=ctk.LEFT, padx=(8, 4), pady=6)
+
+            name_label = ctk.CTkLabel(
+                row,
+                text=info["mod_name"],
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                text_color=COLORS["text_primary"],
+                anchor=ctk.W,
+            )
+            name_label.pack(side=ctk.LEFT, padx=(0, 8))
+
+            ver_text = f"v{info['current_version']} → v{info['latest_version']}"
+            ver_label = ctk.CTkLabel(
+                row,
+                text=ver_text,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLORS["success"],
+            )
+            ver_label.pack(side=ctk.RIGHT, padx=(0, 8))
+
+        actions = ctk.CTkFrame(main, fg_color="transparent", height=38)
+        actions.pack(fill=ctk.X)
+        actions.pack_propagate(False)
+
+        cancel_btn = ctk.CTkButton(
+            actions,
+            text=_("mod_update_cancel"),
+            width=90,
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=dialog.destroy,
+        )
+        cancel_btn.pack(side=ctk.RIGHT, padx=(5, 0))
+
+        update_all_btn = ctk.CTkButton(
+            actions,
+            text=_("mod_update_all"),
+            width=130,
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["success"],
+            hover_color="#27ae60",
+            text_color=COLORS["text_primary"],
+            command=lambda: self._batch_update_mods(
+                list(self._update_info.keys()), checkbox_vars, dialog
+            ),
+        )
+        update_all_btn.pack(side=ctk.RIGHT, padx=(5, 0))
+
+        update_selected_btn = ctk.CTkButton(
+            actions,
+            text=_("mod_update_selected"),
+            width=130,
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color=COLORS["text_primary"],
+            command=lambda: self._batch_update_mods(
+                [mid for mid, v in checkbox_vars.items() if v.get()],
+                checkbox_vars, dialog,
+            ),
+        )
+        update_selected_btn.pack(side=ctk.RIGHT, padx=(5, 0))
+
+    def _batch_update_mods(self, modids: list, checkbox_vars: dict, dialog):
+        """批量更新选中的模组（多线程下载）"""
+        if not modids:
+            return
+
+        dialog.destroy()
+        self._set_status(_("mod_update_batch_starting", count=len(modids)))
+
+        from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
+        from modrinth import download_mod, get_mod_versions
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading as _threading
+
+        game_version = parse_game_version_from_version(self.version_id)
+        mod_loader = parse_mod_loader_from_version(self.version_id)
+
+        if not game_version or not mod_loader:
+            self._set_status(_("mod_update_failed", error=_("mod_browser_unknown_loader")))
+            return
+
+        lock = _threading.Lock()
+        done = [0]
+        success_count = [0]
+        fail_count = [0]
+
+        def _download_one(modid):
+            info = self._update_info.get(modid)
+            if not info:
+                return False, modid
+
+            project_id = info["project_id"]
+            mod_name = info["mod_name"]
+            mod_path = info["mod_path"]
+
             try:
-                from modrinth import install_mod_with_deps
-                from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
+                versions = get_mod_versions(
+                    project_id,
+                    game_version=game_version,
+                    mod_loader=mod_loader,
+                )
+                if not versions:
+                    return False, mod_name
 
-                game_version = parse_game_version_from_version(self.version_id)
-                mod_loader = parse_mod_loader_from_version(self.version_id)
+                version = versions[0]
+                files = version.get("files", [])
+                primary = next((f for f in files if f.get("primary")), None) or (files[0] if files else None)
+                if not primary:
+                    return False, mod_name
 
-                if not game_version or not mod_loader:
-                    self.after(0, lambda: self._set_status(
-                        _("mod_update_failed", error=_("mod_browser_unknown_loader"))))
-                    return
+                download_url = primary.get("url", "")
+                filename = primary.get("filename", f"{mod_name}.jar")
+                if not download_url:
+                    return False, mod_name
 
                 mods_dir = str(Path(mod_path).parent)
 
-                # 先删除旧文件
+                # 删除旧文件
                 try:
                     old_path = Path(mod_path)
                     if old_path.exists():
                         old_path.unlink()
-                        logger.info(f"已删除旧模组文件: {mod_path}")
-                except Exception as e:
-                    logger.warning(f"删除旧模组文件失败: {e}")
+                except Exception:
+                    pass
 
-                success, result, installed_names = install_mod_with_deps(
-                    project_id,
-                    game_version=game_version,
-                    mod_loader=mod_loader,
-                    mods_dir=mods_dir,
-                    status_callback=lambda msg: self.after(0, lambda: self._set_status(msg)),
-                )
+                hashes = primary.get("hashes")
+                dl_success, _dl_result = download_mod(download_url, mods_dir, filename, expected_hashes=hashes)
 
-                if success:
-                    self.after(0, lambda: self._set_status(_("mod_update_success", name=mod_name)))
-                    self.after(100, self._refresh_current_list)
+                if dl_success:
+                    logger.info(f"模组更新完成: {mod_name} → {version.get('version_number','?')}")
+                    return True, mod_name
                 else:
-                    self.after(0, lambda: self._set_status(_("mod_update_failed", error=result)))
+                    return False, mod_name
 
             except Exception as e:
-                error_msg = str(e)
-                self.after(0, lambda: self._set_status(_("mod_update_failed", error=error_msg)))
-                logger.error(f"更新模组失败: {e}")
+                logger.error(f"更新模组失败 ({mod_name}): {e}")
+                return False, mod_name
+            finally:
+                with lock:
+                    done[0] += 1
+                    self.after(0, lambda d=done[0]: self._set_status(
+                        _("mod_update_batch_progress", done=d, total=len(modids))))
 
-        thread = threading.Thread(target=_do_update, daemon=True)
+        def _run_batch():
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {executor.submit(_download_one, mid): mid for mid in modids}
+                for future in as_completed(futures):
+                    ok, name = future.result()
+                    if ok:
+                        success_count[0] += 1
+                    else:
+                        fail_count[0] += 1
+
+            self.after(0, lambda: self._on_batch_done(success_count[0], fail_count[0]))
+
+        thread = threading.Thread(target=_run_batch, daemon=True)
         thread.start()
+
+    def _on_batch_done(self, success: int, failed: int):
+        """批量更新完成回调"""
+        if failed == 0:
+            self._set_status(_("mod_update_batch_done", success=success))
+        else:
+            self._set_status(_("mod_update_batch_done_partial", success=success, failed=failed))
+        self._update_info.clear()
+        self.after(200, self._refresh_current_list)
+
+    @staticmethod
+    def _fix_customtkinter_icon(toplevel):
+        """修复 CTkToplevel 因内置图标延迟回调崩溃的问题
+
+        CTkToplevel.__init__ 内会在 after(200, ...) 中设置内置图标，
+        部分环境下该路径无法被 tk 解析，抛出 TclError。
+        此处 monkey-patch iconbitmap，吞掉异常，再设置正确的图标。
+        """
+        import types
+
+        try:
+            icon_path = Path(__file__).parent.parent.parent / "icon.ico"
+            icon_str = str(icon_path) if icon_path.exists() else ""
+        except Exception:
+            icon_str = ""
+
+        original = toplevel.iconbitmap
+
+        def safe_iconbitmap(_self, bitmap=None, default=None):
+            try:
+                if bitmap is not None:
+                    return original(bitmap=bitmap)
+                if default is not None:
+                    return original(default=default)
+                return original()
+            except Exception:
+                pass
+
+        toplevel.iconbitmap = types.MethodType(safe_iconbitmap, toplevel)
+
+        if icon_str:
+            try:
+                original(bitmap=icon_str)
+            except Exception:
+                pass
 
     def _set_status(self, text: str):
         """更新状态栏"""

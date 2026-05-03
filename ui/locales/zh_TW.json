@@ -659,5 +659,16 @@
 
   "mod_updating": "正在更新 {name}...",
   "mod_update_success": "{name} 更新成功！",
-  "mod_update_failed": "更新失敗: {error}"
+  "mod_update_failed": "更新失敗: {error}",
+
+  "mod_update_dialog_title": "模組更新",
+  "mod_update_dialog_header": "發現 {count} 個模組可更新",
+  "mod_update_dialog_hint": "勾選需要更新的模組，點擊「更新選中」開始下載",
+  "mod_update_cancel": "取消",
+  "mod_update_all": "📦 全部更新",
+  "mod_update_selected": "⬆ 更新選中",
+  "mod_update_batch_starting": "開始批量更新 {count} 個模組...",
+  "mod_update_batch_progress": "更新中... ({done}/{total})",
+  "mod_update_batch_done": "全部 {success} 個模組更新完成！",
+  "mod_update_batch_done_partial": "{success} 個成功，{failed} 個失敗"
 }

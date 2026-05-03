@@ -1636,6 +1636,23 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
             if not mod_name:
                 mod_name = jar_path.stem
 
+            # ── 过滤版本号中的模板变量（如 ${file.jarVersion}）──
+            if mod_version and "${" in mod_version:
+                logger.debug(f"版本号包含模板变量: {mod_version} ({jar_path.name})，尝试从 MANIFEST.MF 获取")
+                mod_version = None
+                # 尝试从 MANIFEST.MF 获取真实版本号
+                if "META-INF/MANIFEST.MF" in namelist:
+                    try:
+                        with zf.open("META-INF/MANIFEST.MF") as mf:
+                            for line in mf.read().decode("utf-8", errors="replace").splitlines():
+                                if line.lower().startswith("implementation-version:"):
+                                    mv = line.split(":", 1)[1].strip()
+                                    if mv and "${" not in mv:
+                                        mod_version = mv
+                                        break
+                    except Exception:
+                        pass
+
             # ── 提取图标 ──
             if icon_path_in_jar:
                 icon_path_in_jar = icon_path_in_jar.lstrip("/")

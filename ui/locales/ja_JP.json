@@ -659,5 +659,16 @@
 
   "mod_updating": "{name} を更新中...",
   "mod_update_success": "{name} の更新が完了しました！",
-  "mod_update_failed": "更新に失敗しました: {error}"
+  "mod_update_failed": "更新に失敗しました: {error}",
+
+  "mod_update_dialog_title": "MOD更新",
+  "mod_update_dialog_header": "{count} 個のMODが更新可能です",
+  "mod_update_dialog_hint": "更新したいMODをチェックして「選択を更新」をクリック",
+  "mod_update_cancel": "キャンセル",
+  "mod_update_all": "📦 すべて更新",
+  "mod_update_selected": "⬆ 選択を更新",
+  "mod_update_batch_starting": "{count} 個のMODの一括更新を開始...",
+  "mod_update_batch_progress": "更新中... ({done}/{total})",
+  "mod_update_batch_done": "{success} 個のMODを更新しました！",
+  "mod_update_batch_done_partial": "{success} 成功、{failed} 失敗"
 }
