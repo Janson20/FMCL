@@ -278,6 +278,7 @@
   "rm_folder_not_exist": "フォルダが存在しません: {path}",
   "rm_folder_empty": "{label} フォルダは空です",
   "rm_item_count": "合計 {count} 個の{label}",
+  "rm_thumbnail_progress": "合計 {count} 個の{label}（サムネイル {loaded}/{total}）",
   "rm_enable": "有効化",
   "rm_disable": "無効化",
   "rm_file_exists": "ファイルは既に存在します: {name}",

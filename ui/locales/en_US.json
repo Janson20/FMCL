@@ -278,6 +278,7 @@
   "rm_folder_not_exist": "Folder does not exist: {path}",
   "rm_folder_empty": "{label} folder is empty",
   "rm_item_count": "{count} {label} in total",
+  "rm_thumbnail_progress": "{count} {label} in total (thumbnails {loaded}/{total})",
   "rm_enable": "Enable",
   "rm_disable": "Disable",
   "rm_file_exists": "File already exists: {name}",

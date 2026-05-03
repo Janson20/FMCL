@@ -278,6 +278,7 @@
   "rm_folder_not_exist": "文件夹不存在: {path}",
   "rm_folder_empty": "{label} 文件夹为空",
   "rm_item_count": "共 {count} 个{label}",
+  "rm_thumbnail_progress": "共 {count} 个{label}（缩略图 {loaded}/{total}）",
   "rm_enable": "启用",
   "rm_disable": "禁用",
   "rm_file_exists": "文件已存在: {name}",

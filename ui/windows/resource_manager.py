@@ -398,7 +398,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("rm_folder_not_exist", path=str(resource_dir)))
             return
 
-        # 获取资源文件列表
+        # 获取资源文件列表（同步扫描，速度快）
         items = self._scan_resources(resource_dir, current_type)
         logger.info(f"扫描到 {len(items)} 个资源")
 
@@ -411,10 +411,22 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         self._list_frame.pack(fill=ctk.BOTH, expand=True)
 
+        # 缩略图进度跟踪（仅资源包和光影标签页）
+        self._thumbnail_loaded = 0
+        self._thumbnail_total = 0
+        zip_items = []
         for item in items:
             self._create_resource_item(item, current_type)
+            if current_type in ("resourcepacks", "shaderpacks") and not item.get("is_dir"):
+                ext = Path(item["path"]).suffix.lower()
+                if ext in (".zip",) and not item.get("_thumbnail"):
+                    zip_items.append(item)
 
-        self._set_status(_("rm_item_count", count=len(items), label=self._get_resource_label(current_type)))
+        if zip_items:
+            self._thumbnail_total = len(zip_items)
+            self._set_status(_("rm_thumbnail_progress", count=len(items), label=self._get_resource_label(current_type), loaded=0, total=len(zip_items)))
+        else:
+            self._set_status(_("rm_item_count", count=len(items), label=self._get_resource_label(current_type)))
 
     def _refresh_mod_list(self, mods_dir: Path):
         """刷新模组列表（含元数据提取）"""
@@ -870,7 +882,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             size_label.pack(side=ctk.LEFT, padx=(0, 5))
 
     def _set_thumbnail_icon(self, icon_frame: ctk.CTkFrame, base64_data: str, size: int):
-        """设置缩略图图标"""
+        """设置缩略图图标（会先清除已有的子控件，避免与 emoji 图标重叠）"""
+        for w in icon_frame.winfo_children():
+            w.destroy()
         try:
             from io import BytesIO
             import base64
@@ -886,7 +900,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             pass
 
     def _load_thumbnail_async(self, icon_frame: ctk.CTkFrame, item: Dict, size: int):
-        """异步加载资源包/光影的预览缩略图"""
+        """异步加载资源包/光影的预览缩略图（完成后更新进度）"""
         zip_path = Path(item["path"])
 
         def _load():
@@ -898,9 +912,26 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                     self.after(0, lambda: self._set_thumbnail_icon(icon_frame, thumbnail, size))
             except Exception:
                 pass
+            finally:
+                self.after(0, self._on_thumbnail_done)
 
         thread = threading.Thread(target=_load, daemon=True)
         thread.start()
+
+    def _on_thumbnail_done(self):
+        """缩略图加载完成回调，更新进度状态"""
+        total = getattr(self, '_thumbnail_total', 0)
+        if total <= 0:
+            return
+        self._thumbnail_loaded += 1
+        loaded = self._thumbnail_loaded
+        current_type = self._tab_var.get()
+        label = self._get_resource_label(current_type)
+        count = len(self._current_items)
+        if loaded >= total:
+            self._set_status(_("rm_item_count", count=count, label=label))
+        else:
+            self._set_status(_("rm_thumbnail_progress", count=count, label=label, loaded=loaded, total=total))
 
     def _install_resource(self, src_path: str, resource_type: str) -> bool:
         """安装资源文件到对应目录"""
@@ -1152,6 +1183,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._set_status(_("mod_checking_updates_progress", current=0, total=len(mods_with_modid)))
 
         def _do_check():
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import threading as _threading
+
             try:
                 from modrinth import (
                     search_project_by_slug,
@@ -1159,25 +1193,23 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                     compare_mod_versions,
                 )
 
-                checked = 0
-                updates_found = 0
+                lock = _threading.Lock()
+                checked = [0]
+                updates_found = [0]
+                total = len(mods_with_modid)
 
-                for mod in mods_with_modid:
-                    checked += 1
+                def _check_one(mod):
                     modid = mod["modid"]
                     current_version = mod.get("version", "")
-
-                    self.after(0, lambda c=checked, t=len(mods_with_modid):
-                               self._set_status(_("mod_checking_updates_progress", current=c, total=t)))
 
                     try:
                         project = search_project_by_slug(modid)
                         if not project:
-                            continue
+                            return None
 
                         project_id = project.get("id", "")
                         if not project_id:
-                            continue
+                            return None
 
                         latest = get_project_latest_version(
                             project_id,
@@ -1185,30 +1217,50 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                             mod_loader=mod_loader,
                         )
                         if not latest:
-                            continue
+                            return None
 
                         latest_version = latest.get("version_number", "")
                         if not latest_version:
-                            continue
+                            return None
 
                         result = compare_mod_versions(current_version, latest_version)
                         if result is None:
-                            continue
+                            return None
 
-                        if result < 0:  # current < latest
-                            updates_found += 1
-                            self._update_info[modid] = {
+                        if result < 0:
+                            return {
+                                "modid": modid,
                                 "project_id": project_id,
                                 "latest_version": latest_version,
                                 "current_version": current_version,
                                 "mod_name": mod.get("name", modid),
                                 "mod_path": mod.get("path", ""),
                             }
+                        return None
                     except Exception as e:
                         logger.debug(f"检查模组更新失败 ({modid}): {e}")
-                        continue
+                        return None
+                    finally:
+                        with lock:
+                            checked[0] += 1
+                            self.after(0, lambda c=checked[0]: self._set_status(
+                                _("mod_checking_updates_progress", current=c, total=total)))
 
-                self.after(0, lambda: self._on_update_check_done(updates_found, len(mods_with_modid)))
+                with ThreadPoolExecutor(max_workers=8) as executor:
+                    futures = {executor.submit(_check_one, mod): mod for mod in mods_with_modid}
+                    for future in as_completed(futures):
+                        result = future.result()
+                        if result:
+                            updates_found[0] += 1
+                            self._update_info[result["modid"]] = {
+                                "project_id": result["project_id"],
+                                "latest_version": result["latest_version"],
+                                "current_version": result["current_version"],
+                                "mod_name": result["mod_name"],
+                                "mod_path": result["mod_path"],
+                            }
+
+                self.after(0, lambda: self._on_update_check_done(updates_found[0], total))
 
             except Exception as e:
                 logger.error(f"检查模组更新失败: {e}")
