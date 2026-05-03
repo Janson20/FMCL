@@ -582,8 +582,6 @@
   "online_description": "基於 EasyTier 虛擬組網實現 P2P 聯機，無需公網中轉伺服器，支援多種 NAT 環境穿透。採用陶瓦大廳編號系統（U/ 前綴），建立或加入大廳即可與好友聯機。僅支援 Windows 系統。",
   "online_port_label": "Minecraft 伺服器埠號：",
   "online_port_placeholder": "例如: 25565",
-  "online_username_label": "大廳顯示名稱（可選）：",
-  "online_username_placeholder": "留空使用啟動器角色名",
   "online_create_title": "建立大廳",
   "online_create_desc": "作為主機建立聯機大廳，生成陶瓦編號分享給好友加入。請確保你已啟動 Minecraft 世界並開放區域網路。",
   "online_create_lobby": "🏠 建立大廳",
@@ -594,10 +592,12 @@
   "online_join_lobby": "🚪 加入大廳",
   "online_lobby_info_title": "大廳狀態",
   "online_no_lobby": "暫未加入大廳",
+  "online_no_members": "暫無成員資訊",
   "online_copy_code": "📋 複製編號",
   "online_leave_lobby": "⏹ 退出大廳",
   "online_copy_success": "已複製大廳編號: {code}",
   "online_output_title": "EasyTier 執行日誌",
+  "online_log_note": "⚠ 報錯屬於正常現象，不影響使用",
   "online_tips_title": "💡 提示",
   "online_tips_content": "• 建立大廳前請先在 Minecraft 中「對區域網路開放」世界\n• 加入大廳後，在 Minecraft 多人遊戲中即可看到虛擬區域網路世界\n• 如連線不穩定，請檢查防火牆是否允許 EasyTier 通過\n• 陶瓦大廳編號區分大小寫，請確保輸入完整（含 U/ 前綴）",
 
@@ -636,5 +636,9 @@
   "online_forward_failed": "埠號轉發失敗",
   "online_forward_failed_detail": "埠號轉發失敗: {error}",
   "online_forward_failed_et": "埠號轉發失敗: EasyTier 未執行",
-  "online_forward_complete": "聯機已就緒！在 Minecraft 多人遊戲中即可看到大廳世界 (埠號: {local_port})"
+  "online_forward_complete": "聯機已就緒！在 Minecraft 多人遊戲中即可看到大廳世界 (埠號: {local_port})",
+  "online_need_login": "請先在設定中登入淨讀 AI 帳號，才能使用聯機功能",
+  "online_login_expired": "登入已過期，請重新登入淨讀 AI 帳號",
+  "online_compat_title": "✅ 哪些啟動器支援陶瓦聯機？",
+  "online_compat_content": "以下啟動器均支援陶瓦聯機，且它們之間可以互相聯機（例如 FMCL ↔ PCL CE 也能一起玩）：\n\n✅ 原生支援：HMCL（陶瓦聯機的發起者）\n✅ 完整支援：PCL CE（已實現互通）\n✅ 互通相容：BakaXL / 官方 PCL2（需切換開發版）\n✅ 三方互通：FCL（手機端，房間碼與 HMCL 互通）\n\n請注意：官方啟動器通常不支援此功能。"
 }

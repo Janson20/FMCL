@@ -721,6 +721,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 if token:
                     if "set_jdz_token" in self.callbacks:
                         self.callbacks["set_jdz_token"](token)
+                    if "set_jdz_username" in self.callbacks:
+                        self.callbacks["set_jdz_username"](username)
                     self.after(0, lambda: self._jdz_login_success(token))
                 else:
                     self.after(0, lambda: self._jdz_login_fail("未获取到 Token"))
@@ -759,6 +761,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         """退出净读 AI"""
         if "set_jdz_token" in self.callbacks:
             self.callbacks["set_jdz_token"](None)
+        if "set_jdz_username" in self.callbacks:
+            self.callbacks["set_jdz_username"](None)
         self.jdz_status_label.configure(
             text=f"{_('netread_status')}: {_('netread_not_logged_in')}",
             text_color=COLORS["text_secondary"]

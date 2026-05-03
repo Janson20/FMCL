@@ -22,7 +22,7 @@ from typing import Optional, List, Dict, Tuple
 import customtkinter as ctk
 from logzero import logger
 
-from ui.constants import COLORS, FONT_FAMILY
+from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
 from ui.i18n import _
 
 
@@ -36,6 +36,14 @@ EASYTIER_DOWNLOAD_MIRRORS = [
 HOST_VIRTUAL_IP = "10.114.51.41"
 MC_MULTICAST_GROUP = ("224.0.2.60", 4445)
 LOOPBACK = "127.0.0.1"
+
+
+def _get_vendor() -> str:
+    try:
+        fmcl_ver = _get_fmcl_version()
+    except Exception:
+        fmcl_ver = "unknown"
+    return f"FMCL {fmcl_ver}, EasyTier {EASYTIER_VERSION}"
 
 
 def _get_random_port() -> int:
@@ -163,17 +171,29 @@ class LobbyCodeGenerator:
 class ScaffoldingServer:
     """轻量级 Scaffolding 信令服务器，响应 PCL-CE 客户端请求"""
 
-    def __init__(self, mc_port: int):
+    def __init__(self, mc_port: int, player_name: str = "Host"):
         self._mc_port = mc_port
         self._port: int = 0
         self._server: Optional[socket.socket] = None
         self._running = False
         self._thread: Optional[threading.Thread] = None
-        self._players: Dict[str, dict] = {}
+        self._guests: Dict[str, dict] = {}
+        self._host_mid = _get_machine_id()
+        vendor = _get_vendor()
+        self._host_profile = {
+            "name": player_name,
+            "machine_id": self._host_mid,
+            "vendor": vendor,
+            "kind": "HOST",
+        }
 
     @property
     def port(self) -> int:
         return self._port
+
+    @property
+    def all_profiles(self) -> list:
+        return [self._host_profile] + list(self._guests.values())
 
     def start(self) -> int:
         if self._running:
@@ -204,7 +224,7 @@ class ScaffoldingServer:
             self._server = None
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3)
-        self._players.clear()
+        self._guests.clear()
         logger.info("Scaffolding server stopped")
 
     def _accept_loop(self):
@@ -302,27 +322,20 @@ class ScaffoldingServer:
             info = json.loads(body)
             if info and isinstance(info, dict):
                 mid = info.get("machine_id", "")
-                if mid:
-                    self._players[mid] = {
+                if mid and mid != self._host_mid:
+                    self._guests[mid] = {
                         "name": info.get("name", "Unknown"),
                         "machine_id": mid,
                         "vendor": info.get("vendor", "unknown"),
-                        "kind": info.get("kind", "GUEST"),
+                        "kind": "GUEST",
                     }
         except Exception:
             pass
         return 0, b""
 
     def _handle_player_profiles_list(self) -> tuple:
-        profiles = list(self._players.values())
-        if not profiles:
-            profiles = [{
-                "name": "Host",
-                "machine_id": _get_machine_id(),
-                "vendor": "FMCL",
-                "kind": "HOST",
-            }]
-        return 0, json.dumps(profiles, ensure_ascii=False).encode("utf-8")
+        body = json.dumps(self.all_profiles, ensure_ascii=False).encode("utf-8")
+        return 0, body
 
     def _handle_server_port(self) -> tuple:
         port_bytes = struct.pack(">H", self._mc_port & 0xFFFF)
@@ -472,7 +485,7 @@ class EasyTierManager:
             return []
 
     def launch(self, lobby: LobbyInfo, as_host: bool, on_output=None,
-               on_exited=None) -> int:
+               on_exited=None, player_name: str = "Host") -> int:
         if self._running:
             logger.warning("EasyTier is already running")
             return 1
@@ -503,7 +516,7 @@ class EasyTierManager:
         ]
 
         if as_host:
-            self._scf_server = ScaffoldingServer(lobby.minecraft_port)
+            self._scf_server = ScaffoldingServer(lobby.minecraft_port, player_name)
             scf_port = self._scf_server.start()
             if scf_port <= 0:
                 logger.error("ScaffoldingServer failed to start, aborting")
@@ -868,6 +881,7 @@ class OnlineTabMixin(object):
         self._tcp_forwarder: Optional[TcpPortForwarder] = None
         self._local_mc_port: int = 0
         self._public_address: Optional[str] = None
+        self._member_poll_id: Optional[str] = None
 
         self.after(200, self._init_online_state)
 
@@ -907,6 +921,7 @@ class OnlineTabMixin(object):
         self._build_online_join_section(self._online_control_frame)
         self._build_online_lobby_section(self._online_control_frame)
         self._build_online_tips_section(self._online_control_frame)
+        self._build_online_compat_section(self._online_control_frame)
 
         self._theme_refs.append((self._online_control_frame, {"scrollbar_button_color": "bg_light"}))
 
@@ -1007,23 +1022,6 @@ class OnlineTabMixin(object):
         self._online_port_entry.pack(fill=ctk.X, pady=(4, 0))
         self._online_port_entry.insert(0, "25565")
 
-        ctk.CTkLabel(
-            inner,
-            text=_("online_username_label"),
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_secondary"],
-        ).pack(anchor=ctk.W, pady=(8, 0))
-
-        self._online_username_entry = ctk.CTkEntry(
-            inner,
-            height=32,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            fg_color=COLORS["bg_medium"],
-            border_color=COLORS["card_border"],
-            placeholder_text=_("online_username_placeholder"),
-        )
-        self._online_username_entry.pack(fill=ctk.X, pady=(4, 0))
-
         self._online_create_btn = ctk.CTkButton(
             inner,
             text=_("online_create_lobby"),
@@ -1037,7 +1035,6 @@ class OnlineTabMixin(object):
 
         self._theme_refs.append((card, {"fg_color": "card_bg", "border_color": "card_border"}))
         self._theme_refs.append((self._online_port_entry, {"fg_color": "bg_medium", "border_color": "card_border"}))
-        self._theme_refs.append((self._online_username_entry, {"fg_color": "bg_medium", "border_color": "card_border"}))
         self._theme_refs.append((self._online_create_btn, {"fg_color": "success"}))
 
     def _build_online_join_section(self, parent):
@@ -1126,6 +1123,16 @@ class OnlineTabMixin(object):
         )
         self._online_lobby_status_label.pack(anchor=ctk.W, pady=(4, 0))
 
+        self._online_members_label = ctk.CTkLabel(
+            inner,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+            wraplength=340,
+            justify=ctk.LEFT,
+        )
+        self._online_members_label.pack(anchor=ctk.W, pady=(4, 0))
+
         btn_frame = ctk.CTkFrame(inner, fg_color="transparent")
         btn_frame.pack(fill=ctk.X, pady=(10, 0))
 
@@ -1184,6 +1191,31 @@ class OnlineTabMixin(object):
 
         self._theme_refs.append((card, {"fg_color": "card_bg", "border_color": "card_border"}))
 
+    def _build_online_compat_section(self, parent):
+        card = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
+        card.pack(fill=ctk.X, padx=5, pady=5)
+
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill=ctk.X, padx=15, pady=12)
+
+        ctk.CTkLabel(
+            inner,
+            text=_("online_compat_title"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(anchor=ctk.W)
+
+        ctk.CTkLabel(
+            inner,
+            text=_("online_compat_content"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+            wraplength=340,
+            justify=ctk.LEFT,
+        ).pack(anchor=ctk.W, pady=(4, 0))
+
+        self._theme_refs.append((card, {"fg_color": "card_bg", "border_color": "card_border"}))
+
     def _build_online_output_panel(self, parent):
         self._online_output_frame = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
         self._online_output_frame.pack(side=ctk.RIGHT, fill=ctk.BOTH, expand=True, padx=(0, 0))
@@ -1208,6 +1240,13 @@ class OnlineTabMixin(object):
             text_color=COLORS["text_secondary"],
         )
         self._online_status_label.pack(side=ctk.RIGHT)
+
+        ctk.CTkLabel(
+            title_frame,
+            text=_("online_log_note"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor=ctk.W, pady=(2, 0))
 
         ctk.CTkFrame(frame, fg_color=COLORS["card_border"], height=1).pack(
             fill=ctk.X, padx=15, pady=(8, 5)
@@ -1266,6 +1305,53 @@ class OnlineTabMixin(object):
                     self.after(0, lambda: self._append_online_log(f"[FMCL] Error: {e}"))
         threading.Thread(target=wrapper, daemon=True).start()
 
+    def _get_display_name(self) -> str:
+        if "get_jdz_username" in self.callbacks:
+            name = self.callbacks["get_jdz_username"]()
+            if name:
+                return name
+        return "Host"
+
+    def _check_logged_in(self) -> bool:
+        return not self._get_login_error()
+
+    def _get_login_error(self) -> str:
+        if "get_jdz_username" in self.callbacks and self.callbacks["get_jdz_username"]():
+            return ""
+        if "get_jdz_token" in self.callbacks and self.callbacks["get_jdz_token"]():
+            return _("online_login_expired")
+        return _("online_need_login")
+
+    def _start_member_poll(self):
+        self._refresh_members()
+        self._member_poll_id = self.after(5000, self._poll_members_loop)
+
+    def _poll_members_loop(self):
+        if not self._et_manager or not self._et_manager._scf_server:
+            self._member_poll_id = None
+            return
+        self._refresh_members()
+        self._member_poll_id = self.after(5000, self._poll_members_loop)
+
+    def _stop_member_poll(self):
+        if self._member_poll_id:
+            self.after_cancel(self._member_poll_id)
+            self._member_poll_id = None
+
+    def _refresh_members(self):
+        if not self._et_manager or not self._et_manager._scf_server:
+            return
+        profiles = self._et_manager._scf_server.all_profiles
+        lines = []
+        for p in profiles:
+            kind = p.get("kind", "?")
+            vendor = p.get("vendor", "?")
+            icon = "👑" if kind == "HOST" else "👤"
+            lines.append(f"{icon} {kind} · {vendor}")
+        if not lines:
+            lines.append(_("online_no_members"))
+        self._online_members_label.configure(text="\n".join(lines))
+
     def _on_setup_environment(self):
         if self._et_manager is None:
             self._et_manager = EasyTierManager(_get_easytier_base_dir())
@@ -1315,6 +1401,12 @@ class OnlineTabMixin(object):
         self._run_online_thread(_setup, on_done=on_done, on_error=on_error)
 
     def _on_create_lobby(self):
+        login_err = self._get_login_error()
+        if login_err:
+            self._append_online_log("[FMCL] " + login_err)
+            self.set_status(login_err, "warning")
+            return
+
         if self._et_manager is None or not self._et_manager.is_installed:
             self._append_online_log("[FMCL] " + _("online_et_not_found"))
             self.set_status(_("online_et_not_found"), "warning")
@@ -1336,10 +1428,6 @@ class OnlineTabMixin(object):
             self._append_online_log("[FMCL] " + _("online_invalid_port", port=port_str))
             self.set_status(_("online_invalid_port", port=port_str), "error")
             return
-
-        username = self._online_username_entry.get().strip()
-        if not username:
-            username = self.callbacks.get("get_player_name", lambda: "Steve")()
 
         self._online_create_btn.configure(state=ctk.DISABLED)
         self._online_join_btn.configure(state=ctk.DISABLED)
@@ -1367,12 +1455,14 @@ class OnlineTabMixin(object):
                 as_host=True,
                 on_output=lambda line: self._append_online_log(line),
                 on_exited=lambda code: self.after(0, lambda: self._on_easytier_exited(code)),
+                player_name=self._get_display_name(),
             )
 
             if result == 0:
                 self._set_online_status(_("online_et_running", pid=self._et_manager.pid), "success")
                 self._append_online_log("[FMCL] " + _("online_lobby_created", code=lobby.full_code))
                 self.set_status(_("online_lobby_created", code=lobby.full_code), "success")
+                self._start_member_poll()
             else:
                 self._append_online_log("[FMCL] " + _("online_launch_failed"))
                 self.set_status(_("online_launch_failed"), "error")
@@ -1389,6 +1479,12 @@ class OnlineTabMixin(object):
         self._run_online_thread(_create, on_done=on_done, on_error=on_error)
 
     def _on_join_lobby(self):
+        login_err = self._get_login_error()
+        if login_err:
+            self._append_online_log("[FMCL] " + login_err)
+            self.set_status(login_err, "warning")
+            return
+
         if self._et_manager is None or not self._et_manager.is_installed:
             self._append_online_log("[FMCL] " + _("online_et_not_found"))
             self.set_status(_("online_et_not_found"), "warning")
@@ -1492,10 +1588,7 @@ class OnlineTabMixin(object):
             )
             self._tcp_forwarder.start()
 
-            username = self._online_username_entry.get().strip() if hasattr(self, '_online_username_entry') else ""
-            if not username:
-                username = self.callbacks.get("get_player_name", lambda: "Steve")()
-            desc = f"§eFMCL 大厅 - {username}"
+            desc = f"§eFMCL 大厅 - {self._get_display_name()}"
 
             self._broadcast_sim = McBroadcastSimulator()
             self._broadcast_sim.start(desc, tcp_forward_port)
@@ -1515,6 +1608,7 @@ class OnlineTabMixin(object):
         self._run_online_thread(_setup, on_done=on_done, on_error=on_error)
 
     def _on_leave_lobby(self):
+        self._stop_member_poll()
         self._append_online_log("[FMCL] " + _("online_leaving_lobby"))
 
         if self._broadcast_sim:
@@ -1534,6 +1628,7 @@ class OnlineTabMixin(object):
         self.set_status(_("online_left_lobby"), "info")
 
     def _reset_lobby_state(self):
+        self._stop_member_poll()
         self._lobby_info = None
         self._is_host = False
         self._local_mc_port = 0

@@ -695,6 +695,8 @@ class MinecraftLauncher:
             "set_skin_path": self.set_skin_path,
             "get_jdz_token": self.get_jdz_token,
             "set_jdz_token": self.set_jdz_token,
+            "get_jdz_username": self.get_jdz_username,
+            "set_jdz_username": self.set_jdz_username,
             "get_language": self.get_language,
             "set_language": self.set_language,
             # 主题相关
@@ -750,6 +752,15 @@ class MinecraftLauncher:
     def set_jdz_token(self, token: Optional[str]) -> None:
         """设置净读 AI Token"""
         self.config.jdz_token = token
+        self.config.save_config()
+
+    def get_jdz_username(self) -> Optional[str]:
+        """获取净读 AI 用户名（加密存储）"""
+        return self.config.jdz_username
+
+    def set_jdz_username(self, username: Optional[str]) -> None:
+        """设置净读 AI 用户名（加密存储）"""
+        self.config.jdz_username = username
         self.config.save_config()
 
     def get_language(self) -> str:

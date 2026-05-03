@@ -582,8 +582,6 @@
   "online_description": "EasyTier仮想ネットワークによるP2Pマルチプレイ。公開中継サーバー不要で、様々なNAT環境に対応。テラコッタロビーコードシステム（U/ プレフィックス）を使用。ロビーを作成または参加して友達とプレイ。Windows専用。",
   "online_port_label": "Minecraftサーバーポート：",
   "online_port_placeholder": "例: 25565",
-  "online_username_label": "表示名（任意）：",
-  "online_username_placeholder": "空白でランチャーのプレイヤー名を使用",
   "online_create_title": "ロビーを作成",
   "online_create_desc": "ホストとしてロビーを作成し、テラコッタコードを生成して友達に共有します。先にMinecraftワールドをLANに開放してください。",
   "online_create_lobby": "🏠 ロビーを作成",
@@ -594,10 +592,12 @@
   "online_join_lobby": "🚪 ロビーに参加",
   "online_lobby_info_title": "ロビー状態",
   "online_no_lobby": "ロビー未参加",
+  "online_no_members": "メンバーなし",
   "online_copy_code": "📋 コードをコピー",
   "online_leave_lobby": "⏹ ロビーを退出",
   "online_copy_success": "ロビーコードをコピーしました: {code}",
   "online_output_title": "EasyTier 出力ログ",
+  "online_log_note": "⚠ エラーは正常な現象で、機能には影響しません",
   "online_tips_title": "💡 ヒント",
   "online_tips_content": "• ロビーを作成する前に、Minecraftで「LANに公開」してください\n• 参加後、Minecraftのマルチプレイ画面に仮想LANワールドが表示されます\n• 接続が不安定な場合は、ファイアウォールがEasyTierを許可しているか確認してください\n• テラコッタコードは大文字小文字を区別します。完全なコード（U/ プレフィックス含む）を入力してください",
 
@@ -636,5 +636,9 @@
   "online_forward_failed": "ポート転送失敗",
   "online_forward_failed_detail": "ポート転送失敗: {error}",
   "online_forward_failed_et": "ポート転送失敗: EasyTierが実行されていません",
-  "online_forward_complete": "リンク準備完了！Minecraftマルチプレイにロビーワールドが表示されます (ポート: {local_port})"
+  "online_forward_complete": "リンク準備完了！Minecraftマルチプレイにロビーワールドが表示されます (ポート: {local_port})",
+  "online_need_login": "オンライン機能を使用するには、設定でJingdu AIアカウントにログインしてください",
+  "online_login_expired": "ログインの有効期限が切れました。Jingdu AIアカウントに再ログインしてください",
+  "online_compat_title": "✅ どのランチャーがテラコッタリンクに対応していますか？",
+  "online_compat_content": "これらのランチャーはすべてテラコッタリンクに対応しており、相互にプレイできます（例：FMCL ↔ PCL CE）：\n\n✅ ネイティブ：HMCL（テラコッタリンクの最初の開発者）\n✅ 完全対応：PCL CE（相互運用可能）\n✅ 互換性：BakaXL / 公式PCL2（開発版が必要）\n✅ クロスプラットフォーム：FCL（モバイル、ルームコードはHMCLと相互運用可能）\n\n注意：公式Minecraft Launcherはこの機能に対応していません。"
 }

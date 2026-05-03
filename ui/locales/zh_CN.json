@@ -582,8 +582,6 @@
   "online_description": "基于 EasyTier 虚拟组网实现 P2P 联机，无需公网中转服务器，支持多种 NAT 环境穿透。采用陶瓦大厅编号系统（U/ 前缀），创建或加入大厅即可与好友联机。仅支持 Windows 系统。",
   "online_port_label": "Minecraft 服务器端口：",
   "online_port_placeholder": "例如: 25565",
-  "online_username_label": "大厅显示名称（可选）：",
-  "online_username_placeholder": "留空使用启动器角色名",
   "online_create_title": "创建大厅",
   "online_create_desc": "作为主机创建联机大厅，生成陶瓦编号分享给好友加入。请确保你已启动 Minecraft 世界并开放局域网。",
   "online_create_lobby": "🏠 创建大厅",
@@ -594,10 +592,12 @@
   "online_join_lobby": "🚪 加入大厅",
   "online_lobby_info_title": "大厅状态",
   "online_no_lobby": "暂未加入大厅",
+  "online_no_members": "暂无成员信息",
   "online_copy_code": "📋 复制编号",
   "online_leave_lobby": "⏹ 退出大厅",
   "online_copy_success": "已复制大厅编号: {code}",
   "online_output_title": "EasyTier 运行日志",
+  "online_log_note": "⚠ 报错属于正常现象，不影响使用",
   "online_tips_title": "💡 提示",
   "online_tips_content": "• 创建大厅前请先在 Minecraft 中「对局域网开放」世界\n• 加入大厅后，在 Minecraft 多人游戏中即可看到虚拟局域网世界\n• 如连接不稳定，请检查防火墙是否允许 EasyTier 通过\n• 陶瓦大厅编号区分大小写，请确保输入完整（含 U/ 前缀）",
 
@@ -636,5 +636,9 @@
   "online_forward_failed": "端口转发失败",
   "online_forward_failed_detail": "端口转发失败: {error}",
   "online_forward_failed_et": "端口转发失败: EasyTier 未运行",
-  "online_forward_complete": "联机已就绪！在 Minecraft 多人游戏中即可看到大厅世界 (端口: {local_port})"
+  "online_forward_complete": "联机已就绪！在 Minecraft 多人游戏中即可看到大厅世界 (端口: {local_port})",
+  "online_need_login": "请先在设置中登录净读 AI 账号，才能使用联机功能",
+  "online_login_expired": "登录已过期，请重新登录净读 AI 账号",
+  "online_compat_title": "✅ 哪些启动器支持陶瓦联机？",
+  "online_compat_content": "以下启动器均支持陶瓦联机，且它们之间可以互相联机（例如 FMCL ↔ PCL CE 也能一起玩）：\n\n✅ 原生支持：HMCL（陶瓦联机的发起者）\n✅ 完整支持：PCL CE（已实现互通）\n✅ 互通兼容：BakaXL / 官方 PCL2（需切换开发版）\n✅ 三方互通：FCL（手机端，房间码与 HMCL 互通）\n\n请注意：官方启动器通常不支持此功能。"
 }

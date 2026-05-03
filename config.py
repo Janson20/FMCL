@@ -142,6 +142,9 @@ class Config:
         # 净读 AI Token
         self.jdz_token: Optional[str] = None
 
+        # 净读 AI 用户名（加密存储，禁止修改）
+        self._jdz_username: Optional[str] = None
+
         # AI 隐私同意
         self.ai_privacy_consent: bool = False
 
@@ -166,6 +169,14 @@ class Config:
 
         # 从配置文件加载
         self._load_config()
+
+    @property
+    def jdz_username(self) -> Optional[str]:
+        return self._jdz_username
+
+    @jdz_username.setter
+    def jdz_username(self, value: Optional[str]) -> None:
+        self._jdz_username = value
 
     def _load_config(self) -> None:
         """从配置文件加载配置"""
@@ -194,6 +205,12 @@ class Config:
                     self.jdz_token = decrypt_token(stored)
                 else:
                     self.jdz_token = None
+            if "jdz_username" in data:
+                stored = data["jdz_username"]
+                if stored:
+                    self._jdz_username = decrypt_token(stored)
+                else:
+                    self._jdz_username = None
             if "backup_dir" in data:
                 self.backup_dir = data["backup_dir"]
             if "backup_compress_level" in data:
@@ -236,6 +253,7 @@ class Config:
                 "player_name": self.player_name,
                 "skin_path": self.skin_path,
                 "jdz_token": encrypt_token(self.jdz_token) if self.jdz_token else None,
+                "jdz_username": encrypt_token(self._jdz_username) if self._jdz_username else None,
                 "language": self.language,
                 "theme_name": self.theme_name,
                 "accent_color": self.accent_color,
