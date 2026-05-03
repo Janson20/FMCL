@@ -4,6 +4,7 @@ import logging
 import threading
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Any
+from tkinter import messagebox
 
 import customtkinter as ctk
 from logzero import logger
@@ -47,6 +48,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._mod_loading: bool = False
         self._search_text: str = ""
         self._current_items: List[Dict] = []
+        self._update_checking: bool = False
+        self._update_info: Dict[str, Dict] = {}  # modid -> {latest_version, project_id, ...}
+        self._thumbnails: Dict[str, str] = {}  # path -> base64 thumbnail cache
 
         self._build_ui()
 
@@ -186,6 +190,33 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         )
         self._add_file_btn.pack(side=ctk.RIGHT)
 
+        # 导出模组列表按钮（仅模组标签页可见）
+        self._export_btn = ctk.CTkButton(
+            top_bar,
+            text=_("mod_export_list"),
+            width=100,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._export_mod_list,
+        )
+        self._export_btn.pack(side=ctk.RIGHT, padx=(5, 5))
+
+        # 检查更新按钮（仅模组标签页可见）
+        self._check_updates_btn = ctk.CTkButton(
+            top_bar,
+            text=_("mod_check_updates"),
+            width=100,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["success"],
+            hover_color="#27ae60",
+            text_color=COLORS["text_primary"],
+            command=self._check_mod_updates,
+        )
+        self._check_updates_btn.pack(side=ctk.RIGHT, padx=(5, 5))
+
         # 分割线
         ctk.CTkFrame(content_frame, fg_color=COLORS["card_border"], height=1).pack(
             fill=ctk.X, padx=12, pady=(0, 5)
@@ -323,6 +354,14 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             "shaderpacks": "rm_search_placeholder_shaderpacks",
         }
         self._search_entry.configure(placeholder_text=_(placeholder_keys.get(tab_name, "rm_search_placeholder_mods")))
+
+        # 显示/隐藏导出和更新按钮（仅模组标签页可见）
+        if tab_name == "mods":
+            self._export_btn.pack(side=ctk.RIGHT, padx=(5, 5), before=self._open_folder_btn)
+            self._check_updates_btn.pack(side=ctk.RIGHT, padx=(5, 5), before=self._export_btn)
+        else:
+            self._export_btn.pack_forget()
+            self._check_updates_btn.pack_forget()
 
         # 清空搜索
         self._search_entry.delete(0, "end")
@@ -524,6 +563,23 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(row, fg_color="transparent")
         btn_frame.pack(side=ctk.RIGHT, padx=(0, 5), pady=4)
 
+        # 更新按钮（仅当有可用更新时显示）
+        modid = item.get("modid", "")
+        if modid and modid in self._update_info:
+            update_info = self._update_info[modid]
+            update_btn = ctk.CTkButton(
+                btn_frame,
+                text=f"⬆ v{update_info['latest_version']}",
+                width=90,
+                height=24,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                fg_color=COLORS["success"],
+                hover_color="#27ae60",
+                text_color=COLORS["text_primary"],
+                command=lambda m=modid: self._update_single_mod(m),
+            )
+            update_btn.pack(side=ctk.RIGHT, padx=(2, 2))
+
         # 启用/禁用按钮（仅模组）
         toggle_text = _("resource_enable") if item.get("disabled") else _("resource_disable")
         toggle_btn = ctk.CTkButton(
@@ -597,7 +653,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             )
             desc_label.pack(fill=ctk.X, pady=(1, 0))
 
-        # 第四行: modid + 文件名
+        # 第四行: modid + 版本 + 文件名
         bottom_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
         bottom_frame.pack(fill=ctk.X, pady=(3, 0))
 
@@ -612,11 +668,22 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             )
             modid_label.pack(side=ctk.LEFT)
 
+        mod_version = item.get("version", "")
+        if mod_version:
+            ver_label = ctk.CTkLabel(
+                bottom_frame,
+                text=f"v{mod_version}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=COLORS["success"],
+                anchor=ctk.W,
+            )
+            ver_label.pack(side=ctk.LEFT, padx=(6, 0))
+
         filename = item.get("filename", "")
         if filename:
             filename_label = ctk.CTkLabel(
                 bottom_frame,
-                text=filename,
+                text=filename[:50] + "..." if len(filename) > 50 else filename,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                 text_color=COLORS["text_secondary"],
                 anchor=ctk.W,
@@ -700,19 +767,51 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         row.pack(fill=ctk.X, pady=2)
         row.pack_propagate(False)
 
-        # 图标
-        if item.get("disabled"):
-            icon = "🔕"
-        elif item.get("is_dir"):
-            icon = "📁"
-        elif resource_type == "mods":
-            icon = "🧩"
-        elif resource_type == "resourcepacks":
-            icon = "🎨"
-        elif resource_type == "shaderpacks":
-            icon = "✨"
-        else:
-            icon = "📄"
+        # 缩略图/图标
+        icon_frame = ctk.CTkFrame(row, fg_color="transparent", width=32, height=32)
+        icon_frame.pack(side=ctk.LEFT, padx=(5, 2), pady=2)
+        icon_frame.pack_propagate(False)
+
+        has_preview = False
+
+        # 尝试为资源包/光影提取预览缩略图
+        if resource_type in ("resourcepacks", "shaderpacks") and not item.get("is_dir"):
+            from pathlib import Path as _Path
+            zip_p = _Path(item["path"])
+            ext = zip_p.suffix.lower()
+            if ext in (".zip", ".jar"):
+                # 检查是否已有缓存的缩略图
+                cached = item.get("_thumbnail")
+                if cached:
+                    self._set_thumbnail_icon(icon_frame, cached, 28)
+                    has_preview = True
+                else:
+                    # 异步加载缩略图
+                    self._load_thumbnail_async(icon_frame, item, 28)
+                    # 占位图标在下面设置
+
+        # 默认图标
+        if not has_preview:
+            if item.get("disabled"):
+                icon_text = "🔕"
+            elif item.get("is_dir"):
+                icon_text = "📁"
+            elif resource_type == "mods":
+                icon_text = "🧩"
+            elif resource_type == "resourcepacks":
+                icon_text = "🎨"
+            elif resource_type == "shaderpacks":
+                icon_text = "✨"
+            else:
+                icon_text = "📄"
+
+            icon_label = ctk.CTkLabel(
+                icon_frame,
+                text=icon_text,
+                font=ctk.CTkFont(size=14),
+                text_color=COLORS["text_secondary"],
+            )
+            icon_label.pack(fill=ctk.BOTH, expand=True)
 
         # 删除按钮（先打包右侧按钮，确保不被打扰文本遮挡）
         del_btn = ctk.CTkButton(
@@ -753,7 +852,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         name_label = ctk.CTkLabel(
             row,
-            text=f"  {icon} {name_text}",
+            text=name_text,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"] if item.get("disabled") else COLORS["text_primary"],
             anchor=ctk.W,
@@ -769,6 +868,39 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                 text_color=COLORS["text_secondary"],
             )
             size_label.pack(side=ctk.LEFT, padx=(0, 5))
+
+    def _set_thumbnail_icon(self, icon_frame: ctk.CTkFrame, base64_data: str, size: int):
+        """设置缩略图图标"""
+        try:
+            from io import BytesIO
+            import base64
+            from PIL import Image, ImageTk
+            img_data = base64.b64decode(base64_data)
+            img = Image.open(BytesIO(img_data))
+            img = img.resize((size, size), Image.LANCZOS)
+            photo = ImageTk.PhotoImage(img)
+            icon_label = ctk.CTkLabel(icon_frame, image=photo, text="")
+            icon_label.image = photo
+            icon_label.pack(fill=ctk.BOTH, expand=True)
+        except Exception:
+            pass
+
+    def _load_thumbnail_async(self, icon_frame: ctk.CTkFrame, item: Dict, size: int):
+        """异步加载资源包/光影的预览缩略图"""
+        zip_path = Path(item["path"])
+
+        def _load():
+            try:
+                from modrinth import extract_zip_thumbnail
+                thumbnail = extract_zip_thumbnail(zip_path, max_size=size)
+                if thumbnail:
+                    item["_thumbnail"] = thumbnail
+                    self.after(0, lambda: self._set_thumbnail_icon(icon_frame, thumbnail, size))
+            except Exception:
+                pass
+
+        thread = threading.Thread(target=_load, daemon=True)
+        thread.start()
 
     def _install_resource(self, src_path: str, resource_type: str) -> bool:
         """安装资源文件到对应目录"""
@@ -952,6 +1084,221 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             logger.error(f"切换模组状态失败: {e}")
             slog.error("mod_toggle_failed", mod_name=Path(path).name, action="enable" if is_disabled else "disable", error=str(e)[:200])
             self._set_status(_("rm_operation_failed", error=str(e)))
+
+    def _export_mod_list(self):
+        """导出当前版本模组列表为分享文本"""
+        if not self._mod_metadata and self._tab_var.get() != "mods":
+            self._set_status(_("mod_export_empty"))
+            return
+
+        mods = self._mod_metadata
+        if not mods:
+            self._set_status(_("mod_export_empty"))
+            return
+
+        lines = []
+        lines.append(f"=== {_('mod_export_header', version=self.version_id)} ===\n")
+
+        for i, mod in enumerate(mods, 1):
+            name = mod.get("name", mod.get("filename", "???"))
+            modid = mod.get("modid", "-")
+            version = mod.get("version", "-")
+            disabled = " [Disabled]" if mod.get("disabled") else ""
+            lines.append(f"{i}. {name}{disabled}")
+            lines.append(f"   modid: {modid}  |  version: {version}")
+
+        lines.append(f"\nTotal: {len(mods)} mods")
+        text = "\n".join(lines)
+
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self._set_status(_("mod_export_copied", count=len(mods)))
+            logger.info(f"已导出 {len(mods)} 个模组的列表到剪贴板")
+        except Exception as e:
+            logger.error(f"导出模组列表失败: {e}")
+            self._set_status(_("rm_operation_failed", error=str(e)))
+
+    def _check_mod_updates(self):
+        """检查模组更新"""
+        if self._update_checking:
+            return
+
+        from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
+
+        game_version = parse_game_version_from_version(self.version_id)
+        mod_loader = parse_mod_loader_from_version(self.version_id)
+
+        if not game_version:
+            self._set_status(_("mod_update_unknown_version"))
+            return
+
+        mods_with_modid = [
+            m for m in self._mod_metadata
+            if m.get("modid") and not m.get("disabled")
+        ]
+
+        if not mods_with_modid:
+            self._set_status(_("mod_update_no_modid"))
+            return
+
+        self._update_checking = True
+        self._update_info.clear()
+        self._check_updates_btn.configure(
+            text=_("mod_checking_updates"),
+            state=ctk.DISABLED,
+            fg_color=COLORS["bg_light"],
+        )
+        self._set_status(_("mod_checking_updates_progress", current=0, total=len(mods_with_modid)))
+
+        def _do_check():
+            try:
+                from modrinth import (
+                    search_project_by_slug,
+                    get_project_latest_version,
+                    compare_mod_versions,
+                )
+
+                checked = 0
+                updates_found = 0
+
+                for mod in mods_with_modid:
+                    checked += 1
+                    modid = mod["modid"]
+                    current_version = mod.get("version", "")
+
+                    self.after(0, lambda c=checked, t=len(mods_with_modid):
+                               self._set_status(_("mod_checking_updates_progress", current=c, total=t)))
+
+                    try:
+                        project = search_project_by_slug(modid)
+                        if not project:
+                            continue
+
+                        project_id = project.get("id", "")
+                        if not project_id:
+                            continue
+
+                        latest = get_project_latest_version(
+                            project_id,
+                            game_version=game_version,
+                            mod_loader=mod_loader,
+                        )
+                        if not latest:
+                            continue
+
+                        latest_version = latest.get("version_number", "")
+                        if not latest_version:
+                            continue
+
+                        result = compare_mod_versions(current_version, latest_version)
+                        if result is None:
+                            continue
+
+                        if result < 0:  # current < latest
+                            updates_found += 1
+                            self._update_info[modid] = {
+                                "project_id": project_id,
+                                "latest_version": latest_version,
+                                "current_version": current_version,
+                                "mod_name": mod.get("name", modid),
+                                "mod_path": mod.get("path", ""),
+                            }
+                    except Exception as e:
+                        logger.debug(f"检查模组更新失败 ({modid}): {e}")
+                        continue
+
+                self.after(0, lambda: self._on_update_check_done(updates_found, len(mods_with_modid)))
+
+            except Exception as e:
+                logger.error(f"检查模组更新失败: {e}")
+                self.after(0, lambda: self._on_update_check_error(str(e)))
+
+        thread = threading.Thread(target=_do_check, daemon=True)
+        thread.start()
+
+    def _on_update_check_done(self, updates_found: int, total: int):
+        """更新检查完成回调"""
+        self._update_checking = False
+        self._check_updates_btn.configure(
+            text=_("mod_check_updates"),
+            state=ctk.NORMAL,
+            fg_color=COLORS["success"],
+        )
+
+        if updates_found > 0:
+            self._set_status(_("mod_updates_available", count=updates_found))
+            self._render_mod_list()  # 重新渲染以显示更新按钮
+        else:
+            self._set_status(_("mod_up_to_date", total=total))
+
+    def _on_update_check_error(self, error: str):
+        """更新检查错误回调"""
+        self._update_checking = False
+        self._check_updates_btn.configure(
+            text=_("mod_check_updates"),
+            state=ctk.NORMAL,
+            fg_color=COLORS["success"],
+        )
+        self._set_status(_("mod_update_check_failed", error=error))
+
+    def _update_single_mod(self, modid: str):
+        """更新单个模组"""
+        info = self._update_info.get(modid)
+        if not info:
+            return
+
+        project_id = info["project_id"]
+        mod_name = info["mod_name"]
+        mod_path = info["mod_path"]
+
+        self._set_status(_("mod_updating", name=mod_name))
+
+        def _do_update():
+            try:
+                from modrinth import install_mod_with_deps
+                from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
+
+                game_version = parse_game_version_from_version(self.version_id)
+                mod_loader = parse_mod_loader_from_version(self.version_id)
+
+                if not game_version or not mod_loader:
+                    self.after(0, lambda: self._set_status(
+                        _("mod_update_failed", error=_("mod_browser_unknown_loader"))))
+                    return
+
+                mods_dir = str(Path(mod_path).parent)
+
+                # 先删除旧文件
+                try:
+                    old_path = Path(mod_path)
+                    if old_path.exists():
+                        old_path.unlink()
+                        logger.info(f"已删除旧模组文件: {mod_path}")
+                except Exception as e:
+                    logger.warning(f"删除旧模组文件失败: {e}")
+
+                success, result, installed_names = install_mod_with_deps(
+                    project_id,
+                    game_version=game_version,
+                    mod_loader=mod_loader,
+                    mods_dir=mods_dir,
+                    status_callback=lambda msg: self.after(0, lambda: self._set_status(msg)),
+                )
+
+                if success:
+                    self.after(0, lambda: self._set_status(_("mod_update_success", name=mod_name)))
+                    self.after(100, self._refresh_current_list)
+                else:
+                    self.after(0, lambda: self._set_status(_("mod_update_failed", error=result)))
+
+            except Exception as e:
+                error_msg = str(e)
+                self.after(0, lambda: self._set_status(_("mod_update_failed", error=error_msg)))
+                logger.error(f"更新模组失败: {e}")
+
+        thread = threading.Thread(target=_do_update, daemon=True)
+        thread.start()
 
     def _set_status(self, text: str):
         """更新状态栏"""

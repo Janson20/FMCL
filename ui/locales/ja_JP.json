@@ -640,5 +640,23 @@
   "online_need_login": "オンライン機能を使用するには、設定でJingdu AIアカウントにログインしてください",
   "online_login_expired": "ログインの有効期限が切れました。Jingdu AIアカウントに再ログインしてください",
   "online_compat_title": "✅ どのランチャーがテラコッタリンクに対応していますか？",
-  "online_compat_content": "これらのランチャーはすべてテラコッタリンクに対応しており、相互にプレイできます（例：FMCL ↔ PCL CE）：\n\n✅ ネイティブ：HMCL（テラコッタリンクの最初の開発者）\n✅ 完全対応：PCL CE（相互運用可能）\n✅ 互換性：BakaXL / 公式PCL2（開発版が必要）\n✅ クロスプラットフォーム：FCL（モバイル、ルームコードはHMCLと相互運用可能）\n\n注意：公式Minecraft Launcherはこの機能に対応していません。"
+  "online_compat_content": "これらのランチャーはすべてテラコッタリンクに対応しており、相互にプレイできます（例：FMCL ↔ PCL CE）：\n\n✅ ネイティブ：HMCL（テラコッタリンクの最初の開発者）\n✅ 完全対応：PCL CE（相互運用可能）\n✅ 互換性：BakaXL / 公式PCL2（開発版が必要）\n✅ クロスプラットフォーム：FCL（モバイル、ルームコードはHMCLと相互運用可能）\n\n注意：公式Minecraft Launcherはこの機能に対応していません。",
+
+  "mod_export_list": "📋 MODリストをエクスポート",
+  "mod_export_header": "{version} MODリスト",
+  "mod_export_copied": "{count} 個のMODをクリップボードにコピーしました！",
+  "mod_export_empty": "エクスポートするMODがありません",
+
+  "mod_check_updates": "🔍 更新を確認",
+  "mod_checking_updates": "確認中...",
+  "mod_checking_updates_progress": "更新を確認中... ({current}/{total})",
+  "mod_updates_available": "{count} 個のMODに更新があります",
+  "mod_up_to_date": "全 {total} 個のMODが最新です",
+  "mod_update_check_failed": "更新確認に失敗しました: {error}",
+  "mod_update_unknown_version": "ゲームバージョンを特定できません",
+  "mod_update_no_modid": "識別可能なMODが見つかりません",
+
+  "mod_updating": "{name} を更新中...",
+  "mod_update_success": "{name} の更新が完了しました！",
+  "mod_update_failed": "更新に失敗しました: {error}"
 }

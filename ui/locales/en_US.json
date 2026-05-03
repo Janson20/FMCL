@@ -640,5 +640,23 @@
   "online_need_login": "Please log in to your Jingdu AI account in Settings first to use online features",
   "online_login_expired": "Login expired, please re-login to your Jingdu AI account",
   "online_compat_title": "✅ Which launchers support Terracotta Link?",
-  "online_compat_content": "These launchers all support Terracotta Link and can play together (e.g. FMCL ↔ PCL CE):\n\n✅ Native: HMCL (the original creator of Terracotta Link)\n✅ Full: PCL CE (interoperable)\n✅ Compatible: BakaXL / Official PCL2 (dev channel required)\n✅ Cross-platform: FCL (mobile, room codes interoperable with HMCL)\n\nNote: The official Minecraft Launcher does not support this feature."
+  "online_compat_content": "These launchers all support Terracotta Link and can play together (e.g. FMCL ↔ PCL CE):\n\n✅ Native: HMCL (the original creator of Terracotta Link)\n✅ Full: PCL CE (interoperable)\n✅ Compatible: BakaXL / Official PCL2 (dev channel required)\n✅ Cross-platform: FCL (mobile, room codes interoperable with HMCL)\n\nNote: The official Minecraft Launcher does not support this feature.",
+
+  "mod_export_list": "📋 Export Mod List",
+  "mod_export_header": "Mod List for {version}",
+  "mod_export_copied": "{count} mod(s) copied to clipboard!",
+  "mod_export_empty": "No mods to export",
+
+  "mod_check_updates": "🔍 Check Updates",
+  "mod_checking_updates": "Checking...",
+  "mod_checking_updates_progress": "Checking updates... ({current}/{total})",
+  "mod_updates_available": "{count} mod(s) have updates",
+  "mod_up_to_date": "All {total} mods are up to date",
+  "mod_update_check_failed": "Update check failed: {error}",
+  "mod_update_unknown_version": "Cannot determine game version",
+  "mod_update_no_modid": "No identifiable mods found",
+
+  "mod_updating": "Updating {name}...",
+  "mod_update_success": "{name} updated successfully!",
+  "mod_update_failed": "Update failed: {error}"
 }

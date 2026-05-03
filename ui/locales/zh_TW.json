@@ -640,5 +640,23 @@
   "online_need_login": "請先在設定中登入淨讀 AI 帳號，才能使用聯機功能",
   "online_login_expired": "登入已過期，請重新登入淨讀 AI 帳號",
   "online_compat_title": "✅ 哪些啟動器支援陶瓦聯機？",
-  "online_compat_content": "以下啟動器均支援陶瓦聯機，且它們之間可以互相聯機（例如 FMCL ↔ PCL CE 也能一起玩）：\n\n✅ 原生支援：HMCL（陶瓦聯機的發起者）\n✅ 完整支援：PCL CE（已實現互通）\n✅ 互通相容：BakaXL / 官方 PCL2（需切換開發版）\n✅ 三方互通：FCL（手機端，房間碼與 HMCL 互通）\n\n請注意：官方啟動器通常不支援此功能。"
+  "online_compat_content": "以下啟動器均支援陶瓦聯機，且它們之間可以互相聯機（例如 FMCL ↔ PCL CE 也能一起玩）：\n\n✅ 原生支援：HMCL（陶瓦聯機的發起者）\n✅ 完整支援：PCL CE（已實現互通）\n✅ 互通相容：BakaXL / 官方 PCL2（需切換開發版）\n✅ 三方互通：FCL（手機端，房間碼與 HMCL 互通）\n\n請注意：官方啟動器通常不支援此功能。",
+
+  "mod_export_list": "📋 匯出模組列表",
+  "mod_export_header": "{version} 模組列表",
+  "mod_export_copied": "已複製 {count} 個模組到剪貼簿！",
+  "mod_export_empty": "沒有可匯出的模組",
+
+  "mod_check_updates": "🔍 檢查更新",
+  "mod_checking_updates": "檢查中...",
+  "mod_checking_updates_progress": "檢查更新中... ({current}/{total})",
+  "mod_updates_available": "{count} 個模組可更新",
+  "mod_up_to_date": "全部 {total} 個模組已是最新版本",
+  "mod_update_check_failed": "檢查更新失敗: {error}",
+  "mod_update_unknown_version": "無法確定遊戲版本",
+  "mod_update_no_modid": "未找到可識別 modid 的模組",
+
+  "mod_updating": "正在更新 {name}...",
+  "mod_update_success": "{name} 更新成功！",
+  "mod_update_failed": "更新失敗: {error}"
 }

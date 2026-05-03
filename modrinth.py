@@ -1526,7 +1526,7 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
         jar_path: jar 文件路径
 
     Returns:
-        包含 name, modid, author, description, icon_base64 的字典，或 None
+        包含 name, modid, version, author, description, icon_base64 的字典，或 None
     """
     import json as _json_module
     import zipfile
@@ -1546,6 +1546,7 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
 
             mod_name = None
             mod_id = None
+            mod_version = None
             mod_author = None
             mod_description = None
             icon_path_in_jar = None
@@ -1559,6 +1560,8 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
                     if isinstance(fabric_data, dict):
                         mod_name = fabric_data.get("name")
                         mod_id = fabric_data.get("id")
+                        if not mod_version:
+                            mod_version = str(fabric_data.get("version", "")) if fabric_data.get("version") else None
                         mod_description = _normalize_description(fabric_data.get("description"))
                         mod_author = _normalize_author_list(fabric_data.get("authors", []))
                         contributors = _normalize_author_list(fabric_data.get("contributors", []))
@@ -1582,6 +1585,8 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
                             mod_name = first_mod.get("displayName")
                         if not mod_id:
                             mod_id = first_mod.get("modId")
+                        if not mod_version:
+                            mod_version = str(first_mod.get("version", "")) if first_mod.get("version") else None
                         if not mod_description:
                             mod_description = _normalize_description(first_mod.get("description"))
                         if not mod_author:
@@ -1610,6 +1615,8 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
                         mod_name = info.get("name")
                     if not mod_id:
                         mod_id = info.get("modid")
+                    if not mod_version:
+                        mod_version = str(info.get("version", "")) if info.get("version") else None
                     if not mod_description:
                         mod_description = _normalize_description(info.get("description"))
                     if not mod_author:
@@ -1656,6 +1663,7 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
             return {
                 "name": mod_name or jar_path.stem,
                 "modid": mod_id or "",
+                "version": mod_version or "",
                 "author": mod_author or "",
                 "description": mod_description or "",
                 "icon_base64": icon_base64,
@@ -1709,6 +1717,7 @@ def extract_all_mods_metadata(mods_dir: Path, status_callback=None) -> List[Dict
             metadata = {
                 "name": entry.name,
                 "modid": "",
+                "version": "",
                 "author": "",
                 "description": "",
                 "icon_base64": None,
@@ -1721,3 +1730,242 @@ def extract_all_mods_metadata(mods_dir: Path, status_callback=None) -> List[Dict
         results.append(metadata)
 
     return results
+
+
+def search_project_by_slug(slug: str) -> Optional[Dict]:
+    """
+    通过 slug（通常对应 modid）搜索 Modrinth 项目
+
+    Modrinth API 支持直接通过 slug 访问项目详情，
+    如 /v2/project/sodium 返回钠模组的信息。
+
+    Args:
+        slug: 项目 slug，通常为模组的 modid
+
+    Returns:
+        项目信息字典，包含 id, title, slug, versions 等；失败返回 None
+    """
+    try:
+        session = _get_session()
+        resp = session.get(
+            f"{MODRINTH_API_BASE}/project/{slug}",
+            timeout=15,
+        )
+        if resp.status_code == 404:
+            logger.debug(f"未找到 slug={slug} 的 Modrinth 项目")
+            return None
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"搜索项目失败 (slug={slug}): {e}")
+        return None
+
+
+def get_project_latest_version(
+    project_id: str,
+    game_version: Optional[str] = None,
+    mod_loader: Optional[str] = None,
+    version_type: str = "release",
+) -> Optional[Dict]:
+    """
+    获取项目的特定游戏版本和加载器的最新版本信息
+
+    优先通过 API 参数筛选，API 返回的版本列表默认按日期降序排列，
+    所以只需取第一个。
+
+    Args:
+        project_id: Modrinth 项目 ID
+        game_version: 游戏版本 (如 "1.20.4")
+        mod_loader: 模组加载器 (如 "fabric", "forge", "neoforge")
+        version_type: 版本类型 ("release", "beta", "alpha")，默认 "release"
+
+    Returns:
+        最新版本信息字典，或 None
+    """
+    import json as _json
+
+    params: Dict = {}
+
+    if game_version:
+        params["game_versions"] = _json.dumps([game_version])
+
+    if mod_loader:
+        params["loaders"] = _json.dumps([mod_loader])
+
+    try:
+        session = _get_session()
+        resp = session.get(
+            f"{MODRINTH_API_BASE}/project/{project_id}/version",
+            params=params,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        versions = resp.json()
+
+        if not versions:
+            logger.debug(f"项目 {project_id} 没有兼容版本 (game={game_version}, loader={mod_loader})")
+            return None
+
+        # 按 version_type 筛选
+        for v in versions:
+            if v.get("version_type") == version_type:
+                return v
+
+        # 如果没有匹配的 version_type，返回第一个（最新）
+        return versions[0]
+
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"获取项目 {project_id} 版本失败: {e}")
+        return None
+
+
+def compare_mod_versions(current: str, latest: str) -> int:
+    """
+    比较两个模组版本号
+
+    支持 semver（如 1.0.0, 2.1.0-beta.1）和简单版本号。
+
+    Args:
+        current: 当前版本号
+        latest: 最新版本号
+
+    Returns:
+        -1: current < latest (需要更新)
+         0: current == latest (相同)
+         1: current > latest (无需更新，当前更新)
+         None: 无法比较
+    """
+    if not current or not latest:
+        return None
+
+    if current == latest:
+        return 0
+
+    def _parse_semver(v: str):
+        """将版本号解析为 (主版本, 次版本, 修订号, 预发布标签)"""
+        import re
+        # 匹配: 数字.数字.数字[-标签] 或 数字.数字[-标签]
+        match = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?(?:[.\-](.+))?$", v.strip())
+        if match:
+            major = int(match.group(1))
+            minor = int(match.group(2))
+            patch = int(match.group(3)) if match.group(3) else 0
+            prerelease = match.group(4) or ""
+            return (major, minor, patch), prerelease
+        return None
+
+    current_parsed = _parse_semver(current)
+    latest_parsed = _parse_semver(latest)
+
+    if current_parsed and latest_parsed:
+        cur_nums, cur_pre = current_parsed
+        lat_nums, lat_pre = latest_parsed
+
+        # 比较数字部分
+        for c, l in zip(cur_nums, lat_nums):
+            if c < l:
+                return -1
+            if c > l:
+                return 1
+
+        # 比较预发布标签
+        if not cur_pre and not lat_pre:
+            return 0
+        if not cur_pre and lat_pre:
+            return 1  # 当前是正式版，最新是预发布 → 无需更新
+        if cur_pre and not lat_pre:
+            return -1  # 当前是预发布，最新是正式版 → 需要更新
+        if cur_pre < lat_pre:
+            return -1
+        if cur_pre > lat_pre:
+            return 1
+        return 0
+
+    # 回退：按字符串字母序比较（比不比较要好）
+    if current < latest:
+        return -1
+    elif current > latest:
+        return 1
+    return 0
+
+
+def extract_zip_thumbnail(zip_path: Path, max_size: int = 64) -> Optional[str]:
+    """
+    从 zip 文件中提取预览缩略图（base64 编码）
+
+    对于资源包：查找 pack.png
+    对于光影：查找常见的预览图文件名
+    同时也会尝试查找根目录下的任何 .png 文件作为回退。
+
+    Args:
+        zip_path: zip 文件路径
+        max_size: 缩略图最大边长（像素）
+
+    Returns:
+        base64 编码的 PNG 图片数据，或 None
+    """
+    import base64
+    import zipfile
+    from io import BytesIO
+
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+
+    if not zip_path.exists() or not zip_path.is_file():
+        return None
+
+    # 常见预览图文件名（按优先级排序）
+    preview_names = [
+        "pack.png",
+        "preview.png",
+        "preview.jpg",
+        "preview.jpeg",
+        "thumbnail.png",
+        "icon.png",
+        "screenshot.png",
+        "banner.png",
+    ]
+
+    try:
+        with zipfile.ZipFile(str(zip_path), "r") as zf:
+            namelist = zf.namelist()
+
+            # 先按优先级查找
+            for name in preview_names:
+                if name in namelist:
+                    try:
+                        with zf.open(name) as img_f:
+                            img_data = img_f.read()
+                            if img_data:
+                                img = Image.open(BytesIO(img_data))
+                                img.thumbnail((max_size, max_size), Image.LANCZOS)
+                                buf = BytesIO()
+                                img.save(buf, format="PNG")
+                                return base64.b64encode(buf.getvalue()).decode("ascii")
+                    except Exception:
+                        continue
+
+            # 回退：查找根目录下的任意 .png 文件
+            root_pngs = sorted([
+                n for n in namelist
+                if n.lower().endswith(".png") and "/" not in n.rstrip("/")
+            ])
+            for png_name in root_pngs:
+                try:
+                    with zf.open(png_name) as img_f:
+                        img_data = img_f.read()
+                        if img_data:
+                            img = Image.open(BytesIO(img_data))
+                            img.thumbnail((max_size, max_size), Image.LANCZOS)
+                            buf = BytesIO()
+                            img.save(buf, format="PNG")
+                            return base64.b64encode(buf.getvalue()).decode("ascii")
+                except Exception:
+                    continue
+
+    except (zipfile.BadZipFile, Exception) as e:
+        logger.debug(f"提取 zip 缩略图失败 ({zip_path.name}): {e}")
+
+    return None
