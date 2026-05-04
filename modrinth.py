@@ -1986,3 +1986,157 @@ def extract_zip_thumbnail(zip_path: Path, max_size: int = 64) -> Optional[str]:
         logger.debug(f"提取 zip 缩略图失败 ({zip_path.name}): {e}")
 
     return None
+
+
+def ai_expand_search_keywords(query: str, token: str) -> List[str]:
+    """使用 AI 将用户搜索词优化扩展为多个英文关键词
+
+    Args:
+        query: 用户原始搜索词
+        token: 净读 AI Token
+
+    Returns:
+        优化后的英文关键词列表，失败时返回仅含原始 query 的列表
+    """
+    from ui.agent.provider import AIProvider
+
+    if not query or not query.strip():
+        return [query]
+
+    prompt = (
+        "You are a Minecraft mod/content search assistant. "
+        "Convert the user's search query into 3-5 most relevant English search keywords "
+        "for searching Modrinth (a Minecraft mod platform).\n\n"
+        "Rules:\n"
+        "- Output ONLY a JSON array of strings, nothing else\n"
+        "- Each keyword should be relevant and distinct\n"
+        "- Keywords must be in English\n"
+        "- Use short, focused terms (2-5 words each)\n"
+        "- If the query is already simple and clear, keep it and add 1-2 variations\n\n"
+        f"User query: {query}"
+    )
+
+    try:
+        provider = AIProvider(api_key=token)
+        response = provider.chat([
+            {"role": "user", "content": prompt}
+        ])
+        response = response.strip()
+
+        if response.startswith("```"):
+            lines = response.split("\n")
+            response = "\n".join(
+                l for l in lines
+                if not l.startswith("```")
+            ).strip()
+
+        import json as _json
+        try:
+            keywords = _json.loads(response)
+            if isinstance(keywords, list) and len(keywords) > 0:
+                valid_keywords = [str(k).strip() for k in keywords if str(k).strip()]
+                if valid_keywords:
+                    logger.info(f"AI 搜索词扩展: '{query}' -> {valid_keywords}")
+                    return valid_keywords
+        except (_json.JSONDecodeError, ValueError):
+            pass
+
+        import re
+        cleaned = re.sub(r'[\[\]"\']', '', response)
+        keywords = [k.strip() for k in cleaned.split(",") if k.strip()]
+        if keywords:
+            logger.info(f"AI 搜索词扩展(fallback): '{query}' -> {keywords}")
+            return keywords
+
+    except Exception as e:
+        logger.error(f"AI 搜索词扩展失败: {e}")
+
+    return [query]
+
+
+def ai_merged_search(
+    query: str,
+    token: str,
+    search_type: str = "mods",
+    game_version: Optional[str] = None,
+    mod_loader: Optional[str] = None,
+    max_per_keyword: int = 20,
+) -> Dict:
+    """AI 优化搜索：扩展关键词 -> 多词搜索 -> 合并去重按热度排序
+
+    Args:
+        query: 用户原始搜索词
+        token: 净读 AI Token
+        search_type: 搜索类型 ("mods", "resourcepacks", "shaders", "modpacks")
+        game_version: 游戏版本筛选
+        mod_loader: 模组加载器筛选（仅 mods 类型有效）
+        max_per_keyword: 每个关键词的最大搜索结果数
+
+    Returns:
+        {
+            "hits": [排序后的结果列表],
+            "total_hits": 去重后的总结果数,
+            "keywords": [使用的关键词列表]
+        }
+    """
+    keywords = ai_expand_search_keywords(query, token)
+    if not keywords:
+        return {"hits": [], "total_hits": 0, "keywords": []}
+
+    seen_ids: set = set()
+    merged: List[Dict] = []
+
+    for kw in keywords:
+        try:
+            if search_type == "mods":
+                result = search_mods(
+                    query=kw,
+                    game_version=game_version,
+                    mod_loader=mod_loader,
+                    offset=0,
+                    limit=max_per_keyword,
+                )
+            elif search_type == "resourcepacks":
+                result = search_resource_packs(
+                    query=kw,
+                    game_version=game_version,
+                    offset=0,
+                    limit=max_per_keyword,
+                )
+            elif search_type == "shaders":
+                result = search_shaders(
+                    query=kw,
+                    game_version=game_version,
+                    offset=0,
+                    limit=max_per_keyword,
+                )
+            elif search_type == "modpacks":
+                result = search_modpacks(
+                    query=kw,
+                    game_version=game_version,
+                    offset=0,
+                    limit=max_per_keyword,
+                )
+            else:
+                continue
+
+            hits = result.get("hits", [])
+            for hit in hits:
+                pid = hit.get("project_id", "")
+                if pid and pid not in seen_ids:
+                    seen_ids.add(pid)
+                    merged.append(hit)
+        except Exception as e:
+            logger.warning(f"AI 合并搜索关键词 '{kw}' 失败: {e}")
+
+    merged.sort(key=lambda h: h.get("downloads", 0), reverse=True)
+
+    logger.info(
+        f"AI 合并搜索完成: query='{query}', keywords={keywords}, "
+        f"去重结果={len(merged)}"
+    )
+    return {
+        "hits": merged,
+        "total_hits": len(merged),
+        "keywords": keywords,
+    }

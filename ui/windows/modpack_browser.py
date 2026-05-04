@@ -7,6 +7,7 @@ import customtkinter as ctk
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY
+from ui.i18n import _
 
 
 class ModpackBrowserWindow(ctk.CTkToplevel):
@@ -38,6 +39,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         self._current_offset = 0
         self._total_hits = 0
         self._current_query = ""
+        self._ai_search_btn = None
 
         self._build_ui()
 
@@ -82,6 +84,18 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
             hover_color=COLORS["accent_hover"],
             command=self._on_search,
         ).pack(side=ctk.LEFT)
+
+        self._ai_search_btn = ctk.CTkButton(
+            search_frame,
+            text=_("ai_search_btn"),
+            width=80,
+            height=36,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=COLORS["success"],
+            hover_color="#27ae60",
+            command=self._on_ai_search,
+        )
+        self._ai_search_btn.pack(side=ctk.LEFT, padx=(4, 0))
 
         list_container = ctk.CTkFrame(main_frame, fg_color=COLORS["card_bg"], corner_radius=10)
         list_container.pack(fill=ctk.BOTH, expand=True, pady=(0, 8))
@@ -181,6 +195,67 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         except Exception as e:
             logger.error(f"搜索整合包失败: {e}")
             self.after(0, self._render_error, str(e))
+
+    def _on_ai_search(self):
+        from tkinter import messagebox
+        query = self._search_entry.get().strip()
+        if not query:
+            self._current_query = ""
+            self._current_offset = 0
+            self._on_search()
+            return
+
+        from config import config
+        token = config.jdz_token
+        if not token:
+            messagebox.showwarning(
+                _("warning"),
+                _("ai_search_login_required"),
+                parent=self,
+            )
+            return
+
+        self._current_query = query
+        self._current_offset = 0
+        if self._ai_search_btn:
+            try:
+                self._ai_search_btn.configure(state="disabled", text=_("ai_search_optimizing"))
+            except Exception:
+                pass
+        self._set_status(_("ai_search_optimizing"))
+        self._run_in_thread(self._do_ai_search, query, token)
+
+    def _do_ai_search(self, query: str, token: str):
+        from modrinth import ai_merged_search
+
+        try:
+            result = ai_merged_search(
+                query=query,
+                token=token,
+                search_type="modpacks",
+            )
+
+            hits = result.get("hits", [])
+            keywords = result.get("keywords", [])
+
+            self._total_hits = result.get("total_hits", 0)
+
+            kw_text = ", ".join(keywords) if keywords else query
+            self.after(0, self._render_results, hits)
+            self.after(0, self._set_status, _("ai_search_done", keywords=kw_text, total=len(hits)))
+            self.after(0, self._restore_ai_button)
+
+        except Exception as e:
+            logger.error(f"AI 搜索整合包失败: {e}")
+            self.after(0, self._render_error, str(e))
+            self.after(0, self._restore_ai_button)
+
+    def _restore_ai_button(self):
+        if self._ai_search_btn:
+            try:
+                self._ai_search_btn.configure(state="normal", text=_("ai_search_btn"))
+            except Exception:
+                pass
 
     def _render_results(self, hits: List[Dict]):
         for w in self._list_frame.winfo_children():

@@ -58,6 +58,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 "next_btn": None,
                 "result_count_label": None,
                 "status_label": None,
+                "ai_search_btn": None,
             }
 
         self._build_ui()
@@ -151,6 +152,19 @@ class ModBrowserWindow(ctk.CTkToplevel):
             command=lambda tk=tab_key: self._on_tab_search(tk),
         )
         search_btn.pack(side=ctk.LEFT)
+
+        ai_search_btn = ctk.CTkButton(
+            search_frame,
+            text=_("ai_search_btn"),
+            width=80,
+            height=36,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=COLORS["success"],
+            hover_color="#27ae60",
+            command=lambda tk=tab_key: self._on_ai_search(tk),
+        )
+        ai_search_btn.pack(side=ctk.LEFT, padx=(4, 0))
+        state["ai_search_btn"] = ai_search_btn
 
         list_container = ctk.CTkFrame(tab_frame, fg_color=COLORS["card_bg"], corner_radius=10)
         list_container.pack(fill=ctk.BOTH, expand=True, pady=(0, 8))
@@ -301,6 +315,79 @@ class ModBrowserWindow(ctk.CTkToplevel):
         except Exception as e:
             logger.error(f"搜索失败 ({tab_key}): {e}")
             self.after(0, lambda: self._render_tab_error(tab_key, str(e)))
+
+    def _on_ai_search(self, tab_key: str):
+        from tkinter import messagebox
+        state = self._tab_states[tab_key]
+        entry = state["search_entry"]
+        query = entry.get().strip() if entry else ""
+        if not query:
+            state["current_query"] = ""
+            state["current_offset"] = 0
+            self._run_in_thread(lambda: self._do_tab_search(tab_key))
+            return
+
+        token = self.callbacks.get("get_jdz_token", lambda: None)()
+        if not token:
+            messagebox.showwarning(
+                _("warning"),
+                _("ai_search_login_required"),
+                parent=self,
+            )
+            return
+
+        state["current_query"] = query
+        state["current_offset"] = 0
+        ai_btn = state.get("ai_search_btn")
+        if ai_btn:
+            try:
+                ai_btn.configure(state="disabled", text=_("ai_search_optimizing"))
+            except Exception:
+                pass
+        self._set_tab_status(tab_key, _("ai_search_optimizing"))
+        self._run_in_thread(lambda: self._do_ai_search(tab_key, query, token))
+
+    def _do_ai_search(self, tab_key: str, query: str, token: str):
+        from modrinth import ai_merged_search
+
+        state = self._tab_states[tab_key]
+
+        try:
+            result = ai_merged_search(
+                query=query,
+                token=token,
+                search_type=tab_key,
+                game_version=self._game_version,
+                mod_loader=self._mod_loader if tab_key == self.TAB_MODS else None,
+            )
+
+            hits = result.get("hits", [])
+            keywords = result.get("keywords", [])
+
+            state["total_hits"] = result.get("total_hits", 0)
+
+            kw_text = ", ".join(keywords) if keywords else query
+            self.after(0, lambda: self._render_tab_results(tab_key, hits))
+            self.after(0, lambda: self._set_tab_status(
+                tab_key,
+                _("ai_search_done", keywords=kw_text, total=len(hits)),
+            ))
+            self.after(0, lambda: self._restore_ai_button(tab_key))
+
+        except Exception as e:
+            logger.error(f"AI 搜索失败 ({tab_key}): {e}")
+            self.after(0, lambda: self._render_tab_error(tab_key, str(e)))
+            self.after(0, lambda: self._restore_ai_button(tab_key))
+
+    def _restore_ai_button(self, tab_key: str):
+        state = self._tab_states.get(tab_key)
+        if state:
+            ai_btn = state.get("ai_search_btn")
+            if ai_btn:
+                try:
+                    ai_btn.configure(state="normal", text=_("ai_search_btn"))
+                except Exception:
+                    pass
 
     def _render_tab_results(self, tab_key: str, hits: List[Dict]):
         state = self._tab_states[tab_key]
