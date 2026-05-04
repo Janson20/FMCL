@@ -777,5 +777,25 @@
   "ach_advanced_updater": "更新狂",
   "ach_advanced_updater_desc": "透過自動更新功能成功更新啟動器",
   "ach_advanced_checkin": "簽到達人",
-  "ach_advanced_checkin_desc": "連續開啟啟動器達到指定天數"
+  "ach_advanced_checkin_desc": "連續開啟啟動器達到指定天數",
+
+  "ach_sync_btn": "☁ 同步",
+  "ach_syncing": "☁ 同步中...",
+  "ach_sync_success": "☁ 已同步",
+  "ach_sync_failed": "☁ 同步失敗",
+  "ach_sync_status_syncing": "正在與雲端同步...",
+  "ach_sync_status_resetting": "正在重置...",
+  "ach_sync_login_title": "需要登入",
+  "ach_sync_login_hint": "成就雲端同步需要使用淨讀 AI 帳號。\n請在右上角 ⚙ 設定 → 淨讀 AI 登入 中登入。",
+  "ach_reset_cloud_btn": "重置雲端存檔",
+  "ach_reset_local_btn": "重置本機成就",
+  "ach_reset_cloud_confirm_key": "確認重置雲端存檔",
+  "ach_reset_local_confirm_key": "確認重置本機成就",
+  "ach_reset_cloud_success": "雲端存檔已重置",
+  "ach_reset_local_success": "本機成就已重置",
+  "ach_confirm_step1_title": "⚠ 危險操作",
+  "ach_confirm_step1_msg": "此操作無法復原，是否繼續？",
+  "ach_confirm_step2_title": "⚠ 最終確認",
+  "ach_confirm_step2_msg": "請輸入「{phrase}」以確認操作：",
+  "ach_confirm_mismatch": "輸入不匹配，請重新輸入"
 }

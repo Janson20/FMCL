@@ -777,5 +777,25 @@
   "ach_advanced_updater": "アップデート狂",
   "ach_advanced_updater_desc": "自動更新機能でランチャーを更新する",
   "ach_advanced_checkin": "チェックインマスター",
-  "ach_advanced_checkin_desc": "連続して指定日数ランチャーを開く"
+  "ach_advanced_checkin_desc": "連続して指定日数ランチャーを開く",
+
+  "ach_sync_btn": "☁ 同期",
+  "ach_syncing": "☁ 同期中...",
+  "ach_sync_success": "☁ 同期完了",
+  "ach_sync_failed": "☁ 同期失敗",
+  "ach_sync_status_syncing": "クラウドと同期中...",
+  "ach_sync_status_resetting": "リセット中...",
+  "ach_sync_login_title": "ログインが必要",
+  "ach_sync_login_hint": "実績のクラウド同期にはJingdu AIアカウントが必要です。\n右上の ⚙ 設定 → Jingdu AI ログイン からログインしてください。",
+  "ach_reset_cloud_btn": "クラウドをリセット",
+  "ach_reset_local_btn": "ローカルをリセット",
+  "ach_reset_cloud_confirm_key": "クラウドリセット確認",
+  "ach_reset_local_confirm_key": "ローカルリセット確認",
+  "ach_reset_cloud_success": "クラウドデータがリセットされました",
+  "ach_reset_local_success": "ローカル実績がリセットされました",
+  "ach_confirm_step1_title": "⚠ 危険な操作",
+  "ach_confirm_step1_msg": "この操作は元に戻せません。続行しますか？",
+  "ach_confirm_step2_title": "⚠ 最終確認",
+  "ach_confirm_step2_msg": "「{phrase}」と入力して確認してください：",
+  "ach_confirm_mismatch": "入力が一致しません。もう一度お試しください"
 }

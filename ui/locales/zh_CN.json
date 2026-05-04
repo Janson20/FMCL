@@ -777,5 +777,25 @@
   "ach_advanced_updater": "更新狂",
   "ach_advanced_updater_desc": "通过自动更新功能成功更新启动器",
   "ach_advanced_checkin": "签到达人",
-  "ach_advanced_checkin_desc": "连续打开启动器达到指定天数"
+  "ach_advanced_checkin_desc": "连续打开启动器达到指定天数",
+
+  "ach_sync_btn": "☁ 同步",
+  "ach_syncing": "☁ 同步中...",
+  "ach_sync_success": "☁ 已同步",
+  "ach_sync_failed": "☁ 同步失败",
+  "ach_sync_status_syncing": "正在与云端同步...",
+  "ach_sync_status_resetting": "正在重置...",
+  "ach_sync_login_title": "需要登录",
+  "ach_sync_login_hint": "成就云同步需要使用净读 AI 账号。\n请在右上角 ⚙ 设置 → 净读 AI 登录 中登录。",
+  "ach_reset_cloud_btn": "重置云存档",
+  "ach_reset_local_btn": "重置本地成就",
+  "ach_reset_cloud_confirm_key": "确认重置云存档",
+  "ach_reset_local_confirm_key": "确认重置本地成就",
+  "ach_reset_cloud_success": "云存档已重置",
+  "ach_reset_local_success": "本地成就已重置",
+  "ach_confirm_step1_title": "⚠ 危险操作",
+  "ach_confirm_step1_msg": "此操作不可撤销，是否继续？",
+  "ach_confirm_step2_title": "⚠ 最终确认",
+  "ach_confirm_step2_msg": "请输入「{phrase}」以确认操作：",
+  "ach_confirm_mismatch": "输入不匹配，请重新输入"
 }

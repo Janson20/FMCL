@@ -78,3 +78,6 @@ video/
 api/
 plan.md
 tmp/
+achievements.db
+achievements.db-shm
+achievements.db-wal

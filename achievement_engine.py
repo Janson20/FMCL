@@ -350,6 +350,10 @@ class AchievementEngine:
             finally:
                 conn.close()
 
+    def merge_db_data(self, local_db_path: Path, remote_data: bytes) -> Optional[bytes]:
+        """合并本地与远程成就数据库 - 保留完成度更高的版本"""
+        return _do_merge_db(local_db_path, remote_data)
+
     def get_unnotified_unlocks(self) -> List[Dict[str, Any]]:
         """获取未通知的解锁记录"""
         with self._lock:
@@ -446,6 +450,104 @@ class AchievementEngine:
                 cb(d, stage, stage_name)
             except Exception as e:
                 logger.error(f"成就解锁回调异常: {e}")
+
+
+def _do_merge_db(local_db_path: Path, remote_data: bytes) -> Optional[bytes]:
+    """独立合并函数 - 合并本地与远程数据库，保留完成度更高的版本
+
+    使用 ATTACH DATABASE 方式合并，避免 WAL 模式下的序列化问题。
+    """
+    import tempfile
+    import shutil
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    merged_path = tmp_dir / "merged.db"
+    remote_path = tmp_dir / "remote.db"
+    try:
+        with sqlite3.connect(str(local_db_path)) as cp:
+            cp.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        shutil.copy2(local_db_path, merged_path)
+
+        remote_path.write_bytes(remote_data)
+
+        with sqlite3.connect(str(merged_path)) as merged_conn:
+            merged_conn.execute("PRAGMA journal_mode=DELETE")
+            merged_conn.row_factory = sqlite3.Row
+            merged_conn.execute(f"ATTACH DATABASE ? AS remote", (str(remote_path),))
+
+            remote_rows = merged_conn.execute("SELECT * FROM remote.achievement_progress").fetchall()
+            for rr in remote_rows:
+                aid = rr["achievement_id"]
+                local_row = merged_conn.execute(
+                    "SELECT * FROM achievement_progress WHERE achievement_id = ?", (aid,)
+                ).fetchone()
+                if local_row is None:
+                    merged_conn.execute(
+                        """INSERT INTO achievement_progress
+                           (achievement_id, current_value, stage, unlocked_at, updated_at, notified, sync_timestamp)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (aid, rr["current_value"], rr["stage"],
+                         rr["unlocked_at"], rr["updated_at"],
+                         rr["notified"] or 0, time.time())
+                    )
+                else:
+                    ls = local_row["stage"] or 0; rs = rr["stage"] or 0
+                    lv = local_row["current_value"] or 0; rv = rr["current_value"] or 0
+                    if rs > ls or (rs == ls and rv > lv):
+                        merged_conn.execute(
+                            """UPDATE achievement_progress
+                               SET current_value = ?, stage = ?, unlocked_at = ?,
+                                   updated_at = ?, sync_timestamp = ?
+                               WHERE achievement_id = ?""",
+                            (rv, rs, rr["unlocked_at"], rr["updated_at"], time.time(), aid)
+                        )
+
+            remote_unlocks = merged_conn.execute("SELECT * FROM remote.achievement_unlocks").fetchall()
+            for ru in remote_unlocks:
+                existing = merged_conn.execute(
+                    "SELECT id FROM achievement_unlocks WHERE achievement_id = ? AND stage = ?",
+                    (ru["achievement_id"], ru["stage"])
+                ).fetchone()
+                if not existing:
+                    merged_conn.execute(
+                        """INSERT INTO achievement_unlocks
+                           (achievement_id, stage, unlocked_at, notified, sync_timestamp)
+                           VALUES (?, ?, ?, ?, ?)""",
+                        (ru["achievement_id"], ru["stage"],
+                         ru["unlocked_at"], ru["notified"] or 0, time.time())
+                    )
+
+            remote_state = merged_conn.execute("SELECT * FROM remote.achievement_state").fetchall()
+            for rs in remote_state:
+                if rs["key"] in ("last_checkin_date", "checkin_streak"):
+                    continue
+                existing = merged_conn.execute(
+                    "SELECT value FROM achievement_state WHERE key = ?", (rs["key"],)
+                ).fetchone()
+                if not existing:
+                    merged_conn.execute(
+                        "INSERT OR REPLACE INTO achievement_state (key, value) VALUES (?, ?)",
+                        (rs["key"], rs["value"])
+                    )
+
+            merged_conn.commit()
+
+        result = merged_path.read_bytes()
+        return result
+    except sqlite3.Error as e:
+        logger.error(f"数据库合并 SQLite 错误: {e}")
+        return None
+    except OSError as e:
+        logger.error(f"数据库合并文件 I/O 错误: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"数据库合并未知错误: {e}")
+        return None
+    finally:
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception:
+            pass
 
 
 _engine_instance: Optional[AchievementEngine] = None

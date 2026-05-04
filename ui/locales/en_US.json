@@ -777,5 +777,25 @@
   "ach_advanced_updater": "Update Maniac",
   "ach_advanced_updater_desc": "Successfully update the launcher via auto-update",
   "ach_advanced_checkin": "Check-in Master",
-  "ach_advanced_checkin_desc": "Open the launcher for consecutive days"
+  "ach_advanced_checkin_desc": "Open the launcher for consecutive days",
+
+  "ach_sync_btn": "☁ Sync",
+  "ach_syncing": "☁ Syncing...",
+  "ach_sync_success": "☁ Synced",
+  "ach_sync_failed": "☁ Sync Failed",
+  "ach_sync_status_syncing": "Syncing with cloud...",
+  "ach_sync_status_resetting": "Resetting...",
+  "ach_sync_login_title": "Login Required",
+  "ach_sync_login_hint": "Achievement cloud sync requires a Jingdu AI account.\nPlease go to ⚙ Settings → Jingdu AI Login to sign in.",
+  "ach_reset_cloud_btn": "Reset Cloud",
+  "ach_reset_local_btn": "Reset Local",
+  "ach_reset_cloud_confirm_key": "Confirm Reset Cloud",
+  "ach_reset_local_confirm_key": "Confirm Reset Local",
+  "ach_reset_cloud_success": "Cloud data reset",
+  "ach_reset_local_success": "Local achievements reset",
+  "ach_confirm_step1_title": "⚠ Dangerous Operation",
+  "ach_confirm_step1_msg": "This operation cannot be undone. Continue?",
+  "ach_confirm_step2_title": "⚠ Final Confirmation",
+  "ach_confirm_step2_msg": "Type \"{phrase}\" to confirm:",
+  "ach_confirm_mismatch": "Input mismatch, please try again"
 }

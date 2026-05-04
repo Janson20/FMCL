@@ -229,8 +229,27 @@ def main():
         splash_start = time.time()
         _launcher_result = {}  # 线程安全存储 launcher 实例
         _launcher_ready = threading.Event()
+        _ach_init_done = threading.Event()
 
         app.set_status("正在初始化启动器核心...", "loading")
+
+        # ── 提前初始化成就系统（与启动器并行） ──
+        _ach_engine_result = {}
+        def _init_achievements():
+            try:
+                from achievement_engine import init_achievement_engine
+                ach_engine = init_achievement_engine(config.base_dir)
+                _ach_engine_result['engine'] = ach_engine
+                token = config.jdz_token
+                if token:
+                    from achievement_sync import run_sync
+                    app.set_status("正在同步成就云存档...", "loading")
+                    run_sync(token, ach_engine._db_path)
+            except Exception as e:
+                logger.error(f"成就系统初始化失败: {e}")
+            finally:
+                _ach_init_done.set()
+                app.after(0, _try_dismiss_splash)
 
         # ── 在后台线程中初始化启动器核心 ──
         # minecraft_launcher_lib (~0.16s) 和 mirror patch 的导入在这里完成
@@ -247,10 +266,8 @@ def main():
             logger.info("_init_launcher: 5. 初始化完成，后台线程即将退出")
 
         def _try_dismiss_splash():
-            """尝试关闭启动画面：需同时满足 1 秒和加载完成"""
-            logger.info("_try_dismiss_splash: 被调用")
-            if not _launcher_ready.is_set():
-                logger.info("_try_dismiss_splash: launcher 尚未就绪，返回")
+            """尝试关闭启动画面：需同时满足 launcher、achievements 就绪 且 1 秒"""
+            if not _launcher_ready.is_set() or not _ach_init_done.is_set():
                 return
             elapsed = time.time() - splash_start
             remaining = max(0, 1.0 - elapsed)
@@ -280,12 +297,13 @@ def main():
             # 更新 UI 回调
             app.callbacks = callbacks
 
-            # ── 初始化成就系统 ──
-            from achievement_engine import init_achievement_engine, get_achievement_engine
-            ach_engine = init_achievement_engine(config.base_dir)
-            ach_engine.register_unlock_callback(app._on_achievement_unlock)
-            ach_engine.checkin()
-            app.after(500, app._refresh_achievements)
+            # ── 成就系统 wiring（引擎已在 splash 期间初始化） ──
+            from achievement_engine import get_achievement_engine
+            ach_engine = get_achievement_engine()
+            if ach_engine:
+                ach_engine.register_unlock_callback(app._on_achievement_unlock)
+                ach_engine.checkin()
+                app.after(500, app._refresh_achievements)
 
             # 重新应用保存的主题颜色（UI 创建时用的是默认主题，需要刷新）
             if hasattr(app, '_reapply_theme'):
@@ -324,6 +342,10 @@ def main():
         # 启动后台初始化线程
         init_thread = threading.Thread(target=_init_launcher, daemon=True)
         init_thread.start()
+
+        # 启动成就系统初始化线程（与启动器并行，包含云存档同步）
+        ach_thread = threading.Thread(target=_init_achievements, daemon=True)
+        ach_thread.start()
 
         # 启动鼠标检测线程(守护线程,主程序退出时自动结束)
         mouse_thread = threading.Thread(target=detect_mouse_move, daemon=True)
