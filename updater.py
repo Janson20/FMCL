@@ -30,7 +30,7 @@ PROXY_API_URL = f"{PROXY_BASE_URL}/api/releases/latest"
 PROXY_DOWNLOAD_URL = f"{PROXY_BASE_URL}/download"
 
 # 当前版本（从 pyproject.toml 读取）
-CURRENT_VERSION = "2.8.6"
+CURRENT_VERSION = "2.8.7"
 
 
 def _load_current_version() -> str:
