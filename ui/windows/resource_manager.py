@@ -559,13 +559,11 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             try:
                 import base64
                 from io import BytesIO
-                from PIL import Image, ImageTk
+                from PIL import Image
                 img_data = base64.b64decode(icon_base64)
                 img = Image.open(BytesIO(img_data))
-                img = img.resize((icon_size, icon_size), Image.LANCZOS)
-                photo = ImageTk.PhotoImage(img)
+                photo = ctk.CTkImage(img, size=(icon_size, icon_size))
                 icon_label = ctk.CTkLabel(icon_frame, image=photo, text="")
-                icon_label.image = photo
                 icon_label.pack(fill=ctk.BOTH, expand=True)
             except Exception:
                 self._create_fallback_icon(icon_frame, item, icon_size)
@@ -873,13 +871,11 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         try:
             from io import BytesIO
             import base64
-            from PIL import Image, ImageTk
+            from PIL import Image
             img_data = base64.b64decode(base64_data)
             img = Image.open(BytesIO(img_data))
-            img = img.resize((size, size), Image.LANCZOS)
-            photo = ImageTk.PhotoImage(img)
+            photo = ctk.CTkImage(img, size=(size, size))
             icon_label = ctk.CTkLabel(icon_frame, image=photo, text="")
-            icon_label.image = photo
             icon_label.pack(fill=ctk.BOTH, expand=True)
         except Exception:
             pass
