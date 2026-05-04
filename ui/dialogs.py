@@ -1,6 +1,7 @@
 """UI 窗口类 - 独立弹窗和对话框"""
 import os
 import threading
+import time
 from typing import List, Dict, Optional, Callable, Any
 
 import customtkinter as ctk
@@ -308,3 +309,101 @@ def show_notice_dialog(parent, content: str, on_dismiss=None) -> None:
         hover_color=COLORS["accent_hover"],
         command=_on_dismiss,
     ).pack(pady=(0, 20))
+
+
+_toast_queue: List[ctk.CTkToplevel] = []
+
+
+def show_toast_notification(parent, icon: str, title: str, subtitle: str = "",
+                            duration_ms: int = 4500) -> None:
+    """显示右下角 Toast 通知弹窗（成就解锁等）
+
+    Args:
+        parent: 父窗口
+        icon: 图标 emoji
+        title: 标题（成就名称）
+        subtitle: 副标题（阶段名称）
+        duration_ms: 显示时长(毫秒)
+    """
+    toast = ctk.CTkToplevel(parent)
+    toast.overrideredirect(True)
+    toast.attributes('-topmost', True)
+    toast.configure(fg_color=COLORS["card_bg"])
+    toast.transient(parent)
+
+    w, h = 280, 72
+    toast.geometry(f"{w}x{h}")
+
+    border_frame = ctk.CTkFrame(toast, fg_color=COLORS["accent"], corner_radius=8)
+    border_frame.pack(fill=ctk.BOTH, expand=True, padx=1, pady=1)
+
+    inner = ctk.CTkFrame(border_frame, fg_color=COLORS["card_bg"], corner_radius=7)
+    inner.pack(fill=ctk.BOTH, expand=True, padx=2, pady=2)
+
+    icon_label = ctk.CTkLabel(
+        inner, text=icon,
+        font=ctk.CTkFont(size=24),
+        text_color=COLORS["text_primary"],
+        width=40,
+    )
+    icon_label.pack(side=ctk.LEFT, padx=(12, 4), pady=10)
+
+    text_frame = ctk.CTkFrame(inner, fg_color="transparent")
+    text_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 12), pady=8)
+
+    ctk.CTkLabel(
+        text_frame, text=subtitle if subtitle else "",
+        font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+        text_color=COLORS["accent"],
+        anchor=ctk.W,
+    ).pack(fill=ctk.X)
+
+    ctk.CTkLabel(
+        text_frame, text=title,
+        font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+        text_color=COLORS["text_primary"],
+        anchor=ctk.W,
+    ).pack(fill=ctk.X)
+
+    toast.update_idletasks()
+    pw = parent.winfo_width()
+    ph = parent.winfo_height()
+    px = parent.winfo_x()
+    py = parent.winfo_y()
+
+    offset = 0
+    for existing in _toast_queue[:]:
+        try:
+            if existing.winfo_exists():
+                offset += existing.winfo_height() + 8
+            else:
+                _toast_queue.remove(existing)
+        except Exception:
+            _toast_queue.remove(existing)
+
+    x = px + pw - w - 16
+    y = py + ph - h - 16 - offset
+    toast.geometry(f"{w}x{h}+{x}+{y}")
+
+    _toast_queue.append(toast)
+
+    def _fade_out():
+        try:
+            for alpha in range(100, -1, -5):
+                if not toast.winfo_exists():
+                    break
+                toast.attributes('-alpha', alpha / 100.0)
+                toast.update()
+                time.sleep(0.015)
+        except Exception:
+            pass
+        finally:
+            try:
+                if toast.winfo_exists():
+                    toast.destroy()
+            except Exception:
+                pass
+            if toast in _toast_queue:
+                _toast_queue.remove(toast)
+
+    toast.after(duration_ms, _fade_out)

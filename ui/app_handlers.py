@@ -813,6 +813,37 @@ class EventHandlerMixin(object):
         except Exception as e:
             self._task_queue.put(("launch_error", str(e)))
 
+    def _trigger_ach_install(self, version_id: str):
+        """处理版本安装相关成就"""
+        import re
+        from datetime import datetime, timedelta
+        from achievement_engine import get_achievement_engine
+        engine = get_achievement_engine()
+        if not engine:
+            return
+
+        installed = self.callbacks.get("get_installed_versions", lambda: [])()
+        count = len(installed)
+        engine.update_progress("gamer_version_collector", value=count, trigger_type="set")
+
+        has_release = any(v.get("type") == "release" for v in installed)
+        has_snapshot = any(v.get("type") == "snapshot" for v in installed)
+        engine.check_and_unlock("gamer_cross_era", has_release and has_snapshot)
+
+        if version_id:
+            match = re.match(r'(\d+)\.(\d+)', version_id)
+            if match:
+                major, minor = int(match.group(1)), int(match.group(2))
+                if major == 1 and minor <= 12:
+                    engine.check_and_unlock("gamer_retro", True)
+
+        if version_id and ('pre' in version_id or 'rc' in version_id or 'snapshot' in version_id):
+            try:
+                from achievement_engine import ACHIEVEMENTS
+            except ImportError:
+                pass
+            engine.check_and_unlock("gamer_frontier", True)
+
     # ─── 队列轮询 ─────────────────────────────────────────────
 
     def _poll_queue(self):
@@ -917,6 +948,7 @@ class EventHandlerMixin(object):
                 self.version_entry.delete(0, ctk.END)
                 self._refresh_versions()
                 slog.info("version_installed", version=display, requested=version_id)
+                self._trigger_ach_install(display)
             else:
                 self.set_status(f"{version_id} 安装失败", "error")
                 slog.error("version_install_failed", version=version_id)
@@ -948,9 +980,10 @@ class EventHandlerMixin(object):
                 self.kill_btn.configure(state=ctk.NORMAL)
                 self._start_launch_animation()
                 slog.info("game_launched", version=version_id, target=target_version or version_id)
-                # 无论是否最小化都启动日志监控，检测到窗口后关闭管道避免缓冲区满导致游戏卡顿
                 self._run_in_thread(self._watch_game_stdout)
                 self._run_in_thread(self._watch_game_exit)
+                self._trigger_ach("gamer_first_launch")
+                self._trigger_ach("gamer_launch_master")
             else:
                 self.set_status(f"{version_id} 启动失败", "error")
                 slog.error("game_launch_failed", version=version_id)
@@ -981,7 +1014,6 @@ class EventHandlerMixin(object):
             version_id, success = data
             if success:
                 self.set_status(f"服务器 {version_id} 安装成功", "success")
-                # 重新加载服务器列表
                 if "get_installed_servers" in self.callbacks:
                     installed = self.callbacks["get_installed_servers"]()
                     self._render_server_versions(installed)
@@ -1003,10 +1035,9 @@ class EventHandlerMixin(object):
                 self._update_player_display()
                 self.server_mem_label.configure(text="0 MB")
                 self._append_server_log(f"[FMCL] 服务器 {version_id} 已启动")
-                # 启动服务器日志读取与退出监控
                 self._run_in_thread(self._watch_server_exit)
-                # 启动内存监控
                 self._start_mem_monitor()
+                self._trigger_ach("server_first_server")
             else:
                 self.set_status(f"服务器 {version_id} 启动失败", "error")
                 self.server_start_btn.configure(state=ctk.NORMAL)

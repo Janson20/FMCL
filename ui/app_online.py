@@ -1465,6 +1465,8 @@ class OnlineTabMixin(object):
                 self._set_online_status(_("online_et_running", pid=self._et_manager.pid), "success")
                 self._append_online_log("[FMCL] " + _("online_lobby_created", code=lobby.full_code))
                 self.set_status(_("online_lobby_created", code=lobby.full_code), "success")
+                self._trigger_ach("online_first_online")
+                self._trigger_ach("online_room_owner")
                 self._start_member_poll()
             else:
                 self._append_online_log("[FMCL] " + _("online_launch_failed"))
@@ -1540,6 +1542,8 @@ class OnlineTabMixin(object):
                 self._append_online_log("[FMCL] " + _("online_joined_lobby", code=lobby.full_code))
                 self._append_online_log("[FMCL] " + _("online_waiting_network"))
                 self.set_status(_("online_joined_lobby", code=lobby.full_code), "success")
+                self._trigger_ach("online_first_online")
+                self._trigger_ach("online_guest")
 
                 self.after(3000, self._setup_joiner_forward)
             else:

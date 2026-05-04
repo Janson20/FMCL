@@ -882,6 +882,7 @@ class ServerTabMixin(object):
         success = self.callbacks["send_server_command"](cmd)
         if success:
             self._append_server_log(f"> {cmd}")
+            self._trigger_ach("server_admin")
         else:
             self._append_server_log(_("server_cmd_error_not_running"))
 

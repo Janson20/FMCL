@@ -280,6 +280,13 @@ def main():
             # 更新 UI 回调
             app.callbacks = callbacks
 
+            # ── 初始化成就系统 ──
+            from achievement_engine import init_achievement_engine, get_achievement_engine
+            ach_engine = init_achievement_engine(config.base_dir)
+            ach_engine.register_unlock_callback(app._on_achievement_unlock)
+            ach_engine.checkin()
+            app.after(500, app._refresh_achievements)
+
             # 重新应用保存的主题颜色（UI 创建时用的是默认主题，需要刷新）
             if hasattr(app, '_reapply_theme'):
                 app._reapply_theme()

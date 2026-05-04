@@ -220,6 +220,10 @@ class ModernAppBase(ctk.CTk):
         self.agent_tab = self.tabview.add("🤖 AGENT")
         self.agent_tab.configure(fg_color="transparent")
         
+        # 添加"成就"标签页
+        self.achievements_tab = self.tabview.add(_("tab_achievements"))
+        self.achievements_tab.configure(fg_color="transparent")
+        
         # 设置默认标签页为"游戏"
         self.tabview.set(_("tab_game"))
         
@@ -241,6 +245,9 @@ class ModernAppBase(ctk.CTk):
 
         # 构建 AGENT 标签页内容
         self._build_agent_tab_content()
+
+        # 构建成就标签页内容
+        self._build_achievements_tab_content()
     
     def _build_game_tab_content(self):
         """构建游戏标签页内容"""
@@ -788,6 +795,8 @@ class ModernAppBase(ctk.CTk):
         name = self.player_name_var.get().strip()
         if name and "set_player_name" in self.callbacks:
             self.callbacks["set_player_name"](name)
+            if name != "Steve":
+                self._trigger_ach("personalize_rename")
 
     def _on_select_skin(self):
         """选择皮肤文件"""
@@ -828,6 +837,7 @@ class ModernAppBase(ctk.CTk):
             import shutil
             shutil.copy2(filepath, str(skin_dir / Path(filepath).name))
             self.set_status(_("skin_installed", filename=Path(filepath).name), "success")
+            self._trigger_ach("personalize_skin")
 
     def _update_skin_preview(self, filepath: str):
         """更新皮肤预览"""
@@ -1215,6 +1225,7 @@ class ModernAppBase(ctk.CTk):
                 widget.configure(**kwargs)
             except Exception:
                 pass
+
         self._refresh_version_list_colors()
         if hasattr(self, '_refresh_server_colors'):
             self._refresh_server_colors()
@@ -1224,6 +1235,8 @@ class ModernAppBase(ctk.CTk):
             self._refresh_agent_colors()
         if hasattr(self, '_refresh_links_colors'):
             self._refresh_links_colors()
+        if hasattr(self, '_refresh_ach_colors'):
+            self._refresh_ach_colors()
 
     def _refresh_links_colors(self):
         for card in getattr(self, '_links_site_cards', []):
@@ -1299,3 +1312,23 @@ class ModernAppBase(ctk.CTk):
                                     pass
             except Exception:
                 pass
+
+    def _trigger_ach(self, achievement_id: str, value: int = 1, trigger_type: Optional[str] = None):
+        """触发成就进度更新（线程安全）"""
+        try:
+            from achievement_engine import get_achievement_engine
+            engine = get_achievement_engine()
+            if engine:
+                engine.update_progress(achievement_id, value=value, trigger_type=trigger_type)
+        except Exception:
+            pass
+
+    def _check_ach(self, achievement_id: str, condition: bool):
+        """检查条件型成就"""
+        try:
+            from achievement_engine import get_achievement_engine
+            engine = get_achievement_engine()
+            if engine:
+                engine.check_and_unlock(achievement_id, condition)
+        except Exception:
+            pass

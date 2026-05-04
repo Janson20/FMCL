@@ -707,6 +707,8 @@ class BackupTabMixin(object):
             if success:
                 self.set_status(_("backup_status_success", world=world_name), "success")
                 self._run_in_thread(self._load_backup_list, world_name)
+                self._trigger_ach("backup_first_backup")
+                self._trigger_ach("backup_mania")
             else:
                 self.set_status(_("backup_status_failed", msg=msg), "error")
             self.progress_bar.set(0)
@@ -718,6 +720,7 @@ class BackupTabMixin(object):
             if success:
                 self.set_status(_("backup_restore_status_success", world=world_name), "success")
                 self._run_in_thread(self._load_backup_list, world_name)
+                self._trigger_ach("backup_time_machine")
             else:
                 self.set_status(_("backup_restore_status_failed", msg=msg), "error")
             self.progress_bar.set(0)
@@ -737,6 +740,7 @@ class BackupTabMixin(object):
             success, msg = data
             if success:
                 self.set_status(_("backup_export_status_success"), "success")
+                self._trigger_ach("backup_export_share")
             else:
                 self.set_status(_("backup_export_status_failed", msg=msg), "error")
             return True
