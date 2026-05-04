@@ -39,7 +39,7 @@ class ModernAppBase(ctk.CTk):
 
         # 窗口配置
         self.title(_("app_title"))
-        self.geometry("1200x860")
+        self.geometry("1200x900")
         self.minsize(1060, 800)
         self.configure(fg_color=COLORS["bg_dark"])
 
@@ -59,7 +59,7 @@ class ModernAppBase(ctk.CTk):
     def _center_window(self):
         """窗口居中"""
         self.update_idletasks()
-        w, h = 1200, 860
+        w, h = 1200, 900
         x = (self.winfo_screenwidth() - w) // 2
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -1053,14 +1053,56 @@ class ModernAppBase(ctk.CTk):
         )
         self.modpack_btn.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(5, 0))
 
-        # ── 版本选择器 ──
+        # ── 快速选择标题行（标题 + 分页控件） ──
+        quick_header = ctk.CTkFrame(self._action_panel, fg_color="transparent")
+        quick_header.pack(fill=ctk.X, padx=15, pady=(5, 8))
+
         self._action_quick_title = ctk.CTkLabel(
-            self._action_panel,
+            quick_header,
             text=_("quick_select"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             text_color=COLORS["text_primary"],
         )
-        self._action_quick_title.pack(padx=15, pady=(5, 8), anchor=ctk.W)
+        self._action_quick_title.pack(side=ctk.LEFT)
+
+        # 分页控件
+        self._page_size = 20
+        self._current_page = 1
+
+        self._prev_page_btn = ctk.CTkButton(
+            quick_header,
+            text="◀",
+            width=28,
+            height=26,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_medium"],
+            hover_color=COLORS["bg_light"],
+            text_color=COLORS["text_primary"],
+            command=self._on_prev_page,
+        )
+        self._prev_page_btn.pack(side=ctk.RIGHT)
+
+        self._next_page_btn = ctk.CTkButton(
+            quick_header,
+            text="▶",
+            width=28,
+            height=26,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_medium"],
+            hover_color=COLORS["bg_light"],
+            text_color=COLORS["text_primary"],
+            command=self._on_next_page,
+        )
+        self._next_page_btn.pack(side=ctk.RIGHT)
+
+        self._page_info_label = ctk.CTkLabel(
+            quick_header,
+            text="1/1",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+            width=60,
+        )
+        self._page_info_label.pack(side=ctk.RIGHT, padx=5)
 
         self._action_quick_sep = ctk.CTkFrame(self._action_panel, fg_color=COLORS["card_border"], height=1)
         self._action_quick_sep.pack(fill=ctk.X, padx=15, pady=(0, 8))
@@ -1099,7 +1141,7 @@ class ModernAppBase(ctk.CTk):
 
         # 可用版本列表
         avail_frame = ctk.CTkScrollableFrame(
-            self._action_panel, fg_color="transparent", height=155, scrollbar_button_color=COLORS["bg_light"]
+            self._action_panel, fg_color="transparent", height=130, scrollbar_button_color=COLORS["bg_light"]
         )
         avail_frame.pack(fill=ctk.X, padx=10, pady=(0, 5))
 
@@ -1108,49 +1150,6 @@ class ModernAppBase(ctk.CTk):
         self._all_available_versions: List[Dict[str, Any]] = []
         self._release_versions: List[Dict[str, Any]] = []
         self._snapshot_versions: List[Dict[str, Any]] = []
-
-        # 分页控件
-        page_frame = ctk.CTkFrame(self._action_panel, fg_color="transparent", height=30)
-        page_frame.pack(fill=ctk.X, padx=10, pady=(0, 10))
-        page_frame.pack_propagate(False)
-
-        self._page_size = 20
-        self._current_page = 1
-
-        self._prev_page_btn = ctk.CTkButton(
-            page_frame,
-            text="◀",
-            width=28,
-            height=26,
-            font=ctk.CTkFont(size=13),
-            fg_color=COLORS["bg_medium"],
-            hover_color=COLORS["bg_light"],
-            text_color=COLORS["text_primary"],
-            command=self._on_prev_page,
-        )
-        self._prev_page_btn.pack(side=ctk.LEFT)
-
-        self._page_info_label = ctk.CTkLabel(
-            page_frame,
-            text="1/1",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
-            width=60,
-        )
-        self._page_info_label.pack(side=ctk.LEFT, padx=5)
-
-        self._next_page_btn = ctk.CTkButton(
-            page_frame,
-            text="▶",
-            width=28,
-            height=26,
-            font=ctk.CTkFont(size=13),
-            fg_color=COLORS["bg_medium"],
-            hover_color=COLORS["bg_light"],
-            text_color=COLORS["text_primary"],
-            command=self._on_next_page,
-        )
-        self._next_page_btn.pack(side=ctk.LEFT)
 
         # 注册操作面板主题组件
         self._theme_refs.append((self._action_panel, {"fg_color": "card_bg"}))

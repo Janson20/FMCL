@@ -35,6 +35,17 @@ class EventHandlerMixin(object):
         v = version_id.lower()
         return any(loader in v for loader in ("forge", "fabric", "neoforge"))
 
+    @staticmethod
+    def _get_version_type(version_id: str) -> str:
+        """根据版本ID判断版本类型（release/snapshot）"""
+        if re.match(r'^\d+w\d+[a-z]$', version_id):
+            return "snapshot"
+        if '-pre' in version_id or '-rc' in version_id:
+            return "snapshot"
+        if version_id.startswith('snapshot-'):
+            return "snapshot"
+        return "release"
+
     def _render_installed_versions(self, versions: List[str]):
         """渲染已安装版本列表"""
         # 清空现有
@@ -826,8 +837,8 @@ class EventHandlerMixin(object):
         count = len(installed)
         engine.update_progress("gamer_version_collector", value=count, trigger_type="set")
 
-        has_release = any(v.get("type") == "release" for v in installed)
-        has_snapshot = any(v.get("type") == "snapshot" for v in installed)
+        has_release = any(self._get_version_type(v) == "release" for v in installed)
+        has_snapshot = any(self._get_version_type(v) == "snapshot" for v in installed)
         engine.check_and_unlock("gamer_cross_era", has_release and has_snapshot)
 
         if version_id:
