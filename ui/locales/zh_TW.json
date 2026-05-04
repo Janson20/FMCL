@@ -307,11 +307,16 @@
   "rm_search_placeholder_shaderpacks": "🔍 搜尋光影包檔名...",
   "rm_search_no_results": "未找到符合的資源",
 
+  "rm_page_prev": "◀ 上一頁",
+  "rm_page_next": "下一頁 ▶",
+  "rm_page_info": "第 {current} / {total} 頁",
+
   "mod_loading_metadata": "⏳ 正在讀取模組資訊...",
   "mod_loading_progress": "⏳ 正在讀取模組資訊... ({done}/{total})",
   "mod_folder_empty": "模組資料夾為空\n將 .jar 檔案拖曳到此處或點選「選擇檔案安裝」",
   "mod_search_no_results": "未找到符合的模組",
   "mod_list_count": "共 {count} 個模組",
+  "rm_list_count": "共 {count} 個{label}，第 {page}/{total_pages} 頁",
   
   "modpack_install": "📦 安裝整合包",
   "modpack_select": "📂 選擇 .mrpack 檔案",

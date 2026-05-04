@@ -49,9 +49,13 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._mod_loading: bool = False
         self._search_text: str = ""
         self._current_items: List[Dict] = []
+        self._filtered_items: List[Dict] = []
         self._update_checking: bool = False
         self._update_info: Dict[str, Dict] = {}  # modid -> {latest_version, project_id, ...}
         self._thumbnails: Dict[str, str] = {}  # path -> base64 thumbnail cache
+        self._page_size: int = 10
+        self._current_page: int = 1
+        self._update_dialog_page: int = 1
 
         self._build_ui()
 
@@ -267,6 +271,47 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             scrollbar_button_color=COLORS["bg_light"],
         )
 
+        # 分页控件
+        self._page_frame = ctk.CTkFrame(content_frame, fg_color="transparent", height=34)
+        self._page_frame.pack_propagate(False)
+
+        self._prev_btn = ctk.CTkButton(
+            self._page_frame,
+            text=_("rm_page_prev"),
+            width=85,
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_medium"],
+            hover_color=COLORS["bg_light"],
+            text_color=COLORS["text_primary"],
+            state=ctk.DISABLED,
+            command=self._on_prev_page,
+        )
+        self._prev_btn.pack(side=ctk.LEFT, padx=(12, 0))
+
+        self._page_label = ctk.CTkLabel(
+            self._page_frame,
+            text="1 / 1",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_secondary"],
+            width=80,
+        )
+        self._page_label.pack(side=ctk.LEFT, padx=8)
+
+        self._next_btn = ctk.CTkButton(
+            self._page_frame,
+            text=_("rm_page_next"),
+            width=85,
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_medium"],
+            hover_color=COLORS["bg_light"],
+            text_color=COLORS["text_primary"],
+            state=ctk.DISABLED,
+            command=self._on_next_page,
+        )
+        self._next_btn.pack(side=ctk.LEFT)
+
         # 底部状态栏
         self._status_label = ctk.CTkLabel(
             main_frame,
@@ -368,6 +413,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._search_entry.delete(0, "end")
         self._search_text = ""
 
+        # 重置分页
+        self._current_page = 1
+
         # 隐藏加载中标签
         self._loading_label.pack_forget()
 
@@ -380,10 +428,14 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         logger.info(f"刷新资源列表: type={current_type}, dir={resource_dir}, exists={resource_dir.exists()}")
 
+        # 重置分页
+        self._current_page = 1
+
         # 先隐藏两个区域
         self._empty_label.pack_forget()
         self._list_frame.pack_forget()
         self._loading_label.pack_forget()
+        self._page_frame.pack_forget()
 
         # 清空列表
         for w in self._list_frame.winfo_children():
@@ -410,14 +462,11 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("rm_folder_empty", label=self._get_resource_label(current_type)))
             return
 
-        self._list_frame.pack(fill=ctk.BOTH, expand=True)
-
         # 缩略图进度跟踪（仅资源包和光影标签页）
         self._thumbnail_loaded = 0
         self._thumbnail_total = 0
         zip_items = []
         for item in items:
-            self._create_resource_item(item, current_type)
             if current_type in ("resourcepacks", "shaderpacks") and not item.get("is_dir"):
                 ext = Path(item["path"]).suffix.lower()
                 if ext in (".zip",) and not item.get("_thumbnail"):
@@ -425,9 +474,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         if zip_items:
             self._thumbnail_total = len(zip_items)
-            self._set_status(_("rm_thumbnail_progress", count=len(items), label=self._get_resource_label(current_type), loaded=0, total=len(zip_items)))
-        else:
-            self._set_status(_("rm_item_count", count=len(items), label=self._get_resource_label(current_type)))
+
+        self._render_filtered_list(current_type)
 
     def _refresh_mod_list(self, mods_dir: Path):
         """刷新模组列表（含元数据提取）"""
@@ -465,6 +513,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
     def _on_search(self, event=None):
         """搜索过滤"""
         self._search_text = self._search_entry.get().strip().lower()
+        self._current_page = 1
         current_type = self._tab_var.get()
         if current_type == "mods":
             self._render_mod_list()
@@ -473,17 +522,16 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _render_mod_list(self):
         """渲染模组列表"""
-        # 清空列表
-        for w in self._list_frame.winfo_children():
-            w.destroy()
-        self._empty_label.pack_forget()
         self._list_frame.pack_forget()
+        self._empty_label.pack_forget()
 
         if self._mod_loading:
+            self._page_frame.pack_forget()
             return
 
         if not self._mod_metadata:
             self._empty_label.pack(fill=ctk.BOTH, expand=True)
+            self._page_frame.pack_forget()
             self._set_status(_("mod_folder_empty"))
             return
 
@@ -500,44 +548,98 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         else:
             filtered = self._mod_metadata
 
+        self._filtered_items = filtered
+
         if not filtered:
             self._empty_label.pack(fill=ctk.BOTH, expand=True)
+            self._page_frame.pack_forget()
             self._set_status(_("mod_search_no_results"))
             return
 
-        self._list_frame.pack(fill=ctk.BOTH, expand=True)
+        total_pages = max(1, (len(filtered) + self._page_size - 1) // self._page_size)
+        if self._current_page > total_pages:
+            self._current_page = total_pages
 
-        for item in filtered:
-            self._create_mod_card(item)
-
-        self._set_status(_("mod_list_count", count=len(filtered)))
+        self._render_current_page()
 
     def _render_filtered_list(self, resource_type: str):
         """渲染非模组标签页的过滤列表"""
-        for w in self._list_frame.winfo_children():
-            w.destroy()
-        self._empty_label.pack_forget()
         self._list_frame.pack_forget()
+        self._empty_label.pack_forget()
 
         if self._search_text:
-            filtered = [
+            self._filtered_items = [
                 item for item in self._current_items
                 if self._search_text in item.get("name", "").lower()
             ]
         else:
-            filtered = self._current_items
+            self._filtered_items = self._current_items
 
-        if not filtered:
+        if not self._filtered_items:
             self._empty_label.pack(fill=ctk.BOTH, expand=True)
+            self._page_frame.pack_forget()
             self._set_status(_("rm_search_no_results"))
             return
 
+        total_pages = max(1, (len(self._filtered_items) + self._page_size - 1) // self._page_size)
+        if self._current_page > total_pages:
+            self._current_page = total_pages
+
+        self._render_current_page()
+
+    def _render_current_page(self):
+        """渲染当前分页的资源列表"""
+        for w in self._list_frame.winfo_children():
+            w.destroy()
+
+        total = len(self._filtered_items)
+        total_pages = max(1, (total + self._page_size - 1) // self._page_size)
+
+        start = (self._current_page - 1) * self._page_size
+        end = min(start + self._page_size, total)
+        page_items = self._filtered_items[start:end]
+
         self._list_frame.pack(fill=ctk.BOTH, expand=True)
+        self._page_frame.pack(fill=ctk.X, padx=12, pady=(5, 0))
 
-        for item in filtered:
-            self._create_resource_item(item, resource_type)
+        current_type = self._tab_var.get()
 
-        self._set_status(_("rm_item_count", count=len(filtered), label=self._get_resource_label(resource_type)))
+        if current_type == "mods":
+            for item in page_items:
+                self._create_mod_card(item)
+        else:
+            for item in page_items:
+                self._create_resource_item(item, current_type)
+
+        # 更新分页控件状态
+        self._page_label.configure(text=_("rm_page_info", current=self._current_page, total=total_pages))
+        self._prev_btn.configure(state=ctk.NORMAL if self._current_page > 1 else ctk.DISABLED)
+        self._next_btn.configure(state=ctk.NORMAL if self._current_page < total_pages else ctk.DISABLED)
+
+        label = self._get_resource_label(current_type)
+        self._set_status(_("rm_list_count", count=total, page=self._current_page, total_pages=total_pages, label=label))
+
+    def _update_pagination(self):
+        """更新分页控件状态"""
+        total = len(self._filtered_items)
+        total_pages = max(1, (total + self._page_size - 1) // self._page_size)
+        self._page_label.configure(text=_("rm_page_info", current=self._current_page, total=total_pages))
+        self._prev_btn.configure(state=ctk.NORMAL if self._current_page > 1 else ctk.DISABLED)
+        self._next_btn.configure(state=ctk.NORMAL if self._current_page < total_pages else ctk.DISABLED)
+
+    def _on_prev_page(self):
+        """上一页"""
+        if self._current_page > 1:
+            self._current_page -= 1
+            self._render_current_page()
+
+    def _on_next_page(self):
+        """下一页"""
+        total = len(self._filtered_items)
+        total_pages = max(1, (total + self._page_size - 1) // self._page_size)
+        if self._current_page < total_pages:
+            self._current_page += 1
+            self._render_current_page()
 
     def _create_mod_card(self, item: Dict):
         """创建模组卡片"""
@@ -1324,48 +1426,120 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             corner_radius=8,
             scrollbar_button_color=COLORS["bg_light"],
         )
-        list_frame.pack(fill=ctk.BOTH, expand=True, pady=(0, 10))
+        list_frame.pack(fill=ctk.BOTH, expand=True, pady=(0, 5))
 
         checkbox_vars: Dict[str, ctk.BooleanVar] = {}
 
-        for modid, info in sorted(self._update_info.items(), key=lambda x: x[1].get("mod_name", x[0])):
-            row = ctk.CTkFrame(list_frame, fg_color=COLORS["bg_medium"], corner_radius=6, height=36)
-            row.pack(fill=ctk.X, pady=2, padx=2)
-            row.pack_propagate(False)
+        sorted_items = sorted(self._update_info.items(), key=lambda x: x[1].get("mod_name", x[0]))
+        page_size = 10
+        current_page = [1]
+        total_pages = max(1, (len(sorted_items) + page_size - 1) // page_size)
 
-            var = ctk.BooleanVar(value=True)
-            checkbox_vars[modid] = var
+        def _render_dialog_page():
+            for w in list_frame.winfo_children():
+                w.destroy()
 
-            cb = ctk.CTkCheckBox(
-                row,
-                text="",
-                variable=var,
-                width=22,
-                height=22,
-                fg_color=COLORS["accent"],
-                hover_color=COLORS["accent_hover"],
-                border_color=COLORS["card_border"],
-                checkmark_color=COLORS["text_primary"],
-            )
-            cb.pack(side=ctk.LEFT, padx=(8, 4), pady=6)
+            start = (current_page[0] - 1) * page_size
+            end = min(start + page_size, len(sorted_items))
+            page_items = sorted_items[start:end]
 
-            name_label = ctk.CTkLabel(
-                row,
-                text=info["mod_name"],
-                font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-                text_color=COLORS["text_primary"],
-                anchor=ctk.W,
-            )
-            name_label.pack(side=ctk.LEFT, padx=(0, 8))
+            for modid, info in page_items:
+                row = ctk.CTkFrame(list_frame, fg_color=COLORS["bg_medium"], corner_radius=6, height=36)
+                row.pack(fill=ctk.X, pady=2, padx=2)
+                row.pack_propagate(False)
 
-            ver_text = f"v{info['current_version']} → v{info['latest_version']}"
-            ver_label = ctk.CTkLabel(
-                row,
-                text=ver_text,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLORS["success"],
-            )
-            ver_label.pack(side=ctk.RIGHT, padx=(0, 8))
+                if modid not in checkbox_vars:
+                    checkbox_vars[modid] = ctk.BooleanVar(value=True)
+                var = checkbox_vars[modid]
+
+                cb = ctk.CTkCheckBox(
+                    row,
+                    text="",
+                    variable=var,
+                    width=22,
+                    height=22,
+                    fg_color=COLORS["accent"],
+                    hover_color=COLORS["accent_hover"],
+                    border_color=COLORS["card_border"],
+                    checkmark_color=COLORS["text_primary"],
+                )
+                cb.pack(side=ctk.LEFT, padx=(8, 4), pady=6)
+
+                name_label = ctk.CTkLabel(
+                    row,
+                    text=info["mod_name"],
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                    text_color=COLORS["text_primary"],
+                    anchor=ctk.W,
+                )
+                name_label.pack(side=ctk.LEFT, padx=(0, 8))
+
+                ver_text = f"v{info['current_version']} → v{info['latest_version']}"
+                ver_label = ctk.CTkLabel(
+                    row,
+                    text=ver_text,
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                    text_color=COLORS["success"],
+                )
+                ver_label.pack(side=ctk.RIGHT, padx=(0, 8))
+
+            page_label.configure(text=_("rm_page_info", current=current_page[0], total=total_pages))
+            prev_btn.configure(state=ctk.NORMAL if current_page[0] > 1 else ctk.DISABLED)
+            next_btn.configure(state=ctk.NORMAL if current_page[0] < total_pages else ctk.DISABLED)
+
+        def _on_dialog_prev():
+            if current_page[0] > 1:
+                current_page[0] -= 1
+                _render_dialog_page()
+
+        def _on_dialog_next():
+            if current_page[0] < total_pages:
+                current_page[0] += 1
+                _render_dialog_page()
+
+        # 分页控件
+        page_frame = ctk.CTkFrame(main, fg_color="transparent", height=32)
+        page_frame.pack(fill=ctk.X, pady=(0, 8))
+        page_frame.pack_propagate(False)
+
+        prev_btn = ctk.CTkButton(
+            page_frame,
+            text=_("rm_page_prev"),
+            width=80,
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_medium"],
+            hover_color=COLORS["bg_light"],
+            text_color=COLORS["text_primary"],
+            state=ctk.DISABLED,
+            command=_on_dialog_prev,
+        )
+        prev_btn.pack(side=ctk.LEFT)
+
+        page_label = ctk.CTkLabel(
+            page_frame,
+            text="1 / 1",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_secondary"],
+            width=80,
+        )
+        page_label.pack(side=ctk.LEFT, padx=8)
+
+        next_btn = ctk.CTkButton(
+            page_frame,
+            text=_("rm_page_next"),
+            width=80,
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_medium"],
+            hover_color=COLORS["bg_light"],
+            text_color=COLORS["text_primary"],
+            state=ctk.DISABLED if total_pages <= 1 else ctk.NORMAL,
+            command=_on_dialog_next,
+        )
+        next_btn.pack(side=ctk.LEFT)
+
+        _render_dialog_page()
 
         actions = ctk.CTkFrame(main, fg_color="transparent", height=38)
         actions.pack(fill=ctk.X)
@@ -1497,7 +1671,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                         _("mod_update_batch_progress", done=d, total=len(modids))))
 
         def _run_batch():
-            with ThreadPoolExecutor(max_workers=4) as executor:
+            with ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {executor.submit(_download_one, mid): mid for mid in modids}
                 for future in as_completed(futures):
                     ok, name = future.result()

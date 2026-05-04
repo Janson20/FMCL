@@ -307,11 +307,16 @@
   "rm_search_placeholder_shaderpacks": "🔍 シェーダーパックのファイル名で検索...",
   "rm_search_no_results": "一致するリソースが見つかりません",
 
+  "rm_page_prev": "◀ 前へ",
+  "rm_page_next": "次へ ▶",
+  "rm_page_info": "{current} / {total} ページ",
+
   "mod_loading_metadata": "⏳ MOD情報を読み込み中...",
   "mod_loading_progress": "⏳ MOD情報を読み込み中... ({done}/{total})",
   "mod_folder_empty": "MODフォルダが空です\n.jarファイルをドラッグするか「ファイルを追加」をクリック",
   "mod_search_no_results": "一致するMODが見つかりません",
   "mod_list_count": "全 {count} 個のMOD",
+  "rm_list_count": "{label} 全 {count} 件、{page}/{total_pages} ページ",
   
   "modpack_install": "📦 MODパックをインストール",
   "modpack_select": "📂 .mrpackファイルを選択",

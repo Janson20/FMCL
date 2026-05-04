@@ -307,11 +307,16 @@
   "rm_search_placeholder_shaderpacks": "🔍 Search shader pack filename...",
   "rm_search_no_results": "No matching resources found",
 
+  "rm_page_prev": "◀ Prev",
+  "rm_page_next": "Next ▶",
+  "rm_page_info": "Page {current} / {total}",
+
   "mod_loading_metadata": "⏳ Loading mod information...",
   "mod_loading_progress": "⏳ Loading mod information... ({done}/{total})",
   "mod_folder_empty": "Mod folder is empty\nDrag .jar files here or click \"Add File\"",
   "mod_search_no_results": "No matching mods found",
   "mod_list_count": "{count} mods total",
+  "rm_list_count": "{count} {label} total, page {page}/{total_pages}",
   
   "modpack_install": "📦 Install Modpack",
   "modpack_select": "📂 Select .mrpack File",
