@@ -2060,7 +2060,7 @@ def ai_merged_search(
     search_type: str = "mods",
     game_version: Optional[str] = None,
     mod_loader: Optional[str] = None,
-    max_per_keyword: int = 20,
+    max_per_keyword: int = 30,
 ) -> Dict:
     """AI 优化搜索：扩展关键词 -> 多词搜索 -> 合并去重按热度排序
 

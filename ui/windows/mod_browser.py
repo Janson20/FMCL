@@ -59,6 +59,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 "result_count_label": None,
                 "status_label": None,
                 "ai_search_btn": None,
+                "_ai_cached_hits": None,
             }
 
         self._build_ui()
@@ -272,6 +273,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         if entry:
             state["current_query"] = entry.get().strip()
         state["current_offset"] = 0
+        state["_ai_cached_hits"] = None
         self._set_tab_status(tab_key, _("mod_browser_searching"))
         self._run_in_thread(lambda: self._do_tab_search(tab_key))
 
@@ -359,18 +361,22 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 search_type=tab_key,
                 game_version=self._game_version,
                 mod_loader=self._mod_loader if tab_key == self.TAB_MODS else None,
+                max_per_keyword=30,
             )
 
-            hits = result.get("hits", [])
+            all_hits = result.get("hits", [])
             keywords = result.get("keywords", [])
 
-            state["total_hits"] = result.get("total_hits", 0)
+            state["_ai_cached_hits"] = all_hits
+            state["total_hits"] = len(all_hits)
+            state["current_offset"] = 0
 
+            page = all_hits[:self.PAGE_SIZE]
             kw_text = ", ".join(keywords) if keywords else query
-            self.after(0, lambda: self._render_tab_results(tab_key, hits))
+            self.after(0, lambda: self._render_tab_results(tab_key, page))
             self.after(0, lambda: self._set_tab_status(
                 tab_key,
-                _("ai_search_done", keywords=kw_text, total=len(hits)),
+                _("ai_search_done", keywords=kw_text, total=len(all_hits)),
             ))
             self.after(0, lambda: self._restore_ai_button(tab_key))
 
@@ -579,15 +585,31 @@ class ModBrowserWindow(ctk.CTkToplevel):
         state = self._tab_states[tab_key]
         if state["current_offset"] > 0:
             state["current_offset"] -= self.PAGE_SIZE
-            self._set_tab_status(tab_key, _("mod_browser_loading"))
-            self._run_in_thread(lambda: self._do_tab_search(tab_key))
+            if state["_ai_cached_hits"] is not None:
+                self._render_page_from_ai_cache(tab_key)
+            else:
+                self._set_tab_status(tab_key, _("mod_browser_loading"))
+                self._run_in_thread(lambda: self._do_tab_search(tab_key))
 
     def _on_tab_next_page(self, tab_key: str):
         state = self._tab_states[tab_key]
         if state["current_offset"] + self.PAGE_SIZE < state["total_hits"]:
             state["current_offset"] += self.PAGE_SIZE
-            self._set_tab_status(tab_key, _("mod_browser_loading"))
-            self._run_in_thread(lambda: self._do_tab_search(tab_key))
+            if state["_ai_cached_hits"] is not None:
+                self._render_page_from_ai_cache(tab_key)
+            else:
+                self._set_tab_status(tab_key, _("mod_browser_loading"))
+                self._run_in_thread(lambda: self._do_tab_search(tab_key))
+
+    def _render_page_from_ai_cache(self, tab_key: str):
+        state = self._tab_states[tab_key]
+        cached = state["_ai_cached_hits"]
+        if cached is None:
+            return
+        offset = state["current_offset"]
+        page = cached[offset:offset + self.PAGE_SIZE]
+        self._render_tab_results(tab_key, page)
+        self._update_tab_pagination(tab_key)
 
     def _on_install_mod(self, project_id: str, title: str):
         self._set_tab_status(self.TAB_MODS, _("mod_browser_fetching_version", title=title))

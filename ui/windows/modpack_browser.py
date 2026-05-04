@@ -40,6 +40,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         self._total_hits = 0
         self._current_query = ""
         self._ai_search_btn = None
+        self._ai_cached_hits = None
 
         self._build_ui()
 
@@ -174,6 +175,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
     def _on_search(self):
         self._current_query = self._search_entry.get().strip()
         self._current_offset = 0
+        self._ai_cached_hits = None
         self._set_status("正在搜索...")
         self._run_in_thread(self._do_search)
 
@@ -233,16 +235,20 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
                 query=query,
                 token=token,
                 search_type="modpacks",
+                max_per_keyword=30,
             )
 
-            hits = result.get("hits", [])
+            all_hits = result.get("hits", [])
             keywords = result.get("keywords", [])
 
-            self._total_hits = result.get("total_hits", 0)
+            self._ai_cached_hits = all_hits
+            self._total_hits = len(all_hits)
+            self._current_offset = 0
 
+            page = all_hits[:self.PAGE_SIZE]
             kw_text = ", ".join(keywords) if keywords else query
-            self.after(0, self._render_results, hits)
-            self.after(0, self._set_status, _("ai_search_done", keywords=kw_text, total=len(hits)))
+            self.after(0, self._render_results, page)
+            self.after(0, self._set_status, _("ai_search_done", keywords=kw_text, total=len(all_hits)))
             self.after(0, self._restore_ai_button)
 
         except Exception as e:
@@ -386,14 +392,28 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
     def _on_prev_page(self):
         if self._current_offset > 0:
             self._current_offset -= self.PAGE_SIZE
-            self._set_status("正在加载...")
-            self._run_in_thread(self._do_search)
+            if self._ai_cached_hits is not None:
+                self._render_page_from_ai_cache()
+            else:
+                self._set_status("正在加载...")
+                self._run_in_thread(self._do_search)
 
     def _on_next_page(self):
         if self._current_offset + self.PAGE_SIZE < self._total_hits:
             self._current_offset += self.PAGE_SIZE
-            self._set_status("正在加载...")
-            self._run_in_thread(self._do_search)
+            if self._ai_cached_hits is not None:
+                self._render_page_from_ai_cache()
+            else:
+                self._set_status("正在加载...")
+                self._run_in_thread(self._do_search)
+
+    def _render_page_from_ai_cache(self):
+        if self._ai_cached_hits is None:
+            return
+        offset = self._current_offset
+        page = self._ai_cached_hits[offset:offset + self.PAGE_SIZE]
+        self._render_results(page)
+        self._update_pagination()
 
     VERSION_PAGE_SIZE = 50
 
