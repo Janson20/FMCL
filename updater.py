@@ -74,7 +74,8 @@ def check_for_update() -> Optional[Dict[str, Any]]:
         slog.info("update_check_start", current_version=current,
                   platform=f"{platform.system().lower()}_{platform.machine().lower()}")
 
-        resp = requests.get(PROXY_API_URL, timeout=10)
+        headers = {"User-Agent": f"FMCL/{get_current_version()} ({platform.system()}; {platform.machine()})"}
+        resp = requests.get(PROXY_API_URL, timeout=10, headers=headers)
         resp.raise_for_status()
 
         release = resp.json()
@@ -272,7 +273,8 @@ def download_update(
 
         logger.info(f"开始下载更新: {filename}")
 
-        resp = requests.get(url, stream=True, timeout=60)
+        headers = {"User-Agent": f"FMCL/{get_current_version()} ({platform.system()}; {platform.machine()})"}
+        resp = requests.get(url, stream=True, timeout=60, headers=headers)
         resp.raise_for_status()
 
         # 优先使用 Content-Length

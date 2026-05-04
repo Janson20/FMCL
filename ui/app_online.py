@@ -392,12 +392,15 @@ class EasyTierManager:
         downloaded = False
         last_error = None
 
+        ua = f"FMCL/{_get_fmcl_version()} (Windows; {platform.machine()})"
         for url in urls:
             try:
                 logger.info(f"Downloading EasyTier from {url}")
                 if on_progress:
                     on_progress(f"正在下载 EasyTier v{version}...")
-                urllib.request.urlretrieve(url, str(zip_path))
+                req = urllib.request.Request(url, headers={"User-Agent": ua})
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    zip_path.write_bytes(resp.read())
                 downloaded = True
                 break
             except Exception as e:
