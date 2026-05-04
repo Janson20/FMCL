@@ -783,6 +783,7 @@
   "ach_syncing": "☁ 同步中...",
   "ach_sync_success": "☁ 已同步",
   "ach_sync_failed": "☁ 同步失敗",
+  "ach_last_sync_time": "上次同步: {time}",
   "ach_sync_status_syncing": "正在與雲端同步...",
   "ach_sync_status_resetting": "正在重置...",
   "ach_sync_login_title": "需要登入",

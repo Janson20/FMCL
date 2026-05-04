@@ -783,6 +783,7 @@
   "ach_syncing": "☁ 同期中...",
   "ach_sync_success": "☁ 同期完了",
   "ach_sync_failed": "☁ 同期失敗",
+  "ach_last_sync_time": "前回同期: {time}",
   "ach_sync_status_syncing": "クラウドと同期中...",
   "ach_sync_status_resetting": "リセット中...",
   "ach_sync_login_title": "ログインが必要",

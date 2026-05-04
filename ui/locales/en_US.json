@@ -783,6 +783,7 @@
   "ach_syncing": "☁ Syncing...",
   "ach_sync_success": "☁ Synced",
   "ach_sync_failed": "☁ Sync Failed",
+  "ach_last_sync_time": "Last sync: {time}",
   "ach_sync_status_syncing": "Syncing with cloud...",
   "ach_sync_status_resetting": "Resetting...",
   "ach_sync_login_title": "Login Required",

@@ -263,6 +263,39 @@ class AchievementEngine:
             finally:
                 conn.close()
 
+    def set_last_sync_time(self, timestamp: float):
+        """记录上次成功同步的时间戳到 achievement_state"""
+        with self._lock:
+            conn = self._get_conn()
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO achievement_state (key, value) VALUES (?, ?)",
+                    ("last_sync_time", str(timestamp))
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+    def get_last_sync_time(self) -> Optional[float]:
+        """获取上次成功同步的时间戳
+        
+        Returns:
+            时间戳（秒），如果没有同步过则返回 None
+        """
+        with self._lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT value FROM achievement_state WHERE key = 'last_sync_time'"
+                ).fetchone()
+                if row:
+                    return float(row["value"])
+                return None
+            except (ValueError, TypeError):
+                return None
+            finally:
+                conn.close()
+
     def checkin(self) -> Optional[Dict[str, Any]]:
         """每日签到"""
         today = time.strftime("%Y-%m-%d")

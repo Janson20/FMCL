@@ -244,7 +244,9 @@ def main():
                 if token:
                     from achievement_sync import run_sync
                     app.set_status("正在同步成就云存档...", "loading")
-                    run_sync(token, ach_engine._db_path)
+                    ok = run_sync(token, ach_engine._db_path)
+                    if ok:
+                        ach_engine.set_last_sync_time(time.time())
             except Exception as e:
                 logger.error(f"成就系统初始化失败: {e}")
             finally:

@@ -1,5 +1,6 @@
 """ModernApp 成就 Mixin - 成就标签页 + 云同步"""
 
+import time
 import threading
 from typing import List, Dict, Any
 
@@ -46,6 +47,14 @@ class AchievementTabMixin(object):
             text_color=COLORS["text_secondary"],
         )
         self.ach_stats_detail.pack(side=ctk.RIGHT, pady=(0, 4))
+
+        self.ach_last_sync_label = ctk.CTkLabel(
+            stats_frame,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        )
+        self.ach_last_sync_label.pack(fill=ctk.X, padx=20, pady=(0, 2))
 
         self.ach_progress_bar = ctk.CTkProgressBar(
             stats_frame, height=6, fg_color=COLORS["bg_medium"], progress_color=COLORS["accent"]
@@ -104,6 +113,7 @@ class AchievementTabMixin(object):
         self._theme_refs.append((self.ach_stats_title, {"text_color": "text_primary"}))
         self._theme_refs.append((self.ach_stats_detail, {"text_color": "text_secondary"}))
         self._theme_refs.append((self.ach_sync_status, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self.ach_last_sync_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self.ach_progress_bar, {"fg_color": "bg_medium", "progress_color": "accent"}))
         self._theme_refs.append((self.ach_sync_btn, {"fg_color": "accent", "hover_color": "accent_hover"}))
         self._theme_refs.append((self.ach_reset_cloud_btn, {"fg_color": "warning", "text_color": "text_primary"}))
@@ -127,6 +137,7 @@ class AchievementTabMixin(object):
         data = engine.get_all()
         self._ach_data_cache = data
         self._render_achievement_data(data)
+        self._update_ach_last_sync_label()
 
     def _render_achievement_data(self, data: List[Dict[str, Any]]):
         """渲染成就数据"""
@@ -328,6 +339,10 @@ class AchievementTabMixin(object):
         self.ach_sync_btn.configure(state=ctk.NORMAL, text=_("ach_sync_btn"))
         if success:
             self._set_sync_status(_("ach_sync_success"))
+            from achievement_engine import get_achievement_engine
+            engine = get_achievement_engine()
+            if engine:
+                engine.set_last_sync_time(time.time())
             self._refresh_achievements()
         else:
             self._set_sync_status(_("ach_sync_failed"))
@@ -336,6 +351,24 @@ class AchievementTabMixin(object):
         try:
             if self.ach_sync_status.winfo_exists():
                 self.ach_sync_status.configure(text=text)
+        except Exception:
+            pass
+
+    def _update_ach_last_sync_label(self):
+        """从数据库加载上次同步时间并更新标签"""
+        try:
+            if not hasattr(self, 'ach_last_sync_label') or not self.ach_last_sync_label.winfo_exists():
+                return
+            from achievement_engine import get_achievement_engine
+            engine = get_achievement_engine()
+            if engine is None:
+                return
+            ts = engine.get_last_sync_time()
+            if ts is not None:
+                formatted = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+                self.ach_last_sync_label.configure(text=_("ach_last_sync_time", time=formatted))
+            else:
+                self.ach_last_sync_label.configure(text="")
         except Exception:
             pass
 
@@ -491,7 +524,11 @@ class AchievementTabMixin(object):
                     from achievement_sync import run_sync
                     engine = get_achievement_engine()
                     if engine:
-                        run_sync(token, engine._db_path)
+                        ok = run_sync(token, engine._db_path)
+                        if ok:
+                            engine.set_last_sync_time(time.time())
+                            if self.winfo_exists():
+                                self.after(0, self._update_ach_last_sync_label)
 
                 threading.Thread(target=_push_sync, daemon=True).start()
 
