@@ -36,6 +36,20 @@ jobs:
       - name: Install NSIS
         run: choco install nsis -y
 
+      - name: Download 7-Zip installers
+        run: |
+          New-Item -ItemType Directory -Force -Path 7z_installers
+          Invoke-WebRequest -Uri "https://www.7-zip.org/a/7z2409-x64.exe" -OutFile "7z_installers\7z2409-x64.exe"
+          Invoke-WebRequest -Uri "https://www.7-zip.org/a/7z2409.exe" -OutFile "7z_installers\7z2409.exe"
+        shell: pwsh
+
+      - name: Ensure NSIS script UTF-8 BOM encoding
+        run: |
+          $content = Get-Content -Path installer.nsi -Encoding UTF8 -Raw
+          $utf8BomEncoding = New-Object System.Text.UTF8Encoding $true
+          [System.IO.File]::WriteAllText("$PWD\installer.nsi", $content, $utf8BomEncoding)
+        shell: pwsh
+
       - name: Build Windows Installer
         run: |
           $version = "${{ github.ref_name }}" -replace '^v', ''

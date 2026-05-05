@@ -1,6 +1,8 @@
 ; FMCL Windows Installer - NSIS Script
 ; 使用方法: makensis /DVERSION=x.x.x installer.nsi
 
+Unicode true
+
 !define PRODUCT_NAME "FMCL"
 !define PRODUCT_PUBLISHER "FMCL Team"
 !define PRODUCT_WEB_SITE "https://github.com/Janson20/FMCL"
@@ -104,31 +106,23 @@ check_path:
   StrCpy $0 "$PROGRAMFILES64\7-Zip\7z.exe"
   IfFileExists $0 sevenz_done
 
-  DetailPrint "未检测到 7-Zip，正在下载..."
-  MessageBox MB_OK "FMCL 预下载功能需要 7-Zip 来解压资源包。$\n$\n点击确定后将自动下载并安装 7-Zip（静默安装）。" /SD IDOK
+  DetailPrint "未检测到 7-Zip，正在从安装包中安装..."
+  MessageBox MB_OK "FMCL 预下载功能需要 7-Zip 来解压资源包。$\n$\n点击确定后将自动安装 7-Zip（静默安装）。" /SD IDOK
 
+  SetOutPath "$TEMP\FMCLauncher_7z"
   ${If} ${RunningX64}
-    StrCpy $1 "https://www.7-zip.org/a/7z2409-x64.exe"
+    File "7z_installers\7z2409-x64.exe"
+    StrCpy $2 "$TEMP\FMCLauncher_7z\7z2409-x64.exe"
   ${Else}
-    StrCpy $1 "https://www.7-zip.org/a/7z2409.exe"
+    File "7z_installers\7z2409.exe"
+    StrCpy $2 "$TEMP\FMCLauncher_7z\7z2409.exe"
   ${EndIf}
-
-  StrCpy $2 "$TEMP\7z_fmcl_installer.exe"
-  DetailPrint "下载地址: $1"
-  DetailPrint "保存到: $2"
-
-  NSISdl::download "$1" "$2"
-  Pop $0
-  ${If} $0 != "success"
-    DetailPrint "7-Zip 下载失败: $0"
-    MessageBox MB_ICONEXCLAMATION "7-Zip 自动下载失败。$\n$\n请手动安装 7-Zip: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
-    Goto sevenz_done
-  ${EndIf}
+  SetOutPath "$INSTDIR"
 
   DetailPrint "正在静默安装 7-Zip..."
   ExecWait '"$2" /S' $0
 
-  Delete "$2"
+  RMDir /r "$TEMP\FMCLauncher_7z"
 
   Sleep 2000
 

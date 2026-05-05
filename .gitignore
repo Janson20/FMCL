@@ -61,6 +61,7 @@ FMCL-*-linux-*.deb
 FMCL-*-x86_64.AppImage
 
 # NSIS / installer temp
+7z_installers/
 dmg_temp/
 FMCL.AppDir/
 fmcl_*_amd64/

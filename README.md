@@ -375,7 +375,7 @@
 
 #### 安装说明
 
-- **Windows**: 双击 `.exe` 安装包，按向导完成安装
+- **Windows**: 双击 `.exe` 安装包，按向导完成安装。安装包已内置 7-Zip（24.09 版本），无需联网即可自动安装
 - **macOS**: 双击 `.dmg` 文件，将 FMCL.app 拖入 Applications 文件夹。首次打开若提示"无法验证开发者"，请在系统设置 > 安全性与隐私中点击"仍要打开"，或运行：
   ```bash
   xattr -cr /Applications/FMCL.app
