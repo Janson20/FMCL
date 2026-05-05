@@ -155,6 +155,45 @@ class MinecraftLauncher:
 
         return current_java
 
+    def _ensure_java_runtime(self, version_id: str) -> str:
+        current = self._resolve_java_executable(version_id, "java")
+        if current != "java" and os.path.isfile(current):
+            return current
+
+        mc_base = self._extract_mc_version(version_id)
+        version_json_path = Path(self.minecraft_dir) / "versions" / version_id / f"{version_id}.json"
+        if not version_json_path.exists():
+            logger.info(f"版本 {mc_base} 未安装，正在安装以获取 Java runtime...")
+            self._set_status(f"正在安装 {mc_base}（自动获取 Java runtime）...")
+            self._mcllib.install.install_minecraft_version(
+                mc_base,
+                self.minecraft_dir,
+                callback=self._get_callback()
+            )
+
+        current = self._resolve_java_executable(version_id, "java")
+        if current != "java" and os.path.isfile(current):
+            self._set_status(f"Java runtime 就绪: {current}")
+            return current
+
+        logger.error(f"无法为 {version_id} 自动安装 Java runtime")
+        return "java"
+
+    @staticmethod
+    def _extract_mc_version(version_id: str) -> str:
+        version_id_lower = version_id.lower()
+
+        if "fabric" in version_id_lower or "quilt" in version_id_lower:
+            parts = version_id.split("-")
+            return parts[-1] if len(parts) > 1 else version_id
+
+        for loader in ("neoforge", "forge"):
+            idx = version_id_lower.find(f"-{loader}")
+            if idx > 0:
+                return version_id[:idx]
+
+        return version_id.split("-")[0] if "-" in version_id else version_id
+
     def scan_system_java(self) -> List[Dict]:
         from launcher.java_scanner import get_java_summary
         javas = self._get_cached_java_runtimes()
@@ -550,6 +589,11 @@ class MinecraftLauncher:
                 if resolved_java != minecraft_command[0]:
                     logger.info(f"Java 可执行文件已替换: {minecraft_command[0]} -> {resolved_java}")
                     minecraft_command[0] = resolved_java
+                elif resolved_java == "java" or not os.path.isfile(resolved_java):
+                    resolved_java = self._ensure_java_runtime(target_version)
+                    if resolved_java != "java" and os.path.isfile(resolved_java):
+                        minecraft_command[0] = resolved_java
+                        logger.info(f"自动安装 Java runtime 后使用: {resolved_java}")
 
             # 直连服务器时追加 --quickPlayMultiplayer（1.20.4+，启动后立即加入）
             if server_ip:

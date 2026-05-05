@@ -195,6 +195,45 @@ class ServerMixin:
         self.config.java_custom_path = path
         self.config.save_config()
 
+    def _ensure_java_runtime(self, version_id: str) -> str:
+        java_path = self._find_runtime_java(version_id)
+        if java_path != "java" and os.path.isfile(java_path):
+            return java_path
+
+        mc_base = self._extract_mc_version(version_id)
+        version_json_path = Path(self.minecraft_dir) / "versions" / version_id / f"{version_id}.json"
+        if not version_json_path.exists():
+            logger.info(f"版本 {mc_base} 未安装，正在安装以获取 Java runtime...")
+            self._set_status(f"正在安装 {mc_base}（自动获取 Java runtime）...")
+            self._mcllib.install.install_minecraft_version(
+                mc_base,
+                self.minecraft_dir,
+                callback=self._get_callback()
+            )
+
+        java_path = self._find_runtime_java(version_id)
+        if java_path != "java" and os.path.isfile(java_path):
+            self._set_status(f"Java runtime 就绪: {java_path}")
+            return java_path
+
+        logger.error(f"无法为 {version_id} 自动安装 Java runtime")
+        return "java"
+
+    @staticmethod
+    def _extract_mc_version(version_id: str) -> str:
+        version_id_lower = version_id.lower()
+
+        if "fabric" in version_id_lower or "quilt" in version_id_lower:
+            parts = version_id.split("-")
+            return parts[-1] if len(parts) > 1 else version_id
+
+        for loader in ("neoforge", "forge"):
+            idx = version_id_lower.find(f"-{loader}")
+            if idx > 0:
+                return version_id[:idx]
+
+        return version_id.split("-")[0] if "-" in version_id else version_id
+
     def install_server(self, version_id: str) -> Tuple[bool, str]:
         """
         下载并安装 Minecraft 服务器
@@ -232,24 +271,11 @@ class ServerMixin:
                 callback=self._get_callback()
             )
 
-            java_path = self._find_runtime_java(version_id)
-            if java_path == "java" or not os.path.isfile(java_path):
-                suggestion = self.get_java_suggestion(version_id)
-                if suggestion and not suggestion.get("found"):
-                    req_java = suggestion.get("required_java", 17)
-                    dl_url = suggestion.get("download_url") or ""
-                    install_cmd = suggestion.get("install_command") or ""
-                    logger.warning(
-                        f"未找到合适的 Java {req_java}+ 用于服务器 {version_id}。"
-                        f"请安装 JDK {req_java}。"
-                        f"下载: {dl_url}  安装命令: {install_cmd}"
-                    )
-                    self._set_status(
-                        f"⚠ 未找到 Java {req_java}+，服务器可能无法启动。"
-                        f"请安装 JDK {req_java}"
-                    )
-            else:
+            java_path = self._ensure_java_runtime(version_id)
+            if java_path != "java" and os.path.isfile(java_path):
                 logger.info(f"Java 运行时就绪: {java_path}")
+            else:
+                logger.warning(f"Java runtime 未就绪，服务器 {version_id} 可能无法启动")
 
             # 2. 从版本 JSON 获取 server jar 下载链接
             version_json_path = Path(self.minecraft_dir) / "versions" / version_id / f"{version_id}.json"
@@ -485,8 +511,15 @@ class ServerMixin:
             # NeoForge / Forge 服务器：优先使用 run.bat 或 run.sh 启动
             run_script = server_dir / ("run.bat" if sys.platform == 'win32' else "run.sh")
             if run_script.exists():
+                java_path = self._ensure_java_runtime(version_id)
                 env = os.environ.copy()
                 env["JAVA_OPTS"] = f"-Xmx{max_memory} -Xms{max_memory}"
+                if java_path != "java" and os.path.isfile(java_path):
+                    java_home = os.path.dirname(os.path.dirname(java_path))
+                    env["JAVA_HOME"] = java_home
+                    java_bin_dir = os.path.dirname(java_path)
+                    env["PATH"] = java_bin_dir + os.pathsep + env.get("PATH", "")
+                    logger.info(f"run_script 设置 JAVA_HOME={java_home}")
                 cmd = [str(run_script)]
                 logger.info(f"使用启动脚本: {run_script}")
                 popen_kwargs = dict(
@@ -513,33 +546,8 @@ class ServerMixin:
                 logger.error(f"在 {server_dir} 中未找到服务器 jar")
                 return False, None
 
-            # 从 runtime 查找 Java
-            java_path = self._find_runtime_java(version_id)
-
-            if java_path == "java" or not os.path.isfile(java_path):
-                try:
-                    from launcher.java_scanner import recommend_for_mc
-                    javas = self._get_cached_java_runtimes()
-                    if javas:
-                        best = recommend_for_mc(javas, version_id)
-                        if best:
-                            java_path = best.path
-                            logger.info(f"从系统扫描选择 Java: {best.display_name}")
-                except Exception as e:
-                    logger.debug(f"扫描器 Java 推荐失败: {e}")
-
-            if java_path == "java" or not os.path.isfile(java_path):
-                suggestion = self.get_java_suggestion(version_id)
-                if suggestion and not suggestion.get("found"):
-                    req_java = suggestion.get("required_java", 17)
-                    dl_url = suggestion.get("download_url") or ""
-                    install_cmd = suggestion.get("install_command") or ""
-                    logger.warning(
-                        f"未找到合适的 Java {req_java}+ 用于服务器 {version_id}。"
-                        f"请安装 JDK {req_java}。"
-                        f"下载: {dl_url}  安装命令: {install_cmd}"
-                    )
-
+            # 自动确保 Java runtime 可用（找不到则安装客户端获取）
+            java_path = self._ensure_java_runtime(version_id)
             logger.info(f"使用 Java: {java_path}")
 
             cmd = [java_path, f"-Xmx{max_memory}", f"-Xms{max_memory}", "-jar", str(server_jar), "nogui"]

@@ -95,6 +95,29 @@ class MrpackMixin:
         self.config.java_custom_path = path
         self.config.save_config()
 
+    def _ensure_java_runtime(self, version_id: str) -> str:
+        java_path = self._resolve_java_for_version(version_id)
+        if java_path != "java" and os.path.isfile(java_path):
+            return java_path
+
+        version_json_path = Path(getattr(self, "minecraft_dir", "")) / "versions" / version_id / f"{version_id}.json"
+        if not version_json_path.exists():
+            logger.info(f"版本 {version_id} 未安装，正在安装以获取 Java runtime...")
+            self._set_status(f"正在安装 {version_id}（自动获取 Java runtime）...")
+            self._mcllib.install.install_minecraft_version(
+                version_id,
+                getattr(self, "minecraft_dir", ""),
+                callback=self._get_callback()
+            )
+
+        java_path = self._resolve_java_for_version(version_id)
+        if java_path != "java" and os.path.isfile(java_path):
+            self._set_status(f"Java runtime 就绪: {java_path}")
+            return java_path
+
+        logger.error(f"无法为 {version_id} 自动安装 Java runtime")
+        return "java"
+
     def get_mrpack_information(self, mrpack_path: str) -> Dict[str, Any]:
         """
         读取 .mrpack 整合包的元数据信息
@@ -634,7 +657,7 @@ class MrpackMixin:
             self._mp_progress["mrpack"] = {"current": 1, "max": 1, "label": "完成"}
             self._mp_progress["vanilla"] = {"current": 1, "max": 1, "label": "完成"}
 
-            java_path = self._resolve_java_for_version(mc_version)
+            java_path = self._ensure_java_runtime(mc_version)
             self._check_and_warn_missing_java(mc_version, java_path)
             logger.info(f"使用 Java: {java_path}")
 

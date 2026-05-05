@@ -597,10 +597,16 @@ def scan_all(minecraft_dir: Optional[str] = None) -> List[JavaRuntime]:
 
 def recommend_for_mc(javas: List[JavaRuntime], mc_version: str) -> Optional[JavaRuntime]:
     min_java = _min_java_for_mc(mc_version)
-    candidates = [j for j in javas if j.major_version >= min_java]
-    if not candidates:
-        return None
-    return min(candidates, key=lambda j: j.major_version)
+
+    exact = [j for j in javas if j.major_version == min_java]
+    if exact:
+        return exact[0]
+
+    near = [j for j in javas if min_java < j.major_version <= min_java + 4]
+    if near:
+        return min(near, key=lambda j: j.major_version)
+
+    return None
 
 
 def get_java_summary(javas: List[JavaRuntime]) -> List[Dict]:
