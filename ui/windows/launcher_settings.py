@@ -21,7 +21,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.parent = parent
 
         self.title(_("settings_title"))
-        self.geometry("520x780")
+        self.geometry("520x900")
         self.resizable(False, False)
         self.grab_set()
 
@@ -131,6 +131,146 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.mirror_switch.pack(side=ctk.RIGHT)
         self._r(self.mirror_switch, fg_color="accent", button_color="text_primary",
                 button_hover_color="text_secondary", progress_color="accent_hover")
+
+        # ── Java 运行时设置 ──
+        java_section = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
+        java_section.pack(fill=ctk.X, pady=(15, 5))
+
+        java_title = ctk.CTkLabel(
+            java_section,
+            text=_("settings_java_title"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        java_title.pack(anchor=ctk.W, padx=12, pady=(10, 5))
+
+        # Java 选择模式
+        java_mode_frame = ctk.CTkFrame(java_section, fg_color="transparent")
+        java_mode_frame.pack(fill=ctk.X, padx=12, pady=5)
+
+        java_mode_label = ctk.CTkLabel(
+            java_mode_frame,
+            text=_("settings_java_mode"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLORS["text_primary"],
+        )
+        java_mode_label.pack(side=ctk.LEFT)
+
+        self._java_mode_options = [
+            _("settings_java_mode_auto"),
+            _("settings_java_mode_scan"),
+            _("settings_java_mode_custom"),
+        ]
+        self._java_mode_map = {
+            _("settings_java_mode_auto"): "auto",
+            _("settings_java_mode_scan"): "scan",
+            _("settings_java_mode_custom"): "custom",
+        }
+
+        current_mode = self.callbacks.get("get_java_mode", lambda: "auto")()
+        current_mode_display = (
+            _("settings_java_mode_scan") if current_mode == "scan"
+            else _("settings_java_mode_custom") if current_mode == "custom"
+            else _("settings_java_mode_auto")
+        )
+
+        self.java_mode_var = ctk.StringVar(value=current_mode_display)
+        self.java_mode_menu = ctk.CTkOptionMenu(
+            java_mode_frame,
+            variable=self.java_mode_var,
+            values=self._java_mode_options,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_dark"],
+            button_color=COLORS["bg_light"],
+            button_hover_color=COLORS["card_border"],
+            dropdown_fg_color=COLORS["bg_medium"],
+            dropdown_hover_color=COLORS["bg_light"],
+            command=self._on_java_mode_change,
+        )
+        self.java_mode_menu.pack(side=ctk.RIGHT)
+
+        # 自定义路径输入（仅 custom 模式可见）
+        self._java_custom_frame = ctk.CTkFrame(java_section, fg_color="transparent")
+        self.java_custom_entry = ctk.CTkEntry(
+            self._java_custom_frame,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_dark"],
+            border_color=COLORS["card_border"],
+            text_color=COLORS["text_primary"],
+            placeholder_text=_("settings_java_custom_placeholder"),
+            width=280,
+        )
+        self.java_custom_entry.pack(side=ctk.LEFT, padx=(0, 5))
+
+        self.java_custom_browse_btn = ctk.CTkButton(
+            self._java_custom_frame,
+            text=_("settings_java_custom_browse"),
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_java_custom_browse,
+        )
+        self.java_custom_browse_btn.pack(side=ctk.LEFT)
+
+        saved_custom = self.callbacks.get("get_java_custom_path", lambda: None)() or ""
+        self.java_custom_entry.insert(0, saved_custom)
+
+        if current_mode == "custom":
+            self._java_custom_frame.pack(fill=ctk.X, padx=12, pady=(5, 10))
+        else:
+            self._java_custom_frame.pack_forget()
+
+        # 扫描列表区域（仅 scan 模式可见）
+        self._java_scan_frame = ctk.CTkScrollableFrame(
+            java_section,
+            fg_color=COLORS["bg_dark"],
+            height=140,
+        )
+
+        self._java_scan_list_label = ctk.CTkLabel(
+            self._java_scan_frame,
+            text=_("settings_java_scan_none"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        )
+        self._java_scan_list_label.pack(pady=20, padx=12)
+
+        self._java_scan_runtimes = []
+        self._java_scan_selected_var = ctk.StringVar(value="")
+
+        self._java_scan_refresh_btn = ctk.CTkButton(
+            java_section,
+            text=_("settings_java_scan_refresh"),
+            height=26,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_java_scan_refresh,
+        )
+
+        if current_mode == "scan":
+            self._java_scan_frame.pack(fill=ctk.X, padx=12, pady=(5, 5))
+            self._java_scan_refresh_btn.pack(anchor=ctk.W, padx=12, pady=(0, 10))
+            self._populate_java_scan_list()
+        else:
+            self._java_scan_frame.pack_forget()
+            self._java_scan_refresh_btn.pack_forget()
+
+        # 主题注册
+        self._r(java_section, fg_color="bg_medium")
+        self._r(java_title, text_color="text_primary")
+        self._r(java_mode_label, text_color="text_primary")
+        self._r(self.java_mode_menu, fg_color="bg_dark", button_color="bg_light",
+                button_hover_color="card_border", dropdown_fg_color="bg_medium",
+                dropdown_hover_color="bg_light")
+        self._r(self.java_custom_entry, fg_color="bg_dark", border_color="card_border",
+                text_color="text_primary")
+        self._r(self.java_custom_browse_btn, fg_color="bg_light", hover_color="card_border")
+        self._r(self._java_scan_frame, fg_color="bg_dark")
+        self._r(self._java_scan_list_label, text_color="text_secondary")
+        self._r(self._java_scan_refresh_btn, fg_color="bg_light", hover_color="card_border")
 
         # ── 界面语言设置 ──
         language_frame = ctk.CTkFrame(container, fg_color="transparent")
@@ -651,6 +791,106 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             self.callbacks["set_dynamic_version_theme"](enabled)
         status_key = "settings_dynamic_enabled" if enabled else "settings_dynamic_disabled"
         self.parent.set_status(_(status_key), "info")
+
+    def _on_java_mode_change(self, display_name: str):
+        mode = self._java_mode_map.get(display_name, "auto")
+        if "set_java_mode" in self.callbacks:
+            self.callbacks["set_java_mode"](mode)
+
+        if mode == "custom":
+            self._java_custom_frame.pack(fill=ctk.X, padx=12, pady=(5, 10))
+            self._java_scan_frame.pack_forget()
+            self._java_scan_refresh_btn.pack_forget()
+        elif mode == "scan":
+            self._java_custom_frame.pack_forget()
+            self._java_scan_frame.pack(fill=ctk.X, padx=12, pady=(5, 5))
+            self._java_scan_refresh_btn.pack(anchor=ctk.W, padx=12, pady=(0, 10))
+            self._populate_java_scan_list()
+        else:
+            self._java_custom_frame.pack_forget()
+            self._java_scan_frame.pack_forget()
+            self._java_scan_refresh_btn.pack_forget()
+
+        self.parent.set_status(_("settings_java_changed", mode=display_name), "info")
+
+    def _on_java_custom_browse(self):
+        file_path = filedialog.askopenfilename(
+            title="选择 Java 可执行文件",
+            filetypes=[
+                ("Java Executable", "java.exe" if sys.platform == "win32" else "java"),
+                ("All Files", "*.*"),
+            ],
+            parent=self,
+        )
+        if file_path:
+            self.java_custom_entry.delete(0, "end")
+            self.java_custom_entry.insert(0, file_path)
+            if "set_java_custom_path" in self.callbacks:
+                self.callbacks["set_java_custom_path"](file_path)
+            self.parent.set_status(f"自定义 Java 路径已设置: {file_path}", "success")
+
+    def _on_java_scan_refresh(self):
+        self._populate_java_scan_list()
+        self.parent.set_status(_("settings_java_scan_refresh"), "info")
+
+    def _populate_java_scan_list(self):
+        for w in self._java_scan_frame.winfo_children():
+            w.destroy()
+
+        self._java_scan_runtimes = []
+        scan_result = self.callbacks.get("scan_system_java", lambda: [])()
+
+        if not scan_result:
+            self._java_scan_list_label = ctk.CTkLabel(
+                self._java_scan_frame,
+                text=_("settings_java_scan_none"),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLORS["text_secondary"],
+            )
+            self._java_scan_list_label.pack(pady=20, padx=12)
+            self._r(self._java_scan_list_label, text_color="text_secondary")
+            return
+
+        self._java_scan_runtimes = scan_result
+        self._java_scan_selected_var = ctk.StringVar(value="")
+
+        for i, rt in enumerate(scan_result):
+            kind = "JRE" if rt.get("is_jre") else "JDK"
+            label = f"Java {rt.get('major_version')} ({kind}) - {rt.get('version_str')} [{rt.get('arch')}]"
+            sublabel = rt.get("home", "")
+
+            frame = ctk.CTkFrame(
+                self._java_scan_frame,
+                fg_color=COLORS["bg_medium"],
+                corner_radius=6,
+            )
+            frame.pack(fill=ctk.X, pady=2, padx=5)
+
+            radio = ctk.CTkRadioButton(
+                frame,
+                text=label,
+                variable=self._java_scan_selected_var,
+                value=rt.get("path", ""),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                text_color=COLORS["text_primary"],
+                command=lambda p=rt.get("path", ""): self._on_java_scan_select(p),
+            )
+            radio.pack(anchor=ctk.W, padx=10, pady=(4, 0))
+
+            sub = ctk.CTkLabel(
+                frame,
+                text=sublabel,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+                text_color=COLORS["text_secondary"],
+            )
+            sub.pack(anchor=ctk.W, padx=30, pady=(0, 4))
+
+    def _on_java_scan_select(self, path: str):
+        if "set_java_custom_path" in self.callbacks:
+            self.callbacks["set_java_custom_path"](path)
+        self.parent.set_status(f"已选择 Java: {path}", "success")
 
     def _refresh_theme_list(self):
         """刷新主题下拉列表"""

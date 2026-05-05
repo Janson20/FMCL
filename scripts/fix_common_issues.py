@@ -116,10 +116,9 @@ def fix_linux_issues():
 
 
 def check_java():
-    """检查Java安装"""
     print("\n☕ 检查Java环境...")
     result = subprocess.run("java -version", shell=True, capture_output=True, text=True)
-    
+
     if result.returncode == 0:
         print("✅ Java已安装")
         print(result.stderr)
@@ -127,6 +126,20 @@ def check_java():
         print("❌ Java未安装")
         print("请安装Java 17或更高版本")
         print("下载地址: https://adoptium.net/")
+
+    print("\n📋 扫描系统已安装的 Java 运行时...")
+    try:
+        from launcher.java_scanner import scan_all
+        javas = scan_all()
+        if javas:
+            print(f"  发现 {len(javas)} 个 Java 运行时:")
+            for j in javas:
+                kind = "JRE" if j.is_jre else "JDK"
+                print(f"    - {j.display_name}")
+        else:
+            print("  未扫描到 Java 运行时（可能需要手动安装）")
+    except ImportError:
+        pass
 
 
 def main():

@@ -159,6 +159,10 @@ class Config:
         self.accent_color: Optional[str] = None
         self.dynamic_version_theme: bool = False
 
+        # Java 运行时配置
+        self.java_mode: str = "auto"
+        self.java_custom_path: Optional[str] = None
+
         # 备份配置
         self.backup_dir: Optional[str] = None
         self.backup_compress_level: int = 6
@@ -231,6 +235,10 @@ class Config:
                 self.accent_color = data["accent_color"]
             if "dynamic_version_theme" in data:
                 self.dynamic_version_theme = data["dynamic_version_theme"]
+            if "java_mode" in data:
+                self.java_mode = data["java_mode"]
+            if "java_custom_path" in data:
+                self.java_custom_path = data["java_custom_path"]
             if "ai_privacy_consent" in data:
                 self.ai_privacy_consent = data["ai_privacy_consent"]
             if "terms_consent" in data:
@@ -266,6 +274,8 @@ class Config:
                 "backup_restore_mode": self.backup_restore_mode,
                 "backup_auto_launch": self.backup_auto_launch,
                 "backup_auto_exit": self.backup_auto_exit,
+                "java_mode": self.java_mode,
+                "java_custom_path": self.java_custom_path,
             }
             content = _json_dumps(data, indent=2, ensure_ascii=False)
             # 原子写入：先写临时文件，再重命名，防止写入过程中崩溃导致配置文件损坏

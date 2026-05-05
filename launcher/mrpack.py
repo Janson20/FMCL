@@ -16,10 +16,84 @@ from logzero import logger
 class MrpackMixin:
     """整合包（mrpack）安装 Mixin 类"""
 
+    _java_scan_cache: Optional[List] = None
+    _java_scan_cache_time: float = 0.0
+
     # 并行下载模组时的线程数
     PARALLEL_DOWNLOADS = 10
 
     # ─── 整合包（mrpack）安装 ───────────────────────────────────
+
+    def _get_cached_java_runtimes_mrpack(self) -> List:
+        import time
+        now = time.time()
+        if self._java_scan_cache is not None and (now - self._java_scan_cache_time) < 30:
+            return self._java_scan_cache
+        from launcher.java_scanner import scan_all
+        self._java_scan_cache = scan_all(getattr(self, "minecraft_dir", ""))
+        self._java_scan_cache_time = now
+        return self._java_scan_cache
+
+    def _resolve_java_for_version(self, version_id: str) -> str:
+        java_mode = getattr(self.config, 'java_mode', 'auto')
+        custom_path = getattr(self.config, 'java_custom_path', None)
+
+        if java_mode == "custom" and custom_path and os.path.isfile(custom_path):
+            logger.info(f"使用自定义 Java 路径: {custom_path}")
+            return custom_path
+
+        if java_mode == "scan" and custom_path and os.path.isfile(custom_path):
+            logger.info(f"使用扫描选择的 Java 路径: {custom_path}")
+            return custom_path
+
+        java_path = self._find_runtime_java(version_id)
+        if java_path == "java" or not os.path.isfile(java_path):
+            try:
+                from launcher.java_scanner import recommend_for_mc
+                javas = self._get_cached_java_runtimes_mrpack()
+                if javas:
+                    best = recommend_for_mc(javas, version_id)
+                    if best:
+                        logger.info(f"从系统扫描选择 Java: {best.display_name}")
+                        return best.path
+            except Exception as e:
+                logger.debug(f"扫描器 Java 推荐失败: {e}")
+        return java_path
+
+    def _check_and_warn_missing_java(self, version_id: str, java_path: str) -> None:
+        if java_path == "java" or not os.path.isfile(java_path):
+            try:
+                from launcher.java_scanner import _min_java_for_mc
+                from launcher.java_install import get_java_install_guidance
+                min_java = _min_java_for_mc(version_id)
+                guidance = get_java_install_guidance(min_java)
+                dl_url = guidance.get("download_url") or ""
+                install_cmd = guidance.get("install_command") or ""
+                logger.warning(
+                    f"未找到合适的 Java {min_java}+ 用于版本 {version_id}。"
+                    f"请安装 JDK {min_java}。"
+                    f"下载: {dl_url}  安装命令: {install_cmd}"
+                )
+                self._set_status(
+                    f"⚠ 未找到 Java {min_java}+，游戏可能无法启动。"
+                    f"请安装 JDK {min_java}"
+                )
+            except Exception:
+                pass
+
+    def get_java_mode(self) -> str:
+        return getattr(self.config, 'java_mode', 'auto')
+
+    def set_java_mode(self, mode: str) -> None:
+        self.config.java_mode = mode
+        self.config.save_config()
+
+    def get_java_custom_path(self) -> Optional[str]:
+        return getattr(self.config, 'java_custom_path', None)
+
+    def set_java_custom_path(self, path: Optional[str]) -> None:
+        self.config.java_custom_path = path
+        self.config.save_config()
 
     def get_mrpack_information(self, mrpack_path: str) -> Dict[str, Any]:
         """
@@ -325,6 +399,11 @@ class MrpackMixin:
 
             index = self._read_mrpack_index(mrpack_path)
             deps = index["dependencies"]
+            mc_version = deps.get("minecraft", "")
+
+            if mc_version:
+                java_path = self._resolve_java_for_version(mc_version)
+                self._check_and_warn_missing_java(mc_version, java_path)
 
             if "forge" in deps:
                 self._mp_progress["loader_label"] = f"安装 Forge {deps['forge']}"
@@ -555,7 +634,8 @@ class MrpackMixin:
             self._mp_progress["mrpack"] = {"current": 1, "max": 1, "label": "完成"}
             self._mp_progress["vanilla"] = {"current": 1, "max": 1, "label": "完成"}
 
-            java_path = self._find_runtime_java(mc_version)
+            java_path = self._resolve_java_for_version(mc_version)
+            self._check_and_warn_missing_java(mc_version, java_path)
             logger.info(f"使用 Java: {java_path}")
 
             if loader_type:

@@ -17,6 +17,9 @@ from validation import validate_version_id, validate_server_ip, validate_server_
 class ServerMixin:
     """服务器管理 Mixin 类"""
 
+    _java_scan_cache: Optional[List] = None
+    _java_scan_cache_time: float = 0.0
+
     # ─── 服务器管理 ──────────────────────────────────────────
 
     def get_server_dir(self) -> str:
@@ -36,7 +39,6 @@ class ServerMixin:
         """
         try:
             versions = self._mcllib.utils.get_available_versions(self.minecraft_dir)
-            # 过滤出正式版（服务器只支持正式版）
             release_versions = [v for v in versions if v.get("type") == "release"]
             return release_versions
         except Exception as e:
@@ -60,13 +62,26 @@ class ServerMixin:
             logger.error(f"获取已安装服务器版本失败: {str(e)}")
             return []
 
+    def _get_cached_java_runtimes(self) -> List:
+        import time
+        now = time.time()
+        if self._java_scan_cache is not None and (now - self._java_scan_cache_time) < 30:
+            return self._java_scan_cache
+        from launcher.java_scanner import scan_all
+        self._java_scan_cache = scan_all(self.minecraft_dir)
+        self._java_scan_cache_time = now
+        return self._java_scan_cache
+
     def _find_runtime_java(self, version_id: str) -> str:
         """
-        从 .minecraft/runtime 中查找合适版本的 Java
+        查找适合指定 Minecraft 版本的 Java 运行时
 
-        先尝试读取版本 JSON 中的 javaVersion 字段获取精确的 runtime 组件名，
-        再使用 minecraft_launcher_lib.runtime.get_executable_path 查找可执行文件。
-        如果找不到，回退到已安装的 runtime 列表中选择最新的。
+        查找优先级:
+        0. 自定义路径（java_mode == "custom"）
+        1. Minecraft runtime 目录（mcllib 下载的版本匹配 Java）
+        2. 系统安装的 Java（通过 java_scanner 扫描，java_mode != "auto" 时优先）
+        3. mcllib 的 get_java_executable() 回退
+        4. 最终回退到 "java"
 
         Args:
             version_id: Minecraft 版本号
@@ -74,46 +89,111 @@ class ServerMixin:
         Returns:
             Java 可执行文件路径，找不到则返回 "java"
         """
+        java_mode = getattr(self.config, 'java_mode', 'auto')
+        custom_path = getattr(self.config, 'java_custom_path', None)
 
-        # 1. 从版本 JSON 获取 javaVersion.component
-        version_json_path = Path(self.minecraft_dir) / "versions" / version_id / f"{version_id}.json"
-        jvm_component = None
-        if version_json_path.exists():
+        # 0. 自定义路径优先
+        if java_mode == "custom" and custom_path and os.path.isfile(custom_path):
+            logger.info(f"使用自定义 Java 路径: {custom_path}")
+            return custom_path
+
+        if java_mode == "scan" and custom_path and os.path.isfile(custom_path):
+            logger.info(f"使用扫描选择的 Java 路径: {custom_path}")
+            return custom_path
+
+        # 1. 从版本 JSON 获取 javaVersion.component，优先使用 Minecraft runtime
+        if java_mode == "auto":
+            version_json_path = Path(self.minecraft_dir) / "versions" / version_id / f"{version_id}.json"
+            jvm_component = None
+            if version_json_path.exists():
+                try:
+                    with open(version_json_path, "r", encoding="utf-8") as f:
+                        vdata = json.load(f)
+                    jvm_component = vdata.get("javaVersion", {}).get("component")
+                except Exception:
+                    pass
+
+            if jvm_component:
+                java_path = self._mcllib.runtime.get_executable_path(jvm_component, self.minecraft_dir)
+                if java_path:
+                    logger.info(f"从 runtime 找到 Java ({jvm_component}): {java_path}")
+                    return java_path
+
+            # 2. 回退：遍历 mcllib 已安装的 runtime，选最新的
             try:
-                with open(version_json_path, "r", encoding="utf-8") as f:
-                    vdata = json.load(f)
-                jvm_component = vdata.get("javaVersion", {}).get("component")
+                installed_runtimes = self._mcllib.runtime.get_installed_jvm_runtimes(self.minecraft_dir)
+                if installed_runtimes:
+                    latest = sorted(installed_runtimes, key=lambda r: r.get("version", {}).get("name", ""), reverse=True)
+                    component = latest[0].get("name", "")
+                    if component:
+                        java_path = self._mcllib.runtime.get_executable_path(component, self.minecraft_dir)
+                        if java_path:
+                            logger.info(f"从已安装 runtime 找到 Java ({component}): {java_path}")
+                            return java_path
             except Exception:
                 pass
 
-        # 2. 使用 minecraft_launcher_lib 查找 runtime Java
-        if jvm_component:
-            java_path = self._mcllib.runtime.get_executable_path(jvm_component, self.minecraft_dir)
-            if java_path:
-                logger.info(f"从 runtime 找到 Java ({jvm_component}): {java_path}")
-                return java_path
-
-        # 3. 回退：遍历已安装的 runtime，选最新的
+        # 3. 使用 java_scanner 扫描系统 Java，推荐最佳匹配
         try:
-            installed_runtimes = self._mcllib.runtime.get_installed_jvm_runtimes(self.minecraft_dir)
-            if installed_runtimes:
-                # 按版本排序取最新的
-                latest = sorted(installed_runtimes, key=lambda r: r.get("version", {}).get("name", ""), reverse=True)
-                component = latest[0].get("name", "")
-                if component:
-                    java_path = self._mcllib.runtime.get_executable_path(component, self.minecraft_dir)
-                    if java_path:
-                        logger.info(f"从已安装 runtime 找到 Java ({component}): {java_path}")
-                        return java_path
-        except Exception:
-            pass
+            from launcher.java_scanner import recommend_for_mc
+            javas = self._get_cached_java_runtimes()
+            if javas:
+                best = recommend_for_mc(javas, version_id)
+                if best:
+                    logger.info(f"从系统扫描找到最佳 Java: {best.display_name}")
+                    return best.path
+        except Exception as e:
+            logger.debug(f"java_scanner 推荐失败: {e}")
 
-        # 4. 最终回退到系统 Java
-        logger.warning("未在 runtime 中找到 Java，回退到系统 Java")
+        # 4. mcllib 回退
+        logger.warning("未在 runtime 和系统扫描中找到 Java，回退到系统 Java")
         try:
             return self._mcllib.utils.get_java_executable()
         except Exception:
             return "java"
+
+    def scan_system_java(self) -> List[Dict]:
+        from launcher.java_scanner import get_java_summary
+        javas = self._get_cached_java_runtimes()
+        return get_java_summary(javas)
+
+    def get_java_suggestion(self, version_id: str) -> Optional[Dict]:
+        from launcher.java_scanner import recommend_for_mc, _min_java_for_mc
+        from launcher.java_install import get_java_install_guidance
+
+        javas = self._get_cached_java_runtimes()
+        best = recommend_for_mc(javas, version_id)
+        if best:
+            return {
+                "found": True,
+                "path": best.path,
+                "home": best.home,
+                "major_version": best.major_version,
+                "version_str": best.version_str,
+            }
+
+        min_java = _min_java_for_mc(version_id)
+        guidance = get_java_install_guidance(min_java)
+        return {
+            "found": False,
+            "required_java": min_java,
+            "download_url": guidance.get("download_url"),
+            "install_command": guidance.get("install_command"),
+        }
+
+    def get_java_mode(self) -> str:
+        return getattr(self.config, 'java_mode', 'auto')
+
+    def set_java_mode(self, mode: str) -> None:
+        self.config.java_mode = mode
+        self.config.save_config()
+
+    def get_java_custom_path(self) -> Optional[str]:
+        return getattr(self.config, 'java_custom_path', None)
+
+    def set_java_custom_path(self, path: Optional[str]) -> None:
+        self.config.java_custom_path = path
+        self.config.save_config()
 
     def install_server(self, version_id: str) -> Tuple[bool, str]:
         """
@@ -151,6 +231,25 @@ class ServerMixin:
                 self.minecraft_dir,
                 callback=self._get_callback()
             )
+
+            java_path = self._find_runtime_java(version_id)
+            if java_path == "java" or not os.path.isfile(java_path):
+                suggestion = self.get_java_suggestion(version_id)
+                if suggestion and not suggestion.get("found"):
+                    req_java = suggestion.get("required_java", 17)
+                    dl_url = suggestion.get("download_url") or ""
+                    install_cmd = suggestion.get("install_command") or ""
+                    logger.warning(
+                        f"未找到合适的 Java {req_java}+ 用于服务器 {version_id}。"
+                        f"请安装 JDK {req_java}。"
+                        f"下载: {dl_url}  安装命令: {install_cmd}"
+                    )
+                    self._set_status(
+                        f"⚠ 未找到 Java {req_java}+，服务器可能无法启动。"
+                        f"请安装 JDK {req_java}"
+                    )
+            else:
+                logger.info(f"Java 运行时就绪: {java_path}")
 
             # 2. 从版本 JSON 获取 server jar 下载链接
             version_json_path = Path(self.minecraft_dir) / "versions" / version_id / f"{version_id}.json"
@@ -416,6 +515,31 @@ class ServerMixin:
 
             # 从 runtime 查找 Java
             java_path = self._find_runtime_java(version_id)
+
+            if java_path == "java" or not os.path.isfile(java_path):
+                try:
+                    from launcher.java_scanner import recommend_for_mc
+                    javas = self._get_cached_java_runtimes()
+                    if javas:
+                        best = recommend_for_mc(javas, version_id)
+                        if best:
+                            java_path = best.path
+                            logger.info(f"从系统扫描选择 Java: {best.display_name}")
+                except Exception as e:
+                    logger.debug(f"扫描器 Java 推荐失败: {e}")
+
+            if java_path == "java" or not os.path.isfile(java_path):
+                suggestion = self.get_java_suggestion(version_id)
+                if suggestion and not suggestion.get("found"):
+                    req_java = suggestion.get("required_java", 17)
+                    dl_url = suggestion.get("download_url") or ""
+                    install_cmd = suggestion.get("install_command") or ""
+                    logger.warning(
+                        f"未找到合适的 Java {req_java}+ 用于服务器 {version_id}。"
+                        f"请安装 JDK {req_java}。"
+                        f"下载: {dl_url}  安装命令: {install_cmd}"
+                    )
+
             logger.info(f"使用 Java: {java_path}")
 
             cmd = [java_path, f"-Xmx{max_memory}", f"-Xms{max_memory}", "-jar", str(server_jar), "nogui"]

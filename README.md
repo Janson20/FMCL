@@ -102,7 +102,7 @@
 - **一键加入**：点击「加入服务器」按钮，自动下载对应客户端版本并直连 localhost:25565
 - **一键安装**：输入版本号或从快速选择列表点击安装，自动下载服务器端文件
 - **自动同意 EULA**：安装服务器时自动创建 `eula.txt` 并同意
-- **自动安装 Java Runtime**：安装同名客户端版本自动下载所需 Java runtime 到 `.minecraft/runtime/`，启动时自动从 runtime 查找合适版本
+- **智能 Java 管理**：跨平台 Java 运行时扫描（Windows 注册表/macOS java_home/Linux update-alternatives + /usr/lib/jvm），自动匹配最佳版本；Minecraft runtime 优先，系统 Java 回退；未安装时提供包管理器安装命令和官方下载链接
 - **版本隔离**：每个服务器版本独立目录 `.minecraft/server/<version>/`，互不干扰
 - **自动生成配置**：安装时自动创建 `server.properties`（离线模式、最大 20 人等默认配置）
 - **内存设置**：支持选择 1G ~ 16G 最大内存
@@ -355,7 +355,7 @@
 | 依赖 | 说明 |
 |------|------|
 | Python 3.10+ | 运行启动器 |
-| Java 8+ | 运行 Minecraft（启动器会自动检测系统 Java） |
+| Java 8+ | 运行 Minecraft（启动器自动扫描系统 Java，推荐版本由 MC 版本决定） |
 
 ---
 
@@ -601,7 +601,7 @@ python main.py -A              # 交互模式
 3. 点击「📥 安装服务器」，等待进度条完成
 4. 安装完成后，服务器文件将存放在 `.minecraft/server/<版本号>/` 目录下
 
-> 💡 安装过程会自动安装同名客户端版本（含 Java runtime）、下载服务器 jar、同意 EULA 并生成默认配置。
+> 💡 安装过程会自动安装同名客户端版本、下载服务器 jar、同意 EULA 并生成默认配置。Java 运行时优先使用系统已安装版本，未安装时会自动下载 Minecraft runtime。
 
 **整合包开服：**
 
@@ -764,6 +764,7 @@ main.py
 | 并发校验 | ThreadPoolExecutor | 多线程文件哈希校验 |
 | 异步下载 | asyncio + aiohttp | 批量并发下载 |
 | JVM 优化 | G1GC + 固定堆内存 | 减少游戏卡顿 |
+| Java 扫描 | 跨平台系统扫描 | Windows/macOS/Linux 自动检测最佳 Java 版本 |
 | URL 缓存 | dict 缓存重写结果 | 避免重复匹配规则 |
 | 拖拽支持 | tkinterdnd2 | 文件拖拽安装资源 |
 | 日志 | logzero | 轻量级日志框架 |
@@ -969,7 +970,7 @@ chore: 构建/工具变动
 |------|----------|
 | 镜像源连接失败 | 尝试关闭「国内镜像」开关使用 Mojang 官方源 |
 | 版本安装失败 | 检查网络连接，查看 `latest.log` 日志 |
-| 游戏启动失败 | 确保已安装 Java 运行时 |
+| 游戏启动失败 | 确保已安装 Java 运行时，启动器会自动扫描系统 Java。如未安装，使用 `java -version` 验证，或通过包管理器安装（winget/brew/apt） |
 | macOS 提示无法验证开发者 | `xattr -cr FMCL.app` 移除隔离属性 |
 | Windows 杀毒误报 | 添加到杀毒软件排除列表 |
 | Windows 异常退出 | 尝试以管理员权限运行程序 |

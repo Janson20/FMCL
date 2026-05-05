@@ -2,6 +2,7 @@
 import gc
 import hashlib
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -72,12 +73,14 @@ def concurrent_file_verify(
 class MinecraftLauncher:
     """Minecraft启动器类"""
 
+    _java_scan_cache: Optional[List] = None
+    _java_scan_cache_time: float = 0.0
+
     def __init__(self, config: Config):
         self.config = config
         self.minecraft_dir = str(config.minecraft_dir)
 
         logger.info("MinecraftLauncher.__init__: 1. 正在导入 minecraft_launcher_lib...")
-        # 延迟导入 minecraft_launcher_lib，避免模块加载阶段的阻塞
         import minecraft_launcher_lib
         logger.info("MinecraftLauncher.__init__: 2. minecraft_launcher_lib 导入完成")
         self._mcllib = minecraft_launcher_lib
@@ -107,11 +110,95 @@ class MinecraftLauncher:
         self._apply_mirror_patch()
         logger.info("MinecraftLauncher.__init__: 8. 正在初始化主题引擎...")
         engine = init_theme_engine(str(config.base_dir))
-        # 加载保存的主题
         saved_theme = engine.load_theme(config.theme_name)
         if saved_theme:
             engine.apply_theme(saved_theme, config.accent_color)
         logger.info("MinecraftLauncher.__init__: 9. 初始化完成")
+
+    def _get_cached_java_runtimes(self) -> List:
+        import time
+        now = time.time()
+        if self._java_scan_cache is not None and (now - self._java_scan_cache_time) < 30:
+            return self._java_scan_cache
+        from launcher.java_scanner import scan_all
+        self._java_scan_cache = scan_all(self.minecraft_dir)
+        self._java_scan_cache_time = now
+        return self._java_scan_cache
+
+    def _resolve_java_executable(self, target_version: str, current_java: str) -> str:
+        java_mode = getattr(self.config, 'java_mode', 'auto')
+        custom_path = getattr(self.config, 'java_custom_path', None)
+
+        if java_mode == "custom" and custom_path and os.path.isfile(custom_path):
+            logger.info(f"使用自定义 Java 路径: {custom_path}")
+            return custom_path
+
+        if java_mode == "scan" and custom_path and os.path.isfile(custom_path):
+            logger.info(f"使用扫描选择的 Java 路径: {custom_path}")
+            return custom_path
+
+        if current_java and os.path.isfile(current_java):
+            return current_java
+        if os.sep in current_java or ("/" in current_java and platform.system().lower() != "windows"):
+            return current_java
+
+        try:
+            from launcher.java_scanner import recommend_for_mc
+            javas = self._get_cached_java_runtimes()
+            if javas:
+                best = recommend_for_mc(javas, target_version)
+                if best:
+                    logger.info(f"从系统扫描选择最佳 Java: {best.display_name}")
+                    return best.path
+        except Exception as e:
+            logger.debug(f"Java 扫描器推荐失败: {e}")
+
+        return current_java
+
+    def scan_system_java(self) -> List[Dict]:
+        from launcher.java_scanner import get_java_summary
+        javas = self._get_cached_java_runtimes()
+        return get_java_summary(javas)
+
+    def get_java_suggestion(self, version_id: str) -> Optional[Dict]:
+        from launcher.java_scanner import recommend_for_mc, _min_java_for_mc
+        from launcher.java_install import get_java_install_guidance
+
+        javas = self._get_cached_java_runtimes()
+        best = recommend_for_mc(javas, version_id)
+        if best:
+            return {
+                "found": True,
+                "path": best.path,
+                "home": best.home,
+                "major_version": best.major_version,
+                "version_str": best.version_str,
+            }
+
+        min_java = _min_java_for_mc(version_id)
+        guidance = get_java_install_guidance(min_java)
+        return {
+            "found": False,
+            "required_java": min_java,
+            "download_url": guidance.get("download_url"),
+            "install_command": guidance.get("install_command"),
+        }
+
+    def get_java_mode(self) -> str:
+        return getattr(self.config, 'java_mode', 'auto')
+
+    def set_java_mode(self, mode: str) -> None:
+        self.config.java_mode = mode
+        self.config.save_config()
+        logger.info(f"Java 选择模式已切换为: {mode}")
+
+    def get_java_custom_path(self) -> Optional[str]:
+        return getattr(self.config, 'java_custom_path', None)
+
+    def set_java_custom_path(self, path: Optional[str]) -> None:
+        self.config.java_custom_path = path
+        self.config.save_config()
+        logger.info(f"自定义 Java 路径已设置: {path}")
 
     def _apply_mirror_patch(self):
         """应用镜像源补丁"""
@@ -455,6 +542,15 @@ class MinecraftLauncher:
                 options
             )
 
+            # 使用 java_scanner 解析最佳 Java 可执行文件
+            if minecraft_command:
+                resolved_java = self._resolve_java_executable(
+                    target_version, minecraft_command[0]
+                )
+                if resolved_java != minecraft_command[0]:
+                    logger.info(f"Java 可执行文件已替换: {minecraft_command[0]} -> {resolved_java}")
+                    minecraft_command[0] = resolved_java
+
             # 直连服务器时追加 --quickPlayMultiplayer（1.20.4+，启动后立即加入）
             if server_ip:
                 server_addr = f"{server_ip}:{server_port}"
@@ -725,6 +821,13 @@ class MinecraftLauncher:
             "install_mrpack": self.install_mrpack,
             "get_mrpack_launch_version": self.get_mrpack_launch_version,
             "install_mrpack_server": self.install_mrpack_server,
+            # Java 运行时相关
+            "scan_system_java": self.scan_system_java,
+            "get_java_suggestion": self.get_java_suggestion,
+            "get_java_mode": self.get_java_mode,
+            "set_java_mode": self.set_java_mode,
+            "get_java_custom_path": self.get_java_custom_path,
+            "set_java_custom_path": self.set_java_custom_path,
         }
 
     def get_player_name(self) -> str:
