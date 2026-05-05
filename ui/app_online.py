@@ -342,6 +342,151 @@ class ScaffoldingServer:
         return 0, port_bytes
 
 
+class ScaffoldingClient:
+    _HEARTBEAT_INTERVAL = 5.0
+
+    def __init__(self, host: str, port: int, player_name: str, machine_id: str, vendor: str):
+        self._host = host
+        self._port = port
+        self._player_name = player_name
+        self._machine_id = machine_id
+        self._vendor = vendor
+        self._sock: Optional[socket.socket] = None
+        self._lock = threading.Lock()
+        self._running = False
+        self._heartbeat_thread: Optional[threading.Thread] = None
+        self._profiles: List[dict] = []
+
+    @property
+    def profiles(self) -> list:
+        with self._lock:
+            return list(self._profiles)
+
+    @property
+    def is_connected(self) -> bool:
+        return self._running and self._sock is not None
+
+    def connect(self) -> bool:
+        if self._running:
+            return True
+        try:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self._sock.settimeout(10)
+            self._sock.connect((self._host, self._port))
+            self._sock.settimeout(30)
+            self._running = True
+            logger.info(f"ScaffoldingClient connected to {self._host}:{self._port}")
+
+            self._send_ping()
+
+            self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+            self._heartbeat_thread.start()
+            logger.info("ScaffoldingClient heartbeat started")
+            return True
+        except Exception as e:
+            logger.error(f"ScaffoldingClient connect failed: {e}")
+            self._close_socket()
+            return False
+
+    def disconnect(self):
+        self._running = False
+        if self._heartbeat_thread and self._heartbeat_thread.is_alive():
+            self._heartbeat_thread.join(timeout=3)
+        self._heartbeat_thread = None
+        self._close_socket()
+        with self._lock:
+            self._profiles.clear()
+        logger.info("ScaffoldingClient disconnected")
+
+    def get_server_port(self) -> Optional[int]:
+        try:
+            _, body = self._send_request("c:server_port", None)
+            if body and len(body) >= 2:
+                return struct.unpack(">H", body[:2])[0]
+        except Exception as e:
+            logger.warning(f"ScaffoldingClient get_server_port failed: {e}")
+        return None
+
+    def _send_ping(self):
+        body = {
+            "name": self._player_name,
+            "machine_id": self._machine_id,
+            "vendor": self._vendor,
+        }
+        self._send_request("c:player_ping", body)
+
+    def _fetch_profiles(self):
+        try:
+            _, body = self._send_request("c:player_profiles_list", None)
+            if body:
+                profiles = json.loads(body.decode("utf-8"))
+                with self._lock:
+                    self._profiles = profiles if isinstance(profiles, list) else []
+        except Exception as e:
+            logger.warning(f"ScaffoldingClient fetch profiles failed: {e}")
+
+    def _heartbeat_loop(self):
+        while self._running:
+            try:
+                time.sleep(self._HEARTBEAT_INTERVAL)
+                if not self._running:
+                    break
+                self._send_ping()
+                self._fetch_profiles()
+            except Exception as e:
+                logger.warning(f"ScaffoldingClient heartbeat error: {e}")
+                if not self._running:
+                    break
+                time.sleep(1)
+
+    def _send_request(self, type_str: str, body_dict: Optional[dict]) -> Tuple[int, bytes]:
+        if not self._sock or not self._running:
+            raise ConnectionError("Not connected")
+
+        type_bytes = type_str.encode("utf-8")
+        if len(type_bytes) > 255:
+            raise ValueError("Request type too long")
+
+        if body_dict is not None:
+            body_bytes = json.dumps(body_dict, ensure_ascii=False).encode("utf-8")
+        else:
+            body_bytes = b""
+
+        header = struct.pack(">B", len(type_bytes)) + type_bytes + struct.pack(">I", len(body_bytes))
+        frame = header + body_bytes
+
+        with self._lock:
+            self._sock.sendall(frame)
+
+            raw = bytearray()
+            while len(raw) < 5:
+                chunk = self._sock.recv(5 - len(raw))
+                if not chunk:
+                    raise ConnectionError("Connection closed")
+                raw.extend(chunk)
+
+            status = raw[0]
+            body_len = struct.unpack(">I", raw[1:5])[0]
+
+            body_data = bytearray()
+            while len(body_data) < body_len:
+                chunk = self._sock.recv(body_len - len(body_data))
+                if not chunk:
+                    raise ConnectionError("Connection closed")
+                body_data.extend(chunk)
+
+            return status, bytes(body_data)
+
+    def _close_socket(self):
+        if self._sock:
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+            self._sock = None
+
+
 class EasyTierManager:
     def __init__(self, base_dir: Path):
         self._base_dir = base_dir
@@ -655,6 +800,53 @@ class EasyTierManager:
                 logger.warning(f"Failed to add {proto} port forward: {e}")
         return local_port
 
+    def discover_host(self, timeout: float = 15.0) -> Optional[Tuple[str, int]]:
+        if not self._running or self._rpc_port == 0:
+            return None
+        started = time.monotonic()
+        while time.monotonic() - started < timeout:
+            try:
+                proc = subprocess.run(
+                    [
+                        str(self._cli_path),
+                        "--rpc-portal", f"127.0.0.1:{self._rpc_port}",
+                        "-o", "json",
+                        "peer",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                    cwd=str(self._base_dir),
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                output = proc.stdout + proc.stderr
+                if not output.strip():
+                    time.sleep(2)
+                    continue
+                peers = json.loads(output)
+                if not isinstance(peers, list):
+                    time.sleep(2)
+                    continue
+                for peer in peers:
+                    hostname = peer.get("hostname", "")
+                    if hostname.startswith("scaffolding-mc-server-"):
+                        port_str = hostname[len("scaffolding-mc-server-"):]
+                        try:
+                            scf_port = int(port_str)
+                        except ValueError:
+                            logger.warning(f"Invalid scf port in hostname: {hostname}")
+                            continue
+                        host_ip = peer.get("ipv4", "")
+                        if not host_ip:
+                            continue
+                        logger.info(f"Discovered host: {host_ip}:{scf_port}")
+                        return (host_ip, scf_port)
+            except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
+                logger.debug(f"discover_host retry: {e}")
+            time.sleep(2)
+        logger.warning("discover_host timed out")
+        return None
+
     def _cleanup_scf(self):
         if self._scf_server:
             self._scf_server.stop()
@@ -885,6 +1077,7 @@ class OnlineTabMixin(object):
         self._local_mc_port: int = 0
         self._public_address: Optional[str] = None
         self._member_poll_id: Optional[str] = None
+        self._scf_client: Optional[ScaffoldingClient] = None
 
         self.after(200, self._init_online_state)
 
@@ -1330,9 +1523,14 @@ class OnlineTabMixin(object):
         self._member_poll_id = self.after(5000, self._poll_members_loop)
 
     def _poll_members_loop(self):
-        if not self._et_manager or not self._et_manager._scf_server:
-            self._member_poll_id = None
-            return
+        if self._is_host:
+            if not self._et_manager or not self._et_manager._scf_server:
+                self._member_poll_id = None
+                return
+        else:
+            if not self._scf_client or not self._scf_client.is_connected:
+                self._member_poll_id = None
+                return
         self._refresh_members()
         self._member_poll_id = self.after(5000, self._poll_members_loop)
 
@@ -1342,9 +1540,14 @@ class OnlineTabMixin(object):
             self._member_poll_id = None
 
     def _refresh_members(self):
-        if not self._et_manager or not self._et_manager._scf_server:
-            return
-        profiles = self._et_manager._scf_server.all_profiles
+        if self._is_host:
+            if not self._et_manager or not self._et_manager._scf_server:
+                return
+            profiles = self._et_manager._scf_server.all_profiles
+        else:
+            if not self._scf_client or not self._scf_client.is_connected:
+                return
+            profiles = self._scf_client.profiles
         lines = []
         for p in profiles:
             kind = p.get("kind", "?")
@@ -1545,7 +1748,7 @@ class OnlineTabMixin(object):
                 self._trigger_ach("online_first_online")
                 self._trigger_ach("online_guest")
 
-                self.after(3000, self._setup_joiner_forward)
+                self.after(3000, self._setup_guest_connection)
             else:
                 self._append_online_log("[FMCL] " + _("online_launch_failed"))
                 self.set_status(_("online_launch_failed"), "error")
@@ -1561,7 +1764,7 @@ class OnlineTabMixin(object):
 
         self._run_online_thread(_join, on_done=on_done, on_error=on_error)
 
-    def _setup_joiner_forward(self):
+    def _setup_guest_connection(self):
         if not self._et_manager or not self._et_manager.is_running:
             self._append_online_log("[FMCL] " + _("online_forward_failed_et"))
             return
@@ -1572,7 +1775,26 @@ class OnlineTabMixin(object):
         self._append_online_log("[FMCL] " + _("online_setting_up_forward"))
 
         def _setup():
-            local_port = self._et_manager.add_port_forward(HOST_VIRTUAL_IP, 25565)
+            host_info = self._et_manager.discover_host(timeout=15.0)
+            if host_info is None:
+                return None
+            host_ip, scf_port = host_info
+            scf_local_port = self._et_manager.add_port_forward(host_ip, scf_port)
+            if scf_local_port is None:
+                return None
+            self._scf_client = ScaffoldingClient(
+                "127.0.0.1", scf_local_port,
+                self._get_display_name(),
+                _get_machine_id(),
+                _get_vendor(),
+            )
+            if not self._scf_client.connect():
+                self._scf_client = None
+                return None
+            mc_port = self._scf_client.get_server_port()
+            if mc_port is None or mc_port <= 0:
+                mc_port = 25565
+            local_port = self._et_manager.add_port_forward(host_ip, mc_port)
             return local_port
 
         def on_done(local_port):
@@ -1606,6 +1828,8 @@ class OnlineTabMixin(object):
             )
             self.set_status(_("online_forward_complete", local_port=tcp_forward_port), "success")
 
+            self._start_member_poll()
+
         def on_error(err):
             self._append_online_log("[FMCL] " + _("online_forward_failed_detail", error=err))
             self._online_lobby_status_label.configure(
@@ -1636,6 +1860,9 @@ class OnlineTabMixin(object):
 
     def _reset_lobby_state(self):
         self._stop_member_poll()
+        if self._scf_client:
+            self._scf_client.disconnect()
+            self._scf_client = None
         self._lobby_info = None
         self._is_host = False
         self._local_mc_port = 0
