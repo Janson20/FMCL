@@ -126,7 +126,7 @@
   "server_version_count": "{count} version(s)",
   "server_start_btn": "🚀 Start Server",
   "server_join_btn": "🎮 Join Server",
-  "server_stop_btn": "⏹ Stop",
+  "server_stop_btn": "⏹",
   "server_install_title": "📥 Install Server",
   "server_version_label": "Version ID (release only):",
   "server_version_placeholder": "e.g. 1.21.4",

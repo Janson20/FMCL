@@ -126,7 +126,7 @@
   "server_version_count": "{count} バージョン",
   "server_start_btn": "🚀 サーバー起動",
   "server_join_btn": "🎮 サーバーに参加",
-  "server_stop_btn": "⏹ 停止",
+  "server_stop_btn": "⏹",
   "server_install_title": "📥 サーバーをインストール",
   "server_version_label": "バージョンID（リリース版のみ）:",
   "server_version_placeholder": "例: 1.21.4",

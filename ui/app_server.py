@@ -279,10 +279,10 @@ class ServerTabMixin(object):
 
         self.server_stop_btn = ctk.CTkButton(
             launch_frame,
-            text=_("server_stop_btn"),
-            width=80,
+            text="⏹",
+            width=45,
             height=40,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
             fg_color=COLORS["error"],
             hover_color="#c0392b",
             text_color=COLORS["text_primary"],

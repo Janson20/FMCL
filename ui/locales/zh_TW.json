@@ -126,7 +126,7 @@
   "server_version_count": "{count} 個版本",
   "server_start_btn": "🚀 啟動伺服器",
   "server_join_btn": "🎮 加入伺服器",
-  "server_stop_btn": "⏹ 停止",
+  "server_stop_btn": "⏹",
   "server_install_title": "📥 安裝伺服器",
   "server_version_label": "版本 ID（僅正式版）:",
   "server_version_placeholder": "例如: 1.21.4",
