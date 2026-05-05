@@ -1,6 +1,6 @@
 [project]
 name = "fmcl"
-version = "2.9.0"
+version = "2.9.1"
 description = "Fusion Minecraft Launcher - A feature-rich Minecraft launcher with multi-threaded download support, Forge installation, and GUI version selection"
 readme = "README.md"
 license = {text = "GPL-3.0-only"}
