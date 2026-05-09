@@ -374,8 +374,14 @@ class ScaffoldingServer:
                     with self._guests_lock:
                         mid_existed = mid in self._guests
                         now = time.monotonic()
-                        info["last_seen"] = now
-                        self._guests[mid] = info
+                        guest_info = {
+                            "name": info.get("name", "Unknown"),
+                            "machine_id": mid,
+                            "vendor": info.get("vendor", "unknown"),
+                            "kind": "GUEST",
+                            "last_seen": now,
+                        }
+                        self._guests[mid] = guest_info
                     if not mid_existed:
                         logger.info(
                             "ScaffoldingServer: new player '%s' connected",
