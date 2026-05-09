@@ -82,3 +82,4 @@ tmp/
 achievements.db
 achievements.db-shm
 achievements.db-wal
+achievements.db-journal

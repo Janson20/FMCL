@@ -233,22 +233,15 @@ def main():
 
         app.set_status("正在初始化启动器核心...", "loading")
 
-        # ── 提前初始化成就系统（与启动器并行） ──
+        # ── 提前初始化成就系统（仅创建引擎，快速完成） ──
         _ach_engine_result = {}
         def _init_achievements():
             try:
                 from achievement_engine import init_achievement_engine
                 ach_engine = init_achievement_engine(config.base_dir)
                 _ach_engine_result['engine'] = ach_engine
-                token = config.jdz_token
-                if token:
-                    from achievement_sync import run_sync
-                    app.set_status("正在同步成就云存档...", "loading")
-                    ok = run_sync(token, ach_engine._db_path)
-                    if ok:
-                        ach_engine.set_last_sync_time(time.time())
             except Exception as e:
-                logger.error(f"成就系统初始化失败: {e}")
+                logger.error(f"成就引擎初始化失败: {e}")
             finally:
                 _ach_init_done.set()
                 app.after(0, _try_dismiss_splash)
@@ -290,6 +283,27 @@ def main():
             except Exception as e:
                 logger.error(f"_dismiss_splash: splash.destroy() 失败: {e}")
             _on_launcher_ready(_launcher_result['launcher'])
+            threading.Thread(target=_post_init_achievements, daemon=True).start()
+
+        def _post_init_achievements():
+            """启动后后台执行：成就同步 + 签到（不阻塞 UI）"""
+            from achievement_engine import get_achievement_engine
+            ach_engine = get_achievement_engine()
+            if not ach_engine:
+                return
+            token = config.jdz_token
+            if token:
+                try:
+                    from achievement_sync import run_sync
+                    app.set_status("正在同步成就云存档...", "loading")
+                    run_sync(token, ach_engine._db_path, engine=ach_engine)
+                except Exception as e:
+                    logger.error(f"成就同步异常: {e}")
+            try:
+                ach_engine.checkin()
+            except Exception as e:
+                logger.error(f"签到异常: {e}")
+            app.after(0, app._refresh_achievements)
 
         def _on_launcher_ready(launcher):
             """Launcher 初始化完成回调（主线程执行）"""
@@ -304,8 +318,6 @@ def main():
             ach_engine = get_achievement_engine()
             if ach_engine:
                 ach_engine.register_unlock_callback(app._on_achievement_unlock)
-                ach_engine.checkin()
-                app.after(500, app._refresh_achievements)
 
             # 重新应用保存的主题颜色（UI 创建时用的是默认主题，需要刷新）
             if hasattr(app, '_reapply_theme'):

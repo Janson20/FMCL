@@ -107,14 +107,29 @@ def upload_db(token: str, data: bytes) -> bool:
         return False
 
 
+def _cleanup_wal_shm(db_path: Path):
+    wal_path = db_path.with_suffix(db_path.suffix + "-wal")
+    shm_path = db_path.with_suffix(db_path.suffix + "-shm")
+    for p in (wal_path, shm_path):
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def run_sync(token: str, db_path: Path,
-             on_status: Optional[Callable[[str], None]] = None) -> bool:
+             on_status: Optional[Callable[[str], None]] = None,
+             engine: object = None) -> bool:
     """执行完整同步流程: 下载 → 合并 → 上传
+
+    当传入 engine 时，所有数据库操作通过 engine._lock 串行化，
+    避免与 AchievementEngine 的其他操作产生锁冲突。
 
     Args:
         token: 认证令牌
         db_path: 本地 .db 文件路径
         on_status: 状态回调
+        engine: AchievementEngine 实例（可选），传入后自动处理锁同步和 last_sync_time
 
     Returns:
         是否同步成功（无远程数据时仅上传也算成功）
@@ -129,23 +144,48 @@ def run_sync(token: str, db_path: Path,
             on_status("syncing_merge")
 
         from achievement_engine import _do_merge_db
-        merged = _do_merge_db(db_path, remote_data)
-        if merged is not None:
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            db_path.write_bytes(merged)
-            logger.info("成就同步: 合并完成")
+
+        if engine is not None:
+            with engine._lock:
+                merged = _do_merge_db(db_path, remote_data)
+                if merged is not None:
+                    db_path.parent.mkdir(parents=True, exist_ok=True)
+                    db_path.write_bytes(merged)
+                    _cleanup_wal_shm(db_path)
+                    logger.info("成就同步: 合并完成")
+                else:
+                    logger.warning("成就同步: 合并失败，仅上传本地数据")
+                    remote_data = None
         else:
-            logger.warning("成就同步: 合并失败，仅上传本地数据")
-            remote_data = None
+            merged = _do_merge_db(db_path, remote_data)
+            if merged is not None:
+                db_path.parent.mkdir(parents=True, exist_ok=True)
+                db_path.write_bytes(merged)
+                _cleanup_wal_shm(db_path)
+                logger.info("成就同步: 合并完成")
+            else:
+                logger.warning("成就同步: 合并失败，仅上传本地数据")
+                remote_data = None
 
     if on_status:
         on_status("syncing_upload")
 
     if db_path.exists():
-        with sqlite3.connect(str(db_path)) as conn:
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        local_data = db_path.read_bytes()
+        if engine is not None:
+            with engine._lock:
+                with sqlite3.connect(str(db_path)) as conn:
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                local_data = db_path.read_bytes()
+        else:
+            with sqlite3.connect(str(db_path)) as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            local_data = db_path.read_bytes()
+
         success = upload_db(token, local_data)
+
+        if engine is not None and success:
+            engine.set_last_sync_time(time.time())
+
         if on_status:
             on_status("sync_success" if success else "syncing_failed")
         return success

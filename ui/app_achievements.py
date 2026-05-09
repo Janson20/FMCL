@@ -329,7 +329,7 @@ class AchievementTabMixin(object):
 
         def _run():
             from achievement_sync import run_sync
-            ok = run_sync(token, db_path)
+            ok = run_sync(token, db_path, engine=engine)
             if self.winfo_exists():
                 self.after(0, lambda: self._on_sync_done(ok))
 
@@ -339,10 +339,6 @@ class AchievementTabMixin(object):
         self.ach_sync_btn.configure(state=ctk.NORMAL, text=_("ach_sync_btn"))
         if success:
             self._set_sync_status(_("ach_sync_success"))
-            from achievement_engine import get_achievement_engine
-            engine = get_achievement_engine()
-            if engine:
-                engine.set_last_sync_time(time.time())
             self._refresh_achievements()
         else:
             self._set_sync_status(_("ach_sync_failed"))
