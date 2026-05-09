@@ -779,30 +779,61 @@ class EasyTierManager:
             ("tcp", f"[::]:{local_port}"),
             ("udp", f"[::]:{local_port}"),
         ]
-        for proto, local_addr in rules:
-            try:
-                subprocess.run(
-                    [
-                        str(self._cli_path),
-                        "--rpc-portal", f"127.0.0.1:{self._rpc_port}",
-                        "port-forward", "add",
-                        proto,
-                        local_addr,
-                        f"{target_ip}:{target_port}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    cwd=str(self._base_dir),
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to add {proto} port forward: {e}")
-        return local_port
 
-    def discover_host(self, timeout: float = 15.0) -> Optional[Tuple[str, int]]:
+        for attempt in range(3):
+            success_count = 0
+            for proto, local_addr in rules:
+                try:
+                    result = subprocess.run(
+                        [
+                            str(self._cli_path),
+                            "--rpc-portal", f"127.0.0.1:{self._rpc_port}",
+                            "port-forward", "add",
+                            proto,
+                            local_addr,
+                            f"{target_ip}:{target_port}",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        cwd=str(self._base_dir),
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+                    if result.returncode == 0:
+                        success_count += 1
+                    else:
+                        err_msg = result.stderr.strip() or result.stdout.strip()
+                        logger.warning(
+                            f"Port forward {proto} returned {result.returncode}: {err_msg}"
+                        )
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Port forward {proto} timed out")
+                except Exception as e:
+                    logger.warning(f"Failed to add {proto} port forward: {e}")
+
+            if success_count >= 2:
+                logger.info(
+                    f"Port forward to {target_ip}:{target_port} established "
+                    f"({success_count}/4 rules, local_port={local_port}, attempt={attempt + 1})"
+                )
+                return local_port
+
+            logger.warning(
+                f"Port forward retry {attempt + 1}/3: only {success_count}/4 rules succeeded"
+            )
+            if attempt < 2:
+                time.sleep(3)
+
+        logger.error(
+            f"Port forward to {target_ip}:{target_port} failed after 3 attempts"
+        )
+        return None
+
+    def discover_host(self, timeout: float = 25.0) -> Optional[Tuple[str, int]]:
         if not self._running or self._rpc_port == 0:
             return None
+
+        time.sleep(2)
         started = time.monotonic()
         while time.monotonic() - started < timeout:
             try:
@@ -819,6 +850,11 @@ class EasyTierManager:
                     cwd=str(self._base_dir),
                     creationflags=subprocess.CREATE_NO_WINDOW,
                 )
+                if proc.returncode != 0:
+                    err_msg = proc.stderr.strip() or proc.stdout.strip()
+                    logger.debug(f"peer command returned {proc.returncode}: {err_msg}")
+                    time.sleep(2)
+                    continue
                 output = proc.stdout + proc.stderr
                 if not output.strip():
                     time.sleep(2)
@@ -1665,12 +1701,17 @@ class OnlineTabMixin(object):
             )
 
             if result == 0:
-                self._set_online_status(_("online_et_running", pid=self._et_manager.pid), "success")
+                self._set_online_status(_("online_et_connecting"), "warning")
+                self._online_lobby_status_label.configure(
+                    text=_("online_waiting_network"), text_color=COLORS["warning"]
+                )
                 self._append_online_log("[FMCL] " + _("online_lobby_created", code=lobby.full_code))
+                self._append_online_log("[FMCL] " + _("online_waiting_network"))
                 self.set_status(_("online_lobby_created", code=lobby.full_code), "success")
                 self._trigger_ach("online_first_online")
                 self._trigger_ach("online_room_owner")
                 self._start_member_poll()
+                self.after(5000, self._on_host_network_ready)
             else:
                 self._append_online_log("[FMCL] " + _("online_launch_failed"))
                 self.set_status(_("online_launch_failed"), "error")
@@ -1685,6 +1726,15 @@ class OnlineTabMixin(object):
             self._online_join_btn.configure(state=ctk.NORMAL)
 
         self._run_online_thread(_create, on_done=on_done, on_error=on_error)
+
+    def _on_host_network_ready(self):
+        if not self._is_host or not self._et_manager or not self._et_manager.is_running:
+            return
+        self._set_online_status(
+            _("online_et_running", pid=self._et_manager.pid), "success"
+        )
+        self._online_lobby_status_label.configure(text="")
+        self._append_online_log("[FMCL] " + _("online_forward_complete", local_port=self._local_mc_port))
 
     def _on_join_lobby(self):
         login_err = self._get_login_error()
