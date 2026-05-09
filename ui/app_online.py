@@ -17,7 +17,9 @@ import platform
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+import enum
 
 import customtkinter as ctk
 from logzero import logger
@@ -35,7 +37,20 @@ EASYTIER_DOWNLOAD_MIRRORS = [
 
 HOST_VIRTUAL_IP = "10.114.51.41"
 MC_MULTICAST_GROUP = ("224.0.2.60", 4445)
+MC_MULTICAST_GROUP_V6 = ("ff75:230::60", 4445)
 LOOPBACK = "127.0.0.1"
+
+
+class LobbyState(enum.Enum):
+    IDLE = "idle"
+    INITIALIZING = "initializing"
+    INITIALIZED = "initialized"
+    DISCOVERING = "discovering"
+    CREATING = "creating"
+    JOINING = "joining"
+    CONNECTED = "connected"
+    LEAVING = "leaving"
+    ERROR = "error"
 
 
 def _get_vendor() -> str:
@@ -165,6 +180,50 @@ class LobbyCodeGenerator:
             full_code=upper,
             network_name=network_name,
             network_secret=network_secret,
+        )
+
+    @classmethod
+    def try_parse_terracotta(cls, input_str: str) -> Optional[LobbyInfo]:
+        cls._init_char_map()
+        code = input_str.strip().upper()
+        if not code or len(code) < 9:
+            return None
+
+        code = code.replace("I", "1").replace("O", "0")
+        sections = code.split("-")
+        if len(sections) != 5:
+            return None
+
+        code_str = code.replace("-", "")
+        if len(code_str) != 25:
+            return None
+
+        value = 0
+        checking = 0
+        for i in range(24):
+            ch = code_str[i]
+            if ch not in cls._CHAR_TO_VALUE:
+                return None
+            j = cls._CHAR_TO_VALUE[ch]
+            value += j * pow(cls.BASE_VAL, i)
+            checking = (checking + j) % cls.BASE_VAL
+
+        if code_str[24] not in cls._CHAR_TO_VALUE:
+            return None
+        if checking != cls._CHAR_TO_VALUE[code_str[24]]:
+            return None
+
+        port = value % 65536
+        if port < 100:
+            return None
+
+        network_name = "terracotta-mc-" + code_str[:15].lower()
+        network_secret = code_str[15:25].lower()
+        return LobbyInfo(
+            full_code=code,
+            network_name=network_name,
+            network_secret=network_secret,
+            minecraft_port=port,
         )
 
 
@@ -417,14 +476,20 @@ class ScaffoldingClient:
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._profiles: List[dict] = []
         self._consecutive_failures = 0
+        self._last_latency_ms: int = 0
         self.on_server_shutdown: Optional[Callable[[], None]] = None
         self.on_player_list_changed: Optional[Callable[[list], None]] = None
+        self.on_heartbeat: Optional[Callable[[list, int], None]] = None
         self._last_machine_ids: set = set()
 
     @property
     def profiles(self) -> list:
         with self._lock:
             return list(self._profiles)
+
+    @property
+    def latency_ms(self) -> int:
+        return self._last_latency_ms
 
     @property
     def is_connected(self) -> bool:
@@ -463,6 +528,10 @@ class ScaffoldingClient:
         with self._lock:
             self._profiles.clear()
         self._last_machine_ids.clear()
+        self._last_latency_ms = 0
+        self.on_player_list_changed = None
+        self.on_server_shutdown = None
+        self.on_heartbeat = None
         logger.info("ScaffoldingClient disconnected")
 
     def get_server_port(self) -> Optional[int]:
@@ -506,8 +575,15 @@ class ScaffoldingClient:
                 time.sleep(self._HEARTBEAT_INTERVAL)
                 if not self._running:
                     break
+                t0 = time.monotonic()
                 self._send_ping()
                 self._fetch_profiles()
+                self._last_latency_ms = int((time.monotonic() - t0) * 1000)
+                if self.on_heartbeat:
+                    try:
+                        self.on_heartbeat(self._profiles, self._last_latency_ms)
+                    except Exception as e:
+                        logger.error(f"ScaffoldingClient heartbeat callback error: {e}")
                 self._consecutive_failures = 0
             except Exception as e:
                 self._consecutive_failures += 1
@@ -720,7 +796,8 @@ class EasyTierManager:
             return []
 
     def launch(self, lobby: LobbyInfo, as_host: bool, on_output=None,
-               on_exited=None, player_name: str = "Host") -> int:
+               on_exited=None, player_name: str = "Host",
+               latency_first: bool = True) -> int:
         if self._running:
             logger.warning("EasyTier is already running")
             return 1
@@ -749,6 +826,9 @@ class EasyTierManager:
             "--private-mode", "true",
             "--p2p-only",
         ]
+
+        if latency_first:
+            args.append("--latency-first")
 
         if as_host:
             self._scf_server = ScaffoldingServer(lobby.minecraft_port, player_name)
@@ -1024,6 +1104,249 @@ class McBroadcastSimulator:
         logger.info("MC broadcast simulator stopped")
 
 
+class McPing:
+    """轻量级 Minecraft 服务器 Ping"""
+
+    _PROTOCOL_VERSION = 767
+    _DEFAULT_TIMEOUT = 3.0
+
+    def __init__(self, host: str, port: int = 25565):
+        self._host = host
+        self._port = port
+
+    def ping(self) -> Optional[Dict[str, Any]]:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self._DEFAULT_TIMEOUT)
+            sock.connect((self._host, self._port))
+
+            host_bytes = self._host.encode("utf-8")
+            handshake = bytearray()
+            _write_varint(handshake, 0x00)
+            _write_varint(handshake, self._PROTOCOL_VERSION)
+            _write_varint(handshake, len(host_bytes))
+            handshake.extend(host_bytes)
+            handshake.extend(struct.pack(">H", self._port))
+            _write_varint(handshake, 1)
+
+            packet = bytearray()
+            _write_varint(packet, len(handshake))
+            packet.extend(handshake)
+            sock.sendall(packet)
+
+            sock.sendall(b"\x01\x00")
+
+            _read_varint(sock)
+            _read_varint(sock)
+            length = _read_varint(sock)
+            data = bytearray()
+            while len(data) < length:
+                chunk = sock.recv(length - len(data))
+                if not chunk:
+                    break
+                data.extend(chunk)
+            sock.close()
+
+            response = json.loads(data.decode("utf-8"))
+            return response
+        except Exception:
+            return None
+
+
+class BroadcastListener:
+    """局域网 Minecraft 世界发现监听器"""
+
+    MOTD_RE = re.compile(r"\[MOTD\](.*?)\[/MOTD\]")
+    AD_RE = re.compile(r"\[AD\](\d+)\[/AD\]")
+
+    def __init__(self, receive_local_only: bool = True):
+        self._receive_local_only = receive_local_only
+        self._sock: Optional[socket.socket] = None
+        self._sock_v6: Optional[socket.socket] = None
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self.on_receive: Optional[Callable[[str, int], None]] = None
+
+    def start(self):
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._listen_loop, daemon=True)
+        self._thread.start()
+        logger.info("BroadcastListener started")
+
+    def stop(self):
+        self._running = False
+        if self._sock:
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+            self._sock = None
+        if self._sock_v6:
+            try:
+                self._sock_v6.close()
+            except Exception:
+                pass
+            self._sock_v6 = None
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3)
+        logger.info("BroadcastListener stopped")
+
+    def _listen_loop(self):
+        try:
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._sock.bind(("0.0.0.0", MC_MULTICAST_GROUP[1]))
+            mreq = struct.pack("=4s4s", socket.inet_aton(MC_MULTICAST_GROUP[0]),
+                               socket.inet_aton("0.0.0.0"))
+            self._sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        except Exception:
+            self._sock = None
+
+        try:
+            self._sock_v6 = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            self._sock_v6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._sock_v6.bind(("::", MC_MULTICAST_GROUP_V6[1]))
+            mreq_v6 = socket.inet_pton(socket.AF_INET6, MC_MULTICAST_GROUP_V6[0]) + struct.pack("@I", 0)
+            self._sock_v6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP, mreq_v6)
+        except Exception:
+            self._sock_v6 = None
+
+        while self._running:
+            try:
+                if self._sock:
+                    self._sock.settimeout(1.0)
+                data, addr = None, None
+                if self._sock:
+                    try:
+                        data, addr = self._sock.recvfrom(65536)
+                    except socket.timeout:
+                        pass
+                if data is None and self._sock_v6:
+                    try:
+                        self._sock_v6.settimeout(0.5)
+                        data, addr = self._sock_v6.recvfrom(65536)
+                        if ":" in addr[0]:
+                            addr = ("127.0.0.1", addr[1])
+                    except socket.timeout:
+                        pass
+                if data is None:
+                    continue
+
+                message = data.decode("utf-8", errors="replace")
+                motd_match = self.MOTD_RE.search(message)
+                ad_match = self.AD_RE.search(message)
+                if not ad_match:
+                    continue
+                port = int(ad_match.group(1))
+                if self._receive_local_only:
+                    local_ips = _get_local_ips()
+                    if addr[0] != "127.0.0.1" and addr[0] not in local_ips:
+                        continue
+                if self.on_receive:
+                    try:
+                        self.on_receive(port, motd_match.group(1) if motd_match else "Unknown")
+                    except Exception as e:
+                        logger.debug(f"BroadcastListener callback error: {e}")
+            except Exception as e:
+                if self._running:
+                    logger.debug(f"BroadcastListener error: {e}")
+                    time.sleep(1)
+
+
+class GameWatcher:
+    """监控主机 MC 实例是否仍在运行"""
+
+    _CHECK_INTERVAL = 15.0
+    _INITIAL_DELAY = 5.0
+
+    def __init__(self, port: int):
+        self._port = port
+        self._running = False
+        self._timer: Optional[threading.Timer] = None
+        self.on_game_stopped: Optional[Callable[[], None]] = None
+
+    def start(self):
+        if self._running:
+            return
+        self._running = True
+        self._schedule_next()
+        logger.info(f"GameWatcher started for port {self._port}")
+
+    def stop(self):
+        self._running = False
+        if self._timer:
+            self._timer.cancel()
+            self._timer = None
+        logger.info("GameWatcher stopped")
+
+    def _schedule_next(self):
+        if not self._running:
+            return
+        self._timer = threading.Timer(
+            self._CHECK_INTERVAL if hasattr(self, '_first_check_done') else self._INITIAL_DELAY,
+            self._check
+        )
+        self._timer.daemon = True
+        self._timer.start()
+        self._first_check_done = True
+
+    def _check(self):
+        if not self._running:
+            return
+        pinger = McPing(LOOPBACK, self._port)
+        result = pinger.ping()
+        if result is None:
+            logger.warning(f"GameWatcher: MC instance on port {self._port} appears to have stopped")
+            self._running = False
+            if self.on_game_stopped:
+                try:
+                    self.on_game_stopped()
+                except Exception as e:
+                    logger.error(f"GameWatcher callback error: {e}")
+            return
+        self._schedule_next()
+
+
+def _write_varint(buf: bytearray, value: int):
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        if value != 0:
+            byte |= 0x80
+        buf.append(byte)
+        if value == 0:
+            break
+
+
+def _read_varint(sock: socket.socket) -> int:
+    value = 0
+    shift = 0
+    while True:
+        data = sock.recv(1)
+        if not data:
+            raise ConnectionError("Connection closed")
+        byte = data[0]
+        value |= (byte & 0x7F) << shift
+        if not (byte & 0x80):
+            break
+        shift += 7
+    return value
+
+
+def _get_local_ips() -> List[str]:
+    ips = []
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ips.append(info[4][0])
+    except Exception:
+        pass
+    ips.append("127.0.0.1")
+    return ips
+
+
 class TcpPortForwarder:
     MAX_CONNECTIONS = 10
 
@@ -1150,6 +1473,12 @@ class TcpPortForwarder:
         logger.info("TCP forwarder stopped")
 
 
+def _sort_player_list(profiles: list) -> list:
+    host_list = [p for p in profiles if p.get("kind") == "HOST"]
+    guest_list = [p for p in profiles if p.get("kind") != "HOST"]
+    return host_list + guest_list
+
+
 class OnlineTabMixin(object):
     """联机标签页 Mixin - 陶瓦联机功能"""
 
@@ -1201,6 +1530,8 @@ class OnlineTabMixin(object):
         self._public_address: Optional[str] = None
         self._member_poll_id: Optional[str] = None
         self._scf_client: Optional[ScaffoldingClient] = None
+        self._game_watcher: Optional[GameWatcher] = None
+        self._lobby_state = LobbyState.IDLE
 
         self.after(200, self._init_online_state)
 
@@ -1236,6 +1567,7 @@ class OnlineTabMixin(object):
         self._online_control_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
 
         self._build_online_env_section(self._online_control_frame)
+        self._build_online_discover_section(self._online_control_frame)
         self._build_online_create_section(self._online_control_frame)
         self._build_online_join_section(self._online_control_frame)
         self._build_online_lobby_section(self._online_control_frame)
@@ -1299,6 +1631,98 @@ class OnlineTabMixin(object):
         self._theme_refs.append((card, {"fg_color": "card_bg", "border_color": "card_border"}))
         self._theme_refs.append((self._online_env_et_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._online_env_setup_btn, {"fg_color": "accent", "hover_color": "accent_hover"}))
+
+    def _build_online_discover_section(self, parent):
+        card = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
+        card.pack(fill=ctk.X, padx=5, pady=5)
+
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill=ctk.X, padx=15, pady=12)
+
+        title_row = ctk.CTkFrame(inner, fg_color="transparent")
+        title_row.pack(fill=ctk.X)
+
+        ctk.CTkLabel(
+            title_row,
+            text="🔍 " + _("online_discover_title"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(side=ctk.LEFT)
+
+        self._online_discover_btn = ctk.CTkButton(
+            title_row,
+            text="🔄 " + _("online_discover_btn"),
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_discover_worlds,
+        )
+        self._online_discover_btn.pack(side=ctk.RIGHT)
+
+        self._online_discover_list_label = ctk.CTkLabel(
+            inner,
+            text=_("online_no_worlds"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+            wraplength=340,
+            justify=ctk.LEFT,
+        )
+        self._online_discover_list_label.pack(anchor=ctk.W, pady=(6, 0))
+
+        self._theme_refs.append((card, {"fg_color": "card_bg", "border_color": "card_border"}))
+        self._theme_refs.append((self._online_discover_list_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self._online_discover_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+
+    def _set_lobby_state(self, new_state: LobbyState):
+        if not hasattr(self, '_lobby_state'):
+            self._lobby_state = LobbyState.IDLE
+        old = self._lobby_state
+        if old == new_state:
+            return
+        self._lobby_state = new_state
+        logger.info(f"Lobby state: {old.value} -> {new_state.value}")
+
+    def _on_discover_worlds(self):
+        if not self._et_manager or not self._et_manager.is_installed:
+            self._append_online_log("[FMCL] " + _("online_et_not_found"))
+            return
+
+        self._online_discover_btn.configure(state=ctk.DISABLED, text="🔄 " + _("online_discovering"))
+        self._online_discover_list_label.configure(text=_("online_discovering"))
+        self._append_online_log("[FMCL] " + _("online_discovering"))
+        self._set_lobby_state(LobbyState.DISCOVERING)
+
+        recorded_ports: set = set()
+        listener = BroadcastListener(receive_local_only=True)
+
+        def on_world_found(port: int, motd: str):
+            if port in recorded_ports:
+                return
+            recorded_ports.add(port)
+            self.after(0, lambda: self._on_world_discovered(port, motd))
+
+        listener.on_receive = on_world_found
+        listener.start()
+
+        def finish_discovery():
+            listener.stop()
+            self._online_discover_btn.configure(state=ctk.NORMAL, text="🔄 " + _("online_discover_btn"))
+            if not recorded_ports:
+                self._online_discover_list_label.configure(text=_("online_no_worlds"))
+            self._set_lobby_state(LobbyState.INITIALIZED)
+
+        self.after(3500, finish_discovery)
+
+    def _on_world_discovered(self, port: int, motd: str):
+        def _update():
+            text = f"🎮 {motd} (:{port})"
+            current = self._online_discover_list_label.cget("text")
+            if current == _("online_no_worlds") or current == _("online_discovering"):
+                self._online_discover_list_label.configure(text=text)
+            elif text not in current:
+                self._online_discover_list_label.configure(text=current + "\n" + text)
+        self.after(0, _update)
 
     def _build_online_create_section(self, parent):
         card = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
@@ -1671,15 +2095,20 @@ class OnlineTabMixin(object):
             if not self._scf_client or not self._scf_client.is_connected:
                 return
             profiles = self._scf_client.profiles
+        profiles = _sort_player_list(profiles)
         lines = []
         for p in profiles:
             kind = p.get("kind", "?")
+            name = p.get("name", "?")
             vendor = p.get("vendor", "?")
             icon = "👑" if kind == "HOST" else "👤"
-            lines.append(f"{icon} {kind} · {vendor}")
+            lines.append(f"{icon} {name} · {vendor}")
         if not lines:
             lines.append(_("online_no_members"))
-        self._online_members_label.configure(text="\n".join(lines))
+        lat_str = ""
+        if not self._is_host and self._scf_client and self._scf_client.latency_ms > 0:
+            lat_str = f"\n⏱ {self._scf_client.latency_ms}ms"
+        self._online_members_label.configure(text="\n".join(lines) + lat_str)
 
     def _on_members_changed(self, profiles: list):
         if not self.winfo_exists():
@@ -1775,6 +2204,7 @@ class OnlineTabMixin(object):
         self._online_create_btn.configure(state=ctk.DISABLED)
         self._online_join_btn.configure(state=ctk.DISABLED)
         self._append_online_log("[FMCL] " + _("online_creating_lobby"))
+        self._set_lobby_state(LobbyState.CREATING)
 
         def _create():
             lobby = LobbyCodeGenerator.generate()
@@ -1807,6 +2237,12 @@ class OnlineTabMixin(object):
                     scf.on_profiles_changed = lambda profiles: self.after(
                         0, lambda: self._on_members_changed(profiles)
                     )
+                self._set_lobby_state(LobbyState.CONNECTED)
+                self._game_watcher = GameWatcher(mc_port)
+                self._game_watcher.on_game_stopped = lambda: self.after(
+                    0, self._on_host_game_stopped
+                )
+                self._game_watcher.start()
                 self._set_online_status(_("online_et_connecting"), "warning")
                 self._online_lobby_status_label.configure(
                     text=_("online_waiting_network"), text_color=COLORS["warning"]
@@ -1842,6 +2278,15 @@ class OnlineTabMixin(object):
         self._online_lobby_status_label.configure(text="")
         self._append_online_log("[FMCL] " + _("online_forward_complete", local_port=self._local_mc_port))
 
+    def _on_host_game_stopped(self):
+        if not self._is_host:
+            return
+        self._append_online_log("[FMCL] MC instance stopped, leaving lobby")
+        self._online_lobby_status_label.configure(
+            text="MC instance closed", text_color=COLORS["warning"]
+        )
+        self._on_leave_lobby()
+
     def _on_join_lobby(self):
         login_err = self._get_login_error()
         if login_err:
@@ -1867,6 +2312,8 @@ class OnlineTabMixin(object):
 
         lobby = LobbyCodeGenerator.try_parse(code)
         if lobby is None:
+            lobby = LobbyCodeGenerator.try_parse_terracotta(code)
+        if lobby is None:
             self._append_online_log("[FMCL] " + _("online_invalid_code"))
             self.set_status(_("online_invalid_code"), "warning")
             return
@@ -1874,6 +2321,7 @@ class OnlineTabMixin(object):
         self._online_create_btn.configure(state=ctk.DISABLED)
         self._online_join_btn.configure(state=ctk.DISABLED)
         self._append_online_log("[FMCL] " + _("online_joining_lobby", code=lobby.full_code))
+        self._set_lobby_state(LobbyState.JOINING)
 
         def _join():
             return lobby
@@ -1890,6 +2338,7 @@ class OnlineTabMixin(object):
             )
 
             if result == 0:
+                self._set_lobby_state(LobbyState.CONNECTED)
                 self._set_online_status(_("online_et_connecting"), "warning")
                 self._online_lobby_code_display_label.configure(
                     text=lobby.full_code, text_color=COLORS["accent"]
@@ -2022,13 +2471,18 @@ class OnlineTabMixin(object):
 
     def _reset_lobby_state(self):
         self._stop_member_poll()
+        self._set_lobby_state(LobbyState.LEAVING)
         if self._scf_client:
             self._scf_client.on_player_list_changed = None
             self._scf_client.on_server_shutdown = None
+            self._scf_client.on_heartbeat = None
             self._scf_client.disconnect()
             self._scf_client = None
         if self._et_manager and self._et_manager._scf_server:
             self._et_manager._scf_server.on_profiles_changed = None
+        if hasattr(self, '_game_watcher') and self._game_watcher:
+            self._game_watcher.stop()
+            self._game_watcher = None
         self._lobby_info = None
         self._is_host = False
         self._local_mc_port = 0
@@ -2040,6 +2494,7 @@ class OnlineTabMixin(object):
         self._online_leave_btn.configure(state=ctk.DISABLED)
         self._online_create_btn.configure(state=ctk.NORMAL)
         self._online_join_btn.configure(state=ctk.NORMAL)
+        self._set_lobby_state(LobbyState.IDLE)
 
     def _on_easytier_exited(self, exit_code: int):
         self._append_online_log(f"[FMCL] EasyTier exited with code {exit_code}")

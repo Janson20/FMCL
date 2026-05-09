@@ -665,6 +665,11 @@
   "online_login_expired": "登录已过期，请重新登录净读 AI 账号",
   "online_compat_title": "✅ 哪些启动器支持陶瓦联机？",
   "online_compat_content": "以下启动器均支持陶瓦联机，且它们之间可以互相联机（例如 FMCL ↔ PCL CE 也能一起玩）：\n\n✅ 原生支持：HMCL（陶瓦联机的发起者）\n✅ 完整支持：PCL CE（已实现互通）\n✅ 互通兼容：BakaXL / 官方 PCL2（需切换开发版）\n✅ 三方互通：FCL（手机端，房间码与 HMCL 互通）\n\n请注意：官方启动器通常不支持此功能。",
+  "online_discover_title": "局域网世界发现",
+  "online_discover_btn": "扫描",
+  "online_discovering": "正在扫描局域网世界...",
+  "online_no_worlds": "未发现局域网世界，点击 🔄 扫描",
+  "online_game_stopped": "MC 实例已关闭，正在退出大厅",
 
   "mod_export_list": "📋 导出模组列表",
   "mod_export_header": "{version} 模组列表",

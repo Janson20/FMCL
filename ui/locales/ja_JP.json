@@ -665,6 +665,11 @@
   "online_login_expired": "ログインの有効期限が切れました。Jingdu AIアカウントに再ログインしてください",
   "online_compat_title": "✅ どのランチャーがテラコッタリンクに対応していますか？",
   "online_compat_content": "これらのランチャーはすべてテラコッタリンクに対応しており、相互にプレイできます（例：FMCL ↔ PCL CE）：\n\n✅ ネイティブ：HMCL（テラコッタリンクの最初の開発者）\n✅ 完全対応：PCL CE（相互運用可能）\n✅ 互換性：BakaXL / 公式PCL2（開発版が必要）\n✅ クロスプラットフォーム：FCL（モバイル、ルームコードはHMCLと相互運用可能）\n\n注意：公式Minecraft Launcherはこの機能に対応していません。",
+  "online_discover_title": "LAN ワールド検出",
+  "online_discover_btn": "スキャン",
+  "online_discovering": "LAN ワールドをスキャン中...",
+  "online_no_worlds": "LAN ワールドが見つかりません。🔄 をクリックしてスキャン",
+  "online_game_stopped": "MC インスタンスが終了しました。ロビーから退出します",
 
   "mod_export_list": "📋 MODリストをエクスポート",
   "mod_export_header": "{version} MODリスト",
