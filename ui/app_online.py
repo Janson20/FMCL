@@ -171,13 +171,18 @@ class LobbyCodeGenerator:
 class ScaffoldingServer:
     """轻量级 Scaffolding 信令服务器，响应 PCL-CE 客户端请求"""
 
+    _PLAYER_TIMEOUT = 10.0
+    _CLEANUP_INTERVAL = 5.0
+
     def __init__(self, mc_port: int, player_name: str = "Host"):
         self._mc_port = mc_port
         self._port: int = 0
         self._server: Optional[socket.socket] = None
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._cleanup_thread: Optional[threading.Thread] = None
         self._guests: Dict[str, dict] = {}
+        self._guests_lock = threading.Lock()
         self._host_mid = _get_machine_id()
         vendor = _get_vendor()
         self._host_profile = {
@@ -186,6 +191,7 @@ class ScaffoldingServer:
             "vendor": vendor,
             "kind": "HOST",
         }
+        self.on_profiles_changed: Optional[Callable[[list], None]] = None
 
     @property
     def port(self) -> int:
@@ -193,7 +199,8 @@ class ScaffoldingServer:
 
     @property
     def all_profiles(self) -> list:
-        return [self._host_profile] + list(self._guests.values())
+        with self._guests_lock:
+            return [self._host_profile] + list(self._guests.values())
 
     def start(self) -> int:
         if self._running:
@@ -207,6 +214,8 @@ class ScaffoldingServer:
             self._running = True
             self._thread = threading.Thread(target=self._accept_loop, daemon=True)
             self._thread.start()
+            self._cleanup_thread = threading.Thread(target=self._cleanup_loop, daemon=True)
+            self._cleanup_thread.start()
             logger.info(f"Scaffolding server started on port {self._port}")
             return self._port
         except Exception as e:
@@ -224,7 +233,10 @@ class ScaffoldingServer:
             self._server = None
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=3)
-        self._guests.clear()
+        if self._cleanup_thread and self._cleanup_thread.is_alive():
+            self._cleanup_thread.join(timeout=3)
+        with self._guests_lock:
+            self._guests.clear()
         logger.info("Scaffolding server stopped")
 
     def _accept_loop(self):
@@ -242,6 +254,41 @@ class ScaffoldingServer:
             except Exception:
                 if self._running:
                     time.sleep(0.1)
+
+    def _cleanup_loop(self):
+        while self._running:
+            try:
+                time.sleep(self._CLEANUP_INTERVAL)
+                if not self._running:
+                    break
+
+                now = time.monotonic()
+                removed = []
+                with self._guests_lock:
+                    for mid, guest in list(self._guests.items()):
+                        last_seen = guest.get("last_seen", 0)
+                        if now - last_seen > self._PLAYER_TIMEOUT:
+                            removed.append(guest)
+                            del self._guests[mid]
+
+                if removed:
+                    for guest in removed:
+                        logger.info(
+                            "ScaffoldingServer: player '%s' timed out and was removed",
+                            guest.get("name", "?"),
+                        )
+                    self._notify_profiles_changed()
+            except Exception as e:
+                if self._running:
+                    logger.warning(f"ScaffoldingServer cleanup error: {e}")
+
+    def _notify_profiles_changed(self):
+        cb = self.on_profiles_changed
+        if cb:
+            try:
+                cb(self.all_profiles)
+            except Exception as e:
+                logger.error(f"ScaffoldingServer profiles_changed callback error: {e}")
 
     def _handle_client(self, client: socket.socket, addr):
         try:
@@ -323,12 +370,18 @@ class ScaffoldingServer:
             if info and isinstance(info, dict):
                 mid = info.get("machine_id", "")
                 if mid and mid != self._host_mid:
-                    self._guests[mid] = {
-                        "name": info.get("name", "Unknown"),
-                        "machine_id": mid,
-                        "vendor": info.get("vendor", "unknown"),
-                        "kind": "GUEST",
-                    }
+                    mid_existed = False
+                    with self._guests_lock:
+                        mid_existed = mid in self._guests
+                        now = time.monotonic()
+                        info["last_seen"] = now
+                        self._guests[mid] = info
+                    if not mid_existed:
+                        logger.info(
+                            "ScaffoldingServer: new player '%s' connected",
+                            info.get("name", "?"),
+                        )
+                        self._notify_profiles_changed()
         except Exception:
             pass
         return 0, b""
@@ -344,6 +397,7 @@ class ScaffoldingServer:
 
 class ScaffoldingClient:
     _HEARTBEAT_INTERVAL = 5.0
+    _MAX_HEARTBEAT_FAILURES = 3
 
     def __init__(self, host: str, port: int, player_name: str, machine_id: str, vendor: str):
         self._host = host
@@ -356,6 +410,10 @@ class ScaffoldingClient:
         self._running = False
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._profiles: List[dict] = []
+        self._consecutive_failures = 0
+        self.on_server_shutdown: Optional[Callable[[], None]] = None
+        self.on_player_list_changed: Optional[Callable[[list], None]] = None
+        self._last_machine_ids: set = set()
 
     @property
     def profiles(self) -> list:
@@ -376,6 +434,7 @@ class ScaffoldingClient:
             self._sock.connect((self._host, self._port))
             self._sock.settimeout(30)
             self._running = True
+            self._consecutive_failures = 0
             logger.info(f"ScaffoldingClient connected to {self._host}:{self._port}")
 
             self._send_ping()
@@ -397,6 +456,7 @@ class ScaffoldingClient:
         self._close_socket()
         with self._lock:
             self._profiles.clear()
+        self._last_machine_ids.clear()
         logger.info("ScaffoldingClient disconnected")
 
     def get_server_port(self) -> Optional[int]:
@@ -423,6 +483,14 @@ class ScaffoldingClient:
                 profiles = json.loads(body.decode("utf-8"))
                 with self._lock:
                     self._profiles = profiles if isinstance(profiles, list) else []
+                current_ids = {p.get("machine_id", "") for p in self._profiles if p.get("machine_id")}
+                if current_ids != self._last_machine_ids:
+                    self._last_machine_ids = current_ids
+                    if self.on_player_list_changed:
+                        try:
+                            self.on_player_list_changed(self._profiles)
+                        except Exception as e:
+                            logger.error(f"ScaffoldingClient player_list_changed callback error: {e}")
         except Exception as e:
             logger.warning(f"ScaffoldingClient fetch profiles failed: {e}")
 
@@ -434,8 +502,21 @@ class ScaffoldingClient:
                     break
                 self._send_ping()
                 self._fetch_profiles()
+                self._consecutive_failures = 0
             except Exception as e:
-                logger.warning(f"ScaffoldingClient heartbeat error: {e}")
+                self._consecutive_failures += 1
+                logger.warning(
+                    f"ScaffoldingClient heartbeat error ({self._consecutive_failures}/{self._MAX_HEARTBEAT_FAILURES}): {e}"
+                )
+                if self._consecutive_failures >= self._MAX_HEARTBEAT_FAILURES:
+                    logger.warning("ScaffoldingClient: server appears to have shut down")
+                    self._running = False
+                    if self.on_server_shutdown:
+                        try:
+                            self.on_server_shutdown()
+                        except Exception as cb_e:
+                            logger.error(f"ScaffoldingClient server_shutdown callback error: {cb_e}")
+                    break
                 if not self._running:
                     break
                 time.sleep(1)
@@ -1594,6 +1675,20 @@ class OnlineTabMixin(object):
             lines.append(_("online_no_members"))
         self._online_members_label.configure(text="\n".join(lines))
 
+    def _on_members_changed(self, profiles: list):
+        if not self.winfo_exists():
+            return
+        self._refresh_members()
+
+    def _on_server_shutdown_detected(self):
+        if not self.winfo_exists():
+            return
+        self._append_online_log("[FMCL] " + _("online_forward_failed_et"))
+        self._online_lobby_status_label.configure(
+            text=_("online_forward_failed_et"), text_color=COLORS["error"]
+        )
+        self._on_leave_lobby()
+
     def _on_setup_environment(self):
         if self._et_manager is None:
             self._et_manager = EasyTierManager(_get_easytier_base_dir())
@@ -1701,6 +1796,11 @@ class OnlineTabMixin(object):
             )
 
             if result == 0:
+                scf = self._et_manager._scf_server
+                if scf:
+                    scf.on_profiles_changed = lambda profiles: self.after(
+                        0, lambda: self._on_members_changed(profiles)
+                    )
                 self._set_online_status(_("online_et_connecting"), "warning")
                 self._online_lobby_status_label.configure(
                     text=_("online_waiting_network"), text_color=COLORS["warning"]
@@ -1841,6 +1941,12 @@ class OnlineTabMixin(object):
             if not self._scf_client.connect():
                 self._scf_client = None
                 return None
+            self._scf_client.on_player_list_changed = lambda profiles: self.after(
+                0, lambda: self._on_members_changed(profiles)
+            )
+            self._scf_client.on_server_shutdown = lambda: self.after(
+                0, self._on_server_shutdown_detected
+            )
             mc_port = self._scf_client.get_server_port()
             if mc_port is None or mc_port <= 0:
                 mc_port = 25565
@@ -1911,8 +2017,12 @@ class OnlineTabMixin(object):
     def _reset_lobby_state(self):
         self._stop_member_poll()
         if self._scf_client:
+            self._scf_client.on_player_list_changed = None
+            self._scf_client.on_server_shutdown = None
             self._scf_client.disconnect()
             self._scf_client = None
+        if self._et_manager and self._et_manager._scf_server:
+            self._et_manager._scf_server.on_profiles_changed = None
         self._lobby_info = None
         self._is_host = False
         self._local_mc_port = 0
