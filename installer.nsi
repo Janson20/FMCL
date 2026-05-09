@@ -83,18 +83,24 @@ Section "-7ZipCheck" SEC07Z
   SetOutPath "$INSTDIR"
   DetailPrint "检查 7-Zip 安装状态..."
 
-  ReadRegStr $0 HKLM "SOFTWARE\7-Zip" "Path"
-  ${If} $0 != ""
-    IfFileExists "$0\7z.exe" 0 check_wow64
-    DetailPrint "检测到 7-Zip 已安装: $0"
-    Goto sevenz_done
+  ; 先检查 64 位注册表视图（仅 64 位系统）
+  ${If} ${RunningX64}
+    SetRegView 64
+    ReadRegStr $0 HKLM "SOFTWARE\7-Zip" "Path"
+    SetRegView 32
+    ${If} $0 != ""
+      IfFileExists "$0\7z.exe" 0 check_32bit_reg
+      DetailPrint "检测到 7-Zip 已安装 (64-bit): $0"
+      Goto sevenz_done
+    ${EndIf}
   ${EndIf}
 
-check_wow64:
-  ReadRegStr $0 HKLM "SOFTWARE\WOW6432Node\7-Zip" "Path"
+check_32bit_reg:
+  ; 检查 32 位注册表视图（32 位 NSIS 默认视图，自动对应 WOW6432Node）
+  ReadRegStr $0 HKLM "SOFTWARE\7-Zip" "Path"
   ${If} $0 != ""
     IfFileExists "$0\7z.exe" 0 check_path
-    DetailPrint "检测到 7-Zip 已安装 (WOW64): $0"
+    DetailPrint "检测到 7-Zip 已安装 (32-bit): $0"
     Goto sevenz_done
   ${EndIf}
 
@@ -120,23 +126,52 @@ check_path:
   SetOutPath "$INSTDIR"
 
   DetailPrint "正在静默安装 7-Zip..."
-  ExecWait '"$2" /S' $0
+  ExecWait '"$2" /S' $1
 
   RMDir /r "$TEMP\FMCLauncher_7z"
 
+  ${If} $1 != 0
+    DetailPrint "7-Zip 安装程序执行失败 (exit code: $1)"
+    MessageBox MB_ICONEXCLAMATION "7-Zip 安装失败 (错误码: $1)。$\n$\n请手动安装: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
+    Goto sevenz_done
+  ${EndIf}
+
   Sleep 2000
 
-  ReadRegStr $0 HKLM "SOFTWARE\7-Zip" "Path"
-  ${If} $0 == ""
-    ReadRegStr $0 HKLM "SOFTWARE\WOW6432Node\7-Zip" "Path"
+  ; 安装后验证 — 同样需要检查两种注册表视图
+  ${If} ${RunningX64}
+    SetRegView 64
+    ReadRegStr $0 HKLM "SOFTWARE\7-Zip" "Path"
+    SetRegView 32
+    ${If} $0 != ""
+      IfFileExists "$0\7z.exe" 0 verify_32bit_reg
+      DetailPrint "7-Zip 安装成功 (64-bit): $0"
+      Goto sevenz_done
+    ${EndIf}
   ${EndIf}
 
+verify_32bit_reg:
+  ReadRegStr $0 HKLM "SOFTWARE\7-Zip" "Path"
   ${If} $0 != ""
-    DetailPrint "7-Zip 安装成功: $0"
-  ${Else}
-    DetailPrint "7-Zip 安装验证失败，请手动安装"
-    MessageBox MB_ICONEXCLAMATION "7-Zip 安装可能未成功。$\n$\n请手动安装: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
+    IfFileExists "$0\7z.exe" 0 verify_path
+    DetailPrint "7-Zip 安装成功 (32-bit): $0"
+    Goto sevenz_done
   ${EndIf}
+
+verify_path:
+  StrCpy $0 "$PROGRAMFILES\7-Zip\7z.exe"
+  IfFileExists $0 verify_found
+  StrCpy $0 "$PROGRAMFILES32\7-Zip\7z.exe"
+  IfFileExists $0 verify_found
+  StrCpy $0 "$PROGRAMFILES64\7-Zip\7z.exe"
+  IfFileExists $0 verify_found
+
+  DetailPrint "7-Zip 安装验证失败，请手动安装"
+  MessageBox MB_ICONEXCLAMATION "7-Zip 安装可能未成功。$\n$\n请手动安装: https://7-zip.org/$\n$\nFMCL 仍可正常使用，但预下载功能需要 7-Zip 解压 RAR 文件。" /SD IDOK
+  Goto sevenz_done
+
+verify_found:
+  DetailPrint "7-Zip 安装成功: $0"
 
 sevenz_done:
   DetailPrint "7-Zip 检查完成"
