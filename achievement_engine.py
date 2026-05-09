@@ -36,7 +36,7 @@ class AchievementEngine:
 
     def __init__(self, db_dir: Path):
         self._db_path = db_dir / self.DB_FILENAME
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._unlock_callbacks: List[Callable[[AchievementDef, int, str], None]] = []
         self._defs_by_id: Dict[str, AchievementDef] = {d.achievement_id: d for d in ACHIEVEMENTS}
         self._init_db()
