@@ -248,6 +248,82 @@ def search_mods(
         return {"hits": [], "offset": offset, "limit": limit, "total_hits": 0}
 
 
+def search_server_mods(
+    query: str = "",
+    game_version: Optional[str] = None,
+    mod_loader: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> Dict:
+    """
+    搜索 Modrinth 上的服务端模组（仅返回支持服务端的模组）
+
+    Args:
+        query: 搜索关键词，为空时返回热门模组
+        game_version: 游戏版本筛选 (如 "1.20.4")
+        mod_loader: 模组加载器筛选 ("fabric", "forge", "neoforge")
+        offset: 分页偏移量
+        limit: 每页数量 (最大 100)
+
+    Returns:
+        {
+            "hits": [模组信息列表],
+            "offset": 当前偏移,
+            "limit": 每页数量,
+            "total_hits": 总结果数
+        }
+    """
+    facets = []
+
+    facets.append(["project_type:mod"])
+
+    if game_version:
+        facets.append([f"versions:{game_version}"])
+
+    if mod_loader:
+        facets.append([f"categories:{mod_loader}"])
+
+    facets.append(["server_side:required", "server_side:optional"])
+
+    params: Dict = {
+        "offset": offset,
+        "limit": limit,
+        "index": "relevance",
+    }
+
+    if facets:
+        import json
+        params["facets"] = json.dumps(facets)
+
+    if query:
+        params["query"] = query
+
+    logger.debug(
+        f"Modrinth 服务端模组搜索: query='{query}', version={game_version}, "
+        f"loader={mod_loader}, offset={offset}, facets={facets}"
+    )
+
+    try:
+        session = _get_session()
+        resp = session.get(
+            f"{MODRINTH_API_BASE}/search",
+            params=params,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        logger.info(
+            f"Modrinth 服务端模组搜索: query='{query}', version={game_version}, "
+            f"loader={mod_loader}, offset={offset}, 总结果={data.get('total_hits', 0)}"
+        )
+        return data
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Modrinth 服务端模组搜索失败: {e}")
+        return {"hits": [], "offset": offset, "limit": limit, "total_hits": 0}
+
+
 def search_resource_packs(
     query: str = "",
     game_version: Optional[str] = None,

@@ -14,6 +14,8 @@ from logzero import logger
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
 from ui.windows.modpack_server import ModpackServerWindow
+from ui.windows.server_mod_browser import ServerModBrowserWindow
+from ui.windows.server_resource_manager import ServerResourceManagerWindow
 
 
 class ServerTabMixin(object):
@@ -35,7 +37,7 @@ class ServerTabMixin(object):
 
     def _build_server_log_panel(self, parent):
         """构建服务器日志面板（左侧）"""
-        self._server_log_panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=400)
+        self._server_log_panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=280)
         self._server_log_panel.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
         self._server_log_panel.pack_propagate(False)
 
@@ -512,6 +514,7 @@ class ServerTabMixin(object):
             return
 
         for ver in versions:
+            has_loader = self._has_mod_loader(ver)
             btn_frame = ctk.CTkFrame(
                 self.server_list_frame,
                 fg_color=COLORS["bg_medium"],
@@ -533,6 +536,7 @@ class ServerTabMixin(object):
             )
             btn.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=3)
 
+            # 删除按钮（最先 pack RIGHT，确保位于最右侧）
             del_btn = ctk.CTkButton(
                 btn_frame,
                 text="X",
@@ -545,6 +549,34 @@ class ServerTabMixin(object):
                 command=lambda v=ver: self._on_server_remove(v),
             )
             del_btn.pack(side=ctk.RIGHT, padx=(0, 3), pady=5)
+
+            # 模组管理按钮（仅模组加载器版本）
+            if has_loader:
+                mod_settings_btn = ctk.CTkButton(
+                    btn_frame,
+                    text="⚙",
+                    width=30,
+                    height=28,
+                    font=ctk.CTkFont(size=14),
+                    fg_color="transparent",
+                    hover_color=COLORS["bg_light"],
+                    text_color=COLORS["text_secondary"],
+                    command=lambda v=ver: self._open_server_resource_manager(v),
+                )
+                mod_settings_btn.pack(side=ctk.RIGHT, padx=(0, 2))
+
+                mod_install_btn = ctk.CTkButton(
+                    btn_frame,
+                    text="🧩",
+                    width=30,
+                    height=28,
+                    font=ctk.CTkFont(size=14),
+                    fg_color="transparent",
+                    hover_color=COLORS["bg_light"],
+                    text_color=COLORS["success"],
+                    command=lambda v=ver: self._open_server_mod_browser(v),
+                )
+                mod_install_btn.pack(side=ctk.RIGHT, padx=(0, 2))
 
             self.server_buttons.append({
                 "version": ver,
@@ -760,6 +792,14 @@ class ServerTabMixin(object):
                 subprocess.Popen(['open', str(path)])
             else:
                 subprocess.Popen(['xdg-open', str(path)])
+
+    def _open_server_mod_browser(self, version_id: str):
+        """打开服务器模组浏览窗口"""
+        ServerModBrowserWindow(self, version_id, self.callbacks)
+
+    def _open_server_resource_manager(self, version_id: str):
+        """打开服务器资源管理窗口"""
+        ServerResourceManagerWindow(self, version_id, self.callbacks)
 
     def _append_server_log(self, message: str):
         """追加日志到服务器控制台（线程安全）并解析玩家事件"""
