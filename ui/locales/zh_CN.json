@@ -510,6 +510,20 @@
   "please_enter_username_password": "请输入用户名和密码",
   "netread_logged_out": "净读 AI 已退出登录",
 
+  "settings_tab_launcher": "🚀 启动器功能",
+  "settings_tab_account": "👤 账户管理",
+  "account_info_title": "📋 账户信息",
+  "account_info_username": "用户名",
+  "account_info_uuid": "UUID",
+  "account_info_level": "等级",
+  "account_info_description": "个性签名",
+  "account_info_ai_credits": "AI 积分",
+  "account_info_not_logged_in": "请先登录以查看账户信息",
+  "account_refresh": "🔄 刷新信息",
+  "account_refresh_success": "账户信息已刷新",
+  "account_refresh_failed": "刷新失败: {error}",
+  "account_fetching": "正在获取账户信息...",
+
   "ai_privacy_title": "AI 分析隐私说明",
   "ai_privacy_content": "使用 AI 智能分析功能时，您的崩溃报告、游戏日志、启动器日志及系统信息将被发送至净读 AI（DeepSeek 模型）进行分析。\n\n请注意：\n• 日志中可能包含您的游戏角色名、安装的模组列表等信息\n• 数据将通过加密连接传输至 AI 服务器进行处理\n• 我们不会存储或共享您的日志数据\n• 您可随时在设置中撤回同意\n\n同意后，后续使用 AI 分析将不再弹出此提示。",
 
@@ -553,6 +567,7 @@
   "agent_settings": "⚙ 设置 Token",
   "agent_status_ready": "状态: 已就绪",
   "agent_status_not_configured": "状态: 未配置",
+  "agent_ai_credits": "AI 积分: {credits}",
   "agent_settings_title": "AI 智能助手设置",
   "agent_settings_desc": "配置 AI Token 以启用自然语言控制启动器功能",
   "agent_no_token_hint": "⚠️ 未检测到 AI Token，请前往右上角 ⚙ 设置 → 净读 AI 登录 中登录以启用智能助手功能",

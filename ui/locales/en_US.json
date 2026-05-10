@@ -510,6 +510,20 @@
   "please_enter_username_password": "Please enter username and password",
   "netread_logged_out": "Jingdu AI logged out",
 
+  "settings_tab_launcher": "🚀 Launcher Features",
+  "settings_tab_account": "👤 Account",
+  "account_info_title": "📋 Account Info",
+  "account_info_username": "Username",
+  "account_info_uuid": "UUID",
+  "account_info_level": "Level",
+  "account_info_description": "Bio",
+  "account_info_ai_credits": "AI Credits",
+  "account_info_not_logged_in": "Please log in to view account info",
+  "account_refresh": "🔄 Refresh",
+  "account_refresh_success": "Account info refreshed",
+  "account_refresh_failed": "Refresh failed: {error}",
+  "account_fetching": "Fetching account info...",
+
   "ai_privacy_title": "AI Analysis Privacy Notice",
   "ai_privacy_content": "When using the AI analysis feature, your crash report, game log, launcher log, and system information will be sent to Jingdu AI (DeepSeek model) for analysis.\n\nPlease note:\n• Logs may contain your player name, installed mods list, etc.\n• Data is transmitted via encrypted connection to the AI server\n• We do not store or share your log data\n• You may withdraw consent at any time in Settings\n\nOnce accepted, this prompt will not appear again for subsequent AI analyses.",
 
@@ -553,6 +567,7 @@
   "agent_settings": "⚙ Set Token",
   "agent_status_ready": "Status: Ready",
   "agent_status_not_configured": "Status: Not configured",
+  "agent_ai_credits": "AI Credits: {credits}",
   "agent_settings_title": "AI Assistant Settings",
   "agent_settings_desc": "Configure AI Token to enable natural language control of the launcher",
   "agent_no_token_hint": "⚠️ AI Token not found. Please go to ⚙ Settings → Jingdu AI Login to enable the assistant.",

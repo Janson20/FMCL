@@ -510,6 +510,20 @@
   "please_enter_username_password": "請輸入使用者名稱和密碼",
   "netread_logged_out": "淨讀 AI 已登出",
 
+  "settings_tab_launcher": "🚀 啟動器功能",
+  "settings_tab_account": "👤 帳戶管理",
+  "account_info_title": "📋 帳戶資訊",
+  "account_info_username": "使用者名稱",
+  "account_info_uuid": "UUID",
+  "account_info_level": "等級",
+  "account_info_description": "個人簡介",
+  "account_info_ai_credits": "AI 積分",
+  "account_info_not_logged_in": "請先登入以查看帳戶資訊",
+  "account_refresh": "🔄 重新整理",
+  "account_refresh_success": "帳戶資訊已重新整理",
+  "account_refresh_failed": "重新整理失敗: {error}",
+  "account_fetching": "正在取得帳戶資訊...",
+
   "ai_privacy_title": "AI 分析隱私說明",
   "ai_privacy_content": "使用 AI 智慧分析功能時，您的崩潰報告、遊戲日誌、啟動器日誌及系統資訊將被傳送至淨讀 AI（DeepSeek 模型）進行分析。\n\n請注意：\n• 日誌中可能包含您的遊戲角色名稱、安裝的模組列表等資訊\n• 資料將透過加密連線傳輸至 AI 伺服器進行處理\n• 我們不會儲存或分享您的日誌資料\n• 您可隨時在設定中撤回同意\n\n同意後，後續使用 AI 分析將不再彈出此提示。",
 
@@ -553,6 +567,7 @@
   "agent_settings": "⚙ 設定 Token",
   "agent_status_ready": "狀態: 已就緒",
   "agent_status_not_configured": "狀態: 未配置",
+  "agent_ai_credits": "AI 積分: {credits}",
   "agent_settings_title": "AI 智能助手設定",
   "agent_settings_desc": "配置 AI Token 以啟用自然語言控制啟動器功能",
   "agent_no_token_hint": "⚠️ 未偵測到 AI Token，請前往右上角 ⚙ 設定 → 淨讀 AI 登入 中登入以啟用智能助手功能",

@@ -60,17 +60,32 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
     def _build_ui(self):
         """构建设置界面"""
-        container = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        container.pack(fill=ctk.BOTH, expand=True, padx=20, pady=20)
-
         # 标题
         title = ctk.CTkLabel(
-            container,
+            self,
             text=_("settings_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["text_primary"],
         )
-        title.pack(anchor=ctk.W, pady=(0, 20))
+        title.pack(anchor=ctk.W, padx=20, pady=(20, 0))
+
+        # 标签页
+        tabview = ctk.CTkTabview(self, fg_color=COLORS["bg_dark"], segmented_button_fg_color=COLORS["bg_medium"],
+                                 segmented_button_selected_color=COLORS["accent"],
+                                 segmented_button_unselected_color=COLORS["bg_medium"],
+                                 segmented_button_selected_hover_color=COLORS["accent_hover"])
+        tabview.pack(fill=ctk.BOTH, expand=True, padx=20, pady=(10, 5))
+        self._r(tabview, fg_color="bg_dark", segmented_button_fg_color="bg_medium",
+                segmented_button_selected_color="accent",
+                segmented_button_unselected_color="bg_medium",
+                segmented_button_selected_hover_color="accent_hover")
+
+        tab_launcher = tabview.add(_("settings_tab_launcher"))
+        tab_account = tabview.add(_("settings_tab_account"))
+
+        # ── 标签页1: 启动器功能 ──
+        container = ctk.CTkScrollableFrame(tab_launcher, fg_color="transparent")
+        container.pack(fill=ctk.BOTH, expand=True, padx=10, pady=10)
 
         # 启动后最小化开关
         minimize_frame = ctk.CTkFrame(container, fg_color="transparent")
@@ -480,95 +495,6 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         )
         dynamic_hint.pack(anchor=ctk.W, padx=12, pady=(0, 10))
 
-        # ── 净读 AI 账号 ──
-        jdz_section = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
-        jdz_section.pack(fill=ctk.X, pady=(15, 5))
-
-        jdz_title = ctk.CTkLabel(
-            jdz_section,
-            text=_("netread_ai"),
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            text_color=COLORS["text_primary"],
-        )
-        jdz_title.pack(anchor=ctk.W, padx=12, pady=(10, 5))
-
-        # Token 状态
-        _saved_token = self.callbacks.get("get_jdz_token", lambda: None)()
-        logged_in = _saved_token is not None
-        self.jdz_status_label = ctk.CTkLabel(
-            jdz_section,
-            text=f"{_('netread_status')}: {_('netread_logged_in') if logged_in else _('netread_not_logged_in')}",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["success"] if logged_in else COLORS["text_secondary"],
-        )
-        self.jdz_status_label.pack(anchor=ctk.W, padx=12, pady=(0, 5))
-
-        # 登录表单
-        login_form = ctk.CTkFrame(jdz_section, fg_color="transparent")
-        login_form.pack(fill=ctk.X, padx=12, pady=(0, 10))
-
-        self.jdz_user_entry = ctk.CTkEntry(
-            login_form,
-            height=30,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["bg_dark"],
-            border_color=COLORS["card_border"],
-            text_color=COLORS["text_primary"],
-            placeholder_text=_("netread_username_placeholder"),
-            width=140,
-        )
-        self.jdz_user_entry.pack(side=ctk.LEFT, padx=(0, 5))
-
-        self.jdz_pass_entry = ctk.CTkEntry(
-            login_form,
-            height=30,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["bg_dark"],
-            border_color=COLORS["card_border"],
-            text_color=COLORS["text_primary"],
-            placeholder_text=_("netread_password_placeholder"),
-            width=140,
-            show="•",
-        )
-        self.jdz_pass_entry.pack(side=ctk.LEFT, padx=(0, 5))
-
-        self.jdz_login_btn = ctk.CTkButton(
-            login_form,
-            text=_("login"),
-            height=30,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            command=self._on_jdz_login,
-        )
-        self.jdz_login_btn.pack(side=ctk.LEFT, padx=(0, 5))
-
-        self.jdz_logout_btn = ctk.CTkButton(
-            login_form,
-            text=_("netread_logout"),
-            height=30,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["bg_light"],
-            hover_color=COLORS["card_border"],
-            command=self._on_jdz_logout,
-        )
-        self.jdz_logout_btn.pack(side=ctk.LEFT)
-
-        # 注册链接（单独一行）
-        import webbrowser
-        register_btn = ctk.CTkButton(
-            jdz_section,
-            text=_("netread_register"),
-            height=28,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            text_color=COLORS["text_primary"],
-            anchor="w",
-            command=lambda: webbrowser.open("https://jingdu.qzz.io/register"),
-        )
-        register_btn.pack(anchor="w", padx=12, pady=(0, 10))
-
         # 下载线程数滑块
         threads_frame = ctk.CTkFrame(container, fg_color="transparent")
         threads_frame.pack(fill=ctk.X, pady=10)
@@ -606,11 +532,170 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         threads_slider.pack(fill=ctk.X, pady=(5, 0))
         self._threads_slider = threads_slider
 
-        # 关闭按钮
-        btn_frame = ctk.CTkFrame(container, fg_color="transparent")
-        btn_frame.pack(pady=(30, 0), fill=ctk.X)
+        # ── 标签页2: 账户管理 ──
+        account_container = ctk.CTkScrollableFrame(tab_account, fg_color="transparent")
+        account_container.pack(fill=ctk.BOTH, expand=True, padx=10, pady=10)
 
-        # 应用按钮
+        jdz_section = ctk.CTkFrame(account_container, fg_color=COLORS["bg_medium"], corner_radius=8)
+        jdz_section.pack(fill=ctk.X, pady=(5, 5))
+
+        jdz_title = ctk.CTkLabel(
+            jdz_section,
+            text=_("netread_ai"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        jdz_title.pack(anchor=ctk.W, padx=12, pady=(10, 5))
+
+        # Token 状态
+        _saved_token = self.callbacks.get("get_jdz_token", lambda: None)()
+        logged_in = _saved_token is not None
+        self.jdz_status_label = ctk.CTkLabel(
+            jdz_section,
+            text=f"{_('netread_status')}: {_('netread_logged_in') if logged_in else _('netread_not_logged_in')}",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["success"] if logged_in else COLORS["text_secondary"],
+        )
+        self.jdz_status_label.pack(anchor=ctk.W, padx=12, pady=(0, 5))
+
+        # 登录表单
+        self._login_form = ctk.CTkFrame(jdz_section, fg_color="transparent")
+        self._login_form.pack(fill=ctk.X, padx=12, pady=(0, 10))
+
+        self.jdz_user_entry = ctk.CTkEntry(
+            self._login_form,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_dark"],
+            border_color=COLORS["card_border"],
+            text_color=COLORS["text_primary"],
+            placeholder_text=_("netread_username_placeholder"),
+            width=140,
+        )
+        self.jdz_user_entry.pack(side=ctk.LEFT, padx=(0, 5))
+
+        self.jdz_pass_entry = ctk.CTkEntry(
+            self._login_form,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_dark"],
+            border_color=COLORS["card_border"],
+            text_color=COLORS["text_primary"],
+            placeholder_text=_("netread_password_placeholder"),
+            width=140,
+            show="•",
+        )
+        self.jdz_pass_entry.pack(side=ctk.LEFT, padx=(0, 5))
+
+        self.jdz_login_btn = ctk.CTkButton(
+            self._login_form,
+            text=_("login"),
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._on_jdz_login,
+        )
+        self.jdz_login_btn.pack(side=ctk.LEFT, padx=(0, 5))
+
+        self.jdz_logout_btn = ctk.CTkButton(
+            self._login_form,
+            text=_("netread_logout"),
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_jdz_logout,
+        )
+        self.jdz_logout_btn.pack(side=ctk.LEFT)
+
+        # 账户信息面板（登录后显示）
+        self._account_info_frame = ctk.CTkFrame(jdz_section, fg_color="transparent")
+
+        self._account_info_labels = {}
+        self._account_info_label_widgets = []
+        info_fields = [
+            ("username", _("account_info_username")),
+            ("uuid", _("account_info_uuid")),
+            ("level", _("account_info_level")),
+            ("description", _("account_info_description")),
+            ("ai_credits", _("account_info_ai_credits")),
+        ]
+        for key, label_text in info_fields:
+            row = ctk.CTkFrame(self._account_info_frame, fg_color="transparent")
+            row.pack(fill=ctk.X, padx=12, pady=1)
+            key_label = ctk.CTkLabel(
+                row,
+                text=label_text + ":",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLORS["text_secondary"],
+            )
+            key_label.pack(side=ctk.LEFT)
+            self._account_info_label_widgets.append(key_label)
+            self._r(key_label, text_color="text_secondary")
+            value_label = ctk.CTkLabel(
+                row,
+                text="-",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLORS["text_primary"],
+            )
+            value_label.pack(side=ctk.LEFT, padx=(5, 0))
+            self._account_info_labels[key] = value_label
+            self._r(value_label, text_color="text_primary")
+
+        # 刷新 + 退出按钮行
+        account_btn_row = ctk.CTkFrame(self._account_info_frame, fg_color="transparent")
+        account_btn_row.pack(fill=ctk.X, padx=12, pady=(8, 5))
+
+        self._account_refresh_btn = ctk.CTkButton(
+            account_btn_row,
+            text=_("account_refresh"),
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_account_refresh,
+        )
+        self._account_refresh_btn.pack(side=ctk.LEFT, padx=(0, 5))
+
+        self._account_logout_btn = ctk.CTkButton(
+            account_btn_row,
+            text=_("netread_logout"),
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_jdz_logout,
+        )
+        self._account_logout_btn.pack(side=ctk.LEFT)
+
+        # 注册链接
+        import webbrowser
+        register_btn = ctk.CTkButton(
+            jdz_section,
+            text=_("netread_register"),
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color=COLORS["text_primary"],
+            anchor="w",
+            command=lambda: webbrowser.open("https://jingdu.qzz.io/register"),
+        )
+        register_btn.pack(anchor="w", padx=12, pady=(5, 10))
+
+        # 初始化显示状态
+        if logged_in:
+            self._login_form.pack_forget()
+            self._account_info_frame.pack(fill=ctk.X, padx=12, pady=(0, 10))
+            self.after(100, self._on_account_refresh)
+        else:
+            self._account_info_frame.pack_forget()
+
+        # ── 底部按钮 ──
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(pady=(0, 15), fill=ctk.X, padx=20)
+
         apply_btn = ctk.CTkButton(
             btn_frame,
             text=_("settings_apply"),
@@ -622,7 +707,6 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         )
         apply_btn.pack(side=ctk.LEFT, padx=(0, 10))
 
-        # 关闭按钮
         close_btn = ctk.CTkButton(
             btn_frame,
             text=_("settings_close"),
@@ -655,6 +739,10 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self._r(dynamic_switch, fg_color="accent", button_color="text_primary",
                 button_hover_color="text_secondary", progress_color="accent_hover")
         self._r(dynamic_hint, text_color="text_secondary")
+        self._r(threads_label, text_color="text_primary")
+        self._r(self.threads_value_label, text_color="accent")
+        self._r(self._threads_slider, fg_color="bg_light", button_color="accent",
+                button_hover_color="accent_hover", progress_color="accent")
         self._r(jdz_section, fg_color="bg_medium")
         self._r(jdz_title, text_color="text_primary")
         self._r(self.jdz_user_entry, fg_color="bg_dark", border_color="card_border",
@@ -663,12 +751,10 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 text_color="text_primary")
         self._r(self.jdz_login_btn, fg_color="accent", hover_color="accent_hover")
         self._r(self.jdz_logout_btn, fg_color="bg_light", hover_color="card_border")
+        self._r(self._account_refresh_btn, fg_color="bg_light", hover_color="card_border")
+        self._r(self._account_logout_btn, fg_color="bg_light", hover_color="card_border")
         self._r(register_btn, fg_color="accent", hover_color="accent_hover",
                 text_color="text_primary")
-        self._r(threads_label, text_color="text_primary")
-        self._r(self.threads_value_label, text_color="accent")
-        self._r(self._threads_slider, fg_color="bg_light", button_color="accent",
-                button_hover_color="accent_hover", progress_color="accent")
         self._r(apply_btn, fg_color="accent", hover_color="accent_hover")
         self._r(close_btn, fg_color="bg_light", hover_color="card_border")
 
@@ -961,8 +1047,6 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 if token:
                     if "set_jdz_token" in self.callbacks:
                         self.callbacks["set_jdz_token"](token)
-                    if "set_jdz_username" in self.callbacks:
-                        self.callbacks["set_jdz_username"](username)
                     self.after(0, lambda: self._jdz_login_success(token))
                 else:
                     self.after(0, lambda: self._jdz_login_fail("未获取到 Token"))
@@ -987,7 +1071,10 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             text=f"{_('netread_status')}: {_('netread_logged_in')}",
             text_color=COLORS["success"]
         )
+        self._login_form.pack_forget()
+        self._account_info_frame.pack(fill=ctk.X, padx=12, pady=(0, 10))
         self.parent.set_status(_("netread_login_success"), "success")
+        self.after(100, self._on_account_refresh)
 
     def _jdz_login_fail(self, msg: str):
         self.jdz_login_btn.configure(state="normal", text=_("login"))
@@ -1007,6 +1094,47 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             text=f"{_('netread_status')}: {_('netread_not_logged_in')}",
             text_color=COLORS["text_secondary"]
         )
+        self._account_info_frame.pack_forget()
+        self._login_form.pack(fill=ctk.X, padx=12, pady=(0, 10))
         self.jdz_user_entry.delete(0, "end")
         self.jdz_pass_entry.delete(0, "end")
         self.parent.set_status(_("netread_logged_out"), "info")
+
+    def _on_account_refresh(self):
+        """手动刷新账户信息"""
+        if "fetch_jdz_user_info" not in self.callbacks:
+            return
+        self._account_refresh_btn.configure(state="disabled", text=_("account_fetching"))
+        self.update()
+
+        def _do_fetch():
+            info = self.callbacks["fetch_jdz_user_info"]()
+            if info:
+                self.after(0, lambda: self._update_account_info_display(info))
+            else:
+                self.after(0, lambda: self._account_refresh_btn.configure(
+                    state="normal", text=_("account_refresh")))
+                self.after(0, lambda: self.parent.set_status(
+                    _("account_refresh_failed", error="网络错误"), "error"))
+
+        threading.Thread(target=_do_fetch, daemon=True).start()
+
+    def _update_account_info_display(self, info: dict):
+        """更新账户信息显示"""
+        username = info.get("username", "-")
+        uuid_val = info.get("uuid", "-")
+        level = info.get("level", 0)
+        level_name = info.get("level_name", "")
+        description = info.get("description", "-")
+        ai_credits = info.get("ai_credits", 0)
+
+        level_text = f"{level} ({level_name})" if level_name else str(level)
+
+        self._account_info_labels["username"].configure(text=username)
+        self._account_info_labels["uuid"].configure(text=uuid_val)
+        self._account_info_labels["level"].configure(text=level_text)
+        self._account_info_labels["description"].configure(text=description)
+        self._account_info_labels["ai_credits"].configure(text=str(ai_credits))
+
+        self._account_refresh_btn.configure(state="normal", text=_("account_refresh"))
+        self.parent.set_status(_("account_refresh_success"), "success")

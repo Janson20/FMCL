@@ -837,6 +837,8 @@ class MinecraftLauncher:
             "set_jdz_token": self.set_jdz_token,
             "get_jdz_username": self.get_jdz_username,
             "set_jdz_username": self.set_jdz_username,
+            "get_jdz_user_info": self.get_jdz_user_info,
+            "fetch_jdz_user_info": self.fetch_jdz_user_info,
             "get_language": self.get_language,
             "set_language": self.set_language,
             # 主题相关
@@ -899,16 +901,50 @@ class MinecraftLauncher:
     def set_jdz_token(self, token: Optional[str]) -> None:
         """设置净读 AI Token"""
         self.config.jdz_token = token
+        if token is None:
+            self.config.jdz_user_info = None
         self.config.save_config()
 
     def get_jdz_username(self) -> Optional[str]:
-        """获取净读 AI 用户名（加密存储）"""
+        """获取净读 AI 用户名（优先从 API 缓存，回退到本地存储）"""
+        if self.config.jdz_user_info and self.config.jdz_user_info.get("username"):
+            return self.config.jdz_user_info["username"]
         return self.config.jdz_username
 
     def set_jdz_username(self, username: Optional[str]) -> None:
         """设置净读 AI 用户名（加密存储）"""
         self.config.jdz_username = username
         self.config.save_config()
+
+    def get_jdz_user_info(self) -> Optional[dict]:
+        """获取净读 AI 用户信息缓存"""
+        return self.config.jdz_user_info
+
+    def fetch_jdz_user_info(self) -> Optional[dict]:
+        """从净读 API 获取用户信息并缓存到内存"""
+        token = self.config.jdz_token
+        if not token:
+            return None
+        import json
+        import urllib.request
+        import urllib.error
+        try:
+            req = urllib.request.Request(
+                "https://jingdu.qzz.io/api/user/info",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)",
+                },
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                info = json.loads(resp.read().decode("utf-8"))
+            self.config.jdz_user_info = info
+            return info
+        except Exception as e:
+            from logzero import logger
+            logger.warning(f"获取净读用户信息失败: {e}")
+            return None
 
     def get_language(self) -> str:
         """获取界面语言"""

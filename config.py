@@ -145,6 +145,9 @@ class Config:
         # 净读 AI 用户名（加密存储，禁止修改）
         self._jdz_username: Optional[str] = None
 
+        # 净读 AI 用户信息缓存（内存缓存，不持久化）
+        self._jdz_user_info: Optional[dict] = None
+
         # AI 隐私同意
         self.ai_privacy_consent: bool = False
 
@@ -181,6 +184,14 @@ class Config:
     @jdz_username.setter
     def jdz_username(self, value: Optional[str]) -> None:
         self._jdz_username = value
+
+    @property
+    def jdz_user_info(self) -> Optional[dict]:
+        return self._jdz_user_info
+
+    @jdz_user_info.setter
+    def jdz_user_info(self, value: Optional[dict]) -> None:
+        self._jdz_user_info = value
 
     def _load_config(self) -> None:
         """从配置文件加载配置"""

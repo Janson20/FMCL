@@ -510,6 +510,20 @@
   "please_enter_username_password": "ユーザー名とパスワードを入力してください",
   "netread_logged_out": "Jingdu AIからログアウトしました",
 
+  "settings_tab_launcher": "🚀 ランチャー機能",
+  "settings_tab_account": "👤 アカウント管理",
+  "account_info_title": "📋 アカウント情報",
+  "account_info_username": "ユーザー名",
+  "account_info_uuid": "UUID",
+  "account_info_level": "レベル",
+  "account_info_description": "プロフィール",
+  "account_info_ai_credits": "AIクレジット",
+  "account_info_not_logged_in": "ログインしてアカウント情報を表示",
+  "account_refresh": "🔄 情報を更新",
+  "account_refresh_success": "アカウント情報が更新されました",
+  "account_refresh_failed": "更新に失敗しました: {error}",
+  "account_fetching": "アカウント情報を取得中...",
+
   "ai_privacy_title": "AI分析プライバシー説明",
   "ai_privacy_content": "AI分析機能を使用する際、クラッシュレポート、ゲームログ、ランチャーログ、システム情報がJingdu AI（DeepSeekモデル）に送信され分析されます。\n\nご注意：\n• ログにはプレイヤー名、インストール済みMODリストなどが含まれる場合があります\n• データは暗号化接続を通じてAIサーバーに送信されます\n• お客様のログデータを保存または共有することはありません\n• 設定からいつでも同意を撤回できます\n\n同意後、以降のAI分析でこの通知は表示されません。",
 
@@ -553,6 +567,7 @@
   "agent_settings": "⚙ Token設定",
   "agent_status_ready": "ステータス: 準備完了",
   "agent_status_not_configured": "ステータス: 未設定",
+  "agent_ai_credits": "AIクレジット: {credits}",
   "agent_settings_title": "AI アシスタント設定",
   "agent_settings_desc": "AI Tokenを設定して、自然言語でランチャーを操作できるようにします",
   "agent_no_token_hint": "⚠️ AI Tokenが見つかりません。右上の ⚙ 設定 → Jingdu AI ログイン からログインしてアシスタントを有効にしてください。",

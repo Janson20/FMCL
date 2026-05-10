@@ -38,7 +38,15 @@ class AgentMixin(object):
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["warning"],
         )
-        self._agent_status_label.pack(side=ctk.RIGHT, padx=(0, 10))
+        self._agent_status_label.pack(side=ctk.RIGHT, padx=(0, 5))
+
+        self._agent_credits_label = ctk.CTkLabel(
+            header,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        )
+        self._agent_credits_label.pack(side=ctk.RIGHT, padx=(0, 10))
 
         body = ctk.CTkFrame(container, fg_color="transparent")
         body.pack(fill=ctk.BOTH, expand=True, padx=15, pady=(0, 10))
@@ -134,6 +142,12 @@ class AgentMixin(object):
         if hasattr(self, "_agent_status_label"):
             self._agent_status_label.configure(text=status_text, text_color=status_color)
 
+        if hasattr(self, "_agent_credits_label"):
+            if has_token:
+                self._refresh_agent_credits()
+            else:
+                self._agent_credits_label.configure(text="")
+
         if has_token and hasattr(self, "_agent_chat"):
             try:
                 provider = AIProvider.from_config(self._get_agent_token())
@@ -142,6 +156,21 @@ class AgentMixin(object):
                 logger.info("[Agent] AI 提供商初始化成功")
             except Exception as e:
                 logger.error(f"[Agent] AI 提供商初始化失败: {e}")
+
+    def _refresh_agent_credits(self):
+        """刷新 AI 积分余额显示"""
+        if "fetch_jdz_user_info" not in self.callbacks:
+            return
+        import threading
+
+        def _do_refresh():
+            info = self.callbacks["fetch_jdz_user_info"]()
+            if info and hasattr(self, "_agent_credits_label"):
+                credits = info.get("ai_credits", 0)
+                text = _("agent_ai_credits", credits=credits)
+                self.after(0, lambda: self._agent_credits_label.configure(text=text))
+
+        threading.Thread(target=_do_refresh, daemon=True).start()
 
     def _update_agent_callbacks(self):
         """更新 AGENT 的回调（在启动器就绪后调用）"""

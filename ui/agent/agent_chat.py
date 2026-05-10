@@ -434,6 +434,7 @@ class AgentChatView(ctk.CTkFrame):
         finally:
             logger.info("[Agent] === AI 处理循环结束 ===")
             self.after(0, self._reset_send_button)
+            self.after(0, self._refresh_credits_after_loop)
 
     def _show_choice_dialog(self, message: str, options: List[Dict[str, str]]):
         logger.info(f"[Agent] 显示选择对话框: 选项数={len(options)}")
@@ -447,3 +448,9 @@ class AgentChatView(ctk.CTkFrame):
     def _reset_send_button(self):
         logger.info("[Agent] 重置发送按钮状态")
         self._send_btn.configure(state=ctk.NORMAL, text=_("agent_send"))
+
+    def _refresh_credits_after_loop(self):
+        """AI 处理循环结束后刷新积分余额"""
+        top = self.winfo_toplevel()
+        if hasattr(top, '_refresh_agent_credits'):
+            top._refresh_agent_credits()
