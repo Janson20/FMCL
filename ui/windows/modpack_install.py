@@ -11,6 +11,16 @@ from ui.dialogs import show_notification
 from ui.i18n import _
 
 
+def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
+    try:
+        from achievement_engine import get_achievement_engine
+        engine = get_achievement_engine()
+        if engine:
+            engine.update_progress(achievement_id, value=value, trigger_type=trigger_type)
+    except Exception:
+        pass
+
+
 class ModpackInstallWindow(ctk.CTkToplevel):
     """整合包（.mrpack）安装窗口 - 选择文件、确认信息、执行安装"""
 
@@ -381,6 +391,7 @@ class ModpackInstallWindow(ctk.CTkToplevel):
                 state=ctk.DISABLED,
             )
             show_notification("📦", _("notify_modpack_installed"), result, notify_type="success")
+            _trigger_ach("modder_lazy")
             messagebox.showinfo(
                 _("mp_install_done_title"),
                 _("mp_install_done_msg", result=result),

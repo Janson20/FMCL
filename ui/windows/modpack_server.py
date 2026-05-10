@@ -11,6 +11,16 @@ from ui.dialogs import show_notification
 from ui.i18n import _
 
 
+def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
+    try:
+        from achievement_engine import get_achievement_engine
+        engine = get_achievement_engine()
+        if engine:
+            engine.update_progress(achievement_id, value=value, trigger_type=trigger_type)
+    except Exception:
+        pass
+
+
 class ModpackServerWindow(ctk.CTkToplevel):
     """整合包开服窗口 - 选择 .mrpack 文件，安装为服务器"""
 
@@ -367,6 +377,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
                 state=ctk.DISABLED,
             )
             show_notification("🖥", _("notify_modpack_server_installed"), result, notify_type="success")
+            _trigger_ach("server_modpack_server")
             messagebox.showinfo(
                 _("mp_server_install_done_title"),
                 _("mp_server_install_done_msg", result=result),

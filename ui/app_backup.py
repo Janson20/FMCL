@@ -609,6 +609,8 @@ class BackupTabMixin(object):
             config.backup_auto_launch = self.backup_auto_launch_var.get()
             config.backup_auto_exit = self.backup_auto_exit_var.get()
             config.save_config()
+            if self.backup_auto_launch_var.get() or self.backup_auto_exit_var.get():
+                self._check_ach("backup_automation", True)
         except Exception:
             pass
 

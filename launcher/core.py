@@ -1019,6 +1019,13 @@ class MinecraftLauncher:
                     colors=colors,
                 )
                 engine.apply_theme(modified_theme, version_colors["accent"])
+                try:
+                    from achievement_engine import get_achievement_engine
+                    ach_engine = get_achievement_engine()
+                    if ach_engine:
+                        ach_engine.update_progress("personalize_version_theme")
+                except Exception:
+                    pass
                 return dict(engine.get_current_colors())
         return None
 

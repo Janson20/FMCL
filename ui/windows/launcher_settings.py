@@ -792,27 +792,31 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             f"国内镜像源: {'已启用' if enabled else '已禁用'}",
             "success" if enabled else "info"
         )
+        try:
+            self.parent._trigger_ach("advanced_mirror")
+        except Exception:
+            pass
 
     def _on_language_change(self, lang_display: str):
         """语言切换回调"""
-        # 获取语言代码
         lang_code = self._lang_display_to_code.get(lang_display)
         if not lang_code:
             return
 
-        # 切换语言
         success = set_language(lang_code)
         if success:
-            # 保存到配置
             if "set_language" in self.callbacks:
                 self.callbacks["set_language"](lang_code)
 
-            # 获取语言名称用于显示
             lang_name = get_available_languages().get(lang_code, lang_code)
             self.parent.set_status(
                 _("settings_language_changed", lang=lang_name),
                 "info"
             )
+            try:
+                self.parent._trigger_ach("advanced_polyglot")
+            except Exception:
+                pass
 
     def _on_threads_change(self, value):
         """下载线程数滑块变化"""
@@ -821,6 +825,10 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         if "set_download_threads" in self.callbacks:
             self.callbacks["set_download_threads"](threads)
         self.parent.set_status(_("settings_threads", threads=threads), "info")
+        try:
+            self.parent._check_ach("advanced_multithread", threads > 1)
+        except Exception:
+            pass
 
     def _on_theme_change(self, display_name: str):
         """主题切换回调"""
@@ -829,6 +837,10 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             self.callbacks["set_theme_name"](theme_name)
         self._refresh_theme()
         self.parent.set_status(_("settings_theme_changed", theme=theme_name), "info")
+        try:
+            self.parent._trigger_ach("personalize_theme_master")
+        except Exception:
+            pass
 
     def _on_import_theme(self):
         """导入主题文件回调"""
@@ -846,6 +858,10 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         if success:
             self._refresh_theme_list()
             self.parent.set_status(msg, "success")
+            try:
+                self.parent._trigger_ach("personalize_import_theme")
+            except Exception:
+                pass
         else:
             self.parent.set_status(msg, "error")
 
@@ -870,6 +886,10 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             self.callbacks["set_accent_color"](color)
         self._refresh_theme()
         self.parent.set_status(_("settings_accent_applied"), "success")
+        try:
+            self.parent._trigger_ach("personalize_my_color")
+        except Exception:
+            pass
 
     def _on_random_accent(self):
         """随机生成强调色"""
@@ -880,6 +900,10 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             self.callbacks["set_accent_color"](color)
         self._refresh_theme()
         self.parent.set_status(_("settings_accent_random_applied", color=color), "success")
+        try:
+            self.parent._trigger_ach("personalize_my_color")
+        except Exception:
+            pass
 
     def _on_dynamic_toggle(self):
         """版本动态主题开关切换"""

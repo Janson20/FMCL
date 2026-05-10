@@ -3,6 +3,7 @@ import os
 import io
 import re
 import sys
+import time
 import logging
 import platform
 import subprocess
@@ -496,6 +497,7 @@ class EventHandlerMixin(object):
         """检查更新按钮回调"""
         self.set_status("正在检查更新...", "loading")
         self.update_btn.configure(state=ctk.DISABLED)
+        self._trigger_ach("advanced_updater")
         self._run_in_thread(self._check_update)
 
     def _check_update(self, silent: bool = False):
@@ -1054,6 +1056,7 @@ class EventHandlerMixin(object):
                 self._run_in_thread(self._watch_server_exit)
                 self._start_mem_monitor()
                 self._trigger_ach("server_first_server")
+                self._server_start_time = time.time()
             else:
                 self.set_status(f"服务器 {version_id} 启动失败", "error")
                 self.server_start_btn.configure(state=ctk.NORMAL)
@@ -1079,7 +1082,14 @@ class EventHandlerMixin(object):
             else:
                 self.set_status(_("server_crashed").format(code=exit_code), "error")
 
-            # 服务器退出后弹窗询问是否正常运行
+            server_start_time = getattr(self, "_server_start_time", None)
+            if server_start_time:
+                uptime_seconds = max(0, time.time() - server_start_time)
+                uptime_hours = int(uptime_seconds / 3600)
+                if uptime_hours > 0:
+                    self._trigger_ach("server_uptime", value=uptime_hours)
+                self._server_start_time = None
+
             self._ask_server_exit_quality(exit_code)
 
         elif task_type == "server_remove_done":
@@ -1107,8 +1117,8 @@ class EventHandlerMixin(object):
                 self._running = True
                 self.kill_btn.configure(state=ctk.NORMAL)
                 self._start_launch_animation()
-                # 加入服务器不监控 stdout（管道未捕获），仅监控进程退出
                 self._run_in_thread(self._watch_game_exit)
+                self._trigger_ach("server_cross_play")
             else:
                 self.set_status(f"启动游戏失败 ({version_id})", "error")
 
@@ -1138,6 +1148,7 @@ class EventHandlerMixin(object):
             exit_code = data["exit_code"]
             crash_files = data["crash_files"]
             self.set_status(f"游戏异常退出 (退出码: {exit_code})", "error")
+            self._trigger_ach("advanced_crash_analyst")
 
             # 提取 error_type 和 log_snippet 用于结构化日志
             _error_type = ""

@@ -264,6 +264,7 @@ class CrashHandlerMixin(object):
                 except Exception:
                     pass
                 messagebox.showinfo("提示", "未找到游戏日志文件", parent=dialog)
+            self._trigger_ach("advanced_log_hunter")
 
         def _export_crash_report():
             filetypes = [("ZIP 压缩包", "*.zip")]

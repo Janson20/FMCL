@@ -10,6 +10,16 @@ from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
 
 
+def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
+    try:
+        from achievement_engine import get_achievement_engine
+        engine = get_achievement_engine()
+        if engine:
+            engine.update_progress(achievement_id, value=value, trigger_type=trigger_type)
+    except Exception:
+        pass
+
+
 class ModBrowserWindow(ctk.CTkToplevel):
     """Modrinth 资源浏览窗口 - 支持模组、资源包、光影三个标签页"""
 
@@ -643,11 +653,13 @@ class ModBrowserWindow(ctk.CTkToplevel):
                             _("mod_browser_install_success_deps", title=title, deps=deps),
                         ),
                     )
+                    _trigger_ach("modder_dependency_expert")
                 else:
                     self.after(
                         0,
                         lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_install_success", title=title)),
                     )
+                _trigger_ach("modder_first_mod", value=len(installed_names))
                 logger.info(f"模组安装成功: {installed_names} -> {result}")
             else:
                 self.after(0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_install_failed", error=result)))

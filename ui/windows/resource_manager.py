@@ -20,6 +20,26 @@ except ImportError:
     HAS_DND = False
 
 
+def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
+    try:
+        from achievement_engine import get_achievement_engine
+        engine = get_achievement_engine()
+        if engine:
+            engine.update_progress(achievement_id, value=value, trigger_type=trigger_type)
+    except Exception:
+        pass
+
+
+def _check_ach(achievement_id: str, condition: bool):
+    try:
+        from achievement_engine import get_achievement_engine
+        engine = get_achievement_engine()
+        if engine:
+            engine.check_and_unlock(achievement_id, condition)
+    except Exception:
+        pass
+
+
 class ResourceManagerWindow(ctk.CTkToplevel):
     """资源管理窗口 - 模组/资源包/地图/光影管理"""
 
@@ -510,6 +530,32 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._mod_metadata = results
         self._loading_label.pack_forget()
         self._render_mod_list()
+        if results:
+            _trigger_ach("modder_first_mod", value=len(results))
+            _trigger_ach("modder_mod_expert", value=len(results), trigger_type="set")
+        self._check_full_house()
+
+    def _check_full_house(self):
+        """检查是否已安装所有资源类型（全家福成就）"""
+        try:
+            has_mods = bool(self._mod_metadata)
+            has_resourcepacks = self._dir_has_content(self._get_resource_dir("resourcepacks"))
+            has_saves = self._dir_has_content(self._get_resource_dir("saves"))
+            has_shaders = self._dir_has_content(self._get_resource_dir("shaderpacks"))
+            has_datapacks = self._dir_has_content(self._get_resource_dir("datapacks"))
+            full_house = has_mods and has_resourcepacks and has_saves and has_shaders and has_datapacks
+            _check_ach("modder_full_house", full_house)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _dir_has_content(directory: Path) -> bool:
+        try:
+            if not directory.exists():
+                return False
+            return any(directory.iterdir())
+        except Exception:
+            return False
 
     def _on_search(self, event=None):
         """搜索过滤"""
@@ -1140,6 +1186,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("rm_install_count", count=installed))
             self._refresh_current_list()
             show_notification("🧩", _("notify_resource_done"), str(installed), notify_type="success")
+            if current_type == "mods":
+                _trigger_ach("modder_first_mod", value=installed)
+                _trigger_ach("modder_diy")
         else:
             self._set_status(_("rm_no_resources_installed"))
 

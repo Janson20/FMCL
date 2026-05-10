@@ -17,6 +17,16 @@ from ui.agent.xml_parser import ParsedResponse
 from ui.dialogs import show_confirmation
 
 
+def _trigger_agent_ach(achievement_id: str, value: int = 1):
+    try:
+        from achievement_engine import get_achievement_engine
+        engine = get_achievement_engine()
+        if engine:
+            engine.update_progress(achievement_id, value=value)
+    except Exception:
+        pass
+
+
 class OptionSelectDialog(ctk.CTkToplevel):
     """选项选择弹窗"""
 
@@ -224,6 +234,7 @@ class AgentChatView(ctk.CTkFrame):
         self._append_message("user", text)
         self._append_divider()
         self._messages.append({"role": "user", "content": text})
+        _trigger_agent_ach("agent_first_chat")
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
 
     def _on_send(self):
@@ -248,6 +259,7 @@ class AgentChatView(ctk.CTkFrame):
         self._messages.append({"role": "user", "content": user_input})
         logger.info(f"[Agent] 当前消息数: {len(self._messages)}, 启动后台线程")
 
+        _trigger_agent_ach("agent_first_chat")
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
 
     def _on_choice_selected(self, choice_value: str):
@@ -270,6 +282,7 @@ class AgentChatView(ctk.CTkFrame):
             logger.info(f"[Agent] 用户确认执行高危命令: {exec_command}")
             self._append_message("tool", _("agent_exec_confirmed", command=exec_command), tag=_("agent_tool_result"))
             result_text = execute_dangerous_command(exec_path, exec_command)
+            _trigger_agent_ach("agent_terminal_warrior")
         else:
             logger.info(f"[Agent] 用户取消了高危命令: {exec_command}")
             self._append_message("tool", _("agent_exec_cancelled", command=exec_command), tag=_("agent_tool_result"))
@@ -295,6 +308,8 @@ class AgentChatView(ctk.CTkFrame):
         try:
             while iteration < max_iterations:
                 iteration += 1
+                if iteration > 1:
+                    _trigger_agent_ach("agent_multi_turn")
                 logger.info(f"[Agent] --- 迭代 {iteration}/{max_iterations} ---")
                 logger.info(f"[Agent] 发送消息数: {len(self._messages)}")
 
@@ -410,6 +425,7 @@ class AgentChatView(ctk.CTkFrame):
                     logger.info("[Agent] 任务完成")
                     self.after(0, self._append_divider)
                     show_notification("🤖", _("notify_ai_task_done"), "", notify_type="success")
+                    _trigger_agent_ach("agent_nlp_master")
                     break
 
                 else:
