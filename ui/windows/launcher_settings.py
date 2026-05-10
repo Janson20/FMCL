@@ -562,33 +562,46 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self._login_form = ctk.CTkFrame(jdz_section, fg_color="transparent")
         self._login_form.pack(fill=ctk.X, padx=12, pady=(0, 10))
 
+        ctk.CTkLabel(
+            self._login_form,
+            text=_("netread_username_placeholder"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor=ctk.W, pady=(0, 2))
+
         self.jdz_user_entry = ctk.CTkEntry(
             self._login_form,
-            height=30,
+            height=32,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["bg_dark"],
             border_color=COLORS["card_border"],
             text_color=COLORS["text_primary"],
-            placeholder_text=_("netread_username_placeholder"),
-            width=140,
         )
-        self.jdz_user_entry.pack(side=ctk.LEFT, padx=(0, 5))
+        self.jdz_user_entry.pack(fill=ctk.X, pady=(0, 8))
+
+        ctk.CTkLabel(
+            self._login_form,
+            text=_("netread_password_placeholder"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor=ctk.W, pady=(0, 2))
 
         self.jdz_pass_entry = ctk.CTkEntry(
             self._login_form,
-            height=30,
+            height=32,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["bg_dark"],
             border_color=COLORS["card_border"],
             text_color=COLORS["text_primary"],
-            placeholder_text=_("netread_password_placeholder"),
-            width=140,
             show="•",
         )
-        self.jdz_pass_entry.pack(side=ctk.LEFT, padx=(0, 5))
+        self.jdz_pass_entry.pack(fill=ctk.X, pady=(0, 8))
+
+        btn_row = ctk.CTkFrame(self._login_form, fg_color="transparent")
+        btn_row.pack(fill=ctk.X)
 
         self.jdz_login_btn = ctk.CTkButton(
-            self._login_form,
+            btn_row,
             text=_("login"),
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -599,7 +612,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.jdz_login_btn.pack(side=ctk.LEFT, padx=(0, 5))
 
         self.jdz_logout_btn = ctk.CTkButton(
-            self._login_form,
+            btn_row,
             text=_("netread_logout"),
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -689,8 +702,6 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             self._login_form.pack_forget()
             self._account_info_frame.pack(fill=ctk.X, padx=12, pady=(0, 10))
             self.after(100, self._on_account_refresh)
-        else:
-            self._account_info_frame.pack_forget()
 
         # ── 底部按钮 ──
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -1027,22 +1038,15 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.update()
 
         def _do_login():
-            import urllib.request
-            import urllib.error
-            import json
             try:
-                req_data = json.dumps({"username": username, "password": password}).encode("utf-8")
-                req = urllib.request.Request(
+                import requests
+                resp = requests.post(
                     "https://jingdu.qzz.io/api/auth/login",
-                    data=req_data,
-                    headers={
-                        "Content-Type": "application/json",
-                        "User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)",
-                    },
-                    method="POST",
+                    json={"username": username, "password": password},
+                    headers={"User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)"},
+                    timeout=15,
                 )
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    result = json.loads(resp.read().decode("utf-8"))
+                result = resp.json()
                 token = result.get("token")
                 if token:
                     if "set_jdz_token" in self.callbacks:
@@ -1050,17 +1054,13 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                     self.after(0, lambda: self._jdz_login_success(token))
                 else:
                     self.after(0, lambda: self._jdz_login_fail("未获取到 Token"))
-            except urllib.error.HTTPError as e:
-                _code = e.code
-                body = ""
-                try:
-                    body = e.read().decode("utf-8", errors="ignore")
-                except Exception:
-                    pass
-                _err_msg = f"HTTP {_code}: {body[:100]}"
-                self.after(0, lambda: self._jdz_login_fail(_err_msg))
             except Exception as e:
                 _err_msg = str(e)
+                try:
+                    if hasattr(e, 'response') and e.response is not None:
+                        _err_msg = f"HTTP {e.response.status_code}: {e.response.text[:100]}"
+                except Exception:
+                    pass
                 self.after(0, lambda: self._jdz_login_fail(_err_msg))
 
         threading.Thread(target=_do_login, daemon=True).start()
@@ -1103,29 +1103,37 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
     def _on_account_refresh(self):
         """手动刷新账户信息"""
         if "fetch_jdz_user_info" not in self.callbacks:
+            self.parent.set_status(_("account_refresh_failed", error="未找到回调"), "error")
             return
         self._account_refresh_btn.configure(state="disabled", text=_("account_fetching"))
         self.update()
 
         def _do_fetch():
-            info = self.callbacks["fetch_jdz_user_info"]()
+            try:
+                info = self.callbacks["fetch_jdz_user_info"]()
+            except Exception as e:
+                self.after(0, lambda: self._on_account_refresh_error(str(e)))
+                return
             if info:
                 self.after(0, lambda: self._update_account_info_display(info))
             else:
-                self.after(0, lambda: self._account_refresh_btn.configure(
-                    state="normal", text=_("account_refresh")))
-                self.after(0, lambda: self.parent.set_status(
-                    _("account_refresh_failed", error="网络错误"), "error"))
+                self.after(0, lambda: self._on_account_refresh_error("API 返回空或网络错误"))
 
         threading.Thread(target=_do_fetch, daemon=True).start()
 
+    def _on_account_refresh_error(self, error_msg: str):
+        self._account_refresh_btn.configure(state="normal", text=_("account_refresh"))
+        self.parent.set_status(_("account_refresh_failed", error=error_msg), "error")
+        for key in self._account_info_labels:
+            self._account_info_labels[key].configure(text=error_msg[:50])
+
     def _update_account_info_display(self, info: dict):
         """更新账户信息显示"""
-        username = info.get("username", "-")
-        uuid_val = info.get("uuid", "-")
+        username = info.get("username") or "-"
+        uuid_val = info.get("uuid") or "-"
         level = info.get("level", 0)
-        level_name = info.get("level_name", "")
-        description = info.get("description", "-")
+        level_name = info.get("level_name") or ""
+        description = info.get("description") or "-"
         ai_credits = info.get("ai_credits", 0)
 
         level_text = f"{level} ({level_name})" if level_name else str(level)

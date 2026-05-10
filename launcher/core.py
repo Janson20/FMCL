@@ -925,25 +925,30 @@ class MinecraftLauncher:
         token = self.config.jdz_token
         if not token:
             return None
-        import json
-        import urllib.request
-        import urllib.error
         try:
-            req = urllib.request.Request(
+            import requests
+            resp = requests.get(
                 "https://jingdu.qzz.io/api/user/info",
                 headers={
                     "Authorization": f"Bearer {token}",
                     "User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)",
                 },
-                method="GET",
+                timeout=15,
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                info = json.loads(resp.read().decode("utf-8"))
+            resp.raise_for_status()
+            result = resp.json()
+            info = result.get("data", result)
             self.config.jdz_user_info = info
             return info
         except Exception as e:
             from logzero import logger
-            logger.warning(f"获取净读用户信息失败: {e}")
+            detail = str(e)
+            try:
+                if hasattr(e, 'response') and e.response is not None:
+                    detail = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
+            except Exception:
+                pass
+            logger.warning(f"获取净读用户信息失败: {detail}")
             return None
 
     def get_language(self) -> str:
