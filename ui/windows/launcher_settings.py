@@ -23,7 +23,10 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.title(_("settings_title"))
         self.geometry("520x900")
         self.resizable(False, False)
-        self.grab_set()
+        try:
+            self.grab_set()
+        except Exception:
+            pass
 
         self._settings_theme_refs = []
         self._build_ui()

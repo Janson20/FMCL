@@ -24,7 +24,10 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         self.minsize(720, 560)
         self.configure(fg_color=COLORS["bg_dark"])
         self.transient(parent)
-        self.grab_set()
+        try:
+            self.grab_set()
+        except Exception:
+            pass
 
         self.update_idletasks()
         pw = parent.winfo_width()
@@ -478,7 +481,10 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         picker.minsize(500, 400)
         picker.configure(fg_color=COLORS["bg_dark"])
         picker.transient(self)
-        picker.grab_set()
+        try:
+            picker.grab_set()
+        except Exception:
+            pass
 
         picker.update_idletasks()
         pw = self.winfo_width()
@@ -527,14 +533,12 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         picker_state["scroll_frame"] = scroll_frame
         picker_state["info_label"] = info_label
 
-        self._render_version_batch(picker, project_id, title, picker_state)
-
         bottom_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         bottom_frame.pack(fill=ctk.X)
 
         load_more_btn = ctk.CTkButton(
             bottom_frame,
-            text=f"加载更多 (已显示 {picker_state['rendered_count']}/{total_count})",
+            text=f"加载更多 (已显示 0/{total_count})",
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["bg_medium"],
@@ -556,6 +560,8 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
             hover_color=COLORS["card_border"],
             command=picker.destroy,
         ).pack(side=ctk.RIGHT, pady=(5, 0))
+
+        self._render_version_batch(picker, project_id, title, picker_state)
 
     def _render_version_batch(self, picker, project_id: str, title: str, state: dict):
         all_sorted = state["all_sorted"]
