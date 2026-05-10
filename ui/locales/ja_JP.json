@@ -838,5 +838,26 @@
   "ach_confirm_step1_msg": "この操作は元に戻せません。続行しますか？",
   "ach_confirm_step2_title": "⚠ 最終確認",
   "ach_confirm_step2_msg": "「{phrase}」と入力して確認してください：",
-  "ach_confirm_mismatch": "入力が一致しません。もう一度お試しください"
+  "ach_confirm_mismatch": "入力が一致しません。もう一度お試しください",
+
+  "notify_version_installed": "ゲームのダウンロードが完了しました",
+  "notify_version_failed": "ゲームのダウンロードに失敗しました",
+  "notify_server_installed": "サーバーのインストールが完了しました",
+  "notify_server_failed": "サーバーのインストールに失敗しました",
+  "notify_backup_done": "バックアップが完了しました",
+  "notify_backup_failed": "バックアップに失敗しました",
+  "notify_restore_done": "復元が完了しました",
+  "notify_restore_failed": "復元に失敗しました",
+  "notify_room_created": "ロビーを作成しました",
+  "notify_room_create_failed": "ロビーの作成に失敗しました",
+  "notify_room_joined": "ロビーに参加しました",
+  "notify_room_join_failed": "ロビーの参加に失敗しました",
+  "notify_ai_task_done": "AIタスクが完了しました",
+  "notify_ai_task_failed": "AIタスクが失敗しました",
+  "notify_modpack_installed": "Modpackがインストールされました",
+  "notify_modpack_failed": "Modpackのインストールに失敗しました",
+  "notify_modpack_server_installed": "Modpackサーバーがインストールされました",
+  "notify_modpack_server_failed": "Modpackサーバーのインストールに失敗しました",
+  "notify_resource_done": "リソースの更新が完了しました",
+  "notify_resource_partial": "リソースの更新が一部失敗しました"
 }

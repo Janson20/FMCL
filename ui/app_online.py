@@ -25,6 +25,7 @@ import customtkinter as ctk
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
+from ui.dialogs import show_notification
 from ui.i18n import _
 
 
@@ -2252,6 +2253,7 @@ class OnlineTabMixin(object):
                 self.set_status(_("online_lobby_created", code=lobby.full_code), "success")
                 self._trigger_ach("online_first_online")
                 self._trigger_ach("online_room_owner")
+                show_notification("🏠", _("notify_room_created"), lobby.full_code, notify_type="success")
                 self._start_member_poll()
                 self.after(5000, self._on_host_network_ready)
             else:
@@ -2264,6 +2266,7 @@ class OnlineTabMixin(object):
         def on_error(err):
             self._append_online_log("[FMCL] " + _("online_create_failed", error=err))
             self.set_status(_("online_create_failed", error=err), "error")
+            show_notification("🏠", _("notify_room_create_failed"), err[:50], notify_type="error")
             self._online_create_btn.configure(state=ctk.NORMAL)
             self._online_join_btn.configure(state=ctk.NORMAL)
 
@@ -2352,6 +2355,7 @@ class OnlineTabMixin(object):
                 self.set_status(_("online_joined_lobby", code=lobby.full_code), "success")
                 self._trigger_ach("online_first_online")
                 self._trigger_ach("online_guest")
+                show_notification("🚪", _("notify_room_joined"), lobby.full_code, notify_type="success")
 
                 self.after(3000, self._setup_guest_connection)
             else:
@@ -2364,6 +2368,7 @@ class OnlineTabMixin(object):
         def on_error(err):
             self._append_online_log("[FMCL] " + _("online_join_failed", error=err))
             self.set_status(_("online_join_failed", error=err), "error")
+            show_notification("🚪", _("notify_room_join_failed"), err[:50], notify_type="error")
             self._online_create_btn.configure(state=ctk.NORMAL)
             self._online_join_btn.configure(state=ctk.NORMAL)
 

@@ -10,6 +10,7 @@ import customtkinter as ctk
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY, RESOURCE_TYPES
+from ui.dialogs import show_notification
 from ui.i18n import _
 
 try:
@@ -1138,6 +1139,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         if installed > 0:
             self._set_status(_("rm_install_count", count=installed))
             self._refresh_current_list()
+            show_notification("🧩", _("notify_resource_done"), str(installed), notify_type="success")
         else:
             self._set_status(_("rm_no_resources_installed"))
 
@@ -1689,8 +1691,10 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         """批量更新完成回调"""
         if failed == 0:
             self._set_status(_("mod_update_batch_done", success=success))
+            show_notification("🧩", _("notify_resource_done"), str(success), notify_type="success")
         else:
             self._set_status(_("mod_update_batch_done_partial", success=success, failed=failed))
+            show_notification("🧩", _("notify_resource_partial", success=success, failed=failed), notify_type="warning")
         self._update_info.clear()
         self.after(200, self._refresh_current_list)
 

@@ -838,5 +838,26 @@
   "ach_confirm_step1_msg": "此操作無法復原，是否繼續？",
   "ach_confirm_step2_title": "⚠ 最終確認",
   "ach_confirm_step2_msg": "請輸入「{phrase}」以確認操作：",
-  "ach_confirm_mismatch": "輸入不匹配，請重新輸入"
+  "ach_confirm_mismatch": "輸入不匹配，請重新輸入",
+
+  "notify_version_installed": "遊戲下載完成",
+  "notify_version_failed": "遊戲下載失敗",
+  "notify_server_installed": "伺服器安裝完成",
+  "notify_server_failed": "伺服器安裝失敗",
+  "notify_backup_done": "存檔備份完成",
+  "notify_backup_failed": "存檔備份失敗",
+  "notify_restore_done": "存檔恢復完成",
+  "notify_restore_failed": "存檔恢復失敗",
+  "notify_room_created": "聯機大廳建立成功",
+  "notify_room_create_failed": "聯機大廳建立失敗",
+  "notify_room_joined": "聯機大廳加入成功",
+  "notify_room_join_failed": "聯機大廳加入失敗",
+  "notify_ai_task_done": "AI 任務完成",
+  "notify_ai_task_failed": "AI 任務失敗",
+  "notify_modpack_installed": "整合包安裝完成",
+  "notify_modpack_failed": "整合包安裝失敗",
+  "notify_modpack_server_installed": "整合包開服完成",
+  "notify_modpack_server_failed": "整合包開服失敗",
+  "notify_resource_done": "資源更新完成",
+  "notify_resource_partial": "資源更新部分失敗"
 }

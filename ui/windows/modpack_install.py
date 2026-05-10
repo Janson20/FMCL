@@ -7,6 +7,7 @@ from typing import List, Dict, Optional, Callable, Any
 import customtkinter as ctk
 
 from ui.constants import COLORS, FONT_FAMILY
+from ui.dialogs import show_notification
 from ui.i18n import _
 
 
@@ -379,7 +380,7 @@ class ModpackInstallWindow(ctk.CTkToplevel):
                 fg_color=COLORS["success"],
                 state=ctk.DISABLED,
             )
-
+            show_notification("📦", _("notify_modpack_installed"), result, notify_type="success")
             messagebox.showinfo(
                 _("mp_install_done_title"),
                 _("mp_install_done_msg", result=result),
@@ -389,7 +390,7 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         else:
             self._progress_status.configure(text=_("mp_install_failed_status"), text_color=COLORS["error"])
             self._install_btn.configure(text=_("mp_install_retry"), state=ctk.NORMAL)
-
+            show_notification("📦", _("notify_modpack_failed"), str(result)[:50], notify_type="error")
             messagebox.showerror(_("mp_install_failed_status"), _("mp_install_error", error=result), parent=self)
 
     # ─── 工具 ─────────────────────────────────────────────────

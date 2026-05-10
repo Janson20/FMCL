@@ -220,6 +220,10 @@ def main():
         # 传入一个空的 callbacks 字典，稍后在后台线程中替换
         app = ModernApp({})
         logger.info("主窗口创建完成")
+
+        from ui.dialogs import set_app_reference
+        set_app_reference(app)
+
         app.withdraw()  # 先隐藏主窗口，等启动画面结束后再显示
 
         logger.info("正在创建启动画面...")

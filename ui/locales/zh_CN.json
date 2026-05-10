@@ -838,5 +838,26 @@
   "ach_confirm_step1_msg": "此操作不可撤销，是否继续？",
   "ach_confirm_step2_title": "⚠ 最终确认",
   "ach_confirm_step2_msg": "请输入「{phrase}」以确认操作：",
-  "ach_confirm_mismatch": "输入不匹配，请重新输入"
+  "ach_confirm_mismatch": "输入不匹配，请重新输入",
+
+  "notify_version_installed": "游戏下载完成",
+  "notify_version_failed": "游戏下载失败",
+  "notify_server_installed": "服务器安装完成",
+  "notify_server_failed": "服务器安装失败",
+  "notify_backup_done": "存档备份完成",
+  "notify_backup_failed": "存档备份失败",
+  "notify_restore_done": "存档恢复完成",
+  "notify_restore_failed": "存档恢复失败",
+  "notify_room_created": "联机大厅创建成功",
+  "notify_room_create_failed": "联机大厅创建失败",
+  "notify_room_joined": "联机大厅加入成功",
+  "notify_room_join_failed": "联机大厅加入失败",
+  "notify_ai_task_done": "AI 任务完成",
+  "notify_ai_task_failed": "AI 任务失败",
+  "notify_modpack_installed": "整合包安装完成",
+  "notify_modpack_failed": "整合包安装失败",
+  "notify_modpack_server_installed": "整合包开服完成",
+  "notify_modpack_server_failed": "整合包开服失败",
+  "notify_resource_done": "资源更新完成",
+  "notify_resource_partial": "资源更新部分失败"
 }

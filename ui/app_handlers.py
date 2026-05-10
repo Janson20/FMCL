@@ -16,6 +16,7 @@ import customtkinter as ctk
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
+from ui.dialogs import show_notification
 from ui.windows.resource_manager import ResourceManagerWindow
 from ui.windows.launcher_settings import LauncherSettingsWindow
 from ui.windows.modpack_install import ModpackInstallWindow
@@ -960,9 +961,11 @@ class EventHandlerMixin(object):
                 self._refresh_versions()
                 slog.info("version_installed", version=display, requested=version_id)
                 self._trigger_ach_install(display)
+                show_notification("📥", _("notify_version_installed"), display, notify_type="success")
             else:
                 self.set_status(f"{version_id} 安装失败", "error")
                 slog.error("version_install_failed", version=version_id)
+                show_notification("📥", _("notify_version_failed"), version_id, notify_type="error")
             self._set_buttons_enabled(True)
 
         elif task_type == "install_error":
@@ -1028,8 +1031,10 @@ class EventHandlerMixin(object):
                 if "get_installed_servers" in self.callbacks:
                     installed = self.callbacks["get_installed_servers"]()
                     self._render_server_versions(installed)
+                show_notification("🖥", _("notify_server_installed"), version_id, notify_type="success")
             else:
                 self.set_status(f"服务器 {version_id} 安装失败", "error")
+                show_notification("🖥", _("notify_server_failed"), version_id, notify_type="error")
             self.server_install_btn.configure(state=ctk.NORMAL)
 
         elif task_type == "server_install_error":

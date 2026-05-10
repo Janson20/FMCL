@@ -8,6 +8,7 @@ from logzero import logger
 import customtkinter as ctk
 
 from ui.constants import COLORS, FONT_FAMILY
+from ui.dialogs import show_notification
 from ui.i18n import _
 from ui.agent.provider import AIProvider
 from ui.agent.tools import get_tool_definitions, get_system_prompt
@@ -408,6 +409,7 @@ class AgentChatView(ctk.CTkFrame):
                     format_error_count = 0
                     logger.info("[Agent] 任务完成")
                     self.after(0, self._append_divider)
+                    show_notification("🤖", _("notify_ai_task_done"), "", notify_type="success")
                     break
 
                 else:
@@ -428,6 +430,7 @@ class AgentChatView(ctk.CTkFrame):
 
         except Exception as e:
             logger.error(f"[Agent] 处理循环异常: {e}", exc_info=True)
+            show_notification("🤖", _("notify_ai_task_failed"), str(e)[:50], notify_type="error")
             self.after(0, lambda: self._append_message(
                 "system", _("agent_processing_error", error=str(e))
             ))

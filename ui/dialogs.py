@@ -2,7 +2,7 @@
 import os
 import threading
 import time
-from typing import List, Dict, Optional, Callable, Any
+from typing import List, Dict, Optional, Callable, Any, Literal
 
 import customtkinter as ctk
 import requests
@@ -15,6 +15,124 @@ try:
     HAS_DND: bool = True
 except ImportError:
     HAS_DND = False
+
+_app_ref: Optional[ctk.CTk] = None
+
+NotifyType = Literal["info", "success", "warning", "error"]
+
+NOTIFY_BORDER_COLORS: Dict[NotifyType, str] = {
+    "info": "#4a9eff",
+    "success": "#2ecc71",
+    "warning": "#f39c12",
+    "error": "#e74c3c",
+}
+
+
+def set_app_reference(app: ctk.CTk) -> None:
+    global _app_ref
+    _app_ref = app
+
+
+def show_notification(icon: str, title: str, subtitle: str = "",
+                      notify_type: NotifyType = "info",
+                      duration_ms: int = 4500) -> None:
+    border_color = NOTIFY_BORDER_COLORS.get(notify_type, NOTIFY_BORDER_COLORS["info"])
+
+    if _app_ref is None:
+        logger.warning("show_notification: app reference not set, cannot display notification")
+        return
+
+    app = _app_ref
+    if not app.winfo_exists():
+        return
+
+    app.after(0, lambda: _show_notification_impl(app, icon, title, subtitle, border_color, duration_ms))
+
+
+def _show_notification_impl(parent, icon: str, title: str, subtitle: str,
+                            border_color: str, duration_ms: int) -> None:
+    toast = ctk.CTkToplevel(parent)
+    toast.overrideredirect(True)
+    toast.attributes('-topmost', True)
+    toast.configure(fg_color=COLORS["card_bg"])
+    toast.transient(parent)
+
+    w, h = 280, 72
+    toast.geometry(f"{w}x{h}")
+
+    border_frame = ctk.CTkFrame(toast, fg_color=border_color, corner_radius=8)
+    border_frame.pack(fill=ctk.BOTH, expand=True, padx=1, pady=1)
+
+    inner = ctk.CTkFrame(border_frame, fg_color=COLORS["card_bg"], corner_radius=7)
+    inner.pack(fill=ctk.BOTH, expand=True, padx=2, pady=2)
+
+    icon_label = ctk.CTkLabel(
+        inner, text=icon,
+        font=ctk.CTkFont(size=24),
+        text_color=COLORS["text_primary"],
+        width=40,
+    )
+    icon_label.pack(side=ctk.LEFT, padx=(12, 4), pady=10)
+
+    text_frame = ctk.CTkFrame(inner, fg_color="transparent")
+    text_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 12), pady=8)
+
+    ctk.CTkLabel(
+        text_frame, text=subtitle if subtitle else "",
+        font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+        text_color=border_color,
+        anchor=ctk.W,
+    ).pack(fill=ctk.X)
+
+    ctk.CTkLabel(
+        text_frame, text=title,
+        font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+        text_color=COLORS["text_primary"],
+        anchor=ctk.W,
+    ).pack(fill=ctk.X)
+
+    toast.update_idletasks()
+    pw = parent.winfo_width()
+    ph = parent.winfo_height()
+    px = parent.winfo_x()
+    py = parent.winfo_y()
+
+    offset = 0
+    for existing in _toast_queue[:]:
+        try:
+            if existing.winfo_exists():
+                offset += existing.winfo_height() + 8
+            else:
+                _toast_queue.remove(existing)
+        except Exception:
+            _toast_queue.remove(existing)
+
+    x = px + pw - w - 16
+    y = py + ph - h - 16 - offset
+    toast.geometry(f"{w}x{h}+{x}+{y}")
+
+    _toast_queue.append(toast)
+
+    def _fade_out():
+        try:
+            for alpha in range(100, -1, -5):
+                if not toast.winfo_exists():
+                    break
+                toast.attributes('-alpha', alpha / 100.0)
+                toast.update()
+                time.sleep(0.015)
+        except Exception:
+            pass
+        finally:
+            try:
+                if toast.winfo_exists():
+                    toast.destroy()
+            except Exception:
+                pass
+            if toast in _toast_queue:
+                _toast_queue.remove(toast)
+
+    toast.after(duration_ms, _fade_out)
 
 
 def show_confirmation(message: str, title: str = "确认") -> bool:

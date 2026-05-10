@@ -10,6 +10,7 @@ import customtkinter as ctk
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY
+from ui.dialogs import show_notification
 from ui.i18n import _
 
 
@@ -674,8 +675,10 @@ class BackupTabMixin(object):
                 self._task_queue.put(("auto_backup_done", (world["name"], msg)))
             else:
                 logger.warning(f"自动备份失败: {msg}")
+                self._task_queue.put(("auto_backup_failed", msg))
         except Exception as e:
             logger.error(f"自动备份异常: {e}")
+            self._task_queue.put(("auto_backup_failed", str(e)))
 
     # ─── 队列任务处理（在 app_handlers.py 的 _handle_task 中调用） ───
 
@@ -709,8 +712,10 @@ class BackupTabMixin(object):
                 self._run_in_thread(self._load_backup_list, world_name)
                 self._trigger_ach("backup_first_backup")
                 self._trigger_ach("backup_mania")
+                show_notification("💾", _("notify_backup_done"), world_name, notify_type="success")
             else:
                 self.set_status(_("backup_status_failed", msg=msg), "error")
+                show_notification("💾", _("notify_backup_failed"), msg[:50], notify_type="error")
             self.progress_bar.set(0)
             self.progress_label.configure(text="")
             return True
@@ -721,8 +726,10 @@ class BackupTabMixin(object):
                 self.set_status(_("backup_restore_status_success", world=world_name), "success")
                 self._run_in_thread(self._load_backup_list, world_name)
                 self._trigger_ach("backup_time_machine")
+                show_notification("🔄", _("notify_restore_done"), world_name, notify_type="success")
             else:
                 self.set_status(_("backup_restore_status_failed", msg=msg), "error")
+                show_notification("🔄", _("notify_restore_failed"), msg[:50], notify_type="error")
             self.progress_bar.set(0)
             self.progress_label.configure(text="")
             return True
@@ -748,6 +755,12 @@ class BackupTabMixin(object):
         elif task_type == "auto_backup_done":
             world_name, msg = data
             self.set_status(_("backup_auto_complete", world=world_name), "success")
+            show_notification("💾", _("notify_backup_done"), world_name, notify_type="success")
+            return True
+
+        elif task_type == "auto_backup_failed":
+            self.set_status(_("backup_status_failed", msg=data), "error")
+            show_notification("💾", _("notify_backup_failed"), data[:50], notify_type="error")
             return True
 
         return False

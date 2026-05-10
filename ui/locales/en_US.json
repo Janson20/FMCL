@@ -838,5 +838,26 @@
   "ach_confirm_step1_msg": "This operation cannot be undone. Continue?",
   "ach_confirm_step2_title": "⚠ Final Confirmation",
   "ach_confirm_step2_msg": "Type \"{phrase}\" to confirm:",
-  "ach_confirm_mismatch": "Input mismatch, please try again"
+  "ach_confirm_mismatch": "Input mismatch, please try again",
+
+  "notify_version_installed": "Game installation complete",
+  "notify_version_failed": "Game installation failed",
+  "notify_server_installed": "Server installation complete",
+  "notify_server_failed": "Server installation failed",
+  "notify_backup_done": "Backup complete",
+  "notify_backup_failed": "Backup failed",
+  "notify_restore_done": "Restore complete",
+  "notify_restore_failed": "Restore failed",
+  "notify_room_created": "Lobby created",
+  "notify_room_create_failed": "Failed to create lobby",
+  "notify_room_joined": "Joined lobby",
+  "notify_room_join_failed": "Failed to join lobby",
+  "notify_ai_task_done": "AI task completed",
+  "notify_ai_task_failed": "AI task failed",
+  "notify_modpack_installed": "Modpack installed",
+  "notify_modpack_failed": "Modpack installation failed",
+  "notify_modpack_server_installed": "Modpack server installed",
+  "notify_modpack_server_failed": "Modpack server installation failed",
+  "notify_resource_done": "Resource update complete",
+  "notify_resource_partial": "Resource update partially failed"
 }
