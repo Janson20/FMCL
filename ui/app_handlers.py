@@ -531,7 +531,10 @@ class EventHandlerMixin(object):
         dialog.geometry("500x350")
         dialog.configure(fg_color=COLORS["bg_dark"])
         dialog.transient(self)
-        dialog.grab_set()
+        try:
+            dialog.grab_set()
+        except Exception:
+            pass
 
         # 居中
         dialog.update_idletasks()
@@ -677,7 +680,10 @@ class EventHandlerMixin(object):
         dialog.attributes('-topmost', True)
         dialog.configure(bg='#1a1a2e')
         dialog.transient(self)
-        dialog.grab_set()
+        try:
+            dialog.grab_set()
+        except Exception:
+            pass
 
         w, h = 480, 320
         dialog.geometry(f"{w}x{h}")
@@ -1286,7 +1292,10 @@ class EventHandlerMixin(object):
         about.title(_("about_title"))
         about.resizable(False, False)
         about.transient(self)
-        about.grab_set()
+        try:
+            about.grab_set()
+        except Exception:
+            pass
         about.configure(fg_color=COLORS["bg_dark"])
 
         # 窗口尺寸与居中

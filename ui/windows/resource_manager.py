@@ -521,11 +521,15 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _update_mod_loading(self, done: int, total: int):
         """更新模组加载进度"""
+        if not self.winfo_exists():
+            return
         if self._mod_loading:
             self._loading_label.configure(text=_("mod_loading_progress", done=done, total=total))
 
     def _on_mod_metadata_loaded(self, results: List[Dict]):
         """模组元数据加载完成回调"""
+        if not self.winfo_exists():
+            return
         self._mod_loading = False
         self._mod_metadata = results
         self._loading_label.pack_forget()
@@ -1015,6 +1019,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _set_thumbnail_icon(self, icon_frame: ctk.CTkFrame, base64_data: str, size: int):
         """设置缩略图图标（会先清除已有的子控件，避免与 emoji 图标重叠）"""
+        if not self.winfo_exists():
+            return
         for w in icon_frame.winfo_children():
             w.destroy()
         try:
@@ -1050,6 +1056,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _on_thumbnail_done(self):
         """缩略图加载完成回调，更新进度状态"""
+        if not self.winfo_exists():
+            return
         total = getattr(self, '_thumbnail_total', 0)
         if total <= 0:
             return
@@ -1405,6 +1413,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _on_update_check_done(self, updates_found: int, total: int):
         """更新检查完成回调"""
+        if not self.winfo_exists():
+            return
         self._update_checking = False
         self._check_updates_btn.configure(
             text=_("mod_check_updates"),
@@ -1420,6 +1430,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _on_update_check_error(self, error: str):
         """更新检查错误回调"""
+        if not self.winfo_exists():
+            return
         self._update_checking = False
         self._check_updates_btn.configure(
             text=_("mod_check_updates"),
@@ -1440,7 +1452,10 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         dialog.minsize(480, 360)
         dialog.configure(fg_color=COLORS["bg_dark"])
         dialog.transient(self)
-        dialog.grab_set()
+        try:
+            dialog.grab_set()
+        except Exception:
+            pass
 
         dialog.update_idletasks()
         pw = self.winfo_width()
@@ -1738,6 +1753,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _on_batch_done(self, success: int, failed: int):
         """批量更新完成回调"""
+        if not self.winfo_exists():
+            return
         if failed == 0:
             self._set_status(_("mod_update_batch_done", success=success))
             show_notification("🧩", _("notify_resource_done"), str(success), notify_type="success")

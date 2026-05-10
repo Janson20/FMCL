@@ -1093,6 +1093,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         threading.Thread(target=_do_login, daemon=True).start()
 
     def _jdz_login_success(self, token: str):
+        if not self.winfo_exists():
+            return
         self.jdz_login_btn.configure(state="normal", text=_("login"))
         self.jdz_status_label.configure(
             text=f"{_('netread_status')}: {_('netread_logged_in')}",
@@ -1104,6 +1106,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.after(100, self._on_account_refresh)
 
     def _jdz_login_fail(self, msg: str):
+        if not self.winfo_exists():
+            return
         self.jdz_login_btn.configure(state="normal", text=_("login"))
         self.jdz_status_label.configure(
             text=f"{_('netread_status')}: {_('login_failed')}",
@@ -1128,7 +1132,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.parent.set_status(_("netread_logged_out"), "info")
 
     def _on_account_refresh(self):
-        """手动刷新账户信息"""
+        if not self.winfo_exists():
+            return
         if "fetch_jdz_user_info" not in self.callbacks:
             self.parent.set_status(_("account_refresh_failed", error="未找到回调"), "error")
             return
@@ -1149,6 +1154,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         threading.Thread(target=_do_fetch, daemon=True).start()
 
     def _on_account_refresh_error(self, error_msg: str):
+        if not self.winfo_exists():
+            return
         self._account_refresh_btn.configure(state="normal", text=_("account_refresh"))
         self.parent.set_status(_("account_refresh_failed", error=error_msg), "error")
         for key in self._account_info_labels:
@@ -1156,6 +1163,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
     def _update_account_info_display(self, info: dict):
         """更新账户信息显示"""
+        if not self.winfo_exists():
+            return
         username = info.get("username") or "-"
         uuid_val = info.get("uuid") or "-"
         level = info.get("level", 0)

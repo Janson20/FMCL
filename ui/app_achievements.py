@@ -435,7 +435,10 @@ class AchievementTabMixin(object):
         dialog.resizable(False, False)
         dialog.configure(bg=COLORS["bg_dark"])
         dialog.transient(self)
-        dialog.grab_set()
+        try:
+            dialog.grab_set()
+        except Exception:
+            pass
 
         w, h = 420, 200
         dialog.geometry(f"{w}x{h}")

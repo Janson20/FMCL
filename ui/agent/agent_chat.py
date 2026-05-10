@@ -37,7 +37,10 @@ class OptionSelectDialog(ctk.CTkToplevel):
 
         self.title(title)
         self.configure(fg_color=COLORS["bg_dark"])
-        self.grab_set()
+        try:
+            self.grab_set()
+        except Exception:
+            pass
 
         w = 500
         h = min(60 * len(options) + 120, 500)

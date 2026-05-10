@@ -16,7 +16,10 @@ class BackupSettingsWindow(ctk.CTkToplevel):
         self.geometry("420x520")
         self.configure(fg_color=COLORS["bg_dark"])
         self.transient(parent)
-        self.grab_set()
+        try:
+            self.grab_set()
+        except Exception:
+            pass
 
         self._build_ui()
         self._center_on_parent(parent)

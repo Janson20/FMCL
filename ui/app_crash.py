@@ -162,7 +162,10 @@ class CrashHandlerMixin(object):
         dialog.attributes('-topmost', True)
         dialog.configure(bg='#1a1a2e')
         dialog.transient(self)
-        dialog.grab_set()
+        try:
+            dialog.grab_set()
+        except Exception:
+            pass
 
         # 诊断崩溃类型
         diagnoses = self._diagnose_crash(crash_files)
@@ -651,7 +654,10 @@ class CrashHandlerMixin(object):
         loading.attributes('-topmost', True)
         loading.configure(bg='#1a1a2e')
         loading.transient(self)
-        loading.grab_set()
+        try:
+            loading.grab_set()
+        except Exception:
+            pass
         loading.update_idletasks()
         lx = (loading.winfo_screenwidth() - 320) // 2
         ly = (loading.winfo_screenheight() - 100) // 2
@@ -730,7 +736,10 @@ class CrashHandlerMixin(object):
         dialog.attributes('-topmost', True)
         dialog.configure(bg='#1a1a2e')
         dialog.transient(self)
-        dialog.grab_set()
+        try:
+            dialog.grab_set()
+        except Exception:
+            pass
 
         w, h = 440, 320
         dialog.geometry(f"{w}x{h}")
@@ -839,7 +848,10 @@ class CrashHandlerMixin(object):
         loading.attributes('-topmost', True)
         loading.configure(bg='#1a1a2e')
         loading.transient(self)
-        loading.grab_set()
+        try:
+            loading.grab_set()
+        except Exception:
+            pass
         loading.update_idletasks()
         lx = (loading.winfo_screenwidth() - 320) // 2
         ly = (loading.winfo_screenheight() - 100) // 2
@@ -920,7 +932,10 @@ class CrashHandlerMixin(object):
         result.attributes('-topmost', True)
         result.configure(bg='#1a1a2e')
         result.transient(self)
-        result.grab_set()
+        try:
+            result.grab_set()
+        except Exception:
+            pass
         result.update_idletasks()
         rx = (result.winfo_screenwidth() - 580) // 2
         ry = (result.winfo_screenheight() - 640) // 2

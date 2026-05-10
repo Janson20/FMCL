@@ -37,7 +37,10 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         self.minsize(520, 420)
         self.configure(fg_color=COLORS["bg_dark"])
         self.transient(parent)
-        self.grab_set()
+        try:
+            self.grab_set()
+        except Exception:
+            pass
 
         # 居中
         self.update_idletasks()

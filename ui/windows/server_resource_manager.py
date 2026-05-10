@@ -319,10 +319,14 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         thread.start()
 
     def _update_mod_loading(self, done: int, total: int):
+        if not self.winfo_exists():
+            return
         if self._mod_loading:
             self._loading_label.configure(text=_("mod_loading_progress", done=done, total=total))
 
     def _on_mod_metadata_loaded(self, results: List[Dict]):
+        if not self.winfo_exists():
+            return
         self._mod_loading = False
         self._mod_metadata = results
         self._loading_label.pack_forget()
@@ -650,6 +654,8 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         self.after(0, self._on_update_check_done)
 
     def _on_update_check_done(self):
+        if not self.winfo_exists():
+            return
         self._update_checking = False
         self._check_updates_btn.configure(
             text=_("mod_check_updates"),
@@ -666,7 +672,10 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         dialog.title(_("mod_update_dialog_title"))
         dialog.geometry("500x400")
         dialog.transient(self)
-        dialog.grab_set()
+        try:
+            dialog.grab_set()
+        except Exception:
+            pass
         dialog.configure(fg_color=COLORS["bg_dark"])
 
         ctk.CTkLabel(

@@ -966,7 +966,10 @@ class ServerTabMixin(object):
         dialog.attributes('-topmost', True)
         dialog.configure(bg='#1a1a2e')
         dialog.transient(self)
-        dialog.grab_set()
+        try:
+            dialog.grab_set()
+        except Exception:
+            pass
         dialog.update_idletasks()
         x = (dialog.winfo_screenwidth() - 400) // 2
         y = (dialog.winfo_screenheight() - 180) // 2

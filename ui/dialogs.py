@@ -143,7 +143,10 @@ def show_confirmation(message: str, title: str = "确认") -> bool:
     dialog.title(title)
     dialog.geometry("400x200")
     dialog.configure(fg_color=COLORS["bg_dark"])
-    dialog.grab_set()
+    try:
+        dialog.grab_set()
+    except Exception:
+        pass
 
     # 居中
     dialog.update_idletasks()
@@ -200,7 +203,10 @@ def show_alert(message: str, title: str = "提示") -> None:
     dialog.title(title)
     dialog.geometry("400x180")
     dialog.configure(fg_color=COLORS["bg_dark"])
-    dialog.grab_set()
+    try:
+        dialog.grab_set()
+    except Exception:
+        pass
 
     dialog.update_idletasks()
     x = (dialog.winfo_screenwidth() - 400) // 2
@@ -236,7 +242,10 @@ class VersionSelectorDialog(ctk.CTkToplevel):
         self.geometry("600x500")
         self.configure(fg_color=COLORS["bg_dark"])
         self.transient(parent)
-        self.grab_set()
+        try:
+            self.grab_set()
+        except Exception:
+            pass
 
         self.selected_version: Optional[str] = None
         self._versions = versions
@@ -379,7 +388,10 @@ def show_notice_dialog(parent, content: str, on_dismiss=None) -> None:
     dialog.title(_("notice_title"))
     dialog.configure(fg_color=COLORS["bg_dark"])
     dialog.transient(parent)
-    dialog.grab_set()
+    try:
+        dialog.grab_set()
+    except Exception:
+        pass
 
     w, h = 500, 400
     dialog.geometry(f"{w}x{h}")
