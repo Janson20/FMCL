@@ -191,6 +191,12 @@ def main():
         # 确保目录存在
         config.ensure_directories()
 
+        # 初始化账号系统并迁移旧配置
+        try:
+            config.migrate_accounts()
+        except Exception as e:
+            logger.warning(f"\u8D26\u53F7\u8FC1\u79FB\u5931\u8D25 (\u4E0D\u5F71\u54CD\u542F\u52A8): {e}")
+
         # 初始化国际化（必须在加载 UI 之前）
         from ui.i18n import init_i18n
         current_lang = init_i18n(getattr(config, 'language', None))
@@ -322,6 +328,17 @@ def main():
             ach_engine = get_achievement_engine()
             if ach_engine:
                 ach_engine.register_unlock_callback(app._on_achievement_unlock)
+
+            # ── 账号系统注入 ──
+            try:
+                from launcher.account import get_account_system
+                account_system = get_account_system()
+                if account_system:
+                    launcher.set_account_system(account_system)
+                    logger.info("账号系统已注入启动器")
+                    app._update_sidebar_account()
+            except Exception as e:
+                logger.warning(f"账号系统注入失败（不影响正常启动）: {e}")
 
             # 重新应用保存的主题颜色（UI 创建时用的是默认主题，需要刷新）
             if hasattr(app, '_reapply_theme'):

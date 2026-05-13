@@ -600,10 +600,49 @@ class ModernAppBase(ctk.CTk):
         copy_btn.pack(side=ctk.RIGHT)
 
     def _build_sidebar(self, parent):
-        """构建左侧边栏：自定义角色名、自定义皮肤、启动器日志"""
+        """构建左侧边栏：账号信息、自定义角色名、自定义皮肤、启动器日志"""
         self.sidebar_frame = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, width=220)
         self.sidebar_frame.pack(side=ctk.LEFT, fill=ctk.Y, padx=(0, 10))
         self.sidebar_frame.pack_propagate(False)
+
+        # ── 当前账号 ──
+        self._sidebar_account_label = ctk.CTkLabel(
+            self.sidebar_frame,
+            text=_("account_sidebar_title"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        self._sidebar_account_label.pack(padx=12, pady=(15, 5), anchor=ctk.W)
+
+        self._sidebar_account_sep = ctk.CTkFrame(self.sidebar_frame, fg_color=COLORS["card_border"], height=1)
+        self._sidebar_account_sep.pack(fill=ctk.X, padx=12, pady=(0, 8))
+
+        self._sidebar_account_name = ctk.CTkLabel(
+            self.sidebar_frame,
+            text=_("account_sidebar_none"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_secondary"],
+        )
+        self._sidebar_account_name.pack(padx=12, anchor=ctk.W)
+
+        self._sidebar_account_type = ctk.CTkLabel(
+            self.sidebar_frame,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+        )
+        self._sidebar_account_type.pack(padx=12, pady=(2, 0), anchor=ctk.W)
+
+        self._sidebar_account_manage_btn = ctk.CTkButton(
+            self.sidebar_frame,
+            text=_("account_sidebar_manage"),
+            height=26,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_open_account_manager_sidebar,
+        )
+        self._sidebar_account_manage_btn.pack(padx=12, pady=(8, 5), anchor=ctk.W)
 
         # ── 自定义角色名 ──
         self._sidebar_player_label = ctk.CTkLabel(
@@ -728,6 +767,11 @@ class ModernAppBase(ctk.CTk):
 
         # 注册侧边栏主题组件
         self._theme_refs.append((self.sidebar_frame, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self._sidebar_account_label, {"text_color": "text_primary"}))
+        self._theme_refs.append((self._sidebar_account_sep, {"fg_color": "card_border"}))
+        self._theme_refs.append((self._sidebar_account_name, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self._sidebar_account_type, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self._sidebar_account_manage_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
         self._theme_refs.append((self._sidebar_player_label, {"text_color": "text_primary"}))
         self._theme_refs.append((self._sidebar_player_sep, {"fg_color": "card_border"}))
         self._theme_refs.append((self.player_name_entry, {"fg_color": "bg_medium", "border_color": "card_border"}))
@@ -789,6 +833,49 @@ class ModernAppBase(ctk.CTk):
                 if line.strip():
                     self._append_log(line)
         self.after(500, self._poll_log_buffer)
+
+    def _update_sidebar_account(self):
+        try:
+            from launcher.account import get_account_system
+            account_system = get_account_system()
+            if not account_system:
+                return
+            acc = account_system.current_account
+            if acc:
+                type_labels = {
+                    "microsoft": _("account_type_microsoft"),
+                    "offline": _("account_type_offline"),
+                    "yggdrasil": _("account_type_yggdrasil"),
+                }
+                self._sidebar_account_name.configure(
+                    text=acc.name, text_color=COLORS["text_primary"]
+                )
+                self._sidebar_account_type.configure(
+                    text=type_labels.get(acc.account_type.value, ""),
+                )
+            else:
+                self._sidebar_account_name.configure(
+                    text=_("account_sidebar_none"), text_color=COLORS["text_secondary"]
+                )
+                self._sidebar_account_type.configure(text="")
+        except Exception:
+            pass
+
+    def _on_open_account_manager_sidebar(self):
+        try:
+            from launcher.account import get_account_system
+            account_system = get_account_system()
+            if not account_system:
+                return
+            from ui.windows.account_manager import AccountManagerWindow
+            AccountManagerWindow(
+                self,
+                account_system,
+                on_account_changed=lambda: self._update_sidebar_account(),
+            )
+        except Exception as e:
+            from logzero import logger
+            logger.error(f"\u6253\u5F00\u8D26\u53F7\u7BA1\u7406\u5931\u8D25: {e}")
 
     def _on_player_name_change(self, event=None):
         """角色名输入框失焦时保存"""

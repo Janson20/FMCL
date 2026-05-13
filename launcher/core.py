@@ -100,6 +100,9 @@ class MinecraftLauncher:
 
         self.current_max = 0
 
+        # 账号系统引用（由外部设置）
+        self._account_system = None
+
         # UI回调 (可选,用于进度更新)
         self.on_progress: Optional[Callable[[int, int, str], None]] = None
 
@@ -114,6 +117,9 @@ class MinecraftLauncher:
         if saved_theme:
             engine.apply_theme(saved_theme, config.accent_color)
         logger.info("MinecraftLauncher.__init__: 9. 初始化完成")
+
+    def set_account_system(self, account_system):
+        self._account_system = account_system
 
     def _get_cached_java_runtimes(self) -> List:
         import time
@@ -520,8 +526,13 @@ class MinecraftLauncher:
             if self._has_mod_loader(target_version):
                 version_game_dir = os.path.join(self.minecraft_dir, "versions", target_version)
                 os.makedirs(version_game_dir, exist_ok=True)
+                for subdir in ("mods", "config", "saves", "resourcepacks", "shaderpacks",
+                               "screenshots", "crash-reports", "logs"):
+                    os.makedirs(os.path.join(version_game_dir, subdir), exist_ok=True)
                 options["gameDirectory"] = version_game_dir
                 logger.info(f"版本隔离已启用: gameDirectory={version_game_dir}")
+            else:
+                version_game_dir = None
 
             # Fabric 游戏：检查 mods/ 中是否有 Fabric API，没有则自动下载
             if "fabric" in target_version.lower():
@@ -553,8 +564,25 @@ class MinecraftLauncher:
                     except Exception as e:
                         logger.warning(f"Fabric API 自动安装异常（不影响启动）: {e}")
 
-            # 设置自定义玩家名（始终应用，不限制默认值）
-            if self.config.player_name:
+            # 设置玩家凭据（优先使用账号系统）
+            account_options = {}
+            if self._account_system:
+                account = self._account_system.current_account
+                if account:
+                    # 微软账号：启动前刷新 Token
+                    if account.account_type.value == "microsoft":
+                        self._set_status("正在验证微软账号 Token...")
+                        self._account_system.ensure_valid_token(account)
+                    account_options = self._account_system.build_launch_options(account)
+                    logger.info(f"使用账号凭据: {account.name} ({account.account_type.value})")
+
+            if account_options:
+                options["username"] = account_options.get("username", options.get("username", ""))
+                if "uuid" in account_options:
+                    options["uuid"] = account_options["uuid"]
+                if "token" in account_options:
+                    options["token"] = account_options["token"]
+            elif self.config.player_name:
                 options["username"] = self.config.player_name
                 options["playerName"] = self.config.player_name
 
@@ -573,13 +601,31 @@ class MinecraftLauncher:
                 options["serverPort"] = str(server_port)
                 logger.info(f"将直连服务器: {server_ip}:{server_port}")
 
-            # 获取启动命令
+            # 获取启动命令（Yggdrasil 账号使用 authlib-injector）
             logger.info(f"正在生成启动命令: {target_version}")
-            minecraft_command = self._mcllib.command.get_minecraft_command(
-                target_version,
-                self.minecraft_dir,
-                options
-            )
+            if self._account_system and account_options:
+                account = self._account_system.current_account
+                if account and account.account_type.value == "yggdrasil" and account.yggdrasil_server_url:
+                    injector = self._account_system.authlib_injector
+                    if injector.is_installed or injector.download(status_callback=self._set_status):
+                        minecraft_command = self._account_system.build_launch_command(
+                            target_version, self.minecraft_dir, account
+                        )
+                        logger.info(f"已注入 authlib-injector: {injector.jar_path}")
+                    else:
+                        minecraft_command = self._mcllib.command.get_minecraft_command(
+                            target_version, self.minecraft_dir, options
+                        )
+                else:
+                    minecraft_command = self._mcllib.command.get_minecraft_command(
+                        target_version, self.minecraft_dir, options
+                    )
+            else:
+                minecraft_command = self._mcllib.command.get_minecraft_command(
+                    target_version,
+                    self.minecraft_dir,
+                    options
+                )
 
             # 使用 java_scanner 解析最佳 Java 可执行文件
             if minecraft_command:

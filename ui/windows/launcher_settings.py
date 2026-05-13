@@ -539,6 +539,54 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         account_container = ctk.CTkScrollableFrame(tab_account, fg_color="transparent")
         account_container.pack(fill=ctk.BOTH, expand=True, padx=10, pady=10)
 
+        # ── Minecraft 账号管理 ──
+        mc_account_section = ctk.CTkFrame(account_container, fg_color=COLORS["bg_medium"], corner_radius=8)
+        mc_account_section.pack(fill=ctk.X, pady=(5, 5))
+        self._r(mc_account_section, fg_color="bg_medium")
+
+        mc_account_title = ctk.CTkLabel(
+            mc_account_section,
+            text=_("account_manager_title"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        mc_account_title.pack(anchor=ctk.W, padx=12, pady=(10, 5))
+        self._r(mc_account_title, text_color="text_primary")
+
+        mc_account_desc = ctk.CTkLabel(
+            mc_account_section,
+            text=_("account_manager_desc"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+            wraplength=440,
+        )
+        mc_account_desc.pack(anchor=ctk.W, padx=12, pady=(0, 10))
+        self._r(mc_account_desc, text_color="text_secondary")
+
+        self._mc_account_quick_info = ctk.CTkLabel(
+            mc_account_section,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["accent"],
+        )
+        self._mc_account_quick_info.pack(anchor=ctk.W, padx=12, pady=(0, 5))
+        self._r(self._mc_account_quick_info, text_color="accent")
+
+        mc_account_btn = ctk.CTkButton(
+            mc_account_section,
+            text=_("account_sidebar_manage"),
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._on_open_account_manager,
+        )
+        mc_account_btn.pack(anchor=ctk.W, padx=12, pady=(5, 10))
+        self._r(mc_account_btn, fg_color="accent", hover_color="accent_hover")
+
+        # 更新快速信息
+        self._update_mc_account_quick_info()
+
         jdz_section = ctk.CTkFrame(account_container, fg_color=COLORS["bg_medium"], corner_radius=8)
         jdz_section.pack(fill=ctk.X, pady=(5, 5))
 
@@ -1182,3 +1230,48 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         self._account_refresh_btn.configure(state="normal", text=_("account_refresh"))
         self.parent.set_status(_("account_refresh_success"), "success")
+
+    def _update_mc_account_quick_info(self):
+        try:
+            from launcher.account import get_account_system
+            account_system = get_account_system()
+            if not account_system or not self.winfo_exists():
+                return
+            acc = account_system.current_account
+            if acc:
+                type_labels = {
+                    "microsoft": _("account_type_microsoft"),
+                    "offline": _("account_type_offline"),
+                    "yggdrasil": _("account_type_yggdrasil"),
+                }
+                info = f"\u2605 {acc.name} ({type_labels.get(acc.account_type.value, '')})"
+                self._mc_account_quick_info.configure(text=info, text_color=COLORS["success"])
+            else:
+                self._mc_account_quick_info.configure(
+                    text=_("account_sidebar_none"),
+                    text_color=COLORS["text_secondary"],
+                )
+        except Exception:
+            pass
+
+    def _on_open_account_manager(self):
+        try:
+            from launcher.account import get_account_system
+            account_system = get_account_system()
+            if not account_system:
+                return
+
+            from ui.windows.account_manager import AccountManagerWindow
+            AccountManagerWindow(
+                self,
+                account_system,
+                on_account_changed=lambda: self._on_mc_account_changed(),
+            )
+        except Exception as e:
+            import logzero
+            logzero.logger.error(f"\u6253\u5F00\u8D26\u53F7\u7BA1\u7406\u5931\u8D25: {e}")
+
+    def _on_mc_account_changed(self):
+        self._update_mc_account_quick_info()
+        if self.parent and hasattr(self.parent, '_update_sidebar_account'):
+            self.parent._update_sidebar_account()

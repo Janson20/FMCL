@@ -174,6 +174,14 @@ class Config:
         self.backup_auto_launch: bool = False
         self.backup_auto_exit: bool = False
 
+        # 账号系统配置
+        self.accounts_file: Optional[str] = None
+        self.current_account_id: Optional[str] = None
+        self.microsoft_client_id: str = "00000000402b5328"
+
+        # 旧配置迁移标记
+        self._account_migration_done: bool = False
+
         # 从配置文件加载
         self._load_config()
 
@@ -254,6 +262,14 @@ class Config:
                 self.ai_privacy_consent = data["ai_privacy_consent"]
             if "terms_consent" in data:
                 self.terms_consent = data["terms_consent"]
+            if "accounts_file" in data:
+                self.accounts_file = data["accounts_file"]
+            if "current_account_id" in data:
+                self.current_account_id = data["current_account_id"]
+            if "microsoft_client_id" in data:
+                self.microsoft_client_id = data["microsoft_client_id"]
+            if "account_migration_done" in data:
+                self._account_migration_done = data["account_migration_done"]
 
             logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}, 语言={self.language}")
 
@@ -287,6 +303,10 @@ class Config:
                 "backup_auto_exit": self.backup_auto_exit,
                 "java_mode": self.java_mode,
                 "java_custom_path": self.java_custom_path,
+                "accounts_file": self.accounts_file,
+                "current_account_id": self.current_account_id,
+                "microsoft_client_id": self.microsoft_client_id,
+                "account_migration_done": self._account_migration_done,
             }
             content = _json_dumps(data, indent=2, ensure_ascii=False)
             # 原子写入：先写临时文件，再重命名，防止写入过程中崩溃导致配置文件损坏
@@ -345,6 +365,37 @@ class Config:
     def get_versions_dir(self) -> Path:
         """获取版本目录路径"""
         return self.minecraft_dir / "versions"
+
+    def migrate_accounts(self) -> bool:
+        """旧配置自动迁移：将旧 player_name 迁移为离线账号"""
+        if self._account_migration_done:
+            return False
+
+        from launcher.account import init_account_system, get_account_system, create_offline_account, AccountType
+
+        account_system = init_account_system(self.base_dir)
+
+        existing = account_system.get_accounts_by_type(AccountType.OFFLINE)
+        if existing:
+            self._account_migration_done = True
+            self.save_config()
+            return False
+
+        old_name = self.player_name
+        if old_name and old_name != "Steve":
+            logger.info(f"\u6B63\u5728\u5C06\u65E7\u914D\u7F6E\u8FC1\u79FB\u4E3A\u8D26\u53F7: {old_name}")
+            account = create_offline_account(old_name)
+            account_system.add_account(account)
+            account_system.set_current_account(account.id)
+        elif not account_system.accounts:
+            default_account = create_offline_account("Steve")
+            account_system.add_account(default_account)
+            account_system.set_current_account(default_account.id)
+
+        self._account_migration_done = True
+        self.save_config()
+        logger.info("\u65E7\u914D\u7F6E\u8FC1\u79FB\u5B8C\u6210")
+        return True
 
     def __repr__(self) -> str:
         return f"Config(base_dir={self.base_dir}, minecraft_dir={self.minecraft_dir}, mirror={'ON' if self.mirror_enabled else 'OFF'}, minimize={'ON' if self.minimize_on_game_launch else 'OFF'}, auto_update={'ON' if self.auto_check_update else 'OFF'})"
