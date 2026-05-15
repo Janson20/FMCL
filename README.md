@@ -194,7 +194,7 @@
 - 皮肤文件自动复制到 `.minecraft/skins/` 目录
 
 ### 👤 账号管理
-- **微软正版登录**：通过 PKCE OAuth 安全流程完成微软账号授权；**备用方案**：支持设备代码登录（Device Code Flow），无需本地回调服务器，可在任意设备浏览器输入代码完成验证；默认使用已授权的 Client ID，也可在 `config.json` 中配置 `microsoft_client_id`
+- **微软正版登录**：通过 PKCE OAuth 安全流程完成微软账号授权；**备用方案**：支持设备代码登录（Device Code Flow），无需本地回调服务器，可在任意设备浏览器输入代码完成验证
 - **离线登录**：无需网络验证即可创建离线账号，自动生成 UUID（基于 `uuid.uuid3`）
 - **Yggdrasil 外置登录**：支持皮肤站等第三方验证服务器（如 LittleSkin），自动注入 `authlib-injector` Java 代理
 - **Token 自动续期**：微软账号的 `access_token` 在启动游戏前自动检查并使用 `refresh_token` 无感续期
@@ -895,8 +895,7 @@ main.py
   "backup_max_per_world": 10,
   "backup_restore_mode": "rename",
   "backup_auto_launch": false,
-  "backup_auto_exit": false,
-  "microsoft_client_id": "00000000402b5328"
+  "backup_auto_exit": false
 }
 ```
 
@@ -921,7 +920,6 @@ main.py
 | `backup_restore_mode` | string | `"rename"` | 恢复时旧存档处理方式（rename/overwrite/trash） |
 | `backup_auto_launch` | bool | `false` | 是否在游戏启动前自动备份 |
 | `backup_auto_exit` | bool | `false` | 是否在游戏退出后自动备份 |
-| `microsoft_client_id` | string | `"00000000402b5328"` | 微软 OAuth 登录使用的 Azure Client ID |
 
 ---
 

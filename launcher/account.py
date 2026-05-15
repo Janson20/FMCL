@@ -172,8 +172,8 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
 
 
 class MicrosoftLoginManager:
-    def __init__(self, client_id: str = MICROSOFT_CLIENT_ID):
-        self.client_id = client_id
+    def __init__(self):
+        self.client_id = MICROSOFT_CLIENT_ID
         self._redirect_port: int = MICROSOFT_REDIRECT_PORTS[0]
 
     def _find_available_port(self) -> int:
@@ -678,13 +678,13 @@ class GlobalAccountSystem:
 
     DEFAULT_ACCOUNTS_FILE = "accounts.json"
 
-    def __init__(self, base_dir: Path, microsoft_client_id: Optional[str] = None):
+    def __init__(self, base_dir: Path):
         self._base_dir = Path(base_dir)
         self._base_dir.mkdir(parents=True, exist_ok=True)
         self._accounts_file = self._base_dir / self.DEFAULT_ACCOUNTS_FILE
         self._accounts: List[Account] = []
         self._current_account_id: Optional[str] = None
-        self._microsoft_login = MicrosoftLoginManager(microsoft_client_id or MICROSOFT_CLIENT_ID)
+        self._microsoft_login = MicrosoftLoginManager()
         self._yggdrasil_login = YggdrasilLoginManager()
         self._authlib_manager = AuthlibInjectorManager(self._base_dir)
         self._load()
@@ -989,10 +989,10 @@ class GlobalAccountSystem:
 _global_account_system: Optional[GlobalAccountSystem] = None
 
 
-def init_account_system(base_dir: Path, microsoft_client_id: Optional[str] = None) -> GlobalAccountSystem:
+def init_account_system(base_dir: Path) -> GlobalAccountSystem:
     global _global_account_system
     if _global_account_system is None:
-        _global_account_system = GlobalAccountSystem(base_dir, microsoft_client_id)
+        _global_account_system = GlobalAccountSystem(base_dir)
     return _global_account_system
 
 

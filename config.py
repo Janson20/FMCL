@@ -177,7 +177,6 @@ class Config:
         # 账号系统配置
         self.accounts_file: Optional[str] = None
         self.current_account_id: Optional[str] = None
-        self.microsoft_client_id: str = "00000000402b5328"
 
         # 旧配置迁移标记
         self._account_migration_done: bool = False
@@ -266,8 +265,6 @@ class Config:
                 self.accounts_file = data["accounts_file"]
             if "current_account_id" in data:
                 self.current_account_id = data["current_account_id"]
-            if "microsoft_client_id" in data:
-                self.microsoft_client_id = data["microsoft_client_id"]
             if "account_migration_done" in data:
                 self._account_migration_done = data["account_migration_done"]
 
@@ -305,7 +302,6 @@ class Config:
                 "java_custom_path": self.java_custom_path,
                 "accounts_file": self.accounts_file,
                 "current_account_id": self.current_account_id,
-                "microsoft_client_id": self.microsoft_client_id,
                 "account_migration_done": self._account_migration_done,
             }
             content = _json_dumps(data, indent=2, ensure_ascii=False)
@@ -370,7 +366,7 @@ class Config:
         """旧配置自动迁移：将旧 player_name 迁移为离线账号"""
         from launcher.account import init_account_system, get_account_system, create_offline_account, AccountType
 
-        account_system = init_account_system(self.base_dir, self.microsoft_client_id)
+        account_system = init_account_system(self.base_dir)
 
         if self._account_migration_done:
             return False
