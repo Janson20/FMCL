@@ -891,6 +891,8 @@
   "account_ygg_fields_required": "请填写所有字段",
   "account_ms_info": "点击下方按钮，将在浏览器中打开微软登录页面。登录完成后自动返回启动器。",
   "account_ms_login_btn": "打开浏览器登录",
+  "account_ms_device_code_desc": "如果浏览器登录失败，可以尝试下方的备用方案：",
+  "account_ms_device_code_btn": "📱 设备代码登录（手动输入代码）",
   "account_import_title": "导入账号",
   "account_import_success": "成功导入 {count} 个账号",
   "account_import_password_prompt": "请输入导出时设置的密码：",

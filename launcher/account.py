@@ -189,7 +189,6 @@ class MicrosoftLoginManager:
         code_verifier: str, status_callback: Optional[Callable[[str], None]] = None,
     ) -> Optional[dict]:
         import minecraft_launcher_lib.microsoft_account as microsoft
-        import minecraft_launcher_lib.exceptions as mcll_exceptions
 
         token_resp = microsoft.get_authorization_token(
             client_id, None, redirect_uri, auth_code, code_verifier
@@ -201,8 +200,19 @@ class MicrosoftLoginManager:
                 status_callback(f"Token 交换失败: {error_msg}")
             return None
 
+        return self._do_minecraft_auth(
+            token_resp["access_token"], token_resp["refresh_token"], status_callback
+        )
+
+    def _do_minecraft_auth(
+        self, ms_access_token: str, ms_refresh_token: str,
+        status_callback: Optional[Callable[[str], None]] = None,
+    ) -> Optional[dict]:
+        import minecraft_launcher_lib.microsoft_account as microsoft
+        import minecraft_launcher_lib.exceptions as mcll_exceptions
+
         try:
-            xbl_resp = microsoft.authenticate_with_xbl(token_resp["access_token"])
+            xbl_resp = microsoft.authenticate_with_xbl(ms_access_token)
             xsts_resp = microsoft.authenticate_with_xsts(xbl_resp["Token"])
             xbl_uhs = xbl_resp["DisplayClaims"]["xui"][0]["uhs"]
             mc_resp = microsoft.authenticate_with_minecraft(xbl_uhs, xsts_resp["Token"])
@@ -238,7 +248,7 @@ class MicrosoftLoginManager:
             return None
 
         profile["access_token"] = mc_resp["access_token"]
-        profile["refresh_token"] = token_resp["refresh_token"]
+        profile["refresh_token"] = ms_refresh_token
         return profile
 
     def login(
@@ -354,6 +364,134 @@ class MicrosoftLoginManager:
         except Exception as e:
             logger.warning(f"\u5FAE\u8F6F\u8D26\u53F7 {account.name} Token \u5237\u65B0\u5931\u8D25: {e}")
             return False
+
+    def login_device_code(
+        self,
+        status_callback: Optional[Callable[[str], None]] = None,
+    ) -> Optional[Account]:
+        DEVICE_CODE_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode"
+        TOKEN_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
+        SCOPE = "XboxLive.signin offline_access"
+        DEVICE_LOGIN_PAGE = "https://microsoft.com/devicelogin"
+
+        headers = _build_ua_header()
+        headers["Content-Type"] = "application/x-www-form-urlencoded"
+
+        if status_callback:
+            status_callback("正在获取设备代码...")
+
+        try:
+            resp = requests.post(
+                DEVICE_CODE_URL,
+                data={"client_id": self.client_id, "scope": SCOPE},
+                headers=headers,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            device_data = resp.json()
+        except Exception as e:
+            logger.error(f"获取设备代码失败: {e}")
+            if status_callback:
+                status_callback(f"获取设备代码失败: {e}")
+            return None
+
+        if "error" in device_data:
+            error_msg = device_data.get("error_description") or device_data.get("error")
+            logger.error(f"设备代码请求错误: {error_msg}")
+            if status_callback:
+                status_callback(f"设备代码错误: {error_msg}")
+            return None
+
+        user_code = device_data["user_code"]
+        device_code_val = device_data["device_code"]
+        expires_in = device_data.get("expires_in", 900)
+        interval = device_data.get("interval", 5)
+
+        import tkinter as tk
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.clipboard_clear()
+            root.clipboard_append(user_code)
+            root.destroy()
+        except Exception:
+            pass
+
+        webbrowser.open(DEVICE_LOGIN_PAGE)
+
+        if status_callback:
+            status_callback(
+                f"代码 {user_code} 已复制到剪贴板，请在浏览器中打开 {DEVICE_LOGIN_PAGE} 并输入此代码"
+            )
+
+        logger.info(f"设备代码登录已启动: user_code={user_code}, 有效期 {expires_in} 秒")
+
+        poll_payload = {
+            "client_id": self.client_id,
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "device_code": device_code_val,
+        }
+
+        start_time = time.time()
+        while (time.time() - start_time) < expires_in:
+            time.sleep(interval)
+            try:
+                resp = requests.post(TOKEN_URL, data=poll_payload, headers=headers, timeout=30)
+                token_data = resp.json()
+            except Exception as e:
+                logger.warning(f"轮询 Token 网络错误: {e}")
+                continue
+
+            if "access_token" in token_data:
+                ms_access_token = token_data["access_token"]
+                ms_refresh_token = token_data.get("refresh_token", "")
+                logger.info("设备代码登录: 已获取 Microsoft Token")
+
+                if status_callback:
+                    status_callback("正在完成 Minecraft 认证...")
+
+                profile = self._do_minecraft_auth(
+                    ms_access_token, ms_refresh_token, status_callback
+                )
+                if profile is None:
+                    return None
+
+                account_id = str(uuid_mod.uuid4())
+                now = datetime.now(timezone.utc).isoformat()
+                return Account(
+                    id=account_id,
+                    name=profile.get("name", "Steve"),
+                    account_type=AccountType.MICROSOFT,
+                    uuid=profile.get("id", ""),
+                    access_token=profile.get("access_token", ""),
+                    refresh_token=profile.get("refresh_token", ""),
+                    skins=profile.get("skins", []),
+                    created_at=now,
+                    last_login=now,
+                )
+
+            error_code = token_data.get("error", "")
+            if error_code == "authorization_pending":
+                continue
+            elif error_code == "slow_down":
+                interval += 5
+                continue
+            elif error_code in ("expired_token", "authorization_declined"):
+                logger.error(f"设备代码登录失败: {error_code}")
+                if status_callback:
+                    status_callback("登录已取消或代码已过期，请重试")
+                return None
+            else:
+                error_desc = token_data.get("error_description", error_code)
+                logger.error(f"Token 请求错误: {error_desc}")
+                if status_callback:
+                    status_callback(f"登录失败: {error_desc}")
+                return None
+
+        logger.error("设备代码登录超时")
+        if status_callback:
+            status_callback("登录超时，请重试")
+        return None
 
 
 class YggdrasilLoginManager:
@@ -664,6 +802,15 @@ class GlobalAccountSystem:
 
     def microsoft_login(self, status_callback: Optional[Callable[[str], None]] = None) -> Optional[Account]:
         account = self._microsoft_login.login(status_callback=status_callback)
+        if account:
+            self.add_account(account)
+            self.set_current_account(account.id)
+        return account
+
+    def microsoft_device_code_login(
+        self, status_callback: Optional[Callable[[str], None]] = None
+    ) -> Optional[Account]:
+        account = self._microsoft_login.login_device_code(status_callback=status_callback)
         if account:
             self.add_account(account)
             self.set_current_account(account.id)

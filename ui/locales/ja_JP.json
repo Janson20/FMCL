@@ -891,6 +891,8 @@
   "account_ygg_fields_required": "すべての項目を入力してください",
   "account_ms_info": "下のボタンをクリックすると、ブラウザでMicrosoftログインページが開きます。ログイン後、自動的にランチャーに戻ります。",
   "account_ms_login_btn": "ブラウザでログイン",
+  "account_ms_device_code_desc": "ブラウザログインに失敗した場合、以下の代替方法をお試しください：",
+  "account_ms_device_code_btn": "📱 デバイスコードでログイン（手動入力）",
   "account_import_title": "アカウントインポート",
   "account_import_success": "{count}個のアカウントを正常にインポートしました",
   "account_import_password_prompt": "エクスポート時に設定したパスワードを入力してください：",

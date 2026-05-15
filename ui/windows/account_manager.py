@@ -56,7 +56,25 @@ class AddAccountDialog(ctk.CTkToplevel):
             command=self._do_microsoft_login,
             height=40,
         )
-        btn.pack(padx=20, pady=(10, 20))
+        btn.pack(padx=20, pady=(10, 5))
+
+        device_code_info = ctk.CTkLabel(
+            self, text=_("account_ms_device_code_desc"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+            wraplength=380,
+            justify=ctk.CENTER,
+        )
+        device_code_info.pack(padx=20, pady=(5, 8))
+
+        device_btn = ctk.CTkButton(
+            self, text=_("account_ms_device_code_btn"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+            command=self._do_microsoft_device_code,
+            height=36,
+        )
+        device_btn.pack(padx=20, pady=(0, 20))
 
     def _build_offline_ui(self):
         ctk.CTkLabel(
@@ -133,6 +151,10 @@ class AddAccountDialog(ctk.CTkToplevel):
     def _do_microsoft_login(self):
         self.destroy()
         self._on_done({"type": "microsoft"})
+
+    def _do_microsoft_device_code(self):
+        self.destroy()
+        self._on_done({"type": "microsoft_device_code"})
 
     def _do_offline_create(self):
         name = self._name_entry.get().strip()
@@ -379,14 +401,26 @@ class AccountManagerWindow(ctk.CTkToplevel):
                 ).pack(side=ctk.RIGHT)
 
     def _on_add_microsoft(self):
-        def do_login(_params):
+        def do_login(params):
+            login_type = params.get("type") if params else "microsoft"
             self._set_buttons_state(ctk.DISABLED)
-            account = self._account_system.microsoft_login(
-                status_callback=lambda s: self._update_status(s)
-            )
-            self.after(0, lambda: self._on_login_complete(account, "microsoft"))
+            if login_type == "microsoft_device_code":
+                threading.Thread(
+                    target=self._run_device_code_login, daemon=True
+                ).start()
+            else:
+                account = self._account_system.microsoft_login(
+                    status_callback=lambda s: self._update_status(s)
+                )
+                self.after(0, lambda: self._on_login_complete(account, "microsoft"))
 
         AddAccountDialog(self, "microsoft", do_login)
+
+    def _run_device_code_login(self):
+        account = self._account_system.microsoft_device_code_login(
+            status_callback=lambda s: self.after(0, lambda: self._update_status(s))
+        )
+        self.after(0, lambda: self._on_login_complete(account, "microsoft"))
 
     def _on_add_offline(self):
         def do_login(params):

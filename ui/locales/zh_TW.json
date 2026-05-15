@@ -891,6 +891,8 @@
   "account_ygg_fields_required": "請填寫所有欄位",
   "account_ms_info": "點擊下方按鈕，將在瀏覽器中開啟微軟登入頁面。登入完成後自動返回啟動器。",
   "account_ms_login_btn": "開啟瀏覽器登入",
+  "account_ms_device_code_desc": "如果瀏覽器登入失敗，可以嘗試下方的備用方案：",
+  "account_ms_device_code_btn": "📱 裝置代碼登入（手動輸入代碼）",
   "account_import_title": "匯入帳號",
   "account_import_success": "成功匯入 {count} 個帳號",
   "account_import_password_prompt": "請輸入匯出時設定的密碼：",

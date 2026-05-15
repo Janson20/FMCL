@@ -891,6 +891,8 @@
   "account_ygg_fields_required": "Please fill in all fields",
   "account_ms_info": "Click the button below to open the Microsoft login page in your browser. You will be redirected back automatically after login.",
   "account_ms_login_btn": "Open Browser to Login",
+  "account_ms_device_code_desc": "If browser login fails, try the alternative method below:",
+  "account_ms_device_code_btn": "📱 Device Code Login (Enter code manually)",
   "account_import_title": "Import Accounts",
   "account_import_success": "Successfully imported {count} accounts",
   "account_import_password_prompt": "Enter the password set during export:",
