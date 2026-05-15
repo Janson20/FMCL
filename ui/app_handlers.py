@@ -739,11 +739,6 @@ class EventHandlerMixin(object):
 
     def _reload_user_settings(self):
         """重新加载用户设置（callbacks 设置后调用）"""
-        # 加载角色名
-        if "get_player_name" in self.callbacks:
-            saved_name = self.callbacks["get_player_name"]()
-            if saved_name:
-                self.player_name_var.set(saved_name)
         # 加载皮肤路径
         if "get_skin_path" in self.callbacks:
             saved_skin = self.callbacks["get_skin_path"]()

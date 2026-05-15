@@ -156,7 +156,7 @@
 - **跨平台中文字体适配**：自动检测系统并选择合适的中文字体（Windows: Microsoft YaHei / macOS: PingFang SC / Linux: Noto Sans CJK SC 等）；Linux 下若无中文字体则自动通过包管理器安装
 - **首次使用协议弹窗**：首次启动时最先弹出使用条款与隐私协议同意窗口，需勾选同意后方可继续使用，协议内容包含 Minecraft EULA、净读 AI 隐私协议及净读使用条款
 - 启动画面：加载时在屏幕中央展示应用图标，加载完成后自动切换到主窗口
-- 三栏布局：左侧边栏（角色名、皮肤、日志）、中间已安装版本、右侧操作面板
+- 三栏布局：左侧边栏（账号信息、皮肤、日志）、中间已安装版本、右侧操作面板
 - 异步操作：所有网络与安装任务在后台线程执行，UI 不卡顿
 - 实时进度条与状态提示
 - 游戏启动后自动最小化启动器窗口（可选，检测到游戏窗口出现后执行）
@@ -185,9 +185,8 @@
 - 显示 FMCL 版本号、Python 版本、操作系统、系统架构等信息
 
 ### 👤 自定义角色
-- 左侧边栏可设置自定义游戏角色名
-- 角色名自动持久化到 `config.json`
-- 启动游戏时自动注入自定义角色名
+- 角色名由当前选中的账号自动确定（微软账号使用 Xbox 昵称、离线账号使用自定义名称、Yggdrasil 使用认证服用户名）
+- 旧版 `player_name` 配置在首次启动时自动迁移为离线账号
 
 ### 🎨 自定义皮肤
 - 左侧边栏支持选择自定义皮肤文件（PNG 格式）
@@ -195,7 +194,7 @@
 - 皮肤文件自动复制到 `.minecraft/skins/` 目录
 
 ### 👤 账号管理
-- **微软正版登录**：通过 PKCE OAuth 安全流程完成微软账号授权，获取 Minecraft 正版凭据
+- **微软正版登录**：通过 PKCE OAuth 安全流程完成微软账号授权，获取 Minecraft 正版凭据；默认使用已授权的 Client ID，也可在 `config.json` 中配置 `microsoft_client_id`
 - **离线登录**：无需网络验证即可创建离线账号，自动生成 UUID（基于 `uuid.uuid3`）
 - **Yggdrasil 外置登录**：支持皮肤站等第三方验证服务器（如 LittleSkin），自动注入 `authlib-injector` Java 代理
 - **Token 自动续期**：微软账号的 `access_token` 在启动游戏前自动检查并使用 `refresh_token` 无感续期
@@ -384,8 +383,8 @@
 │  ⛏ FMCL   Minecraft Launcher   ⬆ 更新  🔄 刷新  ⚙ 设置  │
 │  [🎮 游戏] [💾 备份] [🖥 开服] [🔗 链接] [🌐 联机] [🤖 AGENT]            │
 ├────────────┬──────────────────────────────┬──────────────────────────────────────┤
-│ 👤 角色名  │  📦 已安装版本  ⚙  3 个版本 │  📥 安装新版本               │
-│ [Steve   ] │  ─────────────────────────── │  ──────────────────────      │
+│ 👤 账号  │  📦 已安装版本  ⚙  3 个版本 │  📥 安装新版本               │
+│ ⭐ Steve │  ─────────────────────────── │  ──────────────────────      │
 │            │  │ 1.20.4          🧩⚙[X] │  │  版本 ID:  [1.20.4      ]   │
 │ 🎨 皮肤   │  │ 1.20.4-forge-49🧩⚙[X] │  │  模组加载器: [无      ▼]     │
 │ ✅ skin.png│  │ fabric-loader-0🧩⚙[X] │  │  提示: 安装 Forge 会同时... │
@@ -521,11 +520,13 @@ python main.py -A              # 交互模式
 - **🤖 净读 AI**：登录账号后可在游戏崩溃时使用 AI 智能分析功能
 - 设置会自动持久化到 `config.json`
 
-#### 自定义角色名
+#### 账号与角色名
 
-1. 在左侧边栏「👤 角色名」输入框中输入想要的游戏名称
-2. 输入框失去焦点时自动保存
-3. 下次启动游戏时将使用该角色名
+角色名由当前选中的账号自动确定，无需手动输入。如需更换角色名：
+
+1. 点击左侧边栏「👤 账号管理」按钮（或设置中的账号管理入口）
+2. 在账号管理窗口中选择或添加账号（微软正版 / 离线 / Yggdrasil）
+3. 设为当前账号后，启动游戏时将自动使用该账号的角色名
 
 #### 自定义皮肤
 
@@ -894,7 +895,8 @@ main.py
   "backup_max_per_world": 10,
   "backup_restore_mode": "rename",
   "backup_auto_launch": false,
-  "backup_auto_exit": false
+  "backup_auto_exit": false,
+  "microsoft_client_id": "00000000402b5328"
 }
 ```
 
@@ -904,7 +906,7 @@ main.py
 | `download_threads` | int | `4` | 多线程下载的线程数 |
 | `minimize_on_game_launch` | bool | `false` | 游戏启动后是否最小化启动器窗口 |
 | `auto_check_update` | bool | `true` | 启动时是否自动检查更新 |
-| `player_name` | string | `"Steve"` | 自定义游戏角色名 |
+| `player_name` | string | `"Steve"` | （旧版兼容）自定义游戏角色名，现在由账号系统自动管理 |
 | `skin_path` | string/null | `null` | 自定义皮肤文件路径 |
 | `jdz_token` | string/null | `null` | 净读 AI Token（Fernet 加密存储，不可手动编辑） |
 | `language` | string | `"zh_CN"` | 界面语言（zh_CN/en_US/ja_JP/zh_TW） |
@@ -919,6 +921,7 @@ main.py
 | `backup_restore_mode` | string | `"rename"` | 恢复时旧存档处理方式（rename/overwrite/trash） |
 | `backup_auto_launch` | bool | `false` | 是否在游戏启动前自动备份 |
 | `backup_auto_exit` | bool | `false` | 是否在游戏退出后自动备份 |
+| `microsoft_client_id` | string | `"00000000402b5328"` | 微软 OAuth 登录使用的 Azure Client ID |
 
 ---
 

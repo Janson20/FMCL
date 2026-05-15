@@ -38,7 +38,7 @@ from secure_storage import encrypt_token, decrypt_token
 def _build_ua_header() -> dict:
     return {"User-Agent": f"FMCL/1.0 ({_platform_mod.system()}; {_platform_mod.machine()})"}
 
-MICROSOFT_CLIENT_ID = "00000000402b5328"
+MICROSOFT_CLIENT_ID = "980ebc21-3288-46a6-bfe1-fc584ba7713e"
 MICROSOFT_REDIRECT_URI = "http://localhost:8080"
 MICROSOFT_REDIRECT_PORTS = [8080, 8081, 8082, 8083, 8084]
 
@@ -184,6 +184,63 @@ class MicrosoftLoginManager:
                     return port
         return MICROSOFT_REDIRECT_PORTS[0]
 
+    def _complete_login_with_error_handling(
+        self, client_id: str, redirect_uri: str, auth_code: str,
+        code_verifier: str, status_callback: Optional[Callable[[str], None]] = None,
+    ) -> Optional[dict]:
+        import minecraft_launcher_lib.microsoft_account as microsoft
+        import minecraft_launcher_lib.exceptions as mcll_exceptions
+
+        token_resp = microsoft.get_authorization_token(
+            client_id, None, redirect_uri, auth_code, code_verifier
+        )
+        if "access_token" not in token_resp:
+            error_msg = token_resp.get("error_description") or token_resp.get("error") or str(token_resp)
+            logger.error(f"微软 OAuth Token 交换失败: {error_msg}")
+            if status_callback:
+                status_callback(f"Token 交换失败: {error_msg}")
+            return None
+
+        try:
+            xbl_resp = microsoft.authenticate_with_xbl(token_resp["access_token"])
+            xsts_resp = microsoft.authenticate_with_xsts(xbl_resp["Token"])
+            xbl_uhs = xbl_resp["DisplayClaims"]["xui"][0]["uhs"]
+            mc_resp = microsoft.authenticate_with_minecraft(xbl_uhs, xsts_resp["Token"])
+        except mcll_exceptions.AccountNotOwnMinecraft:
+            logger.error("该微软账号未拥有 Minecraft")
+            if status_callback:
+                status_callback("该微软账号未拥有 Minecraft")
+            return None
+        except Exception as e:
+            logger.error(f"微软 XBL/XSTS/Minecraft 认证失败: {e}")
+            if status_callback:
+                status_callback(f"认证失败: {e}")
+            return None
+
+        if "access_token" not in mc_resp:
+            logger.error("Azure 应用未获得 Minecraft API 权限，请使用已授权的 Client ID")
+            if status_callback:
+                status_callback("Azure 应用未获得 Minecraft API 权限")
+            return None
+
+        try:
+            profile = microsoft.get_profile(mc_resp["access_token"])
+        except Exception as e:
+            logger.error(f"获取 Minecraft 档案失败: {e}")
+            if status_callback:
+                status_callback(f"获取档案失败: {e}")
+            return None
+
+        if "error" in profile and profile["error"] == "NOT_FOUND":
+            logger.error("该账号未拥有 Minecraft")
+            if status_callback:
+                status_callback("该账号未拥有 Minecraft")
+            return None
+
+        profile["access_token"] = mc_resp["access_token"]
+        profile["refresh_token"] = token_resp["refresh_token"]
+        return profile
+
     def login(
         self,
         status_callback: Optional[Callable[[str], None]] = None,
@@ -245,11 +302,15 @@ class MicrosoftLoginManager:
             status_callback("\u6B63\u5728\u5B8C\u6210\u767B\u5F55...")
 
         try:
-            login_data = microsoft.complete_login(
-                self.client_id, None, redirect_uri, server.auth_code, code_verifier
+            login_data = self._complete_login_with_error_handling(
+                self.client_id, redirect_uri, server.auth_code, code_verifier, status_callback
             )
+            if login_data is None:
+                return None
         except Exception as e:
             logger.error(f"\u5B8C\u6210\u5FAE\u8F6F\u767B\u5F55\u5931\u8D25: {e}")
+            if status_callback:
+                status_callback(f"登录失败: {e}")
             return None
 
         account_id = str(uuid_mod.uuid4())
@@ -276,10 +337,12 @@ class MicrosoftLoginManager:
 
         try:
             import minecraft_launcher_lib.microsoft_account as microsoft
+            import minecraft_launcher_lib.exceptions as mcll_exceptions
             refresh_data = microsoft.complete_refresh(
                 self.client_id,
-                account.refresh_token,
+                None,
                 f"http://localhost:{self._redirect_port}",
+                account.refresh_token,
             )
             account.access_token = refresh_data.get("access_token", account.access_token)
             new_refresh = refresh_data.get("refresh_token")
@@ -477,13 +540,13 @@ class GlobalAccountSystem:
 
     DEFAULT_ACCOUNTS_FILE = "accounts.json"
 
-    def __init__(self, base_dir: Path):
+    def __init__(self, base_dir: Path, microsoft_client_id: Optional[str] = None):
         self._base_dir = Path(base_dir)
         self._base_dir.mkdir(parents=True, exist_ok=True)
         self._accounts_file = self._base_dir / self.DEFAULT_ACCOUNTS_FILE
         self._accounts: List[Account] = []
         self._current_account_id: Optional[str] = None
-        self._microsoft_login = MicrosoftLoginManager()
+        self._microsoft_login = MicrosoftLoginManager(microsoft_client_id or MICROSOFT_CLIENT_ID)
         self._yggdrasil_login = YggdrasilLoginManager()
         self._authlib_manager = AuthlibInjectorManager(self._base_dir)
         self._load()
@@ -779,10 +842,10 @@ class GlobalAccountSystem:
 _global_account_system: Optional[GlobalAccountSystem] = None
 
 
-def init_account_system(base_dir: Path) -> GlobalAccountSystem:
+def init_account_system(base_dir: Path, microsoft_client_id: Optional[str] = None) -> GlobalAccountSystem:
     global _global_account_system
     if _global_account_system is None:
-        _global_account_system = GlobalAccountSystem(base_dir)
+        _global_account_system = GlobalAccountSystem(base_dir, microsoft_client_id)
     return _global_account_system
 
 

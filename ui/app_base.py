@@ -644,32 +644,6 @@ class ModernAppBase(ctk.CTk):
         )
         self._sidebar_account_manage_btn.pack(padx=12, pady=(8, 5), anchor=ctk.W)
 
-        # ── 自定义角色名 ──
-        self._sidebar_player_label = ctk.CTkLabel(
-            self.sidebar_frame,
-            text=_("player_name"),
-            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
-            text_color=COLORS["text_primary"],
-        )
-        self._sidebar_player_label.pack(padx=12, pady=(15, 5), anchor=ctk.W)
-
-        self._sidebar_player_sep = ctk.CTkFrame(self.sidebar_frame, fg_color=COLORS["card_border"], height=1)
-        self._sidebar_player_sep.pack(fill=ctk.X, padx=12, pady=(0, 8))
-
-        self.player_name_var = ctk.StringVar(value="")
-        self.player_name_entry = ctk.CTkEntry(
-            self.sidebar_frame,
-            textvariable=self.player_name_var,
-            height=32,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["bg_medium"],
-            border_color=COLORS["card_border"],
-            placeholder_text=_("player_name_placeholder"),
-        )
-        self.player_name_entry.pack(fill=ctk.X, padx=12, pady=(0, 5))
-
-        self.player_name_entry.bind("<FocusOut>", self._on_player_name_change)
-
         # ── 自定义皮肤 ──
         self._sidebar_skin_label = ctk.CTkLabel(
             self.sidebar_frame,
@@ -772,9 +746,6 @@ class ModernAppBase(ctk.CTk):
         self._theme_refs.append((self._sidebar_account_name, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._sidebar_account_type, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._sidebar_account_manage_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
-        self._theme_refs.append((self._sidebar_player_label, {"text_color": "text_primary"}))
-        self._theme_refs.append((self._sidebar_player_sep, {"fg_color": "card_border"}))
-        self._theme_refs.append((self.player_name_entry, {"fg_color": "bg_medium", "border_color": "card_border"}))
         self._theme_refs.append((self._sidebar_skin_label, {"text_color": "text_primary"}))
         self._theme_refs.append((self._sidebar_skin_sep, {"fg_color": "card_border"}))
         self._theme_refs.append((self.skin_preview_frame, {"fg_color": "bg_medium"}))
@@ -876,14 +847,6 @@ class ModernAppBase(ctk.CTk):
         except Exception as e:
             from logzero import logger
             logger.error(f"\u6253\u5F00\u8D26\u53F7\u7BA1\u7406\u5931\u8D25: {e}")
-
-    def _on_player_name_change(self, event=None):
-        """角色名输入框失焦时保存"""
-        name = self.player_name_var.get().strip()
-        if name and "set_player_name" in self.callbacks:
-            self.callbacks["set_player_name"](name)
-            if name != "Steve":
-                self._trigger_ach("personalize_rename")
 
     def _on_select_skin(self):
         """选择皮肤文件"""

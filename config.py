@@ -368,12 +368,12 @@ class Config:
 
     def migrate_accounts(self) -> bool:
         """旧配置自动迁移：将旧 player_name 迁移为离线账号"""
-        if self._account_migration_done:
-            return False
-
         from launcher.account import init_account_system, get_account_system, create_offline_account, AccountType
 
-        account_system = init_account_system(self.base_dir)
+        account_system = init_account_system(self.base_dir, self.microsoft_client_id)
+
+        if self._account_migration_done:
+            return False
 
         existing = account_system.get_accounts_by_type(AccountType.OFFLINE)
         if existing:
