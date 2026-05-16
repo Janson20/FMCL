@@ -14,6 +14,7 @@ class AchievementCategory(Enum):
     AGENT = "agent"
     PERSONALIZE = "personalize"
     ADVANCED = "advanced"
+    MUSIC = "music"
 
 
 CATEGORY_ORDER = [
@@ -25,6 +26,7 @@ CATEGORY_ORDER = [
     AchievementCategory.AGENT,
     AchievementCategory.PERSONALIZE,
     AchievementCategory.ADVANCED,
+    AchievementCategory.MUSIC,
 ]
 
 
@@ -476,6 +478,58 @@ ACHIEVEMENTS: List[AchievementDef] = [
         stage_names=["签到达人 I", "签到达人 II", "签到达人 III"],
         trigger_type="increment",
     ),
+
+    # ═══════════ 🎵 音乐生活 ═══════════
+    AchievementDef(
+        achievement_id="music_first_play",
+        category=AchievementCategory.MUSIC,
+        i18n_key="ach_music_first_play",
+        desc_i18n_key="ach_music_first_play_desc",
+        icon="🎵",
+        stages=[1],
+        stage_names=["初入音轨"],
+        trigger_type="increment",
+    ),
+    AchievementDef(
+        achievement_id="music_play_count",
+        category=AchievementCategory.MUSIC,
+        i18n_key="ach_music_play_count",
+        desc_i18n_key="ach_music_play_count_desc",
+        icon="🎧",
+        stages=[100, 500, 2000],
+        stage_names=["音乐收集者 I", "音乐收集者 II", "音乐收集者 III"],
+        trigger_type="increment",
+    ),
+    AchievementDef(
+        achievement_id="music_mode_master",
+        category=AchievementCategory.MUSIC,
+        i18n_key="ach_music_mode_master",
+        desc_i18n_key="ach_music_mode_master_desc",
+        icon="🔀",
+        stages=[1],
+        stage_names=["模式达人"],
+        trigger_type="check",
+    ),
+    AchievementDef(
+        achievement_id="music_mini_mode",
+        category=AchievementCategory.MUSIC,
+        i18n_key="ach_music_mini_mode",
+        desc_i18n_key="ach_music_mini_mode_desc",
+        icon="🔽",
+        stages=[1],
+        stage_names=["迷你控"],
+        trigger_type="increment",
+    ),
+    AchievementDef(
+        achievement_id="music_volume_tweaker",
+        category=AchievementCategory.MUSIC,
+        i18n_key="ach_music_volume_tweaker",
+        desc_i18n_key="ach_music_volume_tweaker_desc",
+        icon="🎚",
+        stages=[20],
+        stage_names=["音量调音师"],
+        trigger_type="increment",
+    ),
 ]
 
 CATEGORY_META = {
@@ -487,4 +541,5 @@ CATEGORY_META = {
     AchievementCategory.AGENT: {"i18n_key": "ach_category_agent", "icon": "🤖"},
     AchievementCategory.PERSONALIZE: {"i18n_key": "ach_category_personalize", "icon": "🎨"},
     AchievementCategory.ADVANCED: {"i18n_key": "ach_category_advanced", "icon": "⚡"},
+    AchievementCategory.MUSIC: {"i18n_key": "ach_category_music", "icon": "🎵"},
 }

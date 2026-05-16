@@ -819,6 +819,18 @@
   "ach_advanced_checkin": "Check-in Master",
   "ach_advanced_checkin_desc": "Open the launcher for consecutive days",
 
+  "ach_category_music": "Music Life",
+  "ach_music_first_play": "First Note",
+  "ach_music_first_play_desc": "Play a song for the first time",
+  "ach_music_play_count": "Music Collector",
+  "ach_music_play_count_desc": "Play a total number of songs",
+  "ach_music_mode_master": "Mode Master",
+  "ach_music_mode_master_desc": "Use all 4 playback modes",
+  "ach_music_mini_mode": "Mini Fan",
+  "ach_music_mini_mode_desc": "Switch to mini player mode",
+  "ach_music_volume_tweaker": "Volume Tuner",
+  "ach_music_volume_tweaker_desc": "Adjust volume a total number of times",
+
   "ach_sync_btn": "☁ Sync",
   "ach_syncing": "☁ Syncing...",
   "ach_sync_success": "☁ Synced",

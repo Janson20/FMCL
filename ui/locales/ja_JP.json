@@ -819,6 +819,18 @@
   "ach_advanced_checkin": "チェックインマスター",
   "ach_advanced_checkin_desc": "連続して指定日数ランチャーを開く",
 
+  "ach_category_music": "音楽生活",
+  "ach_music_first_play": "初めての音",
+  "ach_music_first_play_desc": "初めて音楽を再生する",
+  "ach_music_play_count": "音楽コレクター",
+  "ach_music_play_count_desc": "累計指定数の曲を再生する",
+  "ach_music_mode_master": "モードマスター",
+  "ach_music_mode_master_desc": "全4種の再生モードを使用する",
+  "ach_music_mini_mode": "ミニマニア",
+  "ach_music_mini_mode_desc": "ミニプレイヤーに切り替える",
+  "ach_music_volume_tweaker": "音量調整師",
+  "ach_music_volume_tweaker_desc": "累計指定回数の音量調整を行う",
+
   "ach_sync_btn": "☁ 同期",
   "ach_syncing": "☁ 同期中...",
   "ach_sync_success": "☁ 同期完了",

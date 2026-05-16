@@ -74,6 +74,9 @@ DEFAULT_HOTKEYS = {
     "vol_mute": "ctrl+shift+m",
 }
 
+FADE_STEPS = 20
+FADE_INTERVAL_MS = 50
+
 _hotkey_import_error = None
 try:
     import keyboard as _keyboard
@@ -334,6 +337,10 @@ class MusicPlayerMixin(object):
         self._music_playlist_widgets: List[dict] = []
         self._music_smtc: _SMTCController = _SMTCController()
         self._music_smtc.set_parent(self)
+        self._music_fade_timer_id = None
+        self._music_is_fading = False
+        self._music_fade_out_target: Optional[str] = None
+        self._music_modes_used: set = set()
 
     def _init_music_lazy(self):
         if self._music_init_done:
@@ -745,9 +752,10 @@ class MusicPlayerMixin(object):
         if _pygame_import_error is not None:
             logger.warning("pygame 不可用，无法播放")
             return
+        self._music_cancel_fade()
         try:
             mixer.music.load(filepath)
-            mixer.music.set_volume(self._music_volume)
+            mixer.music.set_volume(0)
             mixer.music.play(start=start_pos if start_pos > 0 else 0)
             self._music_is_playing = True
             self._music_is_paused = False
@@ -758,10 +766,97 @@ class MusicPlayerMixin(object):
             self._start_progress_poll()
             self._music_smtc.set_playing()
             self._highlight_current_in_list()
+            self._music_fade_in()
+            self._trigger_ach("music_first_play")
+            self._trigger_ach("music_play_count")
         except Exception as e:
             logger.error(f"播放失败: {filepath}: {e}")
             self._music_is_playing = False
             self._update_play_btn_ui()
+
+    def _music_cancel_fade(self):
+        if self._music_fade_timer_id is not None:
+            self.after_cancel(self._music_fade_timer_id)
+            self._music_fade_timer_id = None
+        self._music_is_fading = False
+        self._music_fade_out_target = None
+
+    def _music_fade_in(self, step: int = 0):
+        if not self._music_is_playing or self._music_is_paused:
+            self._music_cancel_fade()
+            return
+        if step >= FADE_STEPS:
+            try:
+                mixer.music.set_volume(self._music_volume)
+            except Exception:
+                pass
+            self._music_is_fading = False
+            self._music_fade_timer_id = None
+            return
+        vol = self._music_volume * (step + 1) / FADE_STEPS
+        try:
+            mixer.music.set_volume(vol)
+        except Exception:
+            pass
+        self._music_is_fading = True
+        self._music_fade_timer_id = self.after(FADE_INTERVAL_MS, lambda: self._music_fade_in(step + 1))
+
+    def _music_fade_out(self, step: int = 0):
+        if not self._music_is_playing or self._music_is_paused:
+            self._music_cancel_fade()
+            return
+        if step >= FADE_STEPS:
+            try:
+                mixer.music.set_volume(0)
+            except Exception:
+                pass
+            self._music_is_fading = False
+            self._music_fade_timer_id = None
+            self._music_execute_fade_out_target()
+            return
+        remaining = FADE_STEPS - 1 - step
+        vol = self._music_volume * remaining / (FADE_STEPS - 1) if FADE_STEPS > 1 else 0
+        try:
+            mixer.music.set_volume(max(0, vol))
+        except Exception:
+            pass
+        self._music_is_fading = True
+        self._music_fade_timer_id = self.after(FADE_INTERVAL_MS, lambda: self._music_fade_out(step + 1))
+
+    def _music_execute_fade_out_target(self):
+        target = self._music_fade_out_target
+        self._music_fade_out_target = None
+        if target == 'pause':
+            try:
+                mixer.music.pause()
+            except Exception:
+                pass
+            self._music_is_playing = False
+            self._music_is_paused = True
+            self._update_play_btn_ui()
+            self._music_smtc.set_paused()
+            try:
+                mixer.music.set_volume(self._music_volume)
+            except Exception:
+                pass
+        elif target == 'stop':
+            try:
+                mixer.music.stop()
+                mixer.music.unload()
+            except Exception:
+                pass
+            self._music_is_playing = False
+            self._music_is_paused = False
+            self._music_progress = 0
+            self._music_seek_offset = 0
+            self._update_play_btn_ui()
+            self._music_progress_bar.set(0)
+            self._music_cur_label.configure(text="0:00")
+            self._music_smtc.set_stopped()
+            try:
+                mixer.music.set_volume(self._music_volume)
+            except Exception:
+                pass
 
     def _music_toggle_play(self):
         if not self._music_playlist:
@@ -771,28 +866,34 @@ class MusicPlayerMixin(object):
                 self._music_current_index = 0
             self._play_file(self._music_playlist[self._music_current_index], self._music_progress if self._music_progress > 0 else 0)
         elif self._music_is_paused:
+            if self._music_is_fading:
+                return
             try:
                 mixer.music.unpause()
+                mixer.music.set_volume(0)
                 self._music_is_playing = True
                 self._music_is_paused = False
                 self._update_play_btn_ui()
                 self._start_progress_poll()
                 self._music_smtc.set_playing()
+                self._music_fade_in()
             except Exception as e:
                 logger.error(f"恢复播放失败: {e}")
         elif self._music_is_playing:
-            try:
-                mixer.music.pause()
-                self._music_is_playing = False
-                self._music_is_paused = True
-                self._update_play_btn_ui()
-                self._stop_progress_poll()
-                self._music_smtc.set_paused()
-            except Exception as e:
-                logger.error(f"暂停失败: {e}")
+            if self._music_is_fading:
+                return
+            self._music_fade_out_target = 'pause'
+            self._stop_progress_poll()
+            self._music_fade_out()
 
-    def _music_stop(self):
+    def _music_stop(self, instant: bool = False):
         if _pygame_import_error is not None:
+            return
+        self._music_cancel_fade()
+        if not instant and self._music_is_playing and not self._music_is_paused:
+            self._music_fade_out_target = 'stop'
+            self._stop_progress_poll()
+            self._music_fade_out()
             return
         try:
             mixer.music.stop()
@@ -844,13 +945,14 @@ class MusicPlayerMixin(object):
             return
         if not self._music_playlist or self._music_current_index < 0:
             return
+        self._music_cancel_fade()
         try:
             pos = (value / 100.0) * self._music_duration if self._music_duration > 0 else 0
             filepath = self._music_playlist[self._music_current_index]
             was_paused = self._music_is_paused
             mixer.music.stop()
             mixer.music.load(filepath)
-            mixer.music.set_volume(self._music_volume)
+            mixer.music.set_volume(0)
             mixer.music.play(start=pos)
             if was_paused:
                 mixer.music.pause()
@@ -860,12 +962,13 @@ class MusicPlayerMixin(object):
                 self._stop_progress_poll()
             else:
                 self._start_progress_poll()
+                self._music_fade_in()
         except Exception:
             pass
 
     def _music_set_volume(self, value: float):
         self._music_volume = value / 100.0
-        if _pygame_import_error is None:
+        if _pygame_import_error is None and not self._music_is_fading:
             try:
                 mixer.music.set_volume(self._music_volume)
             except Exception:
@@ -882,12 +985,13 @@ class MusicPlayerMixin(object):
             self._music_volume = getattr(self, '_music_vol_before_mute', 0.7)
             self._music_vol_slider.set(int(self._music_volume * 100))
             self._music_mini_vol.set(int(self._music_volume * 100))
-        if _pygame_import_error is None:
+        if _pygame_import_error is None and not self._music_is_fading:
             try:
                 mixer.music.set_volume(self._music_volume)
             except Exception:
                 pass
         self._update_mute_btn_ui()
+        self._trigger_ach("music_volume_tweaker")
 
     def _update_mute_btn_ui(self):
         if self._music_volume == 0:
@@ -980,6 +1084,9 @@ class MusicPlayerMixin(object):
         idx = modes.index(self._music_play_mode)
         self._music_play_mode = modes[(idx + 1) % len(modes)]
         self._update_mode_btn_text()
+        self._music_modes_used.add(self._music_play_mode)
+        if len(self._music_modes_used) >= 4:
+            self._check_ach("music_mode_master", True)
 
     def _music_toggle_mini_mode(self):
         self._music_mini_mode = not self._music_mini_mode
@@ -987,6 +1094,7 @@ class MusicPlayerMixin(object):
             self._music_main_frame.pack_forget()
             self._music_mini_bar.pack(fill=ctk.X, padx=15, pady=(0, 15))
             self._music_mini_toggle_btn.configure(text=_("music_expand"))
+            self._trigger_ach("music_mini_mode")
         else:
             self._music_mini_bar.pack_forget()
             self._music_main_frame.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
@@ -1177,12 +1285,13 @@ class MusicPlayerMixin(object):
         self._music_vol_slider.set(new_vol)
         if hasattr(self, '_music_mini_vol'):
             self._music_mini_vol.set(new_vol)
-        if _pygame_import_error is None:
+        if _pygame_import_error is None and not self._music_is_fading:
             try:
                 mixer.music.set_volume(self._music_volume)
             except Exception:
                 pass
         self._update_mute_btn_ui()
+        self._trigger_ach("music_volume_tweaker")
 
     def _save_music_state_later(self):
         self.after(500, self._save_music_state)
@@ -1272,7 +1381,7 @@ class MusicPlayerMixin(object):
                 self._music_mini_toggle_btn.configure(text=_("music_expand"))
 
     def _music_cleanup(self):
-        self._music_stop()
+        self._music_stop(instant=True)
         self._update_music_footer()
         self._unregister_hotkeys()
         self._save_music_state()
