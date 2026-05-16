@@ -181,6 +181,9 @@ class Config:
         # 旧配置迁移标记
         self._account_migration_done: bool = False
 
+        # 音乐播放器状态
+        self.music_state: dict = {}
+
         # 从配置文件加载
         self._load_config()
 
@@ -267,6 +270,8 @@ class Config:
                 self.current_account_id = data["current_account_id"]
             if "account_migration_done" in data:
                 self._account_migration_done = data["account_migration_done"]
+            if "music_state" in data:
+                self.music_state = data["music_state"]
 
             logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}, 语言={self.language}")
 
@@ -303,6 +308,7 @@ class Config:
                 "accounts_file": self.accounts_file,
                 "current_account_id": self.current_account_id,
                 "account_migration_done": self._account_migration_done,
+                "music_state": self.music_state,
             }
             content = _json_dumps(data, indent=2, ensure_ascii=False)
             # 原子写入：先写临时文件，再重命名，防止写入过程中崩溃导致配置文件损坏

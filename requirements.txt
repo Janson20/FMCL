@@ -11,3 +11,6 @@ tkinterdnd2>=0.4.0
 orjson>=3.9.0
 aiohttp>=3.9.0
 rarfile>=4.1
+pygame>=2.5.0
+mutagen>=1.46
+winsdk>=0.0.33

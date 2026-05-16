@@ -908,5 +908,14 @@
   "account_sidebar_none": "アカウント未選択",
   "account_ms_verifying": "Microsoftアカウントを確認中...",
   "account_ms_token_expired": "Microsoftアカウントのトークンが期限切れです。再ログインしてください",
-  "account_refreshing": "トークンを更新中..."
+  "account_refreshing": "トークンを更新中...",
+  "tab_music": "🎵 ミュージック",
+  "music_open_folder": "📂 フォルダを開く",
+  "music_no_folder": "フォルダが選択されていません",
+  "music_no_track": "トラックが選択されていません",
+  "music_playlist": "プレイリスト",
+  "music_mini_mode": "🔽 ミニモード",
+  "music_expand": "🔼 展開",
+  "music_select_folder": "音楽フォルダを選択",
+  "music_song_count": "{count} 曲"
 }

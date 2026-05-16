@@ -920,6 +920,8 @@ class MinecraftLauncher:
             "set_java_mode": self.set_java_mode,
             "get_java_custom_path": self.get_java_custom_path,
             "set_java_custom_path": self.set_java_custom_path,
+            "save_music_state": self.save_music_state,
+            "load_music_state": self.load_music_state,
         }
 
     def get_player_name(self) -> str:
@@ -1213,3 +1215,10 @@ class MinecraftLauncher:
     def get_mirror_name(self) -> str:
         """获取当前镜像源名称"""
         return self._mirror.get_mirror_name()
+
+    def save_music_state(self, state: dict) -> None:
+        self.config.music_state = state
+        self.config.save_config()
+
+    def load_music_state(self) -> dict:
+        return self.config.music_state if self.config.music_state else {}

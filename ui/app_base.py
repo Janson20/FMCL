@@ -224,6 +224,10 @@ class ModernAppBase(ctk.CTk):
         self.achievements_tab = self.tabview.add(_("tab_achievements"))
         self.achievements_tab.configure(fg_color="transparent")
         
+        # 添加"音乐"标签页
+        self.music_tab = self.tabview.add(_("tab_music"))
+        self.music_tab.configure(fg_color="transparent")
+        
         # 设置默认标签页为"游戏"
         self.tabview.set(_("tab_game"))
         
@@ -248,6 +252,9 @@ class ModernAppBase(ctk.CTk):
 
         # 构建成就标签页内容
         self._build_achievements_tab_content()
+
+        # 构建音乐标签页内容
+        self._build_music_tab_content()
     
     def _build_game_tab_content(self):
         """构建游戏标签页内容"""
@@ -1238,6 +1245,51 @@ class ModernAppBase(ctk.CTk):
         )
         self.status_label.pack(side=ctk.LEFT, padx=15)
 
+        # 音乐迷你控制栏（中部）
+        self._music_footer_frame = ctk.CTkFrame(self._footer_frame, fg_color="transparent")
+        self._music_footer_frame.pack(side=ctk.LEFT, expand=True)
+
+        self._music_footer_label = ctk.CTkLabel(
+            self._music_footer_frame,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_primary"],
+            width=260,
+            anchor="e",
+        )
+        self._music_footer_label.pack(side=ctk.RIGHT, padx=(0, 5))
+
+        ft_btn_cfg = {"width": 26, "height": 24, "font": ctk.CTkFont(size=11),
+                       "fg_color": COLORS["bg_light"], "hover_color": COLORS["accent"]}
+
+        self._music_footer_next = ctk.CTkButton(
+            self._music_footer_frame,
+            text="⏭",
+            command=self._on_footer_music_next if hasattr(self, '_on_footer_music_next') else None,
+            **ft_btn_cfg,
+        )
+        self._music_footer_next.pack(side=ctk.RIGHT, padx=1)
+
+        self._music_footer_play = ctk.CTkButton(
+            self._music_footer_frame,
+            text="▶",
+            command=self._on_footer_music_toggle if hasattr(self, '_on_footer_music_toggle') else None,
+            **ft_btn_cfg,
+        )
+        self._music_footer_play.pack(side=ctk.RIGHT, padx=1)
+
+        self._music_footer_prev = ctk.CTkButton(
+            self._music_footer_frame,
+            text="⏮",
+            command=self._on_footer_music_prev if hasattr(self, '_on_footer_music_prev') else None,
+            **ft_btn_cfg,
+        )
+        self._music_footer_prev.pack(side=ctk.RIGHT, padx=1)
+
+        for _w in [self._music_footer_frame, self._music_footer_label,
+                    self._music_footer_prev, self._music_footer_play, self._music_footer_next]:
+            _w.pack_forget()
+
         # 进度条
         self.progress_bar = ctk.CTkProgressBar(
             self._footer_frame,
@@ -1265,6 +1317,10 @@ class ModernAppBase(ctk.CTk):
         self._theme_refs.append((self.status_label, {"text_color": "success"}))
         self._theme_refs.append((self.progress_bar, {"fg_color": "bg_medium", "progress_color": "accent"}))
         self._theme_refs.append((self.progress_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append((self._music_footer_label, {"text_color": "text_primary"}))
+        self._theme_refs.append((self._music_footer_prev, {"fg_color": "bg_light", "hover_color": "accent"}))
+        self._theme_refs.append((self._music_footer_play, {"fg_color": "bg_light", "hover_color": "accent"}))
+        self._theme_refs.append((self._music_footer_next, {"fg_color": "bg_light", "hover_color": "accent"}))
 
     def _reapply_theme(self):
         """重新应用当前主题的颜色到所有已注册的UI组件"""

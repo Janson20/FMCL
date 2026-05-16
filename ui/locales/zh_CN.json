@@ -908,5 +908,14 @@
   "account_sidebar_none": "未选择账号",
   "account_ms_verifying": "正在验证微软账号...",
   "account_ms_token_expired": "微软账号 Token 已过期，请重新登录",
-  "account_refreshing": "正在刷新 Token..."
+  "account_refreshing": "正在刷新 Token...",
+  "tab_music": "🎵 音乐",
+  "music_open_folder": "📂 打开文件夹",
+  "music_no_folder": "未选择文件夹",
+  "music_no_track": "未选择曲目",
+  "music_playlist": "播放列表",
+  "music_mini_mode": "🔽 迷你模式",
+  "music_expand": "🔼 展开",
+  "music_select_folder": "选择音乐文件夹",
+  "music_song_count": "{count} 首"
 }

@@ -908,5 +908,14 @@
   "account_sidebar_none": "No account selected",
   "account_ms_verifying": "Verifying Microsoft account...",
   "account_ms_token_expired": "Microsoft account Token expired, please login again",
-  "account_refreshing": "Refreshing Token..."
+  "account_refreshing": "Refreshing Token...",
+  "tab_music": "🎵 Music",
+  "music_open_folder": "📂 Open Folder",
+  "music_no_folder": "No folder selected",
+  "music_no_track": "No track selected",
+  "music_playlist": "Playlist",
+  "music_mini_mode": "🔽 Mini Mode",
+  "music_expand": "🔼 Expand",
+  "music_select_folder": "Select Music Folder",
+  "music_song_count": "{count} songs"
 }
