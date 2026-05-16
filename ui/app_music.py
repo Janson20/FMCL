@@ -6,6 +6,7 @@ import time
 import platform
 import threading
 import tkinter.filedialog as filedialog
+import tkinter as tk
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
@@ -341,6 +342,10 @@ class MusicPlayerMixin(object):
         self._music_is_fading = False
         self._music_fade_out_target: Optional[str] = None
         self._music_modes_used: set = set()
+        self._music_vis_timer_id = None
+        self._music_vis_bars: List[float] = []
+        self._music_vis_targets: List[float] = []
+        self._music_vis_num_bars: int = 24
 
     def _init_music_lazy(self):
         if self._music_init_done:
@@ -617,6 +622,16 @@ class MusicPlayerMixin(object):
         self._theme_refs.append((self._music_cover_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._music_cover_artist, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._music_cover_album, {"text_color": "text_secondary"}))
+
+        self._music_vis_canvas = tk.Canvas(
+            self._music_cover_frame,
+            height=100,
+            bg=COLORS["card_bg"],
+            highlightthickness=0,
+            bd=0,
+        )
+        self._music_vis_canvas.pack(fill=ctk.BOTH, expand=True, padx=10, pady=(5, 15))
+        self._theme_refs.append((self._music_vis_canvas, {"bg": "card_bg"}))
 
     def _build_music_mini_bar(self):
         self._music_mini_bar = ctk.CTkFrame(self._music_tab_content, fg_color=COLORS["card_bg"], corner_radius=8, height=55)
@@ -1010,12 +1025,90 @@ class MusicPlayerMixin(object):
 
     def _start_progress_poll(self):
         self._stop_progress_poll()
+        self._music_vis_start()
         self._poll_music_progress()
 
     def _stop_progress_poll(self):
         if self._music_progress_timer_id is not None:
             self.after_cancel(self._music_progress_timer_id)
             self._music_progress_timer_id = None
+        self._music_vis_stop()
+
+    def _music_vis_start(self):
+        self._music_vis_stop()
+        n = self._music_vis_num_bars
+        self._music_vis_bars = [0.0] * n
+        self._music_vis_targets = [0.0] * n
+        self._music_vis_draw()
+
+    def _music_vis_stop(self):
+        if self._music_vis_timer_id is not None:
+            self.after_cancel(self._music_vis_timer_id)
+            self._music_vis_timer_id = None
+        if self._music_vis_bars:
+            self._music_vis_bars = [0.0] * len(self._music_vis_bars)
+            self._redraw_vis_bars()
+
+    def _music_vis_draw(self):
+        if not self._music_is_playing or self._music_is_paused:
+            self._music_vis_bars = [0.0] * len(self._music_vis_bars)
+            self._music_vis_timer_id = None
+            self._redraw_vis_bars()
+            return
+        self._update_vis_targets()
+        self._smooth_vis_bars()
+        self._redraw_vis_bars()
+        self._music_vis_timer_id = self.after(50, self._music_vis_draw)
+
+    def _update_vis_targets(self):
+        import random
+        n = self._music_vis_num_bars
+        if not self._music_vis_targets or len(self._music_vis_targets) != n:
+            self._music_vis_targets = [0.0] * n
+        decay = 0.75
+        for i in range(n):
+            if random.random() < 0.25:
+                self._music_vis_targets[i] = random.uniform(0.15, 1.0)
+            else:
+                self._music_vis_targets[i] *= decay
+        self._music_vis_targets[0] = max(0.6, self._music_vis_targets[0])
+
+    def _smooth_vis_bars(self):
+        n = self._music_vis_num_bars
+        if not self._music_vis_bars or len(self._music_vis_bars) != n:
+            self._music_vis_bars = [0.0] * n
+        smoothing = 0.35
+        for i in range(n):
+            self._music_vis_bars[i] += (self._music_vis_targets[i] - self._music_vis_bars[i]) * smoothing
+
+    def _redraw_vis_bars(self):
+        try:
+            if not hasattr(self, '_music_vis_canvas') or not self._music_vis_canvas.winfo_exists():
+                return
+        except Exception:
+            return
+        canvas = self._music_vis_canvas
+        canvas.delete("all")
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+        if w < 10 or h < 10:
+            return
+        n = self._music_vis_num_bars
+        bars = self._music_vis_bars
+        if not bars or len(bars) != n:
+            bars = [0.0] * n
+        bar_w = (w - (n + 1) * 2) / n
+        gap = 2
+        accent = COLORS.get("accent", "#6366f1")
+        for i in range(n):
+            bh = bars[i] * (h - 4)
+            if bh < 2:
+                bh = 2
+            x0 = gap + i * (bar_w + gap)
+            y0 = h - bh - 2
+            x1 = x0 + bar_w
+            y1 = h - 2
+            canvas.create_rectangle(x0, y0, x1, y1, fill=accent, outline="")
 
     def _poll_music_progress(self):
         if not self._music_is_playing or self._music_is_paused:
@@ -1381,6 +1474,7 @@ class MusicPlayerMixin(object):
                 self._music_mini_toggle_btn.configure(text=_("music_expand"))
 
     def _music_cleanup(self):
+        self._music_vis_stop()
         self._music_stop(instant=True)
         self._update_music_footer()
         self._unregister_hotkeys()
