@@ -20,5 +20,5 @@ dependencies = [
     "rarfile>=4.1",
     "pygame>=2.6.1",
     "mutagen>=1.47.0",
-    "winsdk>=1.0.0b10",
+    "winsdk>=1.0.0b10; sys_platform == 'win32'",
 ]

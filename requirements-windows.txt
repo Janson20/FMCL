@@ -1,0 +1,2 @@
+-r requirements.txt
+winsdk>=1.0.0b10

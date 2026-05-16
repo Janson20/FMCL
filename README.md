@@ -473,8 +473,11 @@
 git clone https://github.com/Janson20/FMCL.git
 cd FMCL
 
-# 安装 Python 依赖
-pip install -r requirements.txt
+# 安装 Python 依赖（Windows）
+pip install -r requirements-windows.txt
+
+# 安装 Python 依赖（macOS / Linux）
+pip install -r requirements-unix.txt
 
 # 运行启动器（GUI 模式）
 python main.py
@@ -952,7 +955,7 @@ main.py
 # 安装 Python 依赖
 pip install -r requirements.txt
 
-# 安装开发依赖（可选）
+# 安装开发依赖（Linux CI）
 pip install -r requirements-dev.txt
 
 # 安装 Git hooks (Husky + Commitlint)
