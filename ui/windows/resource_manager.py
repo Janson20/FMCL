@@ -77,6 +77,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._page_size: int = 10
         self._current_page: int = 1
         self._update_dialog_page: int = 1
+        self._scan_cache: Dict[str, tuple] = {}  # rtype -> (last_items, dir_mtime)
 
         self._build_ui()
 
@@ -442,7 +443,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         self._refresh_current_list()
 
-    def _refresh_current_list(self):
+    def _refresh_current_list(self, force: bool = False):
         """刷新当前标签页的资源列表"""
         current_type = self._tab_var.get()
         resource_dir = self._get_resource_dir(current_type)
@@ -463,11 +464,31 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             w.destroy()
 
         if current_type == "mods":
+            self._scan_cache.pop("mods", None)
             self._refresh_mod_list(resource_dir)
             return
 
+        # 非模组类型：检查缓存
+        if not force and current_type in self._scan_cache:
+            cached_items, cached_mtime = self._scan_cache[current_type]
+            if resource_dir.exists():
+                try:
+                    current_mtime = resource_dir.stat().st_mtime
+                    if current_mtime == cached_mtime:
+                        logger.info(f"使用缓存扫描结果: type={current_type}, items={len(cached_items)}")
+                        self._current_items = cached_items
+                        if not cached_items:
+                            self._empty_label.pack(fill=ctk.BOTH, expand=True)
+                            self._set_status(_("rm_folder_empty", label=self._get_resource_label(current_type)))
+                        else:
+                            self._render_filtered_list(current_type)
+                        return
+                except Exception:
+                    pass
+
         if not resource_dir.exists():
             self._current_items = []
+            self._scan_cache.pop(current_type, None)
             self._empty_label.pack(fill=ctk.BOTH, expand=True)
             self._set_status(_("rm_folder_not_exist", path=str(resource_dir)))
             return
@@ -477,6 +498,12 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         logger.info(f"扫描到 {len(items)} 个资源")
 
         self._current_items = items
+
+        # 更新缓存
+        try:
+            self._scan_cache[current_type] = (items, resource_dir.stat().st_mtime)
+        except Exception:
+            pass
 
         if not items:
             self._empty_label.pack(fill=ctk.BOTH, expand=True)

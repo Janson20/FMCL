@@ -195,7 +195,7 @@ class EventHandlerMixin(object):
         if not display_versions:
             ctk.CTkLabel(
                 self.available_list_frame,
-                text="暂无版本" if tab == "release" else "暂无测试版",
+                text=_("no_available_release") if tab == "release" else _("no_available_snapshot"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=12),
                 text_color=COLORS["text_secondary"],
             ).pack(pady=10)

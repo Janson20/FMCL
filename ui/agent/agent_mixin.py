@@ -128,7 +128,7 @@ class AgentMixin(object):
         if not text:
             return
         self._agent_quick_input.delete(0, ctk.END)
-        self.tabview.set("🤖 AGENT")
+        self.tabview.set(_("tab_agent"))
         if hasattr(self, "_agent_chat") and self._agent_chat:
             self._agent_chat.send_message(text)
 

@@ -217,7 +217,7 @@ class ModernAppBase(ctk.CTk):
             self.online_tab = None
         
         # 添加"AGENT"标签页
-        self.agent_tab = self.tabview.add("🤖 AGENT")
+        self.agent_tab = self.tabview.add(_("tab_agent"))
         self.agent_tab.configure(fg_color="transparent")
         
         # 添加"成就"标签页
@@ -501,7 +501,8 @@ class ModernAppBase(ctk.CTk):
         card.pack(fill=ctk.X, pady=5)
 
         self._links_site_cards.append(card)
-        
+        self._theme_refs.append((card, {"fg_color": "card_bg", "border_color": "card_border"}))
+
         # 卡片内部容器
         card_inner = ctk.CTkFrame(card, fg_color="transparent")
         card_inner.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
@@ -519,6 +520,7 @@ class ModernAppBase(ctk.CTk):
             anchor=ctk.W,
         )
         name_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
+        self._theme_refs.append((name_label, {"text_color": "text_primary"}))
         
         # 标签
         tags_frame = ctk.CTkFrame(name_frame, fg_color="transparent")
@@ -536,6 +538,7 @@ class ModernAppBase(ctk.CTk):
                 pady=2,
             )
             tag_label.pack(side=ctk.LEFT, padx=(2, 0))
+            self._theme_refs.append((tag_label, {"text_color": "accent", "fg_color": "bg_medium"}))
         
         # 网站描述
         desc_label = ctk.CTkLabel(
@@ -548,6 +551,7 @@ class ModernAppBase(ctk.CTk):
             anchor=ctk.W,
         )
         desc_label.pack(fill=ctk.X, pady=(0, 10))
+        self._theme_refs.append((desc_label, {"text_color": "text_secondary"}))
         
         # 链接和按钮行
         link_frame = ctk.CTkFrame(card_inner, fg_color="transparent")
@@ -562,6 +566,7 @@ class ModernAppBase(ctk.CTk):
             anchor=ctk.W,
         )
         link_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
+        self._theme_refs.append((link_label, {"text_color": "text_secondary"}))
         
         # 打开链接按钮
         def create_open_link_callback(url):
@@ -579,14 +584,14 @@ class ModernAppBase(ctk.CTk):
             command=create_open_link_callback(site["link"]),
         )
         open_btn.pack(side=ctk.RIGHT, padx=(10, 0))
+        self._theme_refs.append((open_btn, {"fg_color": "accent", "hover_color": "accent_hover"}))
 
         # 复制链接按钮
         def create_copy_link_callback(url, name):
-            import pyperclip
             def copy_func():
                 try:
-                    pyperclip.copy(url)
-                    # 显示复制成功提示
+                    self.clipboard_clear()
+                    self.clipboard_append(url)
                     if hasattr(self, 'set_status'):
                         self.set_status(_("link_copied", name=name), "success")
                 except Exception as e:
@@ -605,6 +610,7 @@ class ModernAppBase(ctk.CTk):
             command=create_copy_link_callback(site["link"], site["name"]),
         )
         copy_btn.pack(side=ctk.RIGHT)
+        self._theme_refs.append((copy_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
 
     def _build_sidebar(self, parent):
         """构建左侧边栏：账号信息、自定义角色名、自定义皮肤、启动器日志"""
@@ -1323,8 +1329,15 @@ class ModernAppBase(ctk.CTk):
         self._theme_refs.append((self._music_footer_next, {"fg_color": "bg_light", "hover_color": "accent"}))
 
     def _reapply_theme(self):
-        """重新应用当前主题的颜色到所有已注册的UI组件"""
+        """重新应用当前主题的颜色到所有已注册的UI组件（自动去重合并）"""
+        merged = {}
         for widget, config_map in self._theme_refs:
+            wid = id(widget)
+            if wid not in merged:
+                merged[wid] = (widget, {})
+            merged[wid][1].update(config_map)
+
+        for widget, config_map in merged.values():
             try:
                 kwargs = {attr: COLORS[key] for attr, key in config_map.items()}
                 widget.configure(**kwargs)
@@ -1344,23 +1357,7 @@ class ModernAppBase(ctk.CTk):
             self._refresh_ach_colors()
 
     def _refresh_links_colors(self):
-        for card in getattr(self, '_links_site_cards', []):
-            if card.winfo_exists():
-                try:
-                    card.configure(fg_color=COLORS["card_bg"],
-                                   border_color=COLORS["card_border"])
-                    for child in card.winfo_children():
-                        if isinstance(child, ctk.CTkFrame):
-                            for grandchild in child.winfo_children():
-                                if isinstance(grandchild, ctk.CTkFrame):
-                                    for ggchild in grandchild.winfo_children():
-                                        if isinstance(ggchild, ctk.CTkLabel):
-                                            try:
-                                                ggchild.configure(text_color=COLORS["text_primary"])
-                                            except Exception:
-                                                pass
-                except Exception:
-                    pass
+        pass
 
     def _refresh_version_list_colors(self):
         """刷新动态创建的版本列表的所有颜色"""

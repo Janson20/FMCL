@@ -19,7 +19,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         super().__init__(parent)
         self._on_modpack_selected = on_modpack_selected
 
-        self.title("🌐 从 Modrinth 下载整合包")
+        self.title(_("mp_browser_title"))
         self.geometry("800x640")
         self.minsize(720, 560)
         self.configure(fg_color=COLORS["bg_dark"])
@@ -58,7 +58,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             header,
-            text="🌐 从 Modrinth 下载整合包",
+            text=_("mp_browser_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(side=ctk.LEFT)
@@ -73,14 +73,14 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],
             border_color=COLORS["card_border"],
-            placeholder_text="🔍 搜索整合包...",
+            placeholder_text=_("mp_browser_search_placeholder"),
         )
         self._search_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(0, 8))
         self._search_entry.bind("<Return>", lambda e: self._on_search())
 
         ctk.CTkButton(
             search_frame,
-            text="搜索",
+            text=_("mod_browser_search"),
             width=80,
             height=36,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
@@ -113,7 +113,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         self._loading_label = ctk.CTkLabel(
             self._list_frame,
-            text="⏳ 加载中...",
+            text=_("mp_browser_loading"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_secondary"],
             justify=ctk.CENTER,
@@ -126,7 +126,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         self._prev_btn = ctk.CTkButton(
             page_frame,
-            text="◀ 上一页",
+            text=_("mod_browser_prev_page"),
             width=90,
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -148,7 +148,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         self._next_btn = ctk.CTkButton(
             page_frame,
-            text="下一页 ▶",
+            text=_("mod_browser_next_page"),
             width=90,
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -169,7 +169,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         self._status_label = ctk.CTkLabel(
             main_frame,
-            text="就绪",
+            text=_("mp_browser_ready"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
         )
@@ -179,7 +179,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         self._current_query = self._search_entry.get().strip()
         self._current_offset = 0
         self._ai_cached_hits = None
-        self._set_status("正在搜索...")
+        self._set_status(_("mp_browser_searching"))
         self._run_in_thread(self._do_search)
 
     def _do_search(self):
@@ -273,13 +273,13 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         if not hits:
             ctk.CTkLabel(
                 self._list_frame,
-                text="未找到整合包\n请尝试其他关键词",
+                text=_("mp_browser_no_results"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=14),
                 text_color=COLORS["text_secondary"],
                 justify=ctk.CENTER,
             ).pack(pady=40)
             self._update_pagination()
-            self._set_status("未找到结果")
+            self._set_status(_("mp_browser_no_results_status"))
             return
 
         for modpack in hits:
@@ -289,8 +289,8 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         start = self._current_offset + 1
         end = min(self._current_offset + self.PAGE_SIZE, self._total_hits)
-        self._result_count_label.configure(text=f"显示 {start}-{end} / 共 {self._total_hits} 个")
-        self._set_status(f"共找到 {self._total_hits} 个整合包")
+        self._result_count_label.configure(text=_("mp_browser_results_count", start=start, end=end, total=self._total_hits))
+        self._set_status(_("mp_browser_total_found", total=self._total_hits))
 
     def _render_error(self, error_msg: str):
         for w in self._list_frame.winfo_children():
@@ -298,12 +298,12 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             self._list_frame,
-            text=f"搜索失败\n{error_msg}",
+            text=_("mp_browser_search_error", error=error_msg),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["error"],
             justify=ctk.CENTER,
         ).pack(pady=40)
-        self._set_status(f"搜索失败: {error_msg}")
+        self._set_status(_("mp_browser_search_error_status", error=error_msg))
 
     def _create_modpack_item(self, modpack: Dict):
         row = ctk.CTkFrame(
@@ -317,7 +317,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         top_row.pack(fill=ctk.X, padx=10, pady=(8, 2))
         top_row.pack_propagate(False)
 
-        title = modpack.get("title", "未知整合包")
+        title = modpack.get("title", _("mp_browser_unknown_modpack"))
         ctk.CTkLabel(
             top_row,
             text=f"📦 {title}",
@@ -338,7 +338,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         project_id = modpack.get("project_id", "")
         ctk.CTkButton(
             top_row,
-            text="📥 安装",
+            text=_("mp_browser_install_btn"),
             width=70,
             height=28,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -398,7 +398,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
             if self._ai_cached_hits is not None:
                 self._render_page_from_ai_cache()
             else:
-                self._set_status("正在加载...")
+                self._set_status(_("mp_browser_loading_status"))
                 self._run_in_thread(self._do_search)
 
     def _on_next_page(self):
@@ -407,7 +407,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
             if self._ai_cached_hits is not None:
                 self._render_page_from_ai_cache()
             else:
-                self._set_status("正在加载...")
+                self._set_status(_("mp_browser_loading_status"))
                 self._run_in_thread(self._do_search)
 
     def _render_page_from_ai_cache(self):
@@ -421,7 +421,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
     VERSION_PAGE_SIZE = 50
 
     def _on_install_modpack(self, project_id: str, title: str):
-        self._set_status(f"正在获取 {title} 版本列表...")
+        self._set_status(_("mp_browser_fetching_versions", title=title))
         self._run_in_thread(self._fetch_versions_and_pick, project_id, title)
 
     def _fetch_versions_and_pick(self, project_id: str, title: str):
@@ -430,10 +430,10 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         versions = get_modpack_versions(project_id)
 
         if not versions:
-            self.after(0, self._set_status, f"❌ {title} 没有可用的版本")
+            self.after(0, self._set_status, _("mp_browser_no_versions", title=title))
             return
 
-        self.after(0, self._set_status, f"找到 {len(versions)} 个版本，请选择...")
+        self.after(0, self._set_status, _("mp_browser_versions_found", count=len(versions)))
 
         all_sorted = self._build_sorted_version_list(versions)
 
@@ -443,7 +443,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         grouped: Dict[str, List[Dict]] = {}
         for v in versions:
             game_versions = v.get("game_versions", [])
-            label = game_versions[0] if game_versions else "未知版本"
+            label = game_versions[0] if game_versions else _("mp_browser_unknown_version")
             grouped.setdefault(label, []).append(v)
 
         def _mc_sort_key(mc_label: str) -> tuple:
@@ -476,7 +476,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         total_count: int,
     ):
         picker = ctk.CTkToplevel(self)
-        picker.title(f"选择版本 - {title}")
+        picker.title(_("mp_browser_version_picker_title", title=title))
         picker.geometry("620x540")
         picker.minsize(500, 400)
         picker.configure(fg_color=COLORS["bg_dark"])
@@ -514,7 +514,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         info_label = ctk.CTkLabel(
             main_frame,
-            text=f"共 {total_count} 个版本，请选择要安装的版本",
+            text=_("mp_browser_version_picker_header", total=total_count),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         )
@@ -538,7 +538,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         load_more_btn = ctk.CTkButton(
             bottom_frame,
-            text=f"加载更多 (已显示 0/{total_count})",
+            text=_("mp_browser_load_more", shown=0, total=total_count),
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             fg_color=COLORS["bg_medium"],
@@ -552,7 +552,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         ctk.CTkButton(
             bottom_frame,
-            text="取消",
+            text=_("mp_browser_cancel"),
             height=30,
             width=70,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
@@ -592,13 +592,13 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
                 ctk.CTkLabel(
                     hf,
-                    text=f"{count} 个版本",
+                    text=_("mp_browser_version_count", count=count),
                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                     text_color=COLORS["text_secondary"],
                 ).pack(side=ctk.RIGHT)
                 continue
 
-            version_number = item.get("version_number", "未知")
+            version_number = item.get("version_number", _("mp_browser_unknown_version"))
             date_published = item.get("date_published", "")[:10]
             game_versions_str = ", ".join(item.get("game_versions", []))
 
@@ -633,7 +633,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
             ctk.CTkButton(
                 version_row,
-                text="📥 下载",
+                text=_("mp_browser_download_btn"),
                 width=65,
                 height=26,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
@@ -648,21 +648,21 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         remaining = len(all_sorted) - end
         if remaining <= 0:
             state["load_more_btn"].configure(
-                text=f"✅ 已显示全部 {len(all_sorted)} 个版本",
+                text=_("mp_browser_all_loaded", total=len(all_sorted)),
                 state=ctk.DISABLED,
             )
         else:
             total = len(all_sorted)
             state["load_more_btn"].configure(
-                text=f"加载更多 (已显示 {end}/{total})",
+                text=_("mp_browser_load_more_2", shown=end, total=total),
             )
         state["info_label"].configure(
-            text=f"共 {state['total_count']} 个版本，请选择要安装的版本（已显示 {end} 个）"
+            text=_("mp_browser_version_picker_msg", total=state['total_count'], shown=end)
         )
 
     def _on_version_selected(self, project_id: str, title: str, version_data: Dict, picker):
         picker.destroy()
-        self._set_status(f"正在下载 {title} ({version_data.get('version_number', '')})...")
+        self._set_status(_("mp_browser_downloading", title=title, version=version_data.get('version_number', '')))
         self._run_in_thread(self._download_version, project_id, title, version_data)
 
     def _download_version(self, project_id: str, title: str, version_data: Dict):
@@ -673,7 +673,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         def _status(msg):
             self.after(0, self._set_status, msg)
 
-        _status(f"正在下载 {title} {version_number}...")
+        _status(_("mp_browser_downloading", title=title, version=version_number))
 
         success, result = download_modpack_file(
             project_id,
@@ -682,14 +682,14 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         )
 
         if not success:
-            self.after(0, self._set_status, f"❌ 下载失败: {result}")
+            self.after(0, self._set_status, _("mp_browser_download_error", error=result))
             logger.error(f"整合包下载失败: {result}")
             return
 
         mrpack_path = result
         logger.info(f"整合包下载完成: {mrpack_path}")
 
-        self.after(0, self._set_status, f"✅ {os.path.basename(mrpack_path)} 下载完成!")
+        self.after(0, self._set_status, _("mp_browser_download_done", filename=os.path.basename(mrpack_path)))
 
         def _done():
             try:
