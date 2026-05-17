@@ -121,12 +121,29 @@ class Account:
             last_login=data.get("last_login"),
         )
 
-    def is_token_expired(self) -> bool:
+    def is_token_expired(self, buffer_seconds: int = 300) -> bool:
         if not self.access_token:
             return True
         if self.account_type != AccountType.MICROSOFT:
             return False
-        return False
+
+        try:
+            parts = self.access_token.split(".")
+            if len(parts) < 3:
+                return True
+
+            payload_b64 = parts[1]
+            payload_b64 += "=" * (4 - len(payload_b64) % 4)
+            payload_bytes = base64.urlsafe_b64decode(payload_b64)
+            payload = json.loads(payload_bytes)
+
+            exp = payload.get("exp", 0)
+            if exp == 0:
+                return True
+
+            return time.time() >= (exp - buffer_seconds)
+        except Exception:
+            return True
 
     @property
     def display_name(self) -> str:
@@ -848,11 +865,33 @@ class GlobalAccountSystem:
         if not target:
             return None
         if target.account_type == AccountType.MICROSOFT:
-            if not target.access_token:
+            if target.is_token_expired():
                 success = self._microsoft_login.refresh_token(target)
                 if not success:
                     logger.warning(f"\u5FAE\u8F6F\u8D26\u53F7 {target.name} Token \u65E0\u6548\u4E14\u5237\u65B0\u5931\u8D25")
+                else:
+                    self._save()
         return target
+
+    def auto_refresh_all_tokens(self) -> int:
+        count = 0
+        for acc in self._accounts:
+            if acc.account_type != AccountType.MICROSOFT:
+                continue
+            if not acc.refresh_token:
+                continue
+            if acc.is_token_expired(buffer_seconds=600):
+                logger.info(f"\u6B63\u5728\u81EA\u52A8\u5237\u65B0\u5FAE\u8F6F\u8D26\u53F7 {acc.name} \u7684 Token...")
+                success = self._microsoft_login.refresh_token(acc)
+                if success:
+                    count += 1
+                    logger.info(f"\u5FAE\u8F6F\u8D26\u53F7 {acc.name} Token \u81EA\u52A8\u5237\u65B0\u6210\u529F")
+                else:
+                    logger.warning(f"\u5FAE\u8F6F\u8D26\u53F7 {acc.name} Token \u81EA\u52A8\u5237\u65B0\u5931\u8D25")
+        if count > 0:
+            self._save()
+            logger.info(f"\u81EA\u52A8\u5237\u65B0\u5B8C\u6210: {count} \u4E2A\u8D26\u53F7 Token \u5DF2\u66F4\u65B0")
+        return count
 
     def build_launch_options(self, account: Optional[Account] = None) -> dict:
         target = account or self.current_account

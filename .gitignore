@@ -83,3 +83,4 @@ achievements.db
 achievements.db-shm
 achievements.db-wal
 achievements.db-journal
+accounts.json

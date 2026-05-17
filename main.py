@@ -178,6 +178,15 @@ def detect_mouse_move():
         logger.error(f"鼠标检测线程错误: {str(e)}")
 
 
+def _auto_refresh_tokens(account_system):
+    try:
+        count = account_system.auto_refresh_all_tokens()
+        if count > 0:
+            logger.info(f"\u542F\u52A8\u65F6\u81EA\u52A8\u5237\u65B0\u4E86 {count} \u4E2A\u5FAE\u8F6F\u8D26\u53F7\u7684 Token")
+    except Exception as e:
+        logger.warning(f"\u542F\u52A8\u65F6\u81EA\u52A8\u5237\u65B0 Token \u5931\u8D25 (\u4E0D\u5F71\u54CD\u6B63\u5E38\u4F7F\u7528): {e}")
+
+
 def main():
     """主程序入口"""
     try:
@@ -337,6 +346,10 @@ def main():
                     launcher.set_account_system(account_system)
                     logger.info("账号系统已注入启动器")
                     app._update_sidebar_account()
+                    threading.Thread(
+                        target=lambda: _auto_refresh_tokens(account_system),
+                        daemon=True,
+                    ).start()
             except Exception as e:
                 logger.warning(f"账号系统注入失败（不影响正常启动）: {e}")
 
