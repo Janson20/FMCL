@@ -159,6 +159,23 @@ class MinecraftLauncher:
         except Exception as e:
             logger.debug(f"Java 扫描器推荐失败: {e}")
 
+        try:
+            installed_runtimes = self._mcllib.runtime.get_installed_jvm_runtimes(self.minecraft_dir)
+            if installed_runtimes:
+                latest = sorted(
+                    installed_runtimes,
+                    key=lambda r: r.get("version", {}).get("name", ""),
+                    reverse=True,
+                )
+                component = latest[0].get("name", "")
+                if component:
+                    java_path = self._mcllib.runtime.get_executable_path(component, self.minecraft_dir)
+                    if java_path and os.path.isfile(java_path):
+                        logger.info(f"从 Minecraft runtime 找到 Java ({component}): {java_path}")
+                        return java_path
+        except Exception as e:
+            logger.debug(f"Minecraft runtime Java 查找失败: {e}")
+
         return current_java
 
     def _ensure_java_runtime(self, version_id: str) -> str:
@@ -411,6 +428,10 @@ class MinecraftLauncher:
 
                         from downloader import install_mod_loader as _install_mod_loader
 
+                        java_path = self._resolve_java_executable(version_id, "java")
+                        if java_path == "java" or not os.path.isfile(java_path):
+                            java_path = self._ensure_java_runtime(version_id)
+
                         result = _install_mod_loader(
                             loader=mod_loader,
                             version=version_id,
@@ -418,6 +439,7 @@ class MinecraftLauncher:
                             num_threads=self.config.download_threads,
                             mirror=self._mirror,
                             callback=self._get_callback(),
+                            java=java_path if java_path != "java" and os.path.isfile(java_path) else None,
                         )
                         loader_result[0] = result
                     except Exception as e:
