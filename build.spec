@@ -32,10 +32,15 @@ locales_src = os.path.join(os.getcwd(), 'ui', 'locales')
 # pyproject.toml 路径
 pyproject_path = os.path.join(os.getcwd(), 'pyproject.toml')
 
-# 数据文件列表：图标 + locales + pyproject.toml
+# TERMS_OF_USE.md 路径
+terms_path = os.path.join(os.getcwd(), 'TERMS_OF_USE.md')
+
+# 数据文件列表：图标 + locales + pyproject.toml + TERMS_OF_USE.md
 datas = [(icon_path, '.'), (pyproject_path, '.')]
 if os.path.exists(locales_src):
     datas.append((locales_src, 'ui' + os.sep + 'locales'))
+if os.path.exists(terms_path):
+    datas.append((terms_path, '.'))
 
 # 通用隐式导入
 hidden_imports = [
@@ -81,6 +86,8 @@ hidden_imports = [
     'orjson',
     'urllib3',
     'rarfile',
+    'markdown',
+    'tkinterweb',
 ]
 
 # 平台特定导入

@@ -13,3 +13,5 @@ aiohttp>=3.9.0
 rarfile>=4.1
 pygame>=2.5.0
 mutagen>=1.46
+markdown>=3.4
+tkinterweb>=3.0

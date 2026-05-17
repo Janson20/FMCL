@@ -674,54 +674,76 @@ class EventHandlerMixin(object):
             on_complete()
 
     def _show_terms_consent_dialog(self, on_complete=None):
-        """显示使用条款与隐私协议同意弹窗"""
-        import tkinter as tk
+        """显示使用条款与隐私协议同意弹窗（ctk风格，内嵌HTML渲染的TERMS_OF_USE.md）"""
         from config import config
+        from ui.app_about import _load_terms_md, _build_terms_html_frame
 
-        dialog = tk.Toplevel(self)
+        dialog = ctk.CTkToplevel(self)
         dialog.title(_("terms_title"))
         dialog.resizable(False, False)
-        dialog.attributes('-topmost', True)
-        dialog.configure(bg='#1a1a2e')
+        dialog.configure(fg_color=COLORS["bg_dark"])
         dialog.transient(self)
         try:
             dialog.grab_set()
         except Exception:
             pass
+        dialog.attributes('-topmost', True)
 
-        w, h = 480, 320
+        w, h = 640, 580
         dialog.geometry(f"{w}x{h}")
+        dialog.minsize(560, 480)
         dialog.update_idletasks()
         x = (dialog.winfo_screenwidth() - w) // 2
         y = (dialog.winfo_screenheight() - h) // 2
         dialog.geometry(f"+{x}+{y}")
 
-        pad = 24
+        main_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        main_frame.pack(fill=ctk.BOTH, expand=True, padx=20, pady=20)
 
-        # 标题
-        tk.Label(dialog, text=_("terms_title"),
-                 font=(FONT_FAMILY, 16, 'bold'), fg='#e94560', bg='#1a1a2e').place(x=pad, y=pad)
+        title_label = ctk.CTkLabel(
+            main_frame,
+            text=_("terms_title"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
+            text_color=COLORS["accent"],
+        )
+        title_label.pack(anchor=ctk.W, pady=(0, 5))
 
-        # 内容区域
-        content_frame = tk.Frame(dialog, bg='#16213e', highlightbackground='#0f3460', highlightthickness=1)
-        content_frame.place(x=pad, y=pad + 40, width=w - 2 * pad, height=180)
+        hint_label = ctk.CTkLabel(
+            main_frame,
+            text=_("terms_scroll_hint"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        )
+        hint_label.pack(anchor=ctk.W, pady=(0, 10))
 
-        content_text = _("terms_content")
-        content_label = tk.Label(content_frame, text=content_text,
-                                font=(FONT_FAMILY, 11), fg='#a0a0b0', bg='#16213e',
-                                wraplength=w - 2 * pad - 20, justify='left', anchor='nw')
-        content_label.pack(padx=10, pady=10, fill='both', expand=True)
+        md_text = _load_terms_md()
+        html_frame = _build_terms_html_frame(main_frame, md_text)
+        html_frame.pack(fill=ctk.BOTH, expand=True, pady=(0, 10))
 
-        # 同意复选框
-        consent_var = tk.BooleanVar(value=False)
-        consent_cb = tk.Checkbutton(dialog, text=_("terms_agree"),
-                                    variable=consent_var,
-                                    font=(FONT_FAMILY, 10), fg='#a0a0b0', bg='#1a1a2e',
-                                    selectcolor='#16213e', activebackground='#1a1a2e',
-                                    activeforeground='#ffffff')
-        consent_cb.place(x=pad, y=h - 72)
+        consent_var = ctk.BooleanVar(value=False)
 
-        # 确认按钮
+        def _on_checkbox_toggle():
+            confirm_btn.configure(
+                state=ctk.NORMAL if consent_var.get() else ctk.DISABLED,
+                fg_color=COLORS["accent"] if consent_var.get() else COLORS["bg_light"],
+            )
+
+        bottom_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        bottom_frame.pack(fill=ctk.X, pady=(8, 0))
+
+        consent_cb = ctk.CTkCheckBox(
+            bottom_frame,
+            text=_("terms_agree"),
+            variable=consent_var,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            border_color=COLORS["card_border"],
+            text_color=COLORS["text_secondary"],
+            command=_on_checkbox_toggle,
+        )
+        consent_cb.pack(side=ctk.LEFT)
+
         def _on_confirm():
             if consent_var.get():
                 config.terms_consent = True
@@ -731,15 +753,26 @@ class EventHandlerMixin(object):
                 if on_complete:
                     on_complete()
             else:
-                consent_cb.configure(fg='#e94560')
-                dialog.after(1500, lambda: consent_cb.configure(fg='#a0a0b0'))
+                consent_cb.configure(text_color=COLORS["error"])
+                dialog.after(1500, lambda: consent_cb.configure(text_color=COLORS["text_secondary"]))
 
-        confirm_btn = tk.Button(dialog, text=_("confirm"),
-                                command=_on_confirm,
-                                font=(FONT_FAMILY, 10, 'bold'), relief='flat', cursor='hand2',
-                                bg='#6c5ce7', fg='white', activebackground='#a29bfe',
-                                activeforeground='white', bd=0)
-        confirm_btn.place(x=w - pad - 120, y=h - 52, width=120, height=36)
+        confirm_btn = ctk.CTkButton(
+            bottom_frame,
+            text=_("confirm"),
+            width=120,
+            height=36,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            state=ctk.DISABLED,
+            command=_on_confirm,
+        )
+        confirm_btn.pack(side=ctk.RIGHT)
+
+        dialog.bind("<Return>", lambda e: _on_confirm())
+        dialog.focus_set()
+
+        dialog.protocol("WM_DELETE_WINDOW", lambda: None)
 
     def _reload_user_settings(self):
         """重新加载用户设置（callbacks 设置后调用）"""

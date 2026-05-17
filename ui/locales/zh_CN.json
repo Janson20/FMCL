@@ -8,6 +8,7 @@
   "tab_server": "🖥 开服",
   "tab_links": "🔗 链接",
   "tab_achievements": "🏆 成就",
+  "tab_about": "📜 协议",
   
   "refresh": "🔄 刷新",
   "update": "⬆ 更新",
@@ -95,6 +96,7 @@
   "about_system": "系统",
   "about_arch": "架构",
   "about_license": "使用 GPLv3 协议开源",
+  "about_terms_not_found": "无法加载用户协议文件（TERMS_OF_USE.md），请检查文件是否存在。",
   "confirm": "确定",
   
   "skin_size_invalid": "皮肤尺寸 {width}x{height} 不支持，请使用 64x64 或 64x32",
@@ -601,7 +603,8 @@
 
   "terms_title": "使用条款与隐私协议",
   "terms_content": "使用该启动器代表你已同意Minecraft EULA，净读AI隐私协议，净读使用条款\n\n条款链接: https://jingdu.qzz.io/terms",
-  "terms_agree": "我同意",
+  "terms_agree": "我已仔细阅读并同意以上全部条款",
+  "terms_scroll_hint": "请滚动阅读完整协议，同意后方可继续使用：",
 
   "predownload_title": "预下载",
   "predownload_prompt": "是否预下载文件以便加速以后的下载？",

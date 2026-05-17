@@ -8,6 +8,7 @@
   "tab_server": "🖥 Server",
   "tab_links": "🔗 Links",
   "tab_achievements": "🏆 Achievements",
+  "tab_about": "📜 Terms",
   
   "refresh": "🔄 Refresh",
   "update": "⬆ Update",
@@ -95,7 +96,8 @@
   "about_system": "System",
   "about_arch": "Architecture",
   "about_license": "Open source under GPLv3",
-  "confirm": "OK",
+  "about_terms_not_found": "Unable to load Terms of Use file (TERMS_OF_USE.md), please check if the file exists.",
+  "confirm": "Confirm",
   
   "skin_size_invalid": "Invalid skin size {width}x{height}. Please use 64x64 or 64x32",
   "skin_installed": "Skin installed: {filename}",
@@ -601,7 +603,8 @@
 
   "terms_title": "Terms & Privacy Agreement",
   "terms_content": "By using this launcher, you agree to the Minecraft EULA, Jingdu AI Privacy Agreement, and Jingdu Terms of Service.\n\nTerms link: https://jingdu.qzz.io/terms",
-  "terms_agree": "I Agree",
+  "terms_agree": "I have read and agree to all of the above terms",
+  "terms_scroll_hint": "Please scroll to read the full agreement before continuing:",
 
   "predownload_title": "Pre-download",
   "predownload_prompt": "Pre-download files to speed up future downloads?",
