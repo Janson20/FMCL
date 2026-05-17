@@ -89,6 +89,7 @@ class EventHandlerMixin(object):
                 command=lambda v=ver: self._select_version(v),
             )
             btn.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=5, pady=3)
+            btn._role = "version_select"
 
             # 删除按钮（最右边）
             del_btn = ctk.CTkButton(
@@ -103,6 +104,7 @@ class EventHandlerMixin(object):
                 command=lambda v=ver: self._on_delete_version(v),
             )
             del_btn.pack(side=ctk.RIGHT, padx=(0, 5))
+            del_btn._role = "version_delete"
 
             # 版本设置按钮
             settings_btn = ctk.CTkButton(
@@ -117,6 +119,7 @@ class EventHandlerMixin(object):
                 command=lambda v=ver: self._open_resource_manager_for_version(v),
             )
             settings_btn.pack(side=ctk.RIGHT, padx=(0, 2))
+            settings_btn._role = "version_settings"
 
             # 安装模组按钮（仅模组加载器版本显示，最左边）
             if has_loader:
@@ -132,6 +135,7 @@ class EventHandlerMixin(object):
                     command=lambda v=ver: self._open_mod_browser(v),
                 )
                 mod_btn.pack(side=ctk.RIGHT, padx=(0, 2))
+                mod_btn._role = "version_mods"
 
             self.version_buttons.append({"frame": btn_frame, "version": ver})
 

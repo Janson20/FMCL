@@ -29,8 +29,12 @@ def _get_locales_dir() -> Path:
     
     # 如果运行在 PyInstaller 打包环境下，使用 _MEIPASS
     import sys
-    if hasattr(sys, "_MEIPASS"):
+    if getattr(sys, 'frozen', False) or hasattr(sys, "_MEIPASS"):
         locales_dir = Path(sys._MEIPASS) / "ui" / "locales"
+        if not locales_dir.exists():
+            import logging
+            logging.warning(f"PyInstaller locales dir not found: {locales_dir}, fallback to {base_dir / 'locales'}")
+            locales_dir = base_dir / "locales"
     
     return locales_dir
 

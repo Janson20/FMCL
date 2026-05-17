@@ -56,6 +56,26 @@ class ModernAppBase(ctk.CTk):
         """延迟初始化 - 确保 _task_queue 在其他 mixin 设置后再启动轮询"""
         self._poll_queue()
 
+    def destroy(self):
+        """清理资源并关闭窗口"""
+        self._running = False
+        try:
+            from ui.dialogs import cleanup_toast_queue
+            cleanup_toast_queue()
+        except Exception:
+            pass
+        if hasattr(self, '_unregister_hotkeys'):
+            try:
+                self._unregister_hotkeys()
+            except Exception:
+                pass
+        if hasattr(self, '_music_stop'):
+            try:
+                self._music_stop(instant=True)
+            except Exception:
+                pass
+        super().destroy()
+
     def _center_window(self):
         """窗口居中"""
         self.update_idletasks()
@@ -816,7 +836,7 @@ class ModernAppBase(ctk.CTk):
             for line in lines:
                 if line.strip():
                     self._append_log(line)
-        self.after(500, self._poll_log_buffer)
+        self.after(800, self._poll_log_buffer)
 
     def _update_sidebar_account(self):
         try:
@@ -1225,8 +1245,8 @@ class ModernAppBase(ctk.CTk):
         self._theme_refs.append((self.modpack_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
         self._theme_refs.append((self._action_quick_title, {"text_color": "text_primary"}))
         self._theme_refs.append((self._action_quick_sep, {"fg_color": "card_border"}))
-        self._theme_refs.append((self._release_tab, {"fg_color": "accent", "hover_color": "accent_hover", "border_color": "text_secondary"}))
-        self._theme_refs.append((self._snapshot_tab, {"fg_color": "accent", "hover_color": "accent_hover", "border_color": "text_secondary"}))
+        self._theme_refs.append((self._release_tab, {"hover_color": "accent_hover", "border_color": "text_secondary"}))
+        self._theme_refs.append((self._snapshot_tab, {"hover_color": "accent_hover", "border_color": "text_secondary"}))
         self._theme_refs.append((self._page_info_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._prev_page_btn, {"fg_color": "bg_medium", "hover_color": "bg_light", "text_color": "text_primary"}))
         self._theme_refs.append((self._next_page_btn, {"fg_color": "bg_medium", "hover_color": "bg_light", "text_color": "text_primary"}))
@@ -1361,6 +1381,12 @@ class ModernAppBase(ctk.CTk):
 
     def _refresh_version_list_colors(self):
         """刷新动态创建的版本列表的所有颜色"""
+        role_styles = {
+            "version_delete": {"hover_color": COLORS["accent"], "text_color": COLORS["text_secondary"]},
+            "version_mods": {"hover_color": COLORS["bg_light"], "text_color": COLORS["success"]},
+            "version_settings": {"hover_color": COLORS["bg_light"], "text_color": COLORS["text_secondary"]},
+            "version_select": {"hover_color": COLORS["bg_light"], "text_color": COLORS["text_primary"]},
+        }
         for item in getattr(self, 'version_buttons', []):
             frame = item.get("frame")
             if frame:
@@ -1371,23 +1397,12 @@ class ModernAppBase(ctk.CTk):
                 try:
                     for child in frame.winfo_children():
                         if isinstance(child, ctk.CTkButton):
-                            txt = child.cget("text", "").strip()
-                            if txt == "X":
-                                child.configure(hover_color=COLORS["accent"],
-                                                text_color=COLORS["text_secondary"],
-                                                fg_color="transparent")
-                            elif txt.startswith("🧩"):
-                                child.configure(hover_color=COLORS["bg_light"],
-                                                text_color=COLORS["success"],
-                                                fg_color="transparent")
-                            elif txt == "⚙":
-                                child.configure(hover_color=COLORS["bg_light"],
-                                                text_color=COLORS["text_secondary"],
-                                                fg_color="transparent")
-                            else:
-                                child.configure(hover_color=COLORS["bg_light"],
-                                                text_color=COLORS["text_primary"],
-                                                fg_color="transparent")
+                            role = getattr(child, '_role', '')
+                            style = role_styles.get(role, {"hover_color": COLORS["bg_light"], "text_color": COLORS["text_primary"]})
+                            try:
+                                child.configure(fg_color="transparent", **style)
+                            except Exception:
+                                pass
                 except Exception:
                     pass
         if hasattr(self, 'selected_version') and self.selected_version:

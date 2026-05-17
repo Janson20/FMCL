@@ -444,6 +444,17 @@ def show_notice_dialog(parent, content: str, on_dismiss=None) -> None:
 _toast_queue: List[ctk.CTkToplevel] = []
 
 
+def cleanup_toast_queue() -> None:
+    """清理所有待关闭的 toast 通知（窗口关闭时调用）"""
+    for toast in list(_toast_queue):
+        try:
+            if toast.winfo_exists():
+                toast.destroy()
+        except Exception:
+            pass
+    _toast_queue.clear()
+
+
 def show_toast_notification(parent, icon: str, title: str, subtitle: str = "",
                             duration_ms: int = 4500) -> None:
     """显示右下角 Toast 通知弹窗（成就解锁等）

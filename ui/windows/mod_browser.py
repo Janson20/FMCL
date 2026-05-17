@@ -125,7 +125,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._build_tab_content(self._tabview.tab(_("mod_browser_tab_resourcepacks")), self.TAB_RESOURCE_PACKS)
         self._build_tab_content(self._tabview.tab(_("mod_browser_tab_shaders")), self.TAB_SHADERS)
 
-        self._tabview.configure(command=self._on_tab_changed)
+        self._tabview._segmented_button.configure(command=self._on_tab_changed)
 
     def _build_tab_content(self, tab_frame, tab_key: str):
         state = self._tab_states[tab_key]

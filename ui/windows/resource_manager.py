@@ -78,6 +78,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._current_page: int = 1
         self._update_dialog_page: int = 1
         self._scan_cache: Dict[str, tuple] = {}  # rtype -> (last_items, dir_mtime)
+        self._page_cache: Dict[str, dict] = {}  # "type_page" -> (items_slice, rendered_widgets)
 
         self._build_ui()
 
@@ -437,6 +438,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         # 重置分页
         self._current_page = 1
+        self._page_cache.clear()
 
         # 隐藏加载中标签
         self._loading_label.pack_forget()
@@ -452,6 +454,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         # 重置分页
         self._current_page = 1
+        self._page_cache.clear()
 
         # 先隐藏两个区域
         self._empty_label.pack_forget()
@@ -592,6 +595,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         """搜索过滤"""
         self._search_text = self._search_entry.get().strip().lower()
         self._current_page = 1
+        self._page_cache.clear()
         current_type = self._tab_var.get()
         if current_type == "mods":
             self._render_mod_list()
@@ -666,10 +670,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._render_current_page()
 
     def _render_current_page(self):
-        """渲染当前分页的资源列表"""
-        for w in self._list_frame.winfo_children():
-            w.destroy()
-
+        """渲染当前分页的资源列表（使用页面缓存加速翻页）"""
+        current_type = self._tab_var.get()
         total = len(self._filtered_items)
         total_pages = max(1, (total + self._page_size - 1) // self._page_size)
 
@@ -677,23 +679,45 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         end = min(start + self._page_size, total)
         page_items = self._filtered_items[start:end]
 
+        cache_key = f"{current_type}_{self._current_page}"
+        items_key = tuple(item.get("path", item.get("name", "")) for item in page_items)
+
+        cached = self._page_cache.get(cache_key)
+        if cached and cached.get("items_key") == items_key:
+            cached["widgets"] = [w for w in cached["widgets"] if w.winfo_exists()]
+            if cached["widgets"]:
+                for w in self._list_frame.winfo_children():
+                    w.pack_forget()
+                self._list_frame.pack(fill=ctk.BOTH, expand=True)
+                self._page_frame.pack(fill=ctk.X, padx=12, pady=(5, 0))
+                for w in cached["widgets"]:
+                    w.pack(fill=ctk.X, pady=2)
+                self._update_pagination_labels(total_pages, total, current_type)
+                return
+
+        for w in self._list_frame.winfo_children():
+            w.destroy()
+
         self._list_frame.pack(fill=ctk.BOTH, expand=True)
         self._page_frame.pack(fill=ctk.X, padx=12, pady=(5, 0))
 
-        current_type = self._tab_var.get()
-
+        rendered = []
         if current_type == "mods":
             for item in page_items:
                 self._create_mod_card(item)
+                rendered.append(self._list_frame.winfo_children()[-1])
         else:
             for item in page_items:
                 self._create_resource_item(item, current_type)
+                rendered.append(self._list_frame.winfo_children()[-1])
 
-        # 更新分页控件状态
+        self._page_cache[cache_key] = {"items_key": items_key, "widgets": rendered}
+        self._update_pagination_labels(total_pages, total, current_type)
+
+    def _update_pagination_labels(self, total_pages: int, total: int, current_type: str):
         self._page_label.configure(text=_("rm_page_info", current=self._current_page, total=total_pages))
         self._prev_btn.configure(state=ctk.NORMAL if self._current_page > 1 else ctk.DISABLED)
         self._next_btn.configure(state=ctk.NORMAL if self._current_page < total_pages else ctk.DISABLED)
-
         label = self._get_resource_label(current_type)
         self._set_status(_("rm_list_count", count=total, page=self._current_page, total_pages=total_pages, label=label))
 

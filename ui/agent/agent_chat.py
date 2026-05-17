@@ -178,6 +178,9 @@ class AgentChatView(ctk.CTkFrame):
         )
         disclaimer_label.pack(pady=(4, 0))
 
+        self._msg_batch_buffer: list = []
+        self._msg_batch_scheduled: bool = False
+
         self._append_system_message(_("agent_welcome1"))
         self._append_system_message(_("agent_welcome2") + "\n" + _("agent_example1") + "\n" + _("agent_example2") + "\n" + _("agent_example3") + "\n" + _("agent_example4") + "\n" + _("agent_example5") + "\n" + _("agent_example6"))
         self._append_divider()
@@ -192,17 +195,32 @@ class AgentChatView(ctk.CTkFrame):
         self._callbacks = callbacks
 
     def _append_message(self, role: str, text: str, tag: str = ""):
-        self._msg_display.configure(state=ctk.NORMAL)
-
         role_tag = {"user": "🧑 💬", "assistant": "🤖 💬", "system": "⚙ ℹ", "tool": "🔧 ⚡"}.get(role, "💬")
 
         prefix = f"{role_tag} "
         if tag:
             prefix += f"[{tag}] "
 
-        self._msg_display.insert(ctk.END, prefix, "tag_bold")
-        self._msg_display.insert(ctk.END, text + "\n\n")
+        self._msg_batch_buffer.append((prefix, text + "\n\n", "tag_bold"))
 
+        if not self._msg_batch_scheduled:
+            self._msg_batch_scheduled = True
+            self.after(10, self._flush_msg_batch)
+
+    def _flush_msg_batch(self):
+        self._msg_batch_scheduled = False
+        if not self._msg_batch_buffer:
+            return
+        self._msg_display.configure(state=ctk.NORMAL)
+        for entry in self._msg_batch_buffer:
+            if len(entry) == 3:
+                text1, text2, tag_name = entry
+                self._msg_display.insert(ctk.END, text1, tag_name)
+                self._msg_display.insert(ctk.END, text2)
+            else:
+                text1, tag_name = entry
+                self._msg_display.insert(ctk.END, text1, tag_name)
+        self._msg_batch_buffer.clear()
         self._msg_display.configure(state=ctk.DISABLED)
         self._msg_display.see(ctk.END)
 
@@ -210,10 +228,10 @@ class AgentChatView(ctk.CTkFrame):
         self._append_message("system", text)
 
     def _append_divider(self):
-        self._msg_display.configure(state=ctk.NORMAL)
-        self._msg_display.insert(ctk.END, "─" * 50 + "\n\n", "tag_dim")
-        self._msg_display.configure(state=ctk.DISABLED)
-        self._msg_display.see(ctk.END)
+        self._msg_batch_buffer.append(("─" * 50 + "\n\n", "tag_dim"))
+        if not self._msg_batch_scheduled:
+            self._msg_batch_scheduled = True
+            self.after(10, self._flush_msg_batch)
 
     def _clear_chat(self):
         logger.info("[Agent] 清空聊天")
@@ -230,6 +248,9 @@ class AgentChatView(ctk.CTkFrame):
         if not text:
             return
         if not self._provider:
+            self._append_message("system", _("agent_no_token_hint"))
+            return
+        if not self._provider.api_key:
             self._append_message("system", _("agent_no_token_hint"))
             return
         self._input_entry.delete(0, ctk.END)
@@ -249,6 +270,11 @@ class AgentChatView(ctk.CTkFrame):
 
         if not self._provider:
             logger.warning("[Agent] provider 未设置，提示用户前往设置")
+            self._append_message("system", _("agent_no_token_hint"))
+            return
+
+        if not self._provider.api_key:
+            logger.warning("[Agent] provider Token 为空")
             self._append_message("system", _("agent_no_token_hint"))
             return
 

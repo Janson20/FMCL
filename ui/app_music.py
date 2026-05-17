@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import time
+from collections import OrderedDict
 import platform
 import threading
 import tkinter.filedialog as filedialog
@@ -76,6 +77,8 @@ DEFAULT_HOTKEYS = {
 
 FADE_STEPS = 20
 FADE_INTERVAL_MS = 50
+
+MUSIC_METADATA_CACHE_MAX = 200
 
 _hotkey_import_error = None
 try:
@@ -329,7 +332,7 @@ class MusicPlayerMixin(object):
         self._music_progress: float = 0
         self._music_seek_offset: float = 0
         self._music_duration: float = 0
-        self._music_metadata_cache: Dict[str, dict] = {}
+        self._music_metadata_cache: OrderedDict = OrderedDict()
         self._music_mini_mode: bool = False
         self._music_progress_timer_id = None
         self._music_init_done: bool = False
@@ -744,9 +747,15 @@ class MusicPlayerMixin(object):
         return None
 
     def _get_metadata(self, filepath: str) -> dict:
-        if filepath not in self._music_metadata_cache:
-            self._music_metadata_cache[filepath] = _extract_audio_metadata(filepath)
-        return self._music_metadata_cache[filepath]
+        if filepath in self._music_metadata_cache:
+            self._music_metadata_cache.move_to_end(filepath)
+            return self._music_metadata_cache[filepath]
+
+        meta = _extract_audio_metadata(filepath)
+        self._music_metadata_cache[filepath] = meta
+        while len(self._music_metadata_cache) > MUSIC_METADATA_CACHE_MAX:
+            self._music_metadata_cache.popitem(last=False)
+        return meta
 
     def _play_file(self, filepath: str, start_pos: float = 0):
         if _pygame_import_error is not None:
