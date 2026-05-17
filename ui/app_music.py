@@ -71,7 +71,7 @@ DEFAULT_HOTKEYS = {
     "next": "ctrl+shift+right",
     "stop": "ctrl+shift+down",
     "vol_up": "ctrl+shift+up",
-    "vol_down": "ctrl+shift+pgdn",
+    "vol_down": "ctrl+shift+page down",
     "vol_mute": "ctrl+shift+m",
 }
 
@@ -337,6 +337,7 @@ class MusicPlayerMixin(object):
         self._music_progress_timer_id = None
         self._music_init_done: bool = False
         self._music_hotkeys_registered: bool = False
+        self._music_warmup_hook = None
         self._music_playlist_widgets: List[dict] = []
         self._music_smtc: _SMTCController = _SMTCController()
         self._music_smtc.set_parent(self)
@@ -355,6 +356,11 @@ class MusicPlayerMixin(object):
             try:
                 pygame.init()
                 mixer.init()
+                try:
+                    mixer.music.set_volume(0)
+                    mixer.music.set_volume(self._music_volume)
+                except Exception:
+                    pass
                 logger.info("pygame mixer 初始化完成")
             except Exception as e:
                 logger.error(f"pygame mixer 初始化失败: {e}")
@@ -377,7 +383,7 @@ class MusicPlayerMixin(object):
         self._music_mini_bar.pack_forget()
 
         self._init_music_lazy()
-        self._register_hotkeys()
+        self.after(500, self._register_hotkeys)
 
     def _build_music_control_panel(self):
         panel = ctk.CTkFrame(self._music_main_frame, fg_color=COLORS["card_bg"], corner_radius=12)
@@ -1236,18 +1242,24 @@ class MusicPlayerMixin(object):
         if not _keyboard_available:
             logger.debug("keyboard 库不可用，全局热键已禁用")
             return
-        try:
-            _keyboard.add_hotkey(DEFAULT_HOTKEYS["play_pause"], self._music_hotkey_play_pause)
-            _keyboard.add_hotkey(DEFAULT_HOTKEYS["prev"], self._music_hotkey_prev)
-            _keyboard.add_hotkey(DEFAULT_HOTKEYS["next"], self._music_hotkey_next)
-            _keyboard.add_hotkey(DEFAULT_HOTKEYS["stop"], self._music_hotkey_stop)
-            _keyboard.add_hotkey(DEFAULT_HOTKEYS["vol_up"], self._music_hotkey_vol_up)
-            _keyboard.add_hotkey(DEFAULT_HOTKEYS["vol_down"], self._music_hotkey_vol_down)
-            _keyboard.add_hotkey(DEFAULT_HOTKEYS["vol_mute"], self._music_hotkey_vol_mute)
-            self._music_hotkeys_registered = True
-            logger.info("音乐播放全局热键已注册")
-        except Exception as e:
-            logger.warning(f"注册全局热键失败: {e}")
+
+        def _do_register():
+            try:
+                self._music_warmup_hook = _keyboard.hook(lambda e: None)
+                time.sleep(0.1)
+                _keyboard.add_hotkey(DEFAULT_HOTKEYS["play_pause"], self._music_hotkey_play_pause)
+                _keyboard.add_hotkey(DEFAULT_HOTKEYS["prev"], self._music_hotkey_prev)
+                _keyboard.add_hotkey(DEFAULT_HOTKEYS["next"], self._music_hotkey_next)
+                _keyboard.add_hotkey(DEFAULT_HOTKEYS["stop"], self._music_hotkey_stop)
+                _keyboard.add_hotkey(DEFAULT_HOTKEYS["vol_up"], self._music_hotkey_vol_up)
+                _keyboard.add_hotkey(DEFAULT_HOTKEYS["vol_down"], self._music_hotkey_vol_down)
+                _keyboard.add_hotkey(DEFAULT_HOTKEYS["vol_mute"], self._music_hotkey_vol_mute)
+                self._music_hotkeys_registered = True
+                logger.info("音乐播放全局热键已注册")
+            except Exception as e:
+                logger.warning(f"注册全局热键失败: {e}")
+
+        threading.Thread(target=_do_register, daemon=True).start()
 
     def _unregister_hotkeys(self):
         if not self._music_hotkeys_registered:
@@ -1262,6 +1274,9 @@ class MusicPlayerMixin(object):
             _keyboard.remove_hotkey(DEFAULT_HOTKEYS["vol_up"])
             _keyboard.remove_hotkey(DEFAULT_HOTKEYS["vol_down"])
             _keyboard.remove_hotkey(DEFAULT_HOTKEYS["vol_mute"])
+            if self._music_warmup_hook is not None:
+                self._music_warmup_hook()
+                self._music_warmup_hook = None
             self._music_hotkeys_registered = False
             logger.info("音乐播放全局热键已注销")
         except Exception:
