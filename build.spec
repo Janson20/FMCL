@@ -152,8 +152,54 @@ if platform == 'win':
         strip=False,
         upx=True,
         upx_exclude=[],
-        runtime_tmpdir='FMCL',  # 为 tkinter/TCL 库创建独立临时目录
+        runtime_tmpdir='FMCL',
         console=False,
+        disable_windowed_traceback=False,
+        argv_emulation=False,
+        target_arch=None,
+        codesign_identity=None,
+        entitlements_file=None,
+        icon=icon_path,
+    )
+
+    # Windows Agent CLI: 控制台子系统的独立入口
+    agent_a = Analysis(
+        ['agent_cli.py'],
+        pathex=[],
+        binaries=[],
+        datas=datas,
+        hiddenimports=hidden_imports,
+        hookspath=[],
+        hooksconfig={},
+        runtime_hooks=[],
+        excludes=[
+            'PyQt5', 'PyQt6', 'PySide2', 'PySide6',
+            'matplotlib', 'numpy', 'pandas', 'scipy',
+            'IPython', 'jupyter', 'notebook',
+        ],
+        win_no_prefer_redirects=False,
+        win_private_assemblies=False,
+        cipher=block_cipher,
+        noarchive=False,
+    )
+
+    agent_pyz = PYZ(agent_a.pure, agent_a.zipped_data, cipher=block_cipher)
+
+    agent_exe = EXE(
+        agent_pyz,
+        agent_a.scripts,
+        agent_a.binaries,
+        agent_a.zipfiles,
+        agent_a.datas,
+        [],
+        name='FMCL-Agent',
+        debug=False,
+        bootloader_ignore_signals=False,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        console=True,
         disable_windowed_traceback=False,
         argv_emulation=False,
         target_arch=None,

@@ -494,8 +494,25 @@ def _print_cli_error(msg: str):
     print(f"\033[91m❌  {msg}\033[0m", flush=True)
 
 
+def _attach_console():
+    """尝试附加到父进程控制台（打包后 GUI 子系统的 exe 需要此步骤）"""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    try:
+        kernel32 = ctypes.windll.kernel32
+        if not kernel32.AttachConsole(-1):
+            kernel32.AllocConsole()
+        sys.stdout = open("CONOUT$", "w", encoding="utf-8")
+        sys.stderr = open("CONOUT$", "w", encoding="utf-8")
+        sys.stdin = open("CONIN$", "r", encoding="utf-8")
+    except Exception:
+        pass
+
+
 def run_agent_cli_mode(instruction=None):
     """以 CLI Agent 模式运行（无 GUI 依赖）"""
+    _attach_console()
     from cli_agent import run_agent_cli
     try:
         run_agent_cli(instruction=instruction)
