@@ -248,6 +248,10 @@ class ModernAppBase(ctk.CTk):
         self.music_tab = self.tabview.add(_("tab_music"))
         self.music_tab.configure(fg_color="transparent")
         
+        # 添加"工具"标签页
+        self.tools_tab = self.tabview.add(_("tab_tools"))
+        self.tools_tab.configure(fg_color="transparent")
+        
         # 添加"关于"标签页
         self.about_tab = self.tabview.add(_("tab_about"))
         self.about_tab.configure(fg_color="transparent")
@@ -279,6 +283,9 @@ class ModernAppBase(ctk.CTk):
 
         # 构建音乐标签页内容
         self._build_music_tab_content()
+
+        # 构建工具标签页内容
+        self._build_tools_tab_content()
         
         # 构建关于标签页内容
         self._build_about_tab_content()
