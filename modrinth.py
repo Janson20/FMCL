@@ -1748,62 +1748,141 @@ def get_project_latest_version(
     version_type: str = "release",
 ) -> Optional[Dict]:
     """
-    获取项目的特定游戏版本和加载器的最新版本信息
+    获取项目的最佳兼容版本信息（PCL-CE 风格多策略回退）
 
-    优先通过 API 参数筛选，API 返回的版本列表默认按日期降序排列，
-    所以只需取第一个。
+    策略流程:
+    1. 先用精确的 game_version + mod_loader 筛
+    2. 若未找到，放宽 loader 限制再试
+    3. 若仍未找到，取该项目所有版本中最新的（忽略兼容性筛选）
+
+    版本排序依赖 Modrinth API 默认按发布日期降序排列。
 
     Args:
         project_id: Modrinth 项目 ID
-        game_version: 游戏版本 (如 "1.20.4")
+        game_version: 游戏版本 (如 "1.20.4", "26.1")
         mod_loader: 模组加载器 (如 "fabric", "forge", "neoforge")
         version_type: 版本类型 ("release", "beta", "alpha")，默认 "release"
 
     Returns:
-        最新版本信息字典，或 None
+        最佳兼容版本信息字典，或 None
     """
     import json as _json
 
-    params: Dict = {}
-
-    if game_version:
-        params["game_versions"] = _json.dumps([game_version])
-
-    if mod_loader:
-        params["loaders"] = _json.dumps([mod_loader])
-
-    try:
-        session = _get_session()
-        resp = session.get(
-            f"{MODRINTH_API_BASE}/project/{project_id}/version",
-            params=params,
-            timeout=15,
-        )
-        resp.raise_for_status()
-        versions = resp.json()
-
-        if not versions:
-            logger.debug(f"项目 {project_id} 没有兼容版本 (game={game_version}, loader={mod_loader})")
+    def _fetch_versions(filters: Dict) -> Optional[list]:
+        try:
+            session = _get_session()
+            resp = session.get(
+                f"{MODRINTH_API_BASE}/project/{project_id}/version",
+                params=filters,
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data if data else None
+        except requests.exceptions.RequestException as e:
+            logger.debug(f"获取项目 {project_id} 版本失败: {e}")
             return None
 
-        # 按 version_type 筛选
+    def _pick_best(versions: list) -> Optional[Dict]:
+        if not versions:
+            return None
+        # 优先精确匹配 version_type
         for v in versions:
             if v.get("version_type") == version_type:
                 return v
-
-        # 如果没有匹配的 version_type，返回第一个（最新）
+        # 回退：尝试 release
+        if version_type != "release":
+            for v in versions:
+                if v.get("version_type") == "release":
+                    return v
+        # 最终回退：返回第一个（最新）
         return versions[0]
 
-    except requests.exceptions.RequestException as e:
-        logger.warning(f"获取项目 {project_id} 版本失败: {e}")
-        return None
+    # ── 策略 1: 精确 game_version + mod_loader ──
+    params: Dict = {}
+    if game_version:
+        params["game_versions"] = _json.dumps([game_version])
+    if mod_loader:
+        params["loaders"] = _json.dumps([mod_loader])
+
+    versions = _fetch_versions(params)
+    if versions:
+        result = _pick_best(versions)
+        if result:
+            return result
+
+    # ── 策略 2: 放宽 loader 限制（仅 game_version）──
+    if mod_loader and game_version:
+        params2 = {"game_versions": _json.dumps([game_version])}
+        versions = _fetch_versions(params2)
+        if versions:
+            result = _pick_best(versions)
+            if result:
+                logger.debug(
+                    f"项目 {project_id}: 回退到仅 game_version={game_version} 的版本 "
+                    f"(loader={mod_loader} 无匹配)"
+                )
+                return result
+
+    # ── 策略 3: 取所有版本中最新的 ──
+    if game_version or mod_loader:
+        versions = _fetch_versions({})
+        if versions:
+            result = _pick_best(versions)
+            if result:
+                logger.debug(
+                    f"项目 {project_id}: 回退到最新版本 "
+                    f"(game={game_version}, loader={mod_loader} 无匹配)"
+                )
+                return result
+
+    return None
+
+
+def get_latest_version_by_slug(
+    slug: str,
+    game_version: Optional[str] = None,
+    mod_loader: Optional[str] = None,
+    version_type: str = "release",
+) -> Optional[Tuple[str, Optional[Dict]]]:
+    """
+    通过 slug 一步到位获取最新版本（优化版：免去 project 查询）
+
+    Modrinth 的 version API 可直接接受 slug 作为 project_id，
+    避免了 search_project_by_slug 的多余 API 调用。
+
+    同时返回 project_id，供后续使用（如 batch update 需要 download_url）。
+
+    Args:
+        slug: 项目 slug（通常即 modid）
+        game_version: 游戏版本
+        mod_loader: 模组加载器
+        version_type: 版本类型
+
+    Returns:
+        (project_id, version_info_dict) 或 None
+    """
+    result = get_project_latest_version(
+        project_id=slug,
+        game_version=game_version,
+        mod_loader=mod_loader,
+        version_type=version_type,
+    )
+    if result:
+        # slug 就是 project_id（Modrinth API 兼容）
+        return (slug, result)
+    return None
 
 
 def compare_mod_versions(current: str, latest: str) -> int:
     """
-    比较两个模组版本号
+    比较两个模组版本号（PCL-CE 风格 SemVer 比较）
 
-    支持 semver（如 1.0.0, 2.1.0-beta.1）和简单版本号。
+    优先使用 version_utils.parse_semver 解析，回退到 compare_versions。
+
+    更新判断规则:
+    - 数字部分相同但 pre-release 不同: release > beta > alpha > snapshot
+    - 当前为 release 最新为 pre-release → 不更新
 
     Args:
         current: 当前版本号
@@ -1812,61 +1891,57 @@ def compare_mod_versions(current: str, latest: str) -> int:
     Returns:
         -1: current < latest (需要更新)
          0: current == latest (相同)
-         1: current > latest (无需更新，当前更新)
+         1: current > latest (无需更新)
          None: 无法比较
     """
     if not current or not latest:
         return None
 
+    current = current.strip()
+    latest = latest.strip()
     if current == latest:
         return 0
 
-    def _parse_semver(v: str):
-        """将版本号解析为 (主版本, 次版本, 修订号, 预发布标签)"""
-        import re
-        # 匹配: 数字.数字.数字[-标签] 或 数字.数字[-标签]
-        match = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?(?:[.\-](.+))?$", v.strip())
-        if match:
-            major = int(match.group(1))
-            minor = int(match.group(2))
-            patch = int(match.group(3)) if match.group(3) else 0
-            prerelease = match.group(4) or ""
-            return (major, minor, patch), prerelease
-        return None
+    from version_utils import parse_semver, compare_versions as _cmp
 
-    current_parsed = _parse_semver(current)
-    latest_parsed = _parse_semver(latest)
+    # 优先用 SemVer 解析（支持 pre-release 语义: 1.0.0-beta.1 < 1.0.0）
+    cur_sv = parse_semver(current)
+    lat_sv = parse_semver(latest)
 
-    if current_parsed and latest_parsed:
-        cur_nums, cur_pre = current_parsed
-        lat_nums, lat_pre = latest_parsed
+    if cur_sv and lat_sv:
+        cur_nums, cur_pre = cur_sv
+        lat_nums, lat_pre = lat_sv
 
         # 比较数字部分
-        for c, l in zip(cur_nums, lat_nums):
-            if c < l:
+        for c, l_val in zip(cur_nums, lat_nums):
+            if c < l_val:
                 return -1
-            if c > l:
+            if c > l_val:
                 return 1
 
-        # 比较预发布标签
+        # pre-release 排序: 无标签(正式版) > 任何 pre-release
         if not cur_pre and not lat_pre:
             return 0
         if not cur_pre and lat_pre:
-            return 1  # 当前是正式版，最新是预发布 → 无需更新
+            return 1   # 当前正式版 > 最新预发布 → 无需更新
         if cur_pre and not lat_pre:
-            return -1  # 当前是预发布，最新是正式版 → 需要更新
+            return -1  # 当前预发布 < 最新正式版 → 需更新
+        # 两个都是预发布，按标签字母序比较
         if cur_pre < lat_pre:
             return -1
         if cur_pre > lat_pre:
             return 1
         return 0
 
-    # 回退：按字符串字母序比较（比不比较要好）
-    if current < latest:
-        return -1
-    elif current > latest:
-        return 1
-    return 0
+    # 回退到通用版本比较（PCL-CE 风格）
+    try:
+        return _cmp(current, latest)
+    except Exception:
+        if current < latest:
+            return -1
+        elif current > latest:
+            return 1
+        return 0
 
 
 def extract_zip_thumbnail(zip_path: Path, max_size: int = 64) -> Optional[str]:

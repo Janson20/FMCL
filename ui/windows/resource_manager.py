@@ -1381,8 +1381,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
             try:
                 from modrinth import (
-                    search_project_by_slug,
-                    get_project_latest_version,
+                    get_latest_version_by_slug,
                     compare_mod_versions,
                 )
 
@@ -1396,31 +1395,25 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                     current_version = mod.get("version", "")
 
                     try:
-                        project = search_project_by_slug(modid)
-                        if not project:
-                            return None
-
-                        project_id = project.get("id", "")
-                        if not project_id:
-                            return None
-
-                        latest = get_project_latest_version(
-                            project_id,
+                        # 优化：使用 slug 直连版本 API，免去 project 查询
+                        result = get_latest_version_by_slug(
+                            slug=modid,
                             game_version=game_version,
                             mod_loader=mod_loader,
                         )
-                        if not latest:
+                        if not result:
                             return None
 
+                        project_id, latest = result
                         latest_version = latest.get("version_number", "")
                         if not latest_version:
                             return None
 
-                        result = compare_mod_versions(current_version, latest_version)
-                        if result is None:
+                        cmp_result = compare_mod_versions(current_version, latest_version)
+                        if cmp_result is None:
                             return None
 
-                        if result < 0:
+                        if cmp_result < 0:
                             return {
                                 "modid": modid,
                                 "project_id": project_id,
@@ -1713,8 +1706,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         dialog.destroy()
         self._set_status(_("mod_update_batch_starting", count=len(modids)))
 
+
         from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
-        from modrinth import download_mod, get_mod_versions
+        from modrinth import download_mod
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import threading as _threading
 
@@ -1740,15 +1734,16 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             mod_path = info["mod_path"]
 
             try:
-                versions = get_mod_versions(
+                # 复用已缓存的 latest_version 信息，直接获取该版本的 files
+                from modrinth import get_project_latest_version
+                version = get_project_latest_version(
                     project_id,
                     game_version=game_version,
                     mod_loader=mod_loader,
                 )
-                if not versions:
+                if not version:
                     return False, mod_name
 
-                version = versions[0]
                 files = version.get("files", [])
                 primary = next((f for f in files if f.get("primary")), None) or (files[0] if files else None)
                 if not primary:
