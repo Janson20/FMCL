@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional, List, Dict
 
 from logzero import logger
+from version_utils import is_mc_snapshot_version, is_new_version_format
 
 
 # ──────────────────────────────────────────────
@@ -48,21 +49,33 @@ class JavaRuntime:
 # MC version -> minimum Java mapping
 # ──────────────────────────────────────────────
 
-_OLD_SNAPSHOT_RE = re.compile(r'^(\d+)w\d+\w?$')
-_NEW_SNAPSHOT_RE = re.compile(r'^(\d+)\.(\d+)-snapshot-\d+$')
+# 版本解析正则，使用 version_utils 中的集中化定义
+# 导入用于向后兼容（内部仍可通过名称引用，实际调用使用 version_utils 函数）
+_OLD_SNAPSHOT_RE = re.compile(r'^(\d+)w\d+\w?$')  # 保留用于版本数字提取
 
 
 def _parse_mc_version(mc_version: str) -> tuple:
+    """解析 Minecraft 版本号为 (major, minor, patch) 元组
+
+    使用 version_utils 中的集中化模式，支持：
+    - 旧格式: 1.20.4, 1.7.10
+    - 新格式 (2026+): 26.1, 26.1.1
+    - 旧快照格式: 24w14a, 23w51a
+    - 新快照格式: 26.1-snapshot-1
+    """
     version = mc_version.strip().lower()
 
-    m = _NEW_SNAPSHOT_RE.match(version)
-    if m:
-        return (int(m.group(1)), int(m.group(2)), 998)
+    # 快照格式
+    if is_mc_snapshot_version(version):
+        m = _OLD_SNAPSHOT_RE.match(version)
+        if m:
+            return (int(m.group(1)), 999, 999)
+        # 新快照格式: YY.D-snapshot-N
+        m = re.match(r'^(\d+)\.(\d+)-snapshot-\d+$', version)
+        if m:
+            return (int(m.group(1)), int(m.group(2)), 998)
 
-    m = _OLD_SNAPSHOT_RE.match(version)
-    if m:
-        return (int(m.group(1)), 999, 999)
-
+    # 去除后缀（pre/rc 等）
     version = re.sub(r'[-–—].*$', '', version).strip()
     parts = version.split(".")
     nums = []

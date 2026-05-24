@@ -9,6 +9,7 @@ from logzero import logger
 
 
 # 版本ID允许的字符：字母、数字、点、短横线、下划线
+# 参考 PCL-CE: RegexPatterns.ModIdMatch（类似限制）
 VERSION_ID_PATTERN = re.compile(r'^[a-zA-Z0-9._\-]+$')
 
 # 内存大小格式：数字 + G/M (大小写不敏感)

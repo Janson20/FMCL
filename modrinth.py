@@ -24,6 +24,13 @@ from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
 from structured_logger import slog
+from version_utils import (
+    is_new_version_format as _vu_is_new_format,
+    parse_mod_loader_from_version as _vu_parse_mod_loader,
+    parse_mc_version_from_id as _vu_parse_mc_version,
+    is_pre_release,
+    is_snapshot,
+)
 
 
 MODRINTH_API_BASE = "https://api.modrinth.com/v2"
@@ -894,31 +901,9 @@ def install_shader(
 
 
 def _is_new_version_format(version: str) -> bool:
-    """
-    判断是否为新版本命名格式 (YY.D 或 YY.D.H)
-
-    新格式从 2026 年开始使用，版本号不以 "1." 开头。
-    旧格式: 1.X, 1.X.Y (如 1.21, 1.21.1)
-    新格式: YY.D, YY.D.H (如 26.1, 26.1.1)
-
-    Args:
-        version: 版本号字符串
-
-    Returns:
-        是否为新版本格式
-    """
-    if version.startswith("1."):
-        return False
-    parts = version.split(".")
-    if len(parts) < 2:
-        return False
-    # 新格式第一部分是两位年份，第二部分是更新序号
-    try:
-        yy = int(parts[0])
-        # 年份应在合理范围内 (26+)
-        return yy >= 26
-    except (ValueError, IndexError):
-        return False
+    """判断是否为新版本命名格式 (YY.D 或 YY.D.H)，委托到 version_utils"""
+    # 注意：此别名函数为保持模块内兼容，实际逻辑在 version_utils 中
+    return _vu_is_new_format(version)
 
 
 def _fetch_all_game_versions() -> Dict[int, Set[int]]:
@@ -990,37 +975,29 @@ def _fetch_all_game_versions() -> Dict[int, Set[int]]:
 
 
 def parse_mod_loader_from_version(version_id: str) -> Optional[str]:
+    """从版本 ID 中解析模组加载器类型，委托到 version_utils
+
+    参考 PCL-CE: McInstanceState 枚举定义的加载器分类。
+    支持: forge, fabric, neoforge, quilt, liteloader, legacyfabric, cleanroom, optifine, labymod
     """
-    从版本 ID 中解析模组加载器类型
-
-    Args:
-        version_id: 版本 ID (如 "1.20.4-forge-49.0.26", "fabric-loader-0.15.11-1.20.4")
-
-    Returns:
-        加载器类型 ("fabric", "forge", "neoforge") 或 None
-    """
-    version_lower = version_id.lower()
-
-    if "fabric" in version_lower:
-        return "fabric"
-    elif "neoforge" in version_lower:
-        return "neoforge"
-    elif "forge" in version_lower:
-        return "forge"
-
-    return None
+    return _vu_parse_mod_loader(version_id)
 
 
 def parse_game_version_from_version(version_id: str) -> Optional[str]:
-    """
-    从版本 ID 中提取游戏版本号
+    """从版本 ID 中提取游戏版本号，委托到 version_utils.parse_mc_version_from_id
+
+    参考 PCL-CE: McInstanceInfo 的版本识别逻辑和 RegexPatterns 正则模式。
 
     支持的格式:
-    - Forge: 1.20.4-forge-49.0.26
-    - Fabric: fabric-loader-0.15.11-1.20.4
-    - NeoForge: neoforge-20.6.139 (loader version 中 20.6 → 1.20.6)
-    - NeoForge (带前缀): 1.20.6-neoforge-20.6.139
-    - 新格式: 26.1-forge-xxx, 26.1.1-fabric-xxx, 26.1-snapshot-1, 26.1-pre-1, 26.1-rc-1
+    - Forge:      1.20.4-forge-49.0.26, 26.1-forge-1.0.0
+    - Fabric:     fabric-loader-0.15.11-1.20.4, fabric-loader-0.16.0-26.1.1
+    - Quilt:      quilt-loader-0.19.2-1.20.4
+    - NeoForge:   neoforge-20.6.139 (从 loader 版本推算), 1.20.6-neoforge-20.6.139
+    - Vanilla:    1.20.4, 26.1, 24w14a
+
+    NeoForge 特殊说明:
+    - 旧格式 neoforge-{major}.{minor}.{patch}: minor=0 时 MC 为 1.{major}, 否则为 1.{major}.{minor}
+    - 新格式: 26.1-neoforge-1.0.0
 
     新版本命名规则 (2026年起):
     - 主要更新: YY.D (如 26.1)
@@ -1028,98 +1005,8 @@ def parse_game_version_from_version(version_id: str) -> Optional[str]:
     - 快照: YY.D-snapshot-N (如 26.1-snapshot-1)
     - 预发布版: YY.D-pre-N (如 26.1-pre-1)
     - 发布候选: YY.D-rc-N (如 26.1-rc-1)
-
-    Args:
-        version_id: 版本 ID
-
-    Returns:
-        游戏版本号 (如 "1.20.4", "26.1", "26.1.1") 或 None
     """
-    import re
-
-    version_lower = version_id.lower()
-
-    # ── 新格式版本处理 ──
-    # 新格式: YY.D 或 YY.D.H，后面可能跟 -forge-xxx, -fabric-xxx, -snapshot-N 等
-    # 匹配 YY.D.H- 或 YY.D- (YY >= 26)
-    new_format_match = re.match(r"^(\d{2,})\.(\d+)(?:\.(\d+))?", version_id)
-    if new_format_match:
-        yy_str = new_format_match.group(1)
-        d_str = new_format_match.group(2)
-        h_str = new_format_match.group(3)
-        try:
-            yy = int(yy_str)
-            if yy >= 26:  # 新格式年份从 26 开始
-                d = int(d_str)
-                if h_str is not None:
-                    return f"{yy}.{d}.{h_str}"
-                else:
-                    return f"{yy}.{d}"
-        except ValueError:
-            pass
-
-    # NeoForge 特殊处理：版本 ID 可能是 neoforge-{loader_version}，没有 MC 版本前缀
-    # loader_version 格式如 20.6.139，前两部分 20.6 对应 MC 1.20.6
-    if "neoforge" in version_lower:
-        # 优先从 loader version 推算（标准格式 neoforge-{major}.{minor}.{patch}）
-        # 这样可以正确处理 neoforge-21.0.167 → 1.21, neoforge-20.6.139 → 1.20.6
-        neoforge_match = re.search(r"neoforge-(\d+)\.(\d+)\.(\d+)", version_lower)
-        if neoforge_match:
-            major = neoforge_match.group(1)
-            minor = neoforge_match.group(2)
-            # minor 为 0 时，MC 版本是 1.{major}（如 21.0.x → 1.21）
-            # 否则是 1.{major}.{minor}（如 20.6.x → 1.20.6）
-            if minor == "0":
-                return f"1.{major}"
-            else:
-                return f"1.{major}.{minor}"
-
-        # 回退：尝试标准格式 {mc_version}-neoforge-{loader_version}
-        # 优先尝试新格式 (YY.D.H，YY >= 26)
-        new_match = re.search(r"(\d{2,}\.\d+(?:\.\d+)*)", version_id)
-        if new_match:
-            candidate = new_match.group(1)
-            parts = candidate.split(".")
-            if len(parts) >= 2 and int(parts[0]) >= 26:
-                return candidate
-        # 回退旧格式 (1.X.Y)
-        match = re.search(r"(1\.\d+(?:\.\d+)*)", version_id)
-        if match:
-            return match.group(1)
-
-        return None
-
-    # Fabric 格式: fabric-loader-0.15.11-1.20.4 或 fabric-loader-0.16.9-1.21.4
-    # 也支持新格式: fabric-loader-0.16.0-26.1.1
-    # 游戏版本在最后一个版本号位置
-    if "fabric" in version_lower:
-        # 优先尝试新格式 (YY.D.H，YY >= 26)
-        new_matches = re.findall(r"(\d{2,}\.\d+(?:\.\d+)*)", version_id)
-        if new_matches:
-            candidate = new_matches[-1]
-            parts = candidate.split(".")
-            if len(parts) >= 2 and int(parts[0]) >= 26:
-                return candidate
-        # 回退旧格式 (1.X.Y)
-        matches = re.findall(r"(1\.\d+(?:\.\d+)*)", version_id)
-        if matches:
-            return matches[-1]
-
-    # Forge 格式: 1.20.4-forge-49.0.26 或 26.1-forge-1.0.0
-    # 新格式以版本号开头时已在上方第 524 行处理，此处为回退
-    # 优先尝试新格式 (YY.D.H，YY >= 26)
-    new_match = re.search(r"(\d{2,}\.\d+(?:\.\d+)*)", version_id)
-    if new_match:
-        candidate = new_match.group(1)
-        parts = candidate.split(".")
-        if len(parts) >= 2 and int(parts[0]) >= 26:
-            return candidate
-    # 回退旧格式 (1.X.Y)
-    match = re.search(r"(1\.\d+(?:\.\d+)*)", version_id)
-    if match:
-        return match.group(1)
-
-    return None
+    return _vu_parse_mc_version(version_id)
 
 
 def compress_game_versions(versions: List[str]) -> str:

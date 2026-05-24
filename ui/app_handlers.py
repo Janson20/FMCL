@@ -24,6 +24,7 @@ from ui.windows.modpack_install import ModpackInstallWindow
 from ui.windows.mod_browser import ModBrowserWindow
 from ui.i18n import _, get_available_languages, set_language
 from structured_logger import slog
+from version_utils import has_mod_loader, is_snapshot
 
 
 class EventHandlerMixin(object):
@@ -33,18 +34,26 @@ class EventHandlerMixin(object):
 
     @staticmethod
     def _has_mod_loader(version_id: str) -> bool:
-        """判断版本是否安装了模组加载器"""
-        v = version_id.lower()
-        return any(loader in v for loader in ("forge", "fabric", "neoforge"))
+        """判断版本是否安装了模组加载器，委托到 version_utils
+
+        参考 PCL-CE: McInstance.Modable 属性。
+        支持: forge, fabric, neoforge, quilt, liteloader, legacyfabric, cleanroom, optifine, labymod
+        """
+        return has_mod_loader(version_id)
 
     @staticmethod
     def _get_version_type(version_id: str) -> str:
-        """根据版本ID判断版本类型（release/snapshot）"""
-        if re.match(r'^\d+w\d+[a-z]$', version_id):
-            return "snapshot"
-        if '-pre' in version_id or '-rc' in version_id:
-            return "snapshot"
-        if version_id.startswith('snapshot-'):
+        """根据版本ID判断版本类型（release/snapshot），委托到 version_utils
+
+        参考 PCL-CE: McInstanceState 枚举和 RegexPatterns.McSnapshotVersion。
+        支持:
+        - 旧快照格式: 24w14a, 23w51a
+        - 新快照格式: 26.1-snapshot-1
+        - Pre-release: 1.20.4-pre1, 26.1-pre-1
+        - RC 版本: 26.1-rc-1
+        - snapshot- 前缀
+        """
+        if is_snapshot(version_id):
             return "snapshot"
         return "release"
 

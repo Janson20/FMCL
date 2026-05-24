@@ -3,7 +3,6 @@ import gc
 import hashlib
 import os
 import platform
-import re
 import shutil
 import subprocess
 import sys
@@ -19,6 +18,7 @@ from config import Config
 from structured_logger import slog
 from mirror import MirrorSource
 from validation import validate_version_id, validate_server_ip, validate_server_port
+from version_utils import parse_mc_version_from_id
 from ui.theme_engine import init_theme_engine, get_theme_engine, Theme
 
 
@@ -204,18 +204,12 @@ class MinecraftLauncher:
 
     @staticmethod
     def _extract_mc_version(version_id: str) -> str:
-        version_id_lower = version_id.lower()
+        """从版本 ID 提取 Minecraft 游戏版本号，委托到 version_utils
 
-        if "fabric" in version_id_lower or "quilt" in version_id_lower:
-            parts = version_id.split("-")
-            return parts[-1] if len(parts) > 1 else version_id
-
-        for loader in ("neoforge", "forge"):
-            idx = version_id_lower.find(f"-{loader}")
-            if idx > 0:
-                return version_id[:idx]
-
-        return version_id.split("-")[0] if "-" in version_id else version_id
+        参考 PCL-CE: McInstanceInfo 的版本识别逻辑。
+        支持 Forge/Fabric/Quilt/NeoForge 及新旧 MC 版本格式。
+        """
+        return parse_mc_version_from_id(version_id) or version_id
 
     def scan_system_java(self) -> List[Dict]:
         from launcher.java_scanner import get_java_summary

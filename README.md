@@ -40,9 +40,11 @@
 - **Forge** - 最广泛使用的模组加载器
 - **Fabric** - 轻量级模组加载器
 - **NeoForge** - Forge 的社区分支
+- **Quilt** - Fabric 的分支加载器
 - 安装模组加载器时自动安装原版 Minecraft（与原版安装**并行执行**，无须额外等待），无需重复操作
 - **版本隔离**：安装了模组加载器的版本自动启用版本隔离，自动创建 `mods/`、`config/`、`saves/`、`resourcepacks/`、`shaderpacks/` 等子目录，游戏从 `.minecraft/versions/{版本名}/` 读取所有资源，各版本互不干扰
 - **新版本格式支持**：NeoForge 安装器已适配 Minecraft 2026 年起的新版本命名规则 `YY.D.H`（如 `26.1`、`26.1.1`），兼容旧版 `1.X.Y` 格式
+- **版本匹配优化**：基于 PCL-CE 的 `RegexPatterns` 重构了版本号正则匹配，集中化管理于 `version_utils.py` 模块，统一处理 Minecraft 版本号解析、加载器识别和版本比较
 
 ### 🧩 Modrinth 模组浏览与安装
 - 集成 [Modrinth](https://modrinth.com/) API，在线搜索和安装模组
