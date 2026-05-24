@@ -133,15 +133,16 @@ class OptionSelectDialog(ctk.CTkToplevel):
         self._callback = callback
         self._selected = None
 
-        self.title(title)
+        self.title("FMCL")
         self.configure(fg_color=COLORS["bg_dark"])
         try:
             self.grab_set()
         except Exception:
             pass
 
-        w = 500
-        h = min(60 * len(options) + 120, 500)
+        w = 520
+        h = self._calc_height(title, options)
+
         self.geometry(f"{w}x{h}")
         self.resizable(False, False)
 
@@ -156,8 +157,10 @@ class OptionSelectDialog(ctk.CTkToplevel):
         ctk.CTkLabel(
             main,
             text=title,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_primary"],
+            wraplength=480,
+            justify=ctk.LEFT,
         ).pack(anchor=ctk.W, pady=(0, 15))
 
         for opt in options:
@@ -173,6 +176,13 @@ class OptionSelectDialog(ctk.CTkToplevel):
                 command=lambda v=opt["value"]: self._on_select(v),
             )
             btn.pack(fill=ctk.X, pady=3)
+
+    @staticmethod
+    def _calc_height(title: str, options: List[Dict]) -> int:
+        chars_per_line = 37
+        line_height = 22
+        num_lines = max(1, (len(title) + chars_per_line - 1) // chars_per_line)
+        return max(320, num_lines * line_height + 60 * len(options) + 80)
 
     def _on_select(self, value: str):
         self._selected = value
