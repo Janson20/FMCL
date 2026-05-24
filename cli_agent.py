@@ -17,8 +17,7 @@ from config import config
 from secure_storage import encrypt_token
 from ui.agent.provider import AIProvider
 from ui.agent.tools import get_tool_definitions, get_system_prompt
-from ui.agent.engine import execute_tool, DANGEROUS_MARKER, execute_dangerous_command
-from ui.agent.xml_parser import ParsedResponse
+from ui.agent.engine import execute_tool, DANGEROUS_MARKER, ASK_USER_MARKER, execute_dangerous_command
 
 
 def _print(text: str = ""):
@@ -94,16 +93,16 @@ def _process_once(
     """执行一轮 Agent 循环，返回更新后的消息列表"""
     messages.append({"role": "user", "content": user_input})
 
-    max_iterations = 10
-    max_format_retries = 3
+    max_iterations = 50
+    max_empty_retries = 3
     iteration = 0
-    format_error_count = 0
+    empty_content_count = 0
 
     while iteration < max_iterations:
         iteration += 1
 
         try:
-            response_text = provider.chat(
+            response_msg = provider.chat(
                 messages=messages,
                 tools=get_tool_definitions(),
             )
@@ -111,94 +110,109 @@ def _process_once(
             _print_error(f"API 调用失败: {e}")
             break
 
-        if not response_text or not response_text.strip():
-            format_error_count += 1
-            if format_error_count >= max_format_retries:
+        tool_calls = response_msg.get("tool_calls", [])
+        content = response_msg.get("content", "")
+
+        if not content and not tool_calls:
+            empty_content_count += 1
+            if empty_content_count >= max_empty_retries:
                 _print_error("AI 多次返回空内容，请检查 Token 是否有效")
                 break
             messages.append({
                 "role": "user",
-                "content": "你返回了空内容，请按 XML 格式回复",
+                "content": "你返回了空内容，请继续",
             })
             continue
 
-        parsed = ParsedResponse.parse(response_text)
-        messages.append({"role": "assistant", "content": response_text})
+        empty_content_count = 0
 
-        if parsed.is_tool_call():
-            format_error_count = 0
-            tool_name = parsed.tool_name
-            tool_params = parsed.tool_params
+        messages.append(response_msg)
 
-            if not tool_name:
-                messages.append({
-                    "role": "user",
-                    "content": "你返回的 XML 格式不完整（缺少 <tool> 标签），请严格按格式重新回复",
-                })
-                continue
+        if content:
+            _print_assistant(content)
 
-            _print_tool(tool_name, tool_params)
-            result_text = execute_tool(tool_name, tool_params, callbacks)
+        if tool_calls:
+            for tc in tool_calls:
+                func = tc.get("function", {})
+                tool_name = func.get("name", "")
+                tool_call_id = tc.get("id", "")
 
-            if result_text.startswith(DANGEROUS_MARKER):
-                parts = result_text.split("|", 2)
-                exec_path = parts[1]
-                exec_command = parts[2]
-                if _confirm_dangerous_command(exec_path, exec_command):
-                    _print_system(f"用户确认执行高危命令: {exec_command}")
-                    result_text = execute_dangerous_command(exec_path, exec_command)
-                else:
-                    _print_system(f"用户取消了高危命令: {exec_command}")
-                    result_text = f"⚠️ 用户取消了命令执行\n路径: {exec_path}\n命令: {exec_command}"
-
-            _print_tool_result(result_text)
-            _print_divider()
-
-            messages.append({
-                "role": "user",
-                "content": f"工具 {tool_name} 执行结果:\n{result_text}",
-            })
-
-        elif parsed.is_await_choice():
-            format_error_count = 0
-            options = parsed.options
-            if options:
-                for i, opt in enumerate(options, 1):
-                    _print(f"  \033[96m{i}. {opt['label']}\033[0m")
-
+                import json as _json
                 try:
-                    choice = input("  请输入选项编号: ").strip()
-                    idx = int(choice) - 1
-                    if 0 <= idx < len(options):
-                        selected_value = options[idx]["value"]
-                        selected_label = options[idx]["label"]
-                        _print_user(f"选择了: {selected_label}")
-                        messages.append({"role": "user", "content": f"我选择: {selected_value}"})
-                        _print_divider()
-                        continue  # 将选择发送给 AI 并继续循环
-                    else:
-                        _print_error("无效选项")
-                        break
-                except (ValueError, EOFError, KeyboardInterrupt):
-                    _print()
-                    break
-            break
+                    tool_params = _json.loads(func.get("arguments", "{}"))
+                except (_json.JSONDecodeError, TypeError):
+                    tool_params = {}
 
-        elif parsed.is_complete():
-            if parsed.message:
-                _print_assistant(parsed.message)
-            _print_divider()
-            break
+                if not tool_name:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": "错误: 工具名为空",
+                    })
+                    continue
+
+                _print_tool(tool_name, tool_params)
+                result_text = execute_tool(tool_name, tool_params, callbacks)
+
+                if result_text.startswith(DANGEROUS_MARKER):
+                    parts = result_text.split("|", 2)
+                    exec_path = parts[1]
+                    exec_command = parts[2]
+                    if _confirm_dangerous_command(exec_path, exec_command):
+                        _print_system(f"用户确认执行高危命令: {exec_command}")
+                        result_text = execute_dangerous_command(exec_path, exec_command)
+                    else:
+                        _print_system(f"用户取消了高危命令: {exec_command}")
+                        result_text = f"⚠️ 用户取消了命令执行\n路径: {exec_path}\n命令: {exec_command}"
+
+                if result_text.startswith(ASK_USER_MARKER):
+                    parts = result_text.split("|", 2)
+                    question = parts[1]
+                    options_json = parts[2] if len(parts) > 2 else "[]"
+                    import json as _json2
+                    try:
+                        options = _json2.loads(options_json)
+                    except (_json2.JSONDecodeError, TypeError):
+                        options = []
+
+                    _print(f"\033[96m🤔 {question}\033[0m")
+                    if options:
+                        for i, opt in enumerate(options, 1):
+                            _print(f"  \033[96m{i}. {opt}\033[0m")
+
+                    try:
+                        reply = input("\033[92m> \033[0m").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        _print()
+                        reply = ""
+
+                    if options:
+                        try:
+                            idx = int(reply) - 1
+                            if 0 <= idx < len(options):
+                                reply = options[idx]
+                        except ValueError:
+                            pass
+
+                    if not reply:
+                        reply = "（用户未回复）"
+
+                    result_text = f"用户的回复: {reply}"
+
+                _print_tool_result(result_text)
+                _print_divider()
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": result_text,
+                })
+
+            continue
 
         else:
-            format_error_count += 1
-            if format_error_count >= max_format_retries:
-                _print_error("AI 未按格式回复，已停止")
-                break
-            messages.append({
-                "role": "user",
-                "content": "请严格按 XML 格式回复。需要调用工具时用 <action type=\"tool_call\"><tool>工具名</tool><params><parameter name=\"参数名\">参数值</parameter></params></action>，不需要调用工具时用 <action type=\"complete\" />",
-            })
+            _print_divider()
+            break
 
     return messages
 

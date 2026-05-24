@@ -99,6 +99,7 @@ DANGEROUS_PREFIXES = [
 ]
 
 DANGEROUS_MARKER = "__DANGEROUS__"
+ASK_USER_MARKER = "__ASK_USER__"
 
 TOOL_REGISTRY: Dict[str, str] = {
     "get_available_versions": "获取可用版本列表",
@@ -122,6 +123,7 @@ TOOL_REGISTRY: Dict[str, str] = {
     "list_version_resources": "列出版本资源",
     "exec_command": "执行终端命令",
     "get_launcher_path": "获取启动器路径",
+    "ask_user": "向用户提问",
 }
 
 
@@ -171,6 +173,8 @@ def execute_tool(tool_name: str, params: Dict[str, str], callbacks: Dict[str, Ca
         return _exec_command(params, callbacks)
     elif tool_name == "get_launcher_path":
         return _get_launcher_path()
+    elif tool_name == "ask_user":
+        return _ask_user(params)
     else:
         return f"错误: 未知工具 '{tool_name}'"
 
@@ -268,6 +272,16 @@ def _run_command(path: str, command: str) -> str:
 
 def _get_launcher_path() -> str:
     return f"启动器所在路径: {os.getcwd()}"
+
+
+def _ask_user(params: Dict[str, str]) -> str:
+    question = params.get("question", "").strip()
+    if not question:
+        return "错误: 缺少 question 参数"
+
+    options = params.get("options", None)
+    options_json = json.dumps(options, ensure_ascii=False) if options else "[]"
+    return f"{ASK_USER_MARKER}|{question}|{options_json}"
 
 
 def _get_installed_versions(callbacks: Dict[str, Callable]) -> str:

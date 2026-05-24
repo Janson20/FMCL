@@ -18,8 +18,8 @@ class AIProvider:
         self.api_url = api_url.rstrip("/")
         self.model = model
 
-    def chat(self, messages: List[Dict], tools: Optional[List[Dict]] = None, stream: bool = False) -> str:
-        """调用净读 AI 聊天补全 API"""
+    def chat(self, messages: List[Dict], tools: Optional[List[Dict]] = None, stream: bool = False) -> Dict:
+        """调用净读 AI 聊天补全 API，返回完整 message 字典（含 content 和 tool_calls）"""
         payload = {
             "model": self.model,
             "messages": messages,
@@ -43,8 +43,10 @@ class AIProvider:
             with urllib.request.urlopen(req, timeout=120) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
 
-            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-            return content
+            message = result.get("choices", [{}])[0].get("message", {})
+            if not message:
+                message = {"role": "assistant", "content": ""}
+            return message
 
         except urllib.error.HTTPError as e:
             body = ""

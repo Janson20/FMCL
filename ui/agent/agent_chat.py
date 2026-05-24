@@ -12,8 +12,7 @@ from ui.dialogs import show_notification
 from ui.i18n import _
 from ui.agent.provider import AIProvider
 from ui.agent.tools import get_tool_definitions, get_system_prompt
-from ui.agent.engine import execute_tool, DANGEROUS_MARKER, execute_dangerous_command
-from ui.agent.xml_parser import ParsedResponse
+from ui.agent.engine import execute_tool, DANGEROUS_MARKER, ASK_USER_MARKER, execute_dangerous_command
 from ui.dialogs import show_confirmation
 
 
@@ -25,6 +24,105 @@ def _trigger_agent_ach(achievement_id: str, value: int = 1):
             engine.update_progress(achievement_id, value=value)
     except Exception:
         pass
+
+
+class TextInputDialog(ctk.CTkToplevel):
+    """文本输入弹窗"""
+
+    def __init__(self, parent, title: str, question: str, callback: Callable[[str], None]):
+        super().__init__(parent)
+        self._callback = callback
+
+        self.title(title)
+        self.configure(fg_color=COLORS["bg_dark"])
+        try:
+            self.grab_set()
+        except Exception:
+            pass
+
+        w = 520
+        h = self._calc_height(question)
+
+        self.geometry(f"{w}x{h}")
+        self.resizable(False, False)
+
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - w) // 2
+        y = (self.winfo_screenheight() - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+        main = ctk.CTkFrame(self, fg_color="transparent")
+        main.pack(fill=ctk.BOTH, expand=True, padx=20, pady=20)
+
+        ctk.CTkLabel(
+            main,
+            text=question,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14),
+            text_color=COLORS["text_primary"],
+            wraplength=460,
+            justify=ctk.LEFT,
+        ).pack(anchor=ctk.W, pady=(0, 12))
+
+        self._entry = ctk.CTkEntry(
+            main,
+            height=38,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=COLORS["bg_medium"],
+            border_color=COLORS["card_border"],
+        )
+        self._entry.pack(fill=ctk.X, pady=(0, 15))
+        self._entry.focus_set()
+        self._entry.bind("<Return>", lambda e: self._on_confirm())
+
+        btn_frame = ctk.CTkFrame(main, fg_color="transparent")
+        btn_frame.pack(fill=ctk.X)
+
+        ctk.CTkButton(
+            btn_frame,
+            text=_("agent_cancel"),
+            width=80,
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_medium"],
+            hover_color=COLORS["bg_light"],
+            text_color=COLORS["text_primary"],
+            command=self._on_cancel,
+        ).pack(side=ctk.LEFT)
+
+        ctk.CTkButton(
+            btn_frame,
+            text=_("agent_send"),
+            width=80,
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._on_confirm,
+        ).pack(side=ctk.RIGHT)
+
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+    @staticmethod
+    def _calc_height(text: str) -> int:
+        chars_per_line = 33
+        line_height = 22
+        num_lines = max(1, (len(text) + chars_per_line - 1) // chars_per_line)
+        return max(240, num_lines * line_height + 170)
+
+    def _on_confirm(self):
+        value = self._entry.get().strip()
+        if not value:
+            return
+        self.grab_release()
+        self.destroy()
+        if self._callback:
+            self._callback(value)
+
+    def _on_cancel(self):
+        self.grab_release()
+        self.destroy()
+        if self._callback:
+            self._callback("")
 
 
 class OptionSelectDialog(ctk.CTkToplevel):
@@ -95,6 +193,7 @@ class AgentChatView(ctk.CTkFrame):
         self._messages: List[Dict] = []
         self._running = False
         self._pending_dangerous = None
+        self._pending_ask_user = None
 
         self._init_messages()
         self._build_ui()
@@ -301,10 +400,30 @@ class AgentChatView(ctk.CTkFrame):
         self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
 
+    def _on_ask_user_response(self, response: str):
+        if not self._pending_ask_user:
+            return
+        question, tool_call_id = self._pending_ask_user
+        self._pending_ask_user = None
+
+        logger.info(f"[Agent] 用户回复问题: 问题='{question}', 回复='{response}'")
+        self._append_message("user", _("agent_choose_option", value=response))
+        self._append_divider()
+
+        self._messages.append({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": f"用户的回复: {response}",
+        })
+        logger.info("[Agent] 用户回复已追加，继续下一轮迭代")
+
+        self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
+        threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
+
     def _on_dangerous_command_confirmed(self, confirmed: bool):
         if not self._pending_dangerous:
             return
-        exec_path, exec_command = self._pending_dangerous
+        exec_path, exec_command, tool_call_id = self._pending_dangerous
         self._pending_dangerous = None
 
         if confirmed:
@@ -319,8 +438,9 @@ class AgentChatView(ctk.CTkFrame):
 
         self._append_message("tool", result_text[:500], tag=_("agent_tool_result"))
         self._messages.append({
-            "role": "user",
-            "content": f"工具 exec_command 执行结果:\n{result_text}",
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": result_text,
         })
         logger.info("[Agent] 工具结果已追加到消息列表，继续下一轮迭代")
 
@@ -328,10 +448,10 @@ class AgentChatView(ctk.CTkFrame):
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
 
     def _process_ai_loop(self):
-        max_iterations = 10
-        max_format_retries = 3
+        max_iterations = 50
+        max_empty_retries = 3
         iteration = 0
-        format_error_count = 0
+        empty_content_count = 0
         logger.info("[Agent] === AI 处理循环开始 ===")
 
         try:
@@ -342,136 +462,127 @@ class AgentChatView(ctk.CTkFrame):
                 logger.info(f"[Agent] --- 迭代 {iteration}/{max_iterations} ---")
                 logger.info(f"[Agent] 发送消息数: {len(self._messages)}")
 
-                response_text = self._provider.chat(
-                    messages=self._messages,
-                    tools=get_tool_definitions(),
-                )
+                try:
+                    response_msg = self._provider.chat(
+                        messages=self._messages,
+                        tools=get_tool_definitions(),
+                    )
+                except Exception as e:
+                    logger.error(f"[Agent] API 调用失败: {e}", exc_info=True)
+                    self.after(0, lambda err=str(e): self._append_message(
+                        "system", _("agent_processing_error", error=err)
+                    ))
+                    break
 
-                logger.info(f"[Agent] API 返回原始内容 (长度={len(response_text)}):")
-                logger.info(f"[Agent] API 原始回复前200字: {response_text[:200]}")
+                logger.info(f"[Agent] API 返回 message keys: {list(response_msg.keys())}")
+                logger.info(f"[Agent] content 前200字: {(response_msg.get('content', '') or '')[:200]}")
+                logger.info(f"[Agent] tool_calls 数量: {len(response_msg.get('tool_calls', []))}")
 
-                if not response_text or not response_text.strip():
-                    format_error_count += 1
-                    logger.warning(f"[Agent] API 返回空内容 ({format_error_count}/{max_format_retries})")
-                    if format_error_count >= max_format_retries:
+                tool_calls = response_msg.get("tool_calls", [])
+                content = response_msg.get("content", "")
+
+                if not content and not tool_calls:
+                    empty_content_count += 1
+                    logger.warning(f"[Agent] API 返回空内容 ({empty_content_count}/{max_empty_retries})")
+                    if empty_content_count >= max_empty_retries:
                         self.after(0, lambda: self._append_message(
                             "system", "AI 多次返回空内容，请检查 Token 是否有效或模型是否支持 function calling"
                         ))
                         break
                     self._messages.append({
                         "role": "user",
-                        "content": "你返回了空内容，请按 XML 格式回复",
+                        "content": "你返回了空内容，请继续",
                     })
                     continue
 
-                parsed = ParsedResponse.parse(response_text)
-                logger.info(f"[Agent] 解析结果: action_type={parsed.action_type}, "
-                            f"tool_name={parsed.tool_name}, "
-                            f"has_message={bool(parsed.message)}, "
-                            f"options_count={len(parsed.options)}")
-                logger.info(f"[Agent] 解析 thinking: {parsed.thinking}")
-                logger.info(f"[Agent] 解析 message: {parsed.message}")
+                empty_content_count = 0
 
-                self._messages.append({"role": "assistant", "content": response_text})
+                self._messages.append(response_msg)
 
-                if parsed.message:
-                    msg_text = parsed.message
-                    self.after(0, lambda t=msg_text: self._append_message("assistant", t))
+                if content:
+                    self.after(0, lambda t=content: self._append_message("assistant", t))
                 else:
-                    logger.info("[Agent] message 为空，不追加 assistant 消息")
+                    logger.info("[Agent] content 为空，不追加 assistant 消息")
 
-                if parsed.is_tool_call():
-                    format_error_count = 0
-                    tool_name = parsed.tool_name
-                    tool_params = parsed.tool_params
-                    logger.info(f"[Agent] 工具调用: {tool_name}, 参数: {tool_params}")
-                    if not tool_params and tool_name == "exec_command":
-                        logger.warning(f"[Agent] exec_command 参数为空, 原始回复: {response_text[:500]}")
+                if tool_calls:
+                    logger.info(f"[Agent] 模型请求调用 {len(tool_calls)} 个工具")
+                    for tc in tool_calls:
+                        func = tc.get("function", {})
+                        tool_name = func.get("name", "")
+                        tool_call_id = tc.get("id", "")
 
-                    if not tool_name:
-                        logger.warning("[Agent] tool_name 为空，跳过工具执行")
-                        self.after(0, lambda: self._append_message(
-                            "system", "AI 返回的 XML 格式不完整，已通知 AI 重新生成"
+                        try:
+                            tool_params = json.loads(func.get("arguments", "{}"))
+                        except (json.JSONDecodeError, TypeError):
+                            logger.warning(f"[Agent] 工具参数 JSON 解析失败: {func.get('arguments', '')[:200]}")
+                            tool_params = {}
+
+                        logger.info(f"[Agent] 工具调用: {tool_name}, 参数: {tool_params}")
+
+                        self.after(0, lambda n=tool_name, p=tool_params: self._append_message(
+                            "tool", _("agent_tool_call", name=n) + "\n" + _("agent_tool_params", params=json.dumps(p, ensure_ascii=False))
                         ))
+
+                        result_text = execute_tool(tool_name, tool_params, self._callbacks)
+                        logger.info(f"[Agent] 工具执行结果 (前300字): {result_text[:300]}")
+
+                        if result_text.startswith(DANGEROUS_MARKER):
+                            parts = result_text.split("|", 2)
+                            exec_path = parts[1]
+                            exec_command = parts[2]
+                            self._pending_dangerous = (exec_path, exec_command, tool_call_id)
+                            logger.info(f"[Agent] 需要用户确认高危命令: {exec_command}")
+
+                            def _make_danger_dialog(ep, ec):
+                                def _show():
+                                    if not self._pending_dangerous:
+                                        return
+                                    dp, dc, _ = self._pending_dangerous
+                                    confirmed = show_confirmation(
+                                        _("agent_exec_dangerous_warning", command=dc, path=dp),
+                                        title=_("agent_exec_dangerous_title"),
+                                    )
+                                    self.after(0, lambda c=confirmed: self._on_dangerous_command_confirmed(c))
+                                return _show
+
+                            self.after(0, _make_danger_dialog(exec_path, exec_command))
+                            logger.info("[Agent] 高危命令等待用户确认，退出循环")
+                            return
+
+                        if result_text.startswith(ASK_USER_MARKER):
+                            parts = result_text.split("|", 2)
+                            question = parts[1]
+                            options_json = parts[2] if len(parts) > 2 else "[]"
+                            try:
+                                options = json.loads(options_json)
+                            except (json.JSONDecodeError, TypeError):
+                                options = []
+                            self._pending_ask_user = (question, tool_call_id)
+                            logger.info(f"[Agent] AI 向用户提问: '{question}', 选项数: {len(options)}")
+
+                            self.after(0, lambda q=question, opts=options: self._show_ask_user_dialog(q, opts))
+                            logger.info("[Agent] ask_user 等待用户回复，退出循环")
+                            return
+
+                        self.after(0, lambda r=result_text[:500]: self._append_message(
+                            "tool", r, tag=_("agent_tool_result")
+                        ))
+
                         self._messages.append({
-                            "role": "user",
-                            "content": "你返回的 XML 格式不完整（缺少 <tool> 标签中内容），请严格按格式重新回复",
+                            "role": "tool",
+                            "tool_call_id": tool_call_id,
+                            "content": result_text,
                         })
-                        continue
 
-                    self.after(0, lambda n=tool_name, p=tool_params: self._append_message(
-                        "tool", _("agent_tool_call", name=n) + "\n" + _("agent_tool_params", params=json.dumps(p, ensure_ascii=False))
-                    ))
-
-                    result_text = execute_tool(tool_name, tool_params, self._callbacks)
-                    logger.info(f"[Agent] 工具执行结果 (前300字): {result_text[:300]}")
-
-                    if result_text.startswith(DANGEROUS_MARKER):
-                        parts = result_text.split("|", 2)
-                        exec_path = parts[1]
-                        exec_command = parts[2]
-                        self._pending_dangerous = (exec_path, exec_command)
-                        logger.info(f"[Agent] 需要用户确认高危命令: {exec_command}")
-
-                        def _show_danger_dialog():
-                            if not self._pending_dangerous:
-                                return
-                            dp, dc = self._pending_dangerous
-                            confirmed = show_confirmation(
-                                _("agent_exec_dangerous_warning",
-                                  command=dc,
-                                  path=dp),
-                                title=_("agent_exec_dangerous_title"),
-                            )
-                            self.after(0, lambda c=confirmed: self._on_dangerous_command_confirmed(c))
-
-                        self.after(0, _show_danger_dialog)
-                        return
-
-                    self.after(0, lambda r=result_text[:500]: self._append_message(
-                        "tool", r, tag=_("agent_tool_result")
-                    ))
-
-                    self._messages.append({
-                        "role": "user",
-                        "content": f"工具 {tool_name} 执行结果:\n{result_text}",
-                    })
                     logger.info("[Agent] 工具结果已追加到消息列表，继续下一轮迭代")
+                    continue
 
-                elif parsed.is_await_choice():
-                    format_error_count = 0
-                    options = parsed.options
-                    logger.info(f"[Agent] 等待用户选择: {options}")
-                    if options:
-                        msg = parsed.message or _("agent_choose")
-                        self.after(0, lambda m=msg, opts=options: self._show_choice_dialog(m, opts))
-                    else:
-                        logger.warning("[Agent] await_choice 但 options 为空")
-                    return
-
-                elif parsed.is_complete():
-                    format_error_count = 0
-                    logger.info("[Agent] 任务完成")
+                else:
+                    logger.info("[Agent] 任务完成（无工具调用）")
                     self.after(0, self._append_divider)
                     show_notification("🤖", _("notify_ai_task_done"), "", notify_type="success")
                     _trigger_agent_ach("agent_nlp_master")
                     break
-
-                else:
-                    format_error_count += 1
-                    logger.warning(f"[Agent] 无有效 action ({format_error_count}/{max_format_retries})，重试")
-                    if format_error_count >= max_format_retries:
-                        logger.warning("[Agent] 格式错误已达上限，结束")
-                        self.after(0, lambda: self._append_message(
-                            "system", "AI 未按格式回复，已停止。请重试或检查 Token 是否有效"
-                        ))
-                        self.after(0, self._append_divider)
-                        break
-                    self._messages.append({
-                        "role": "user",
-                        "content": "请严格按 XML 格式回复。需要调用工具时用 <action type=\"tool_call\"><tool>工具名</tool><params><parameter name=\"参数名\">参数值</parameter></params></action>，不需要调用工具时用 <action type=\"complete\" />",
-                    })
-                    continue
 
         except Exception as e:
             logger.error(f"[Agent] 处理循环异常: {e}", exc_info=True)
@@ -492,6 +603,27 @@ class AgentChatView(ctk.CTkFrame):
             options=options,
             callback=self._on_choice_selected,
         )
+
+    def _show_ask_user_dialog(self, question: str, options: List[str]):
+        if not self._pending_ask_user:
+            return
+        if options:
+            opts = [{"value": o, "label": o} for o in options]
+            logger.info(f"[Agent] 显示 ask_user 选择对话框: 选项数={len(options)}")
+            OptionSelectDialog(
+                self.winfo_toplevel(),
+                title=question,
+                options=opts,
+                callback=self._on_ask_user_response,
+            )
+        else:
+            logger.info(f"[Agent] 显示 ask_user 文本输入对话框")
+            TextInputDialog(
+                self.winfo_toplevel(),
+                title=_("agent_choose"),
+                question=question,
+                callback=self._on_ask_user_response,
+            )
 
     def _reset_send_button(self):
         logger.info("[Agent] 重置发送按钮状态")

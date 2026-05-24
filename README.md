@@ -731,11 +731,11 @@ FMCL/
 │   ├── agent/             # AGENT 智能助手模块（包）
 │   │   ├── __init__.py    # 模块导出
 │   │   ├── agent_mixin.py # AgentMixin - AGENT 标签页集成
-│   │   ├── agent_chat.py  # 聊天 UI 组件 + 选项弹窗
-│   │   ├── provider.py    # AI API 调用封装（OpenAI 兼容）
-│   │   ├── tools.py       # Tool 定义 + 系统提示词
-│   │   ├── engine.py      # Tool 执行引擎
-│   │   └── xml_parser.py  # XML 响应解析器
+│   │   ├── agent_chat.py  # 聊天 UI 组件 + 选项弹窗（原生 Function Calling，最大 50 轮）
+│   │   ├── provider.py    # AI API 调用封装（OpenAI 兼容，返回完整 message 含 tool_calls）
+│   │   ├── tools.py       # Tool 定义（Function Calling 格式） + 系统提示词
+│   │   ├── engine.py      # Tool 执行引擎（含高危命令检测 ASK_USER_MARKER）
+│   │   └── xml_parser.py  # XML 响应解析器（已弃用，保留用于测试兼容）
 │   ├── constants.py       # 颜色主题、字体检测、资源类型配置
 │   ├── theme_engine.py    # 动态主题引擎（主题加载/切换/导入、版本动态调色、预设主题）
 │   ├── dialogs.py         # 通用对话框（确认/提示）、版本选择对话框

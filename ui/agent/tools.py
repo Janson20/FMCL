@@ -416,6 +416,28 @@ def get_tool_definitions() -> List[Dict]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "ask_user",
+                "description": "向用户提问，等待用户回复后继续。当遇到多个可能的选项或需要用户确认/补充信息时使用",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                            "description": "向用户提出的问题，应该清晰具体",
+                        },
+                        "options": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "可选的候选项列表，如 [\"选项A\", \"选项B\"]。如果不提供则用户自由输入",
+                        },
+                    },
+                    "required": ["question"],
+                },
+            },
+        },
     ]
 
 
@@ -461,14 +483,19 @@ def get_system_prompt() -> str:
 - exec_command: 在指定路径下执行终端命令。需要提供 path（工作目录）和 command（命令）。path 不填则在启动器所在目录执行。注意：高危命令（如 rm -rf、dd、shutdown、DROP TABLE 等）需要用户确认后执行
 - get_launcher_path: 获取启动器所在的目录路径，用于 exec_command 的 path 参数参考
 
+### 用户交互
+- ask_user: 向用户提问。当需要用户选择、确认或补充信息时调用。参数 question（必填）为问题文本，options（可选）为候选项列表。调用后等待用户回复，然后将回复作为对话上下文继续
+
 ## 工作流程
 1. 分析用户需求，确定需要调用哪些工具
 2. 按顺序调用工具，每次调用后分析结果
 3. 如果信息不足，继续调用相关工具获取
-4. 当需要用户选择时，给出清晰选项
+4. 当需要用户选择时，给出清晰选项并等待用户回复
 
 ## 重要规则
-- 输出必须严格使用 XML 格式，无额外内容
+- 你可以直接使用函数调用（Function Calling）来调用工具，无需使用 XML 格式
+- 当任务完成时，直接回复用户，不要调用任何工具
+- **需要向用户提问、让用户选择或等待用户回复时，必须调用 ask_user 工具，严禁在纯文本中提问后结束**
 - 安装模组前必须先获取已安装版本列表确认版本存在
 - 搜索模组时建议指定游戏版本和加载器以获得更准确结果，不填 query 则返回热门模组
 - 搜索整合包时不填 query 则返回热门整合包
@@ -487,43 +514,9 @@ def get_system_prompt() -> str:
 - 每次只调用一个工具，等待结果后再决定下一步
 - 用友好、热情的语气回复
 
-## 输出格式（必须 **严格使用** 以下 XML 格式，无额外内容）
-
-如果调用工具：
-<response>
-  <thinking>为什么要调用这个工具</thinking>
-  <message>告知用户正在做什么</message>
-  <action type="tool_call">
-    <tool>工具名称</tool>
-    <params>
-      <parameter name="参数名">参数值</parameter>
-    </params>
-  </action>
-</response>
-
-如果需要用户选择：
-<response>
-  <thinking>分析需要用户选择的选项</thinking>
-  <message>请用户做出选择</message>
-  <action type="await_choice">
-    <options>
-      <option value="选项值1">选项显示文本1</option>
-      <option value="选项值2">选项显示文本2</option>
-    </options>
-  </action>
-</response>
-
-完成后：
-<response>
-  <thinking>总结完成的操作</thinking>
-  <message>告知用户操作已完成</message>
-  <action type="complete" />
-</response>
-
 ## 参数说明
-- <parameter> 标签的 name 属性和内容必须与工具定义的参数名完全一致
+- 所有工具参数必须与工具定义中的参数名完全一致
 - 例如 install_version 需要 version_id 和 mod_loader 两个参数
-- 如果某个参数不需要，也必须提供该标签，内容为空
 - install_mod 的 version_id 是纯 Minecraft 版本号（如 1.20.1、26.1.2），不是完整版本ID
 - install_mod 需要 mod_loader 参数来指定加载器（fabric/forge/neoforge）
 - 安装模组前必须先用 get_installed_versions 确认版本已安装
