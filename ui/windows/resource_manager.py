@@ -1380,10 +1380,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             import threading as _threading
 
             try:
-                from modrinth import (
-                    get_latest_version_by_slug,
-                    compare_mod_versions,
-                )
+                from modrinth import compare_mod_versions
+                from curseforge import check_update_dual_source
 
                 lock = _threading.Lock()
                 checked = [0]
@@ -1395,34 +1393,26 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                     current_version = mod.get("version", "")
 
                     try:
-                        # 优化：使用 slug 直连版本 API，免去 project 查询
-                        result = get_latest_version_by_slug(
-                            slug=modid,
+                        # 双源检查（Modrinth + CurseForge），取最新版本
+                        update = check_update_dual_source(
+                            modid=modid,
+                            mod_name=mod.get("name", modid),
+                            current_version=current_version,
                             game_version=game_version,
                             mod_loader=mod_loader,
                         )
-                        if not result:
+                        if not update:
                             return None
 
-                        project_id, latest = result
-                        latest_version = latest.get("version_number", "")
-                        if not latest_version:
-                            return None
-
-                        cmp_result = compare_mod_versions(current_version, latest_version)
-                        if cmp_result is None:
-                            return None
-
-                        if cmp_result < 0:
-                            return {
-                                "modid": modid,
-                                "project_id": project_id,
-                                "latest_version": latest_version,
-                                "current_version": current_version,
-                                "mod_name": mod.get("name", modid),
-                                "mod_path": mod.get("path", ""),
-                            }
-                        return None
+                        return {
+                            "modid": modid,
+                            "project_id": update["project_id"],
+                            "source": update.get("source", "modrinth"),
+                            "latest_version": update["latest_version"],
+                            "current_version": update["current_version"],
+                            "mod_name": mod.get("name", modid),
+                            "mod_path": mod.get("path", ""),
+                        }
                     except Exception as e:
                         logger.debug(f"检查模组更新失败 ({modid}): {e}")
                         return None

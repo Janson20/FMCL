@@ -292,8 +292,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
         try:
             if tab_key == self.TAB_MODS:
-                from modrinth import search_mods
-                result = search_mods(
+                from curseforge import unified_search_mods
+                result = unified_search_mods(
                     query=state["current_query"],
                     game_version=self._game_version,
                     mod_loader=self._mod_loader,
@@ -301,16 +301,16 @@ class ModBrowserWindow(ctk.CTkToplevel):
                     limit=self.PAGE_SIZE,
                 )
             elif tab_key == self.TAB_RESOURCE_PACKS:
-                from modrinth import search_resource_packs
-                result = search_resource_packs(
+                from curseforge import unified_search_resource_packs
+                result = unified_search_resource_packs(
                     query=state["current_query"],
                     game_version=self._game_version,
                     offset=state["current_offset"],
                     limit=self.PAGE_SIZE,
                 )
             elif tab_key == self.TAB_SHADERS:
-                from modrinth import search_shaders
-                result = search_shaders(
+                from curseforge import unified_search_shaders
+                result = unified_search_shaders(
                     query=state["current_query"],
                     game_version=self._game_version,
                     offset=state["current_offset"],
@@ -321,6 +321,9 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
             hits = result.get("hits", [])
             state["total_hits"] = result.get("total_hits", 0)
+            # 保存来源统计用于显示
+            sources = result.get("sources", {})
+            state["_sources"] = sources
 
             self.after(0, lambda: self._render_tab_results(tab_key, hits))
 
@@ -508,7 +511,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
         }
 
         if tab_key == self.TAB_MODS:
-            btn_cmd = lambda pid=project_id, t=title: self._on_install_mod(pid, t)
+            src = item.get("source", "modrinth")
+            btn_cmd = lambda pid=project_id, t=title, s=src: self._on_install_mod(pid, t, s)
         elif tab_key == self.TAB_RESOURCE_PACKS:
             btn_cmd = lambda pid=project_id, t=title: self._on_install_resource_pack(pid, t)
         elif tab_key == self.TAB_SHADERS:
@@ -621,13 +625,11 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._render_tab_results(tab_key, page)
         self._update_tab_pagination(tab_key)
 
-    def _on_install_mod(self, project_id: str, title: str):
+    def _on_install_mod(self, project_id: str, title: str, source: str = "modrinth"):
         self._set_tab_status(self.TAB_MODS, _("mod_browser_fetching_version", title=title))
-        self._run_in_thread(lambda: self._install_mod(project_id, title))
+        self._run_in_thread(lambda: self._install_mod(project_id, title, source))
 
-    def _install_mod(self, project_id: str, title: str):
-        from modrinth import install_mod_with_deps
-
+    def _install_mod(self, project_id: str, title: str, source: str = "modrinth"):
         try:
             if not self._game_version or not self._mod_loader:
                 self.after(0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_unknown_loader")))
@@ -635,42 +637,45 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
             mods_dir = self._get_mods_dir()
 
-            success, result, installed_names = install_mod_with_deps(
-                project_id,
-                game_version=self._game_version,
-                mod_loader=self._mod_loader,
-                mods_dir=mods_dir,
-                status_callback=lambda msg: self.after(0, lambda: self._set_tab_status(self.TAB_MODS, msg)),
-            )
+            if source == "curseforge":
+                from curseforge import install_mod as cf_install
+                success, result = cf_install(
+                    int(project_id),
+                    game_version=self._game_version,
+                    mod_loader=self._mod_loader,
+                    mods_dir=mods_dir,
+                )
+                installed_names = [title] if success else []
+            else:
+                from modrinth import install_mod_with_deps
+                success, result, installed_names = install_mod_with_deps(
+                    project_id,
+                    game_version=self._game_version,
+                    mod_loader=self._mod_loader,
+                    mods_dir=mods_dir,
+                    status_callback=lambda msg: self.after(0, lambda: self._set_tab_status(self.TAB_MODS, msg)),
+                )
 
             if success:
                 if len(installed_names) > 1:
                     deps = ", ".join(installed_names[:-1])
-                    self.after(
-                        0,
-                        lambda: self._set_tab_status(
-                            self.TAB_MODS,
-                            _("mod_browser_install_success_deps", title=title, deps=deps),
-                        ),
-                    )
+                    self.after(0, lambda: self._set_tab_status(
+                        self.TAB_MODS, _("mod_browser_install_success_deps", title=title, deps=deps)))
                     _trigger_ach("modder_dependency_expert")
                 else:
-                    self.after(
-                        0,
-                        lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_install_success", title=title)),
-                    )
+                    self.after(0, lambda: self._set_tab_status(
+                        self.TAB_MODS, _("mod_browser_install_success", title=title)))
                 _trigger_ach("modder_first_mod", value=len(installed_names))
                 logger.info(f"模组安装成功: {installed_names} -> {result}")
             else:
-                self.after(0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_install_failed", error=result)))
+                self.after(0, lambda: self._set_tab_status(
+                    self.TAB_MODS, _("mod_browser_install_failed", error=result)))
                 logger.error(f"模组安装失败: {result}")
 
         except Exception as e:
             error_msg = str(e)
-            self.after(
-                0,
-                lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_install_error", error=error_msg)),
-            )
+            self.after(0, lambda: self._set_tab_status(
+                self.TAB_MODS, _("mod_browser_install_error", error=error_msg)))
             logger.error(f"安装模组失败: {e}")
 
     def _on_install_resource_pack(self, project_id: str, title: str):

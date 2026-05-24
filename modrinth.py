@@ -2056,10 +2056,10 @@ def ai_expand_search_keywords(query: str, token: str) -> List[str]:
 
     try:
         provider = AIProvider(api_key=token)
-        response = provider.chat([
+        response_dict = provider.chat([
             {"role": "user", "content": prompt}
         ])
-        response = response.strip()
+        response = (response_dict.get("content") or "").strip()
 
         if response.startswith("```"):
             lines = response.split("\n")

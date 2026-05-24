@@ -624,28 +624,25 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         self._run_in_thread(self._do_check_updates, mods_with_modid, game_version, mod_loader)
 
     def _do_check_updates(self, mods_with_modid: List[Dict], game_version: str, mod_loader: Optional[str]):
-        from modrinth import get_latest_version_by_slug, compare_mod_versions
+        from curseforge import check_update_dual_source
 
         for i, mod in enumerate(mods_with_modid):
             modid = mod.get("modid", "")
             try:
-                result = get_latest_version_by_slug(
-                    slug=modid,
+                update = check_update_dual_source(
+                    modid=modid,
+                    mod_name=mod.get("name", ""),
+                    current_version=mod.get("version", ""),
                     game_version=game_version,
                     mod_loader=mod_loader,
                 )
-                if result:
-                    _, latest = result
-                    latest_version = latest.get("version_number", "")
-                    current_version = mod.get("version", "")
-                    if current_version and latest_version:
-                        cmp = compare_mod_versions(current_version, latest_version)
-                        if cmp is not None and cmp < 0:
-                            self._update_info[modid] = {
-                                "latest_version": latest_version,
-                                "project_id": modid,
-                                "title": mod.get("name", ""),
-                            }
+                if update:
+                    self._update_info[modid] = {
+                        "latest_version": update["latest_version"],
+                        "project_id": update["project_id"],
+                        "source": update.get("source", "modrinth"),
+                        "title": mod.get("name", ""),
+                    }
             except Exception as e:
                 logger.debug(f"检查模组 {modid} 更新失败: {e}")
             progress = i + 1

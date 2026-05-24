@@ -46,6 +46,7 @@
 - **新版本格式支持**：NeoForge 安装器已适配 Minecraft 2026 年起的新版本命名规则 `YY.D.H`（如 `26.1`、`26.1.1`），兼容旧版 `1.X.Y` 格式
 - **版本匹配优化**：基于 PCL-CE 的 `RegexPatterns` 重构了版本号正则匹配，集中化管理于 `version_utils.py` 模块，统一处理 Minecraft 版本号解析、加载器识别和版本比较
 - **模组更新检测优化**：基于 PCL-CE 的 SemVer 比较策略重写了 `compare_mod_versions`，正确支持 pre-release 版本判断（beta/alpha/snapshot）；`get_project_latest_version` 增加多策略回退（精确匹配→放宽 loader→最新版本）；更新检查 API 调用次数减半（slug 直连免去 project 查询）
+- **CurseForge 双源集成**：新增 `curseforge.py` 模块，支持 CurseForge 平台资源搜索与下载；默认双源（Modrinth + CurseForge）搜索，同名资源优先取高下载量平台；模组更新检测同步查询双源，取最新版本
 
 ### 🧩 Modrinth 模组浏览与安装
 - 集成 [Modrinth](https://modrinth.com/) API，在线搜索和安装模组
@@ -84,6 +85,14 @@
 - **分段进度显示**：实时显示整合包文件下载和原版安装的独立进度百分比及总进度条
 - 安装完成后自动刷新服务器列表，可直接启动
 - **多语言支持**：开服窗口界面文字跟随启动器语言设置切换
+
+### 🌐 CurseForge 支持（可选）
+如果需要同时搜索 CurseForge 平台的资源，需配置 API Key：
+
+1. 前往 [CurseForge Developer Portal](https://console.curseforge.com/) 创建应用
+2. 在系统环境变量中设置 `CURSEFORGE_API_KEY=your_key_here`
+3. 或在项目根目录 `.env` 文件中添加: `CURSEFORGE_API_KEY=your_key_here`
+4. 未配置 API Key 时，自动回退到仅 Modrinth 搜索
 
 ### 📦 资源管理
 - 支持模组、资源包、地图、光影四种资源类型
