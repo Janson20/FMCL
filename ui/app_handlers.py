@@ -698,16 +698,16 @@ class EventHandlerMixin(object):
             pass
         dialog.attributes('-topmost', True)
 
-        w, h = 640, 580
+        w, h = 640, 660
         dialog.geometry(f"{w}x{h}")
-        dialog.minsize(560, 480)
+        dialog.minsize(560, 540)
         dialog.update_idletasks()
         x = (dialog.winfo_screenwidth() - w) // 2
         y = (dialog.winfo_screenheight() - h) // 2
         dialog.geometry(f"+{x}+{y}")
 
         main_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        main_frame.pack(fill=ctk.BOTH, expand=True, padx=20, pady=20)
+        main_frame.pack(fill=ctk.BOTH, expand=True, padx=20, pady=(20, 0))
 
         title_label = ctk.CTkLabel(
             main_frame,
@@ -726,8 +726,11 @@ class EventHandlerMixin(object):
         hint_label.pack(anchor=ctk.W, pady=(0, 10))
 
         md_text = _load_terms_md()
-        html_frame = _build_terms_html_frame(main_frame, md_text)
-        html_frame.pack(fill=ctk.BOTH, expand=True, pady=(0, 10))
+        html_container = ctk.CTkFrame(main_frame, fg_color="transparent", height=430)
+        html_container.pack(fill=ctk.X, pady=(0, 0))
+        html_container.pack_propagate(False)
+        html_frame = _build_terms_html_frame(html_container, md_text)
+        html_frame.pack(fill=ctk.BOTH, expand=True)
 
         consent_var = ctk.BooleanVar(value=False)
 
@@ -737,8 +740,8 @@ class EventHandlerMixin(object):
                 fg_color=COLORS["accent"] if consent_var.get() else COLORS["bg_light"],
             )
 
-        bottom_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        bottom_frame.pack(fill=ctk.X, pady=(8, 0))
+        bottom_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        bottom_frame.pack(fill=ctk.X, side=ctk.BOTTOM, padx=20, pady=(0, 20))
 
         consent_cb = ctk.CTkCheckBox(
             bottom_frame,
@@ -751,7 +754,7 @@ class EventHandlerMixin(object):
             text_color=COLORS["text_secondary"],
             command=_on_checkbox_toggle,
         )
-        consent_cb.pack(side=ctk.LEFT)
+        consent_cb.pack(side=ctk.TOP, anchor=ctk.W, pady=(0, 8))
 
         def _on_confirm():
             if consent_var.get():
@@ -765,8 +768,11 @@ class EventHandlerMixin(object):
                 consent_cb.configure(text_color=COLORS["error"])
                 dialog.after(1500, lambda: consent_cb.configure(text_color=COLORS["text_secondary"]))
 
+        btn_row = ctk.CTkFrame(bottom_frame, fg_color="transparent")
+        btn_row.pack(fill=ctk.X)
+
         confirm_btn = ctk.CTkButton(
-            bottom_frame,
+            btn_row,
             text=_("confirm"),
             width=120,
             height=36,

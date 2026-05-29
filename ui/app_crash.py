@@ -741,7 +741,7 @@ class CrashHandlerMixin(object):
         except Exception:
             pass
 
-        w, h = 440, 320
+        w, h = 440, 340
         dialog.geometry(f"{w}x{h}")
         dialog.update_idletasks()
         x = (dialog.winfo_screenwidth() - w) // 2
@@ -770,8 +770,9 @@ class CrashHandlerMixin(object):
                                     variable=consent_var,
                                     font=(FONT_FAMILY, 10), fg='#a0a0b0', bg='#1a1a2e',
                                     selectcolor='#16213e', activebackground='#1a1a2e',
-                                    activeforeground='#ffffff')
-        consent_cb.place(x=pad, y=pad + 204)
+                                    activeforeground='#ffffff',
+                                    wraplength=w - 2 * pad - 30, justify='left')
+        consent_cb.place(x=pad, y=pad + 210)
 
         # 按钮区
         def _on_confirm():
