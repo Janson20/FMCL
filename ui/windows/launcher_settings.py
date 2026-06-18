@@ -1152,6 +1152,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self._account_info_frame.pack(fill=ctk.X, padx=12, pady=(0, 10))
         self.parent.set_status(_("netread_login_success"), "success")
         self.after(100, self._on_account_refresh)
+        if hasattr(self.parent, "_sync_agent_status"):
+            self.parent._sync_agent_status()
 
     def _jdz_login_fail(self, msg: str):
         if not self.winfo_exists():
@@ -1178,6 +1180,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.jdz_user_entry.delete(0, "end")
         self.jdz_pass_entry.delete(0, "end")
         self.parent.set_status(_("netread_logged_out"), "info")
+        if hasattr(self.parent, "_sync_agent_status"):
+            self.parent._sync_agent_status()
 
     def _on_account_refresh(self):
         if not self.winfo_exists():
