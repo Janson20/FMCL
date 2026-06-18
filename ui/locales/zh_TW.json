@@ -1045,5 +1045,25 @@
   "tool_fact_random": "🎲 隨機一條",
   "tool_fact_today": "今日知識",
   "tool_fact_random_title": "隨機知識",
-  "tool_fact_index": "第 {index} / {total} 條"
+  "tool_fact_index": "第 {index} / {total} 條",
+
+  "tool_quiz_title": "MC 知識問答",
+  "tool_quiz_desc": "AI 生成的 Minecraft 知識選擇題，測試你的 MC 知識水平（需登入淨讀 AI）",
+  "tool_quiz_not_logged_in": "⚠️ 未登入淨讀 AI，請前往右上角 ⚙ 設定 → 淨讀 AI 登入",
+  "tool_quiz_logged_in": "✅ 已登入",
+  "tool_quiz_generate": "🧠 產生題目",
+  "tool_quiz_generating": "⏳ AI 出題中...",
+  "tool_quiz_next": "➡ 下一題",
+  "tool_quiz_submit": "✅ 提交",
+  "tool_quiz_answer_placeholder": "輸入你的答案...",
+  "tool_quiz_correct": "✅ 正確！",
+  "tool_quiz_wrong": "❌ 錯誤！正確答案: {correct}",
+  "tool_quiz_remaining": "剩餘 {count} 題",
+  "tool_quiz_no_questions": "暫無題目，點擊「產生題目」開始答題",
+  "tool_quiz_login_hint": "請先登入淨讀 AI 帳號，然後點擊「產生題目」開始答題",
+  "tool_quiz_ai_thinking": "⏳ AI 正在產生題目，請稍候...",
+  "tool_quiz_generated": "✅ 已產生 {count} 道題目",
+  "tool_quiz_gen_error": "❌ 產生失敗: {error}",
+  "tool_quiz_auto_refilled": "✅ 已自動補充 {count} 道題目",
+  "tool_quiz_progress": "#{current}"
 }

@@ -11,7 +11,7 @@ import time
 from datetime import date
 from pathlib import Path
 from tkinter import filedialog
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 import customtkinter as ctk
@@ -71,6 +71,7 @@ class ToolsTabMixin(object):
         self._build_tool_hash_calculator(content)
         self._build_tool_port_checker(content)
         self._build_tool_minecraft_facts(content)
+        self._build_tool_minecraft_quiz(content)
         self._build_tool_multi_download(content)
 
     def _make_tool_card(self, parent, title: str, desc: str) -> ctk.CTkFrame:
@@ -170,17 +171,459 @@ class ToolsTabMixin(object):
                 self.after(0, _update_ui)
             except Exception as e:
                 logger.error(f"扫描垃圾文件失败: {e}")
+                _scan_err = str(e)
 
                 def _error_ui():
                     btn.configure(state=ctk.NORMAL, text=_("tool_clean_junk_scan"))
                     self._clean_junk_status.configure(
-                        text=_("tool_clean_junk_error", error=str(e)),
+                        text=_("tool_clean_junk_error", error=_scan_err),
                         text_color=COLORS["text_secondary"],
                     )
                     self._clean_junk_status.pack(anchor=ctk.W, padx=16, pady=(0, 8))
                 self.after(0, _error_ui)
 
         threading.Thread(target=_task, daemon=True).start()
+
+    # ═══════════ MC 知识问答 ═══════════
+
+    _QUIZ_SYSTEM_PROMPT = (
+        """你是一个 Minecraft 知识题库生成器。请生成 20 道 Minecraft 相关的选择题（4个选项）。"""
+        """\n输出严格 JSON 数组，每个元素为：\n"""
+        """{"id": 序号, "question": "问题", "options": ["A.选项1", "B.选项2", "C.选项3", "D.选项4"], "answer": "正确选项的完整文本（如 B.选项2）", "explanation": "简短解释"}\n"""
+        """要求：涵盖 MC 生物、方块、合成、红石、附魔、维度、版本历史、游戏机制等各个方面。"""
+    )
+
+    def _build_tool_minecraft_quiz(self, parent):
+        card = self._make_tool_card(parent, _("tool_quiz_title"), _("tool_quiz_desc"))
+
+        self._quiz_token_status = ctk.CTkLabel(
+            card,
+            text=_("tool_quiz_not_logged_in"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_secondary"],
+        )
+        self._quiz_token_status.pack(anchor=ctk.W, padx=16, pady=(0, 4))
+
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(fill=ctk.X, padx=16, pady=(0, 4))
+
+        self._quiz_gen_btn = ctk.CTkButton(
+            btn_row,
+            text=_("tool_quiz_generate"),
+            width=120,
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._on_quiz_generate,
+        )
+        self._quiz_gen_btn.pack(side=ctk.LEFT, padx=(0, 8))
+        self._quiz_gen_btn.configure(state=ctk.DISABLED)
+
+        self._quiz_next_btn = ctk.CTkButton(
+            btn_row,
+            text=_("tool_quiz_next"),
+            width=100,
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_quiz_next,
+        )
+        self._quiz_next_btn.pack(side=ctk.LEFT)
+
+        self._quiz_remaining_label = ctk.CTkLabel(
+            btn_row,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        )
+        self._quiz_remaining_label.pack(side=ctk.LEFT, padx=(15, 0))
+
+        self._quiz_content_frame = ctk.CTkFrame(card, fg_color="transparent")
+
+        self._quiz_questions = []
+        self._quiz_current_index = 0
+        self._quiz_answered = False
+        self._quiz_load_from_file()
+        self._quiz_update_remaining()
+        self.after(50, self._quiz_sync_token_status)
+
+    def _quiz_load_from_file(self):
+        path = self._get_quiz_path()
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    self._quiz_questions = data
+            except Exception:
+                self._quiz_questions = []
+
+    def _quiz_save_to_file(self):
+        path = self._get_quiz_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self._quiz_questions, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"保存 quiz.json 失败: {e}")
+
+    def _get_quiz_path(self) -> Path:
+        try:
+            if self.callbacks and "get_minecraft_dir" in self.callbacks:
+                base = Path(self.callbacks["get_minecraft_dir"]()).parent
+                return base / "quiz.json"
+        except Exception:
+            pass
+        return Path("quiz.json")
+
+    def _quiz_sync_token_status(self):
+        token = self._get_quiz_token()
+        if token:
+            self._quiz_token_status.configure(text=_("tool_quiz_logged_in"), text_color="#4caf50")
+            self._quiz_gen_btn.configure(state=ctk.NORMAL)
+            if self._quiz_questions:
+                self._quiz_show_current()
+            else:
+                self._quiz_show_empty()
+        else:
+            self._quiz_token_status.configure(text=_("tool_quiz_not_logged_in"), text_color=COLORS["text_secondary"])
+            self._quiz_gen_btn.configure(state=ctk.DISABLED)
+            self._quiz_show_login_hint()
+
+    def _get_quiz_token(self) -> str:
+        try:
+            if self.callbacks and "get_jdz_token" in self.callbacks:
+                return self.callbacks["get_jdz_token"]() or ""
+        except Exception:
+            pass
+        try:
+            from config import config
+            return config.jdz_token or ""
+        except Exception:
+            pass
+        return ""
+
+    def _quiz_show_login_hint(self):
+        for w in self._quiz_content_frame.winfo_children():
+            w.destroy()
+        self._quiz_content_frame.pack_forget()
+        self._quiz_content_frame.pack(fill=ctk.X, padx=16, pady=(4, 12))
+        ctk.CTkLabel(
+            self._quiz_content_frame,
+            text=_("tool_quiz_login_hint"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLORS["text_secondary"],
+            wraplength=550,
+            justify=ctk.LEFT,
+        ).pack(anchor=ctk.W, pady=10)
+
+    def _quiz_show_empty(self):
+        for w in self._quiz_content_frame.winfo_children():
+            w.destroy()
+        self._quiz_content_frame.pack_forget()
+        self._quiz_content_frame.pack(fill=ctk.X, padx=16, pady=(4, 12))
+        ctk.CTkLabel(
+            self._quiz_content_frame,
+            text=_("tool_quiz_no_questions"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor=ctk.W, pady=10)
+
+    def _quiz_update_remaining(self):
+        cnt = len(self._quiz_questions)
+        self._quiz_remaining_label.configure(text=_("tool_quiz_remaining", count=cnt))
+        if cnt <= 5 and self._get_quiz_token():
+            self._quiz_auto_refill()
+
+    def _quiz_auto_refill(self):
+        if getattr(self, "_quiz_refilling", False):
+            return
+        self._quiz_refilling = True
+
+        def _task():
+            try:
+                new_qs = self._quiz_call_ai_generate()
+                if new_qs:
+                    max_id = 0
+                    for q in self._quiz_questions:
+                        if isinstance(q.get("id"), int) and q["id"] > max_id:
+                            max_id = q["id"]
+                    reindexed = []
+                    for i, q in enumerate(new_qs):
+                        q["id"] = max_id + i + 1
+                        reindexed.append(q)
+                    self._quiz_questions.extend(reindexed)
+                    self._quiz_save_to_file()
+
+                    def _done():
+                        self._quiz_update_remaining()
+                        self.set_status(_("tool_quiz_auto_refilled", count=len(reindexed)), "success")
+                    self.after(0, _done)
+            except Exception as e:
+                logger.error(f"自动补充题目失败: {e}")
+            finally:
+                self._quiz_refilling = False
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _quiz_call_ai_generate(self) -> List[Dict]:
+        token = self._get_quiz_token()
+        if not token:
+            raise ValueError(_("tool_quiz_not_logged_in"))
+
+        from ui.agent.provider import AIProvider
+        provider = AIProvider(api_key=token)
+        messages = [
+            {"role": "system", "content": self._QUIZ_SYSTEM_PROMPT},
+            {"role": "user", "content": "请生成 20 道 Minecraft 知识选择题（JSON 格式）。"},
+        ]
+        resp = provider.chat(messages, stream=False)
+        content = resp.get("content", "")
+        if not content:
+            raise ValueError("AI 返回内容为空")
+
+        json_start = content.find("[")
+        json_end = content.rfind("]") + 1
+        if json_start == -1 or json_end <= json_start:
+            raise ValueError("AI 返回内容未包含有效的 JSON 数组")
+        raw = content[json_start:json_end]
+        questions = json.loads(raw)
+        if not isinstance(questions, list) or len(questions) == 0:
+            raise ValueError("AI 返回的 JSON 格式不正确")
+        return questions
+
+    def _quiz_show_current(self):
+        for w in self._quiz_content_frame.winfo_children():
+            w.destroy()
+        self._quiz_content_frame.pack_forget()
+
+        if not self._quiz_questions or self._quiz_current_index >= len(self._quiz_questions):
+            self._quiz_current_index = 0
+        if not self._quiz_questions:
+            self._quiz_show_empty()
+            return
+
+        self._quiz_content_frame.pack(fill=ctk.X, padx=16, pady=(4, 12))
+        self._quiz_answered = False
+
+        q = self._quiz_questions[self._quiz_current_index]
+
+        sep = ctk.CTkFrame(self._quiz_content_frame, fg_color=COLORS["card_border"], height=1)
+        sep.pack(fill=ctk.X, pady=(4, 8))
+
+        qid = q.get("id", self._quiz_current_index + 1)
+        total = len(self._quiz_questions)
+        ctk.CTkLabel(
+            self._quiz_content_frame,
+            text=_("tool_quiz_progress", current=qid),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor=ctk.W, pady=(0, 4))
+
+        ctk.CTkLabel(
+            self._quiz_content_frame,
+            text=q.get("question", ""),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+            text_color=COLORS["text_primary"],
+            wraplength=560,
+            justify=ctk.LEFT,
+        ).pack(anchor=ctk.W, pady=(0, 8))
+
+        options = q.get("options", [])
+        if options:
+            self._quiz_option_btns = []
+            opts_frame = ctk.CTkFrame(self._quiz_content_frame, fg_color="transparent")
+            opts_frame.pack(anchor=ctk.W, pady=(0, 8))
+            for i, opt in enumerate(options):
+                letter = chr(ord("A") + i)
+                btn = ctk.CTkButton(
+                    opts_frame,
+                    text=opt,
+                    width=500,
+                    height=34,
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                    fg_color=COLORS["bg_light"],
+                    hover_color=COLORS["card_border"],
+                    anchor=ctk.W,
+                    command=lambda idx=i: self._on_quiz_select(idx),
+                )
+                btn.pack(anchor=ctk.W, pady=2)
+                self._quiz_option_btns.append(btn)
+        else:
+            self._quiz_option_btns = []
+            self._quiz_answer_entry = ctk.CTkEntry(
+                self._quiz_content_frame,
+                height=34,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+                fg_color=COLORS["bg_medium"],
+                border_color=COLORS["card_border"],
+                placeholder_text=_("tool_quiz_answer_placeholder"),
+            )
+            self._quiz_answer_entry.pack(fill=ctk.X, pady=(0, 8))
+            self._quiz_answer_entry.bind("<Return>", lambda e: self._on_quiz_submit_text())
+            btn = ctk.CTkButton(
+                self._quiz_content_frame,
+                text=_("tool_quiz_submit"),
+                width=100,
+                height=30,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                command=self._on_quiz_submit_text,
+            )
+            btn.pack(anchor=ctk.W, pady=(0, 8))
+            self._quiz_submit_btn = btn
+
+        self._quiz_result_label = ctk.CTkLabel(
+            self._quiz_content_frame,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+        )
+
+    def _on_quiz_select(self, index: int):
+        if self._quiz_answered:
+            return
+        self._quiz_answered = True
+        q = self._quiz_questions[self._quiz_current_index]
+        options = q.get("options", [])
+        selected = options[index] if index < len(options) else ""
+        correct = q.get("answer", "")
+        explanation = q.get("explanation", "")
+
+        is_correct = selected.strip() == correct.strip()
+        self._quiz_result_label.configure(
+            text=_("tool_quiz_correct") if is_correct else _("tool_quiz_wrong", correct=correct),
+            text_color="#4caf50" if is_correct else "#cd5c5c",
+        )
+        self._quiz_result_label.pack(anchor=ctk.W, pady=(4, 0))
+
+        if explanation:
+            ctk.CTkLabel(
+                self._quiz_content_frame,
+                text=f"💡 {explanation}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLORS["text_secondary"],
+                wraplength=550,
+                justify=ctk.LEFT,
+            ).pack(anchor=ctk.W, pady=(4, 0))
+
+        for i, btn in enumerate(self._quiz_option_btns):
+            if options[i].strip() == correct.strip():
+                btn.configure(fg_color="#4caf50", hover_color="#388e3c", state=ctk.DISABLED)
+            elif i == index and not is_correct:
+                btn.configure(fg_color="#cd5c5c", hover_color="#b71c1c", state=ctk.DISABLED)
+            else:
+                btn.configure(state=ctk.DISABLED)
+
+    def _on_quiz_submit_text(self):
+        if self._quiz_answered:
+            return
+        answer = self._quiz_answer_entry.get().strip()
+        if not answer:
+            return
+        self._quiz_answered = True
+        self._quiz_submit_btn.configure(state=ctk.DISABLED)
+        self._quiz_answer_entry.configure(state=ctk.DISABLED)
+
+        q = self._quiz_questions[self._quiz_current_index]
+        correct = q.get("answer", "")
+        explanation = q.get("explanation", "")
+
+        is_correct = answer.strip().lower() == correct.strip().lower()
+        self._quiz_result_label.configure(
+            text=_("tool_quiz_correct") if is_correct else _("tool_quiz_wrong", correct=correct),
+            text_color="#4caf50" if is_correct else "#cd5c5c",
+        )
+        self._quiz_result_label.pack(anchor=ctk.W, pady=(4, 0))
+
+        if explanation:
+            ctk.CTkLabel(
+                self._quiz_content_frame,
+                text=f"💡 {explanation}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLORS["text_secondary"],
+                wraplength=550,
+                justify=ctk.LEFT,
+            ).pack(anchor=ctk.W, pady=(4, 0))
+
+    def _on_quiz_generate(self):
+        token = self._get_quiz_token()
+        if not token:
+            self._quiz_show_login_hint()
+            self.set_status(_("tool_quiz_not_logged_in"), "error")
+            return
+
+        self._quiz_gen_btn.configure(state=ctk.DISABLED, text=_("tool_quiz_generating"))
+        self._quiz_next_btn.configure(state=ctk.DISABLED)
+
+        for w in self._quiz_content_frame.winfo_children():
+            w.destroy()
+        self._quiz_content_frame.pack_forget()
+        self._quiz_content_frame.pack(fill=ctk.X, padx=16, pady=(4, 12))
+        ctk.CTkLabel(
+            self._quiz_content_frame,
+            text=_("tool_quiz_ai_thinking"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor=ctk.W, pady=10)
+
+        def _task():
+            try:
+                questions = self._quiz_call_ai_generate()
+                reindexed = []
+                for i, q in enumerate(questions):
+                    q["id"] = i + 1
+                    reindexed.append(q)
+                self._quiz_questions = reindexed
+                self._quiz_current_index = 0
+                self._quiz_save_to_file()
+
+                def _done():
+                    self._quiz_gen_btn.configure(state=ctk.NORMAL, text=_("tool_quiz_generate"))
+                    self._quiz_next_btn.configure(state=ctk.NORMAL)
+                    self._quiz_show_current()
+                    self._quiz_update_remaining()
+                    self.set_status(_("tool_quiz_generated", count=len(questions)), "success")
+                self.after(0, _done)
+            except Exception as e:
+                logger.error(f"生成题目失败: {e}")
+                _quiz_err = str(e)
+
+                def _error():
+                    self._quiz_gen_btn.configure(state=ctk.NORMAL, text=_("tool_quiz_generate"))
+                    self._quiz_next_btn.configure(state=ctk.NORMAL)
+                    self.set_status(_("tool_quiz_gen_error", error=_quiz_err), "error")
+                    self._quiz_show_empty()
+                self.after(0, _error)
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _on_quiz_next(self):
+        if not self._quiz_questions:
+            return
+
+        if self._quiz_current_index < len(self._quiz_questions):
+            self._quiz_questions.pop(self._quiz_current_index)
+        self._quiz_save_to_file()
+
+        if not self._quiz_questions:
+            self._quiz_show_empty()
+            self._quiz_update_remaining()
+            return
+
+        if self._quiz_current_index >= len(self._quiz_questions):
+            self._quiz_current_index = len(self._quiz_questions) - 1
+            if self._quiz_current_index < 0:
+                self._quiz_current_index = 0
+                self._quiz_show_empty()
+                self._quiz_update_remaining()
+                return
+
+        self._quiz_answered = False
+        self._quiz_show_current()
+        self._quiz_update_remaining()
 
     # ═══════════ Minecraft 冷知识 ═══════════
 
@@ -917,10 +1360,11 @@ class ToolsTabMixin(object):
                 self.after(0, _done)
             except Exception as e:
                 logger.error(f"Hash 计算失败: {e}")
+                _hash_err = str(e)
 
                 def _error():
                     btn.configure(state=ctk.NORMAL, text=_("tool_hash_calculate"))
-                    self.set_status(_("tool_hash_calc_error", error=str(e)), "error")
+                    self.set_status(_("tool_hash_calc_error", error=_hash_err), "error")
                 self.after(0, _error)
 
         threading.Thread(target=_task, daemon=True).start()
@@ -1374,10 +1818,11 @@ class ToolsTabMixin(object):
                 if str(e) == "cancelled":
                     return
                 logger.error(f"下载失败: {e}")
+                _dl_err = str(e)
 
                 def _error_ui():
                     self._dl_status_label.configure(
-                        text=_("tool_download_error", error=str(e)),
+                        text=_("tool_download_error", error=_dl_err),
                         text_color="#cd5c5c",
                     )
                     self._dl_speed_label.configure(text="")

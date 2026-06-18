@@ -1045,5 +1045,25 @@
   "tool_fact_random": "🎲 ランダム",
   "tool_fact_today": "今日の豆知識",
   "tool_fact_random_title": "ランダム豆知識",
-  "tool_fact_index": "{index} / {total} 件目"
+  "tool_fact_index": "{index} / {total} 件目",
+
+  "tool_quiz_title": "MC クイズ",
+  "tool_quiz_desc": "AI生成のMinecraft知識クイズでMCの知識をテスト（淨讀 AI ログインが必要）",
+  "tool_quiz_not_logged_in": "⚠️ 淨讀 AI にログインしていません。右上の ⚙ 設定 → 淨讀 AI ログイン へ",
+  "tool_quiz_logged_in": "✅ ログイン済み",
+  "tool_quiz_generate": "🧠 問題生成",
+  "tool_quiz_generating": "⏳ AIが問題を作成中...",
+  "tool_quiz_next": "➡ 次へ",
+  "tool_quiz_submit": "✅ 提出",
+  "tool_quiz_answer_placeholder": "答えを入力...",
+  "tool_quiz_correct": "✅ 正解！",
+  "tool_quiz_wrong": "❌ 不正解！正解: {correct}",
+  "tool_quiz_remaining": "残り {count} 問",
+  "tool_quiz_no_questions": "問題がありません。「問題生成」をクリックしてください",
+  "tool_quiz_login_hint": "まず淨讀 AI にログインしてから「問題生成」をクリックしてください",
+  "tool_quiz_ai_thinking": "⏳ AIが問題を生成中です。お待ちください...",
+  "tool_quiz_generated": "✅ {count} 問生成しました",
+  "tool_quiz_gen_error": "❌ 生成失敗: {error}",
+  "tool_quiz_auto_refilled": "✅ {count} 問自動補充しました",
+  "tool_quiz_progress": "#{current}"
 }

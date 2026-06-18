@@ -1045,5 +1045,25 @@
   "tool_fact_random": "🎲 Random Fact",
   "tool_fact_today": "Today's Fact",
   "tool_fact_random_title": "Random Fact",
-  "tool_fact_index": "#{index} of {total}"
+  "tool_fact_index": "#{index} of {total}",
+
+  "tool_quiz_title": "MC Knowledge Quiz",
+  "tool_quiz_desc": "AI-generated Minecraft knowledge multiple-choice questions to test your MC knowledge (requires NetRead AI login)",
+  "tool_quiz_not_logged_in": "⚠️ Not logged into NetRead AI. Go to ⚙ Settings → NetRead AI Login",
+  "tool_quiz_logged_in": "✅ Logged in",
+  "tool_quiz_generate": "🧠 Generate",
+  "tool_quiz_generating": "⏳ AI generating...",
+  "tool_quiz_next": "➡ Next",
+  "tool_quiz_submit": "✅ Submit",
+  "tool_quiz_answer_placeholder": "Type your answer...",
+  "tool_quiz_correct": "✅ Correct!",
+  "tool_quiz_wrong": "❌ Wrong! Correct answer: {correct}",
+  "tool_quiz_remaining": "{count} remaining",
+  "tool_quiz_no_questions": "No questions yet. Click 'Generate' to start.",
+  "tool_quiz_login_hint": "Please log into NetRead AI first, then click 'Generate' to start the quiz.",
+  "tool_quiz_ai_thinking": "⏳ AI is generating questions, please wait...",
+  "tool_quiz_generated": "✅ Generated {count} questions",
+  "tool_quiz_gen_error": "❌ Generation failed: {error}",
+  "tool_quiz_auto_refilled": "✅ Auto-refilled {count} questions",
+  "tool_quiz_progress": "#{current}"
 }
