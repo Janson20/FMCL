@@ -39,8 +39,33 @@ jobs:
       - name: Download 7-Zip installers
         run: |
           New-Item -ItemType Directory -Force -Path 7z_installers
-          Invoke-WebRequest -Uri "https://www.7-zip.org/a/7z2409-x64.exe" -OutFile "7z_installers\7z2409-x64.exe"
-          Invoke-WebRequest -Uri "https://www.7-zip.org/a/7z2409.exe" -OutFile "7z_installers\7z2409.exe"
+          $maxRetries = 5
+          $urls = @(
+            @{ Uri = "https://www.7-zip.org/a/7z2409-x64.exe"; OutFile = "7z_installers\7z2409-x64.exe" },
+            @{ Uri = "https://www.7-zip.org/a/7z2409.exe"; OutFile = "7z_installers\7z2409.exe" }
+          )
+          foreach ($item in $urls) {
+            $downloaded = $false
+            for ($i = 0; $i -lt $maxRetries; $i++) {
+              try {
+                Write-Host "Downloading $($item.Uri) (attempt $($i + 1)/$maxRetries)..."
+                Invoke-WebRequest -Uri $item.Uri -OutFile $item.OutFile -TimeoutSec 60
+                Write-Host "Download succeeded."
+                $downloaded = $true
+                break
+              } catch {
+                Write-Host "Download failed: $_"
+                if ($i -lt $maxRetries - 1) {
+                  $delay = [Math]::Pow(2, $i) * 5
+                  Write-Host "Retrying in ${delay}s..."
+                  Start-Sleep -Seconds $delay
+                }
+              }
+            }
+            if (-not $downloaded) {
+              throw "Failed to download $($item.Uri) after $maxRetries attempts"
+            }
+          }
         shell: pwsh
 
       - name: Ensure NSIS script UTF-8 BOM encoding
@@ -71,25 +96,24 @@ jobs:
 
   build-macos-intel:
     name: Build macOS Intel DMG
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python (x86_64 via Rosetta 2)
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          architecture: x64
 
-      - name: Install Python dependencies (x86_64 via Rosetta 2)
+      - name: Install Python dependencies
         run: |
-          arch -x86_64 python -m pip install --upgrade pip setuptools wheel
-          arch -x86_64 pip install pyinstaller
-          arch -x86_64 pip install -r requirements-unix.txt
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install pyinstaller
+          python -m pip install -r requirements-unix.txt
 
-      - name: Build with PyInstaller (x86_64)
-        run: arch -x86_64 pyinstaller build.spec --noconfirm
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec --noconfirm
         env:
           PLATFORM: mac
           ARCH: amd64
