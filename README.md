@@ -271,37 +271,34 @@
 
 ### 🤖 AGENT 智能助手
 - **快速输入框**：启动器顶部标题栏右侧新增 AI 快速输入框，输入内容后按回车直接跳转到"🤖 AGENT"标签页并自动发送消息，无需手动切换标签页
-- **自然语言控制**：新增"🤖 AGENT"标签页，集成聊天界面，支持通过自然语言管理 Minecraft
-- **AI 驱动**：基于净读 AI（DeepSeek 官方 API），通过原生 Function Calling 实现智能决策，无需 XML 中间格式
-- **核心工具集**：封装了版本获取/安装/删除/启动、模组/资源包/光影搜索安装、整合包搜索下载安装开服、服务器管理、版本资源查询、终端命令执行等 20+ 个工具供 AI 调用
-- **ask_user 提问工具**：支持 AI 通过 `ask_user` 功能向用户提问（带可选候选项列表），强制所有需用户决策的场景走工具调用而非纯文本结束
+- **自然语言控制**："🤖 AGENT"标签页，三栏布局（对话历史 | 对话区 | 任务面板），支持通过自然语言管理 Minecraft
+- **多模型支持**：内置净读 AI（DeepSeek V3 / R1）、OpenAI（GPT-4o / GPT-4o-mini / o3-mini）、Anthropic（Claude Sonnet 4 / Claude 3.5 Haiku）和自定义 OpenAI 兼容端点；顶部模型选择器一键切换
+- **流式 SS E输出**：AI 回复逐 token 流式输出，支持思考过程展示（DeepSeek R1 / o3-mini 推理内容折叠显示）
+- **AI 驱动**：基于 Function Calling 实现智能决策，自动分析意图 → 顺序调用工具 → 分析结果
+- **核心工具集**：封装了版本获取/安装/删除/启动、模组/资源包/光影搜索安装、整合包搜索下载安装开服、服务器管理、版本资源查询、终端命令执行、联网搜索、网页抓取、会话任务管理等 **26 个工具**供 AI 调用
+- **联网搜索**：新增 `web_search` 工具，支持 DuckDuckGo 免费搜索和 Bing API 搜索
+- **网页抓取**：新增 `web_fetch` 工具，将网页转为 Markdown/纯文本/HTML 格式供 AI 分析
+- **任务面板**：右侧 Todo 面板实时跟踪 AI 的任务列表（pending/in_progress/completed），持久化存储
+- **对话历史管理**：左侧会话列表面板，支持多会话、切换会话、删除会话，历史对话自动保存到 JSON 文件
+- **Skill 技能系统**：支持加载自定义技能文件（`./data/agent/skills/{name}/SKILL.md`）注入 AI 上下文
+- **权限引擎**：三级权限策略（allow/deny/ask），支持按工具配置，规则持久化
+- **上下文自动压缩**：Token 超过阈值自动裁剪旧消息，保证长对话稳定性
+- **ask_user 增强提问**：支持多问题、多选、自定义答案、推荐选项标记（(Recommended)）
 - **智能工作流**：AI 自动分析用户意图 → 顺序调用工具 → 分析结果 → 需要时通过 `ask_user` 提问让用户选择 → 最多 50 轮独立工具循环
-- **原生 Function Calling**：AI 回复直接使用 OpenAI 兼容的 `tool_calls` JSON 格式，前端解析后执行对应工具并将结果以 `{"role":"tool","tool_call_id":"...","content":"..."}` 格式注入对话
-- **提问弹窗**：当 AI 调用 `ask_user` 时，根据有无选项分别弹出选择对话框或文本输入框
+- **原生 Function Calling**：AI 回复直接使用 OpenAI 兼容的 `tool_calls` JSON 格式
 - **使用场景示例**：
   1. "帮我下载最新版 Minecraft" → AI 获取版本列表 → 安装最新正式版
   2. "帮我启动 1.20.1" → AI 获取本地版本列表 → 发现多个 1.20.1 版本 → `ask_user` 弹出选项（原版/Forge/Fabric）→ 用户选择后启动
   3. "给 1.20.1 装个钠" → AI 搜索 Modrinth → 找到 Sodium → 自动匹配版本和加载器 → 安装
-  4. "删除 1.19.2 版本" → AI 获取已安装列表 → 确认存在 → 执行删除
-  5. "帮我开个 1.21.4 的服务器" → AI 获取服务器版本列表 → 安装服务器 → 启动服务器
-  6. "帮我安装这个整合包 D:\\modpacks\\skyblock.mrpack" → AI 读取整合包信息 → 执行安装
-  7. "帮我搜个空岛整合包并下载" → AI 在 Modrinth 搜索 skyblock → `ask_user` 展示结果让用户选择 → 用户选择后下载 + 安装
-  8. "给 1.20.1-forge 装个 Faithful 资源包" → AI 获取已安装版本 → 搜索 Modrinth → 获取到后安装
-  9. "看看 1.20.1-forge 装了哪些模组" → AI 调用 list_version_resources(type=mods) → 列出所有模组文件
-  10. "帮我在 D:\\project 目录执行 npm install" → AI 调用 exec_command → 在指定路径执行命令并返回结果
-- **终端命令执行**：支持通过 AI 在指定目录下执行终端命令，内置 60+ 高危命令前缀检测（如 rm -rf、dd、shutdown、DROP TABLE、docker run --privileged 等），检测到高危命令时弹出确认对话框要求用户手动确认，防止 AI 执行危险操作
-- **独立轮次上限**：AI 持续工具调用轮次上限从 10 提升至 **50 轮**，应对更复杂的多步骤任务链
-- **Token 配置**：Token 通过启动器设置窗口（⚙ 设置 → 账户管理 → 净读 AI 登录）统一管理，登录后 AGENT 标签页自动启用智能助手功能
-- **账户管理**：设置窗口「账户管理」标签页可查看净读账户信息（用户名、UUID、等级、个性签名、AI 积分余额），支持手动刷新
-- **AI 积分显示**：AGENT 标签页顶部实时显示 AI 积分余额，每次 AI 处理循环结束后自动刷新
-- **隐私说明**：Token 仅保存在本地配置文件中，不会上传至任何第三方；用户名不再本地存储，通过 API 实时获取
-- **命令行模式**：支持通过命令行参数使用，无需 GUI：
-  - `python main.py login -name <用户名> -pwd <密码>` - 登录净读 AI（省略 `-pwd` 则交互输入密码）
-  - `python main.py -agent "帮我安装最新版"` - 执行单条指令
-  - `python main.py -A "给1.20.1装钠"` - 执行单条指令（简写）
-  - `python main.py -A` - 进入交互模式，连续对话
-  - 交互模式支持 `/quit` 退出、`/clear` 清空对话
-- **独立控制台程序**：打包后额外生成 `FMCL-Agent.exe`（控制台子系统），可在无 GUI 环境下直接运行：`FMCL-Agent <指令>` 或 `FMCL-Agent` 进入交互模式
+  4. "帮我开个服务器" → AI 自动创建服务器 → 同意 EULA → 配置内存 → 启动
+  5. "最新 Minecraft 新闻" → AI 调用 web_search 搜索 → 汇总最新动态
+  6. "帮我搜空岛整合包" → AI 在 Modrinth 搜索 → `ask_user` 展示结果 → 用户选择后下载安装
+- **终端命令执行**：内置 60+ 高危命令前缀检测，权限引擎控制
+- **独立轮次上限**：最多 **50 轮**工具调用循环
+- **Token 配置**：通过 ⚙ 设置 → 净读 AI 登录；OpenAI/Anthropic/自定义 API Key 在 `config.json` 的 `agent.providers` 中配置
+- **隐私说明**：Token 仅保存在本地配置文件中，不会上传至任何第三方
+- **命令行模式**：`python main.py -A "指令"` 或 `python main.py -A` 交互模式
+- **独立控制台程序**：`FMCL-Agent.exe`（控制台子系统）
 
 ### 🎵 音乐播放器
 - **🎵 音乐标签页**：独立的音乐播放标签页，选择本地文件夹作为播放列表

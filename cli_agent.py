@@ -15,9 +15,10 @@ from logzero import logger
 
 from config import config
 from secure_storage import encrypt_token
-from ui.agent.provider import AIProvider
-from ui.agent.tools import get_tool_definitions, get_system_prompt
-from ui.agent.engine import execute_tool, DANGEROUS_MARKER, ASK_USER_MARKER, execute_dangerous_command
+from ui.agent.providers.jingdu import JingduProvider
+from ui.agent.tool_registry import get_registry, get_tool_definitions
+from ui.agent.system_prompt import get_system_prompt
+from ui.agent.tools.system import DANGEROUS_MARKER, ASK_USER_MARKER, execute_dangerous_command
 
 
 def _print(text: str = ""):
@@ -86,7 +87,7 @@ def _confirm_dangerous_command(path: str, command: str) -> bool:
 
 def _process_once(
     messages: List[Dict],
-    provider: AIProvider,
+    provider: JingduProvider,
     callbacks: Dict,
     user_input: str,
 ) -> List[Dict]:
@@ -152,7 +153,7 @@ def _process_once(
                     continue
 
                 _print_tool(tool_name, tool_params)
-                result_text = execute_tool(tool_name, tool_params, callbacks)
+                result_text = get_registry().execute(tool_name, tool_params, callbacks)
 
                 if result_text.startswith(DANGEROUS_MARKER):
                     parts = result_text.split("|", 2)
@@ -236,7 +237,7 @@ def run_agent_cli(instruction: Optional[str] = None):
         _print_error(f"初始化启动器失败: {e}")
         sys.exit(1)
 
-    provider = AIProvider.from_config(token)
+    provider = JingduProvider(api_key=token)
     _print_system("Agent 就绪")
 
     messages: List[Dict] = [

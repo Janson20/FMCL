@@ -84,3 +84,9 @@ achievements.db-shm
 achievements.db-wal
 achievements.db-journal
 accounts.json
+quiz.json
+
+# Agent session data
+data/agent/
+themes/
+skills/
