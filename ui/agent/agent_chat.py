@@ -18,6 +18,8 @@
 """
 
 import json
+import os
+import subprocess
 import threading
 import time
 import tkinter as tk
@@ -40,11 +42,12 @@ from ui.agent.providers.custom import CustomProvider
 from ui.agent.tool_registry import ToolRegistry, get_registry
 from ui.agent.tools.system import DANGEROUS_MARKER, execute_dangerous_command
 from ui.agent.tools.user import ASK_USER_MARKER
+from ui.agent.tools.files import FILE_EDIT_MARKER
 from ui.agent.tools.todo_write import load_todos
 from ui.agent.system_prompt import get_system_prompt
 from ui.agent.session import AgentSession
 from ui.agent.permission import check_permission
-from ui.agent.skill import get_skills_context_text
+from ui.agent.skill import get_skills_context_text, load_all_skills, _get_skills_dir
 
 
 def _trigger_agent_ach(achievement_id: str, value: int = 1):
@@ -309,6 +312,158 @@ class OptionSelectDialog(ctk.CTkToplevel):
             self._callback(flat_answers)
 
 
+# ============ Skill 管理弹窗 ============
+
+class SkillManageDialog(ctk.CTkToplevel):
+    """Skill 管理弹窗 - 查看/创建/打开技能"""
+
+    def __init__(self, parent, on_changed: Callable[[], None] = None):
+        super().__init__(parent)
+        self._on_changed = on_changed
+
+        self.title(_("skills_title"))
+        self.configure(fg_color=COLORS["bg_dark"])
+        try:
+            self.grab_set()
+        except Exception:
+            pass
+
+        w, h = 520, 420
+        self.geometry(f"{w}x{h}")
+        self.resizable(False, False)
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - w) // 2
+        y = (self.winfo_screenheight() - h) // 2
+        self.geometry(f"+{x}+{y}")
+
+        main = ctk.CTkFrame(self, fg_color="transparent")
+        main.pack(fill=ctk.BOTH, expand=True, padx=20, pady=20)
+
+        # 标题
+        ctk.CTkLabel(main, text="Skill 管理", font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+                     text_color=COLORS["text_primary"]).pack(anchor=ctk.W, pady=(0, 4))
+        ctk.CTkLabel(main, text="Skill 是 AI 可加载的专用指令文件。创建 SKILL.md 在对应目录即可。",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                     text_color=COLORS["text_secondary"], wraplength=460,
+                     ).pack(anchor=ctk.W, pady=(0, 12))
+
+        # Skill 列表区域
+        list_frame = ctk.CTkScrollableFrame(main, fg_color=COLORS["bg_medium"], corner_radius=8)
+        list_frame.pack(fill=ctk.BOTH, expand=True, pady=(0, 12))
+
+        self._skills_dir = _get_skills_dir()
+        self._refresh_skill_list(list_frame)
+
+        # 底部按钮
+        btn_frame = ctk.CTkFrame(main, fg_color="transparent")
+        btn_frame.pack(fill=ctk.X)
+
+        ctk.CTkButton(btn_frame, text=_("skills_new"), width=100, height=32,
+                       font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                       fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                       command=self._on_new_skill).pack(side=ctk.LEFT)
+
+        ctk.CTkButton(btn_frame, text=_("skills_open_dir"), width=100, height=32,
+                       font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                       fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"],
+                       text_color=COLORS["text_primary"],
+                       command=lambda: self._open_dir(self._skills_dir)).pack(side=ctk.LEFT, padx=(8, 0))
+
+        ctk.CTkButton(btn_frame, text="关闭", width=80, height=32,
+                       font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                       fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"],
+                       text_color=COLORS["text_primary"],
+                       command=self.destroy).pack(side=ctk.RIGHT)
+
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+    def _refresh_skill_list(self, list_frame: ctk.CTkScrollableFrame):
+        for w in list_frame.winfo_children():
+            w.destroy()
+
+        skills = load_all_skills()
+        if not skills:
+            ctk.CTkLabel(list_frame, text="暂无 Skill\n\n在 skills 目录下创建子目录并添加 SKILL.md 文件即可",
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                         text_color=COLORS["text_secondary"], wraplength=440,
+                         ).pack(pady=30)
+            return
+
+        for skill in skills:
+            row = ctk.CTkFrame(list_frame, fg_color=COLORS["bg_dark"], corner_radius=6)
+            row.pack(fill=ctk.X, pady=3, padx=4)
+
+            info_frame = ctk.CTkFrame(row, fg_color="transparent")
+            info_frame.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=8, pady=6)
+
+            ctk.CTkLabel(info_frame, text=skill.name,
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                         text_color=COLORS["text_primary"], anchor=ctk.W,
+                         ).pack(fill=ctk.X)
+            ctk.CTkLabel(info_frame, text=skill.description[:80],
+                         font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                         text_color=COLORS["text_secondary"], anchor=ctk.W,
+                         ).pack(fill=ctk.X)
+            if skill.files:
+                ctk.CTkLabel(info_frame, text=f"附件: {len(skill.files)} 个文件",
+                             font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+                             text_color=COLORS["text_secondary"], anchor=ctk.W,
+                             ).pack(fill=ctk.X)
+
+            ctk.CTkButton(row, text="打开", width=50, height=24,
+                           font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                           fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"],
+                           text_color=COLORS["text_primary"],
+                           command=lambda d=skill.directory: self._open_dir(d),
+                           ).pack(side=ctk.RIGHT, padx=(4, 6), pady=4)
+
+    def _on_new_skill(self):
+        """新建技能弹窗"""
+        dialog = TextInputDialog(
+            self,
+            title=_("skills_new"),
+            question="输入技能名称（英文，无空格）：",
+            callback=self._create_skill,
+        )
+
+    def _create_skill(self, name: str):
+        name = name.strip().lower().replace(" ", "-")
+        if not name:
+            return
+        skill_dir = os.path.join(self._skills_dir, name)
+        if os.path.exists(skill_dir):
+            show_notification("Skill", f"技能 '{name}' 已存在", notify_type="warning")
+            return
+        try:
+            os.makedirs(skill_dir, exist_ok=True)
+            template = f"# Skill: {name}\n\n"
+            template += f"此技能为 '{name}' 的使用说明。\n\n"
+            template += "## 用途\n\n描述此技能的用途。\n\n"
+            template += "## 指令\n\nAI 加载此技能后应遵循的指令。\n"
+            with open(os.path.join(skill_dir, "SKILL.md"), "w", encoding="utf-8") as f:
+                f.write(template)
+            show_notification("Skill", f"已创建技能: {name}", notify_type="success")
+            self._open_dir(skill_dir)
+            self.destroy()
+            if self._on_changed:
+                self._on_changed()
+        except Exception as e:
+            logger.error(f"[Skill] 创建技能失败: {e}")
+            show_notification("Skill", f"创建失败: {e}", notify_type="error")
+
+    @staticmethod
+    def _open_dir(path: str):
+        """在文件管理器中打开目录"""
+        try:
+            if os.path.isdir(path):
+                os.startfile(path)
+        except Exception:
+            try:
+                subprocess.Popen(["explorer", path])
+            except Exception:
+                pass
+
+
 # ============ 主聊天视图 ============
 
 class AgentChatView(ctk.CTkFrame):
@@ -327,6 +482,7 @@ class AgentChatView(ctk.CTkFrame):
         self._ai_processing = False
         self._pending_dangerous = None
         self._pending_ask_user = None
+        self._pending_file_edit = None
         self._thinking_visible = True  # 默认展开思考
 
         self._registry = get_registry()
@@ -430,6 +586,12 @@ class AgentChatView(ctk.CTkFrame):
             dropdown_fg_color=COLORS["bg_medium"],
         )
         self._effort_menu.pack_forget()
+
+        # Skills 管理按钮
+        ctk.CTkButton(header, text="Skills", width=50, height=26,
+                       font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                       fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"],
+                       command=self._on_manage_skills).pack(side=ctk.RIGHT, padx=(0, 6))
 
         # 新会话按钮
         ctk.CTkButton(header, text=_("agent_new_session"), width=70, height=26,
@@ -877,6 +1039,25 @@ class AgentChatView(ctk.CTkFrame):
                 justify=ctk.LEFT, anchor=ctk.W,
             ).pack(fill=ctk.X, pady=2, padx=4, anchor=ctk.W)
 
+    def _on_manage_skills(self):
+        """打开 Skill 管理弹窗"""
+        SkillManageDialog(self.winfo_toplevel(), on_changed=self._on_skills_changed)
+
+    def _on_skills_changed(self):
+        """Skill 变更后刷新系统提示词中的技能列表"""
+        # 重建系统提示词
+        if self._session and self._session.messages:
+            for i, msg in enumerate(self._session.messages):
+                if msg.get("role") == "system":
+                    new_prompt = get_system_prompt() + get_skills_context_text()
+                    self._session.messages[i] = {"role": "system", "content": new_prompt}
+                    break
+            else:
+                self._session.messages.insert(0, {
+                    "role": "system",
+                    "content": get_system_prompt() + get_skills_context_text(),
+                })
+
     # ============ 外部接口 ============
 
     def set_provider(self, provider: BaseProvider):
@@ -1155,6 +1336,27 @@ class AgentChatView(ctk.CTkFrame):
             self._append_tool_result(tool_name, result_text[:300])
             return True
 
+        if effect == "ask" and tool_name in ("write_file", "replace_in_file", "delete_file"):
+            result_text = self._registry.execute(tool_name, tool_params, self._callbacks)
+            if result_text.startswith(FILE_EDIT_MARKER):
+                parts = result_text.split("|", 3)
+                if len(parts) >= 4:
+                    try:
+                        confirm_data = json.loads(parts[2])
+                        op_type = parts[1]
+                        summary = parts[3]
+                        self.after(0, lambda c=confirm_data, o=op_type, s=summary:
+                                   self._show_file_edit_dialog(c, o, s))
+                        self._pending_file_edit = (confirm_data, op_type, tool_call_id)
+                        return "WAIT_USER"
+                    except json.JSONDecodeError:
+                        pass
+            self._session.add_message({
+                "role": "tool", "tool_call_id": tool_call_id, "content": result_text,
+            })
+            self._append_tool_result(tool_name, result_text[:300])
+            return True
+
         # 执行工具
         result_text = self._registry.execute(tool_name, tool_params, self._callbacks)
 
@@ -1201,6 +1403,53 @@ class AgentChatView(ctk.CTkFrame):
         self._append_tool_result("exec_command", result_text[:300])
         self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
+
+    def _show_file_edit_dialog(self, confirm_data: dict, op_type: str, summary: str):
+        """显示文件编辑确认弹窗"""
+        if not self._pending_file_edit:
+            return
+        op_labels = {"write": "写入文件", "replace": "替换文件内容", "delete": "删除文件"}
+        op_label = op_labels.get(op_type, "文件操作")
+        file_path = confirm_data.get("filePath", "")
+        msg = f"{op_label}\n\n文件: {file_path}\n\n{summary[:500]}\n\n确定要执行吗？"
+        confirmed = show_confirmation(msg, title="FMCL")
+        self._on_file_edit_confirmed(confirmed)
+
+    def _on_file_edit_confirmed(self, confirmed: bool):
+        """处理文件编辑确认结果"""
+        if not self._pending_file_edit:
+            return
+        confirm_data, op_type, tc_id = self._pending_file_edit
+        self._pending_file_edit = None
+        if confirmed:
+            result_text = self._apply_file_edit(confirm_data, op_type)
+        else:
+            result_text = f"用户取消了文件操作\n类型: {op_type}\n文件: {confirm_data.get('filePath', '')}"
+        self._session.add_message({
+            "role": "tool", "tool_call_id": tc_id, "content": result_text,
+        })
+        self._append_tool_result(op_type, result_text[:300])
+        self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
+        threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
+
+    def _apply_file_edit(self, confirm_data: dict, op_type: str) -> str:
+        """实际执行文件修改"""
+        file_path = confirm_data.get("filePath", "")
+        try:
+            if op_type == "write" or op_type == "replace":
+                content = confirm_data.get("newText", "")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                if op_type == "replace":
+                    replacements = confirm_data.get("replacements", 1)
+                    return f"已替换 {replacements} 处: {file_path}"
+                return f"已写入文件: {file_path}"
+            elif op_type == "delete":
+                os.remove(file_path)
+                return f"已删除文件: {file_path}"
+            return f"未知操作类型: {op_type}"
+        except Exception as e:
+            return f"文件操作失败: {e}"
 
     def _show_ask_user_dialog(self, questions: List[dict]):
         OptionSelectDialog(

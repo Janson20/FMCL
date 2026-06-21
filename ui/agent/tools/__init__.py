@@ -14,6 +14,7 @@ from ui.agent.tools.web_search import _build_web_search_tool
 from ui.agent.tools.web_fetch import _build_web_fetch_tool
 from ui.agent.tools.todo_write import _build_todo_write_tool
 from ui.agent.tools.skill import _build_skill_tool
+from ui.agent.tools.files import _build_file_tools
 
 
 def get_all_builtin_tools() -> List[ToolInfo]:
@@ -25,6 +26,7 @@ def get_all_builtin_tools() -> List[ToolInfo]:
     tools.extend(_build_modpack_tools())
     tools.extend(_build_resource_tools())
     tools.extend(_build_system_tools())
+    tools.extend(_build_file_tools())
     tools.extend(_build_user_tools())
     tools.append(_build_web_search_tool())
     tools.append(_build_web_fetch_tool())

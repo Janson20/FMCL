@@ -620,6 +620,9 @@
   "agent_confirm_delete_session": "确定要删除此会话吗？此操作不可恢复。",
   "agent_rename_session": "重命名",
   "agent_delete_session": "删除",
+  "skills_title": "Skill 管理",
+  "skills_new": "新建 Skill",
+  "skills_open_dir": "打开目录",
   "agent_close_confirm": "AI 处理中，确定要强制退出吗？",
 
   "terms_title": "使用条款与隐私协议",

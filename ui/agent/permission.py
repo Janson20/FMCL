@@ -32,6 +32,9 @@ class PermissionRule:
 DEFAULT_RULES: List[PermissionRule] = [
     PermissionRule(action="*", resource="*", effect="allow"),
     PermissionRule(action="exec_command", resource="*", effect="ask"),
+    PermissionRule(action="write_file", resource="*", effect="ask"),
+    PermissionRule(action="replace_in_file", resource="*", effect="ask"),
+    PermissionRule(action="delete_file", resource="*", effect="ask"),
 ]
 
 

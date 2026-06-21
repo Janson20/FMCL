@@ -620,6 +620,9 @@
   "agent_confirm_delete_session": "Are you sure you want to delete this session? This cannot be undone.",
   "agent_rename_session": "Rename",
   "agent_delete_session": "Delete",
+  "skills_title": "Skill Manager",
+  "skills_new": "New Skill",
+  "skills_open_dir": "Open Folder",
   "agent_close_confirm": "AI is processing. Are you sure you want to force quit?",
 
   "terms_title": "Terms & Privacy Agreement",

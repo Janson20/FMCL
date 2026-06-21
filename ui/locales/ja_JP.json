@@ -620,6 +620,9 @@
   "agent_confirm_delete_session": "このセッションを削除しますか？この操作は取り消せません。",
   "agent_rename_session": "名前変更",
   "agent_delete_session": "削除",
+  "skills_title": "スキル管理",
+  "skills_new": "新規スキル",
+  "skills_open_dir": "フォルダを開く",
   "agent_close_confirm": "AIが処理中です。強制終了してもよろしいですか？",
 
   "terms_title": "利用規約とプライバシー契約",
