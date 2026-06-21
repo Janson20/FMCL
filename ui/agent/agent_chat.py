@@ -648,16 +648,22 @@ class AgentChatView(ctk.CTkFrame):
             self._session = loaded
             self._clear_display()
             self._append_system_message(_("agent_session_loaded"))
+            # 从 assistant 的 tool_calls 中提取 tool_name 映射 (by id)
+            tool_call_map: dict = {}
+            for msg in loaded.messages:
+                if msg.get("role") == "assistant":
+                    for tc in (msg.get("tool_calls") or []):
+                        fn = tc.get("function", {})
+                        if tc.get("id") and fn.get("name"):
+                            tool_call_map[tc["id"]] = fn["name"]
+
             for msg in loaded.messages:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
 
                 if role == "system":
-                    if content.startswith("[tool_start]"):
-                        tool_name = content[len("[tool_start]"):].strip()
-                        self._append_tool_start(tool_name)
-                    else:
-                        self._append_system_message(content)
+                    # 跳过系统提示词等不对外展示的消息
+                    pass
                 elif role == "user":
                     self._append_message("user", content)
                 elif role == "assistant":
@@ -666,7 +672,9 @@ class AgentChatView(ctk.CTkFrame):
                         self._append_thinking(thinking)
                     self._append_message("assistant", content)
                 elif role == "tool":
-                    tool_name = msg.get("_tool_name", "?")
+                    # 从 tool_call_id 反查工具名
+                    tc_id = msg.get("tool_call_id", "")
+                    tool_name = tool_call_map.get(tc_id, "?")
                     self._append_tool_result(tool_name, content[:500])
             self._refresh_todos()
 
@@ -800,13 +808,19 @@ class AgentChatView(ctk.CTkFrame):
         except Exception:
             pass
 
-    def _schedule_render(self):
-        if not self._render_scheduled:
+    def _schedule_render(self, force: bool = False):
+        # 所有渲染必须通过事件循环，不可在非主线程直接操作 tk widget
+        if hasattr(self, '_render_after_id') and self._render_after_id:
+            self.after_cancel(self._render_after_id)
+            self._render_after_id = None
+        delay = 1 if force else 500
+        if not self._render_scheduled or force:
             self._render_scheduled = True
-            self.after(30, self._do_render)
+            self._render_after_id = self.after(delay, self._do_render)
 
     def _do_render(self):
         self._render_scheduled = False
+        self._render_after_id = None
         self._render_full()
 
     def _append_message(self, role: str, text: str, tag: str = ""):
@@ -878,6 +892,11 @@ class AgentChatView(ctk.CTkFrame):
         if not self._provider:
             self._append_system_message(_("agent_no_token_hint"))
             return
+        # 会话被删除后自动创建新会话
+        if self._session is None:
+            system_prompt = get_system_prompt() + get_skills_context_text()
+            self._session = AgentSession.create_new(system_prompt=system_prompt)
+            self._refresh_session_list()
         self._input_entry.delete(0, ctk.END)
         self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
         self._progress_bar.pack(fill=ctk.X, padx=6, pady=(0, 2))
@@ -887,7 +906,9 @@ class AgentChatView(ctk.CTkFrame):
         self._session.add_message({"role": "user", "content": text})
         if not self._session.title:
             self._session.set_title(text)
-        self._session.save()
+        # 磁盘写入移到后台线程，避免卡 UI
+        sess = self._session
+        threading.Thread(target=lambda s=sess: s.save(), daemon=True, name="AgentSave").start()
         _trigger_agent_ach("agent_first_chat")
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
 
@@ -957,6 +978,8 @@ class AgentChatView(ctk.CTkFrame):
                     if self._streaming_block.get("content") or streaming_thinking:
                         self._message_blocks.append(self._streaming_block)
                 self._streaming_block = None
+                # 流式结束，强制立即渲染最终内容
+                self._schedule_render(force=True)
 
                 if needs_break:
                     return  # 等待用户确认
@@ -989,7 +1012,8 @@ class AgentChatView(ctk.CTkFrame):
                     if not all_ok:
                         continue
 
-                    self._session.save()
+                    # 后台保存
+                    threading.Thread(target=lambda s=self._session: s.save(), daemon=True).start()
                     continue
                 else:
                     logger.info("[Agent] 任务完成")
@@ -1004,9 +1028,13 @@ class AgentChatView(ctk.CTkFrame):
         finally:
             logger.info("[Agent] === AI 处理循环结束 ===")
             self.after(0, self._reset_send_button)
-            self._session.save()
-            self.after(0, self._refresh_todos)
-            self.after(0, self._refresh_session_list)
+            # 磁盘 I/O 移后台
+            sess = self._session
+            def _finalize():
+                sess.save()
+                self.after(0, self._refresh_todos)
+                self.after(0, self._refresh_session_list)
+            threading.Thread(target=_finalize, daemon=True).start()
             self.after(0, lambda: self._token_label.configure(
                 text=f"Token ~{self._session.estimate_tokens():,}"
             ))
@@ -1109,11 +1137,8 @@ class AgentChatView(ctk.CTkFrame):
         if effect == "deny":
             self._append_system_message(f"🔒 工具 {tool_name} 被策略禁止")
             self._session.add_message({
-                "role": "system", "content": f"[tool_start] {tool_name}",
-            })
-            self._session.add_message({
                 "role": "tool", "tool_call_id": tool_call_id,
-                "content": f"工具 {tool_name} 被权限策略禁止", "_tool_name": tool_name,
+                "content": f"工具 {tool_name} 被权限策略禁止",
             })
             return True
         if effect == "ask" and tool_name == "exec_command":
@@ -1125,20 +1150,12 @@ class AgentChatView(ctk.CTkFrame):
                     self.after(0, lambda p=parts: self._show_dangerous_dialog(p[1], p[2]))
                     return "WAIT_USER"
             self._session.add_message({
-                "role": "system", "content": f"[tool_start] {tool_name}",
-            })
-            self._session.add_message({
                 "role": "tool", "tool_call_id": tool_call_id, "content": result_text,
-                "_tool_name": tool_name,
             })
             self._append_tool_result(tool_name, result_text[:300])
             return True
 
         # 执行工具
-        # 先记录 tool_start 到 session
-        self._session.add_message({
-            "role": "system", "content": f"[tool_start] {tool_name}",
-        })
         result_text = self._registry.execute(tool_name, tool_params, self._callbacks)
 
         # 检测 ask_user
@@ -1155,7 +1172,6 @@ class AgentChatView(ctk.CTkFrame):
 
         self._session.add_message({
             "role": "tool", "tool_call_id": tool_call_id, "content": result_text,
-            "_tool_name": tool_name,
         })
         self._append_tool_result(tool_name, result_text[:300])
         return True
@@ -1181,7 +1197,6 @@ class AgentChatView(ctk.CTkFrame):
             result_text = f"⚠️ 用户取消了命令执行\n路径: {ep}\n命令: {ec}"
         self._session.add_message({
             "role": "tool", "tool_call_id": tc_id, "content": result_text,
-            "_tool_name": "exec_command",
         })
         self._append_tool_result("exec_command", result_text[:300])
         self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
@@ -1204,7 +1219,6 @@ class AgentChatView(ctk.CTkFrame):
         self._session.add_message({
             "role": "tool", "tool_call_id": tc_id,
             "content": f"用户回答: {', '.join(answers)}",
-            "_tool_name": "ask_user",
         })
         self._append_message("user", f"选择: {', '.join(answers)}")
         self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))

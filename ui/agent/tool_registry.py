@@ -83,14 +83,23 @@ class ToolRegistry:
         if tool is None:
             return f"错误: 未知工具 '{name}'"
 
-        logger.info(f"[ToolRegistry] 执行工具: {name}, 参数: {params}")
+        try:
+            logger.info(f"[ToolRegistry] 执行工具: {name}, 参数: {params}")
+        except Exception:
+            pass
 
         try:
             result_text = tool.execute(params, callbacks)
-            logger.info(f"[ToolRegistry] 工具 '{name}' 执行结果 (前300字): {result_text[:300]}")
+            try:
+                logger.info(f"[ToolRegistry] 工具 '{name}' 执行结果 (前300字): {result_text[:300]}")
+            except Exception:
+                pass  # 日志写入失败不影响执行流程
             return result_text
         except Exception as e:
-            logger.error(f"[ToolRegistry] 工具 '{name}' 执行异常: {e}", exc_info=True)
+            try:
+                logger.error(f"[ToolRegistry] 工具 '{name}' 执行异常: {e}", exc_info=True)
+            except Exception:
+                pass
             return f"❌ 工具 '{name}' 执行失败: {str(e)}"
 
     def has_tool(self, name: str) -> bool:
