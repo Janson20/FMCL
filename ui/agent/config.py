@@ -35,10 +35,13 @@ class AgentConfig:
     # 当前选中的模型（按提供商存储）
     active_models: Dict[str, str] = field(default_factory=dict)
 
-    # 权限规则
+    # 权限规则（ask/deny 必须在 allow 通配符之前）
     permissions: List[dict] = field(default_factory=lambda: [
-        {"action": "*", "resource": "*", "effect": "allow"},
         {"action": "exec_command", "resource": "*", "effect": "ask"},
+        {"action": "write_file", "resource": "*", "effect": "ask"},
+        {"action": "replace_in_file", "resource": "*", "effect": "ask"},
+        {"action": "delete_file", "resource": "*", "effect": "ask"},
+        {"action": "*", "resource": "*", "effect": "allow"},
     ])
 
     # 通用设置

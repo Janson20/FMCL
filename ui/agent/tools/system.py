@@ -185,7 +185,8 @@ def _exec_command(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str
     dangerous_prefix = _is_dangerous_command(command)
     if dangerous_prefix:
         logger.warning(f"[Agent] 检测到高危命令: '{command}' (匹配前缀: '{dangerous_prefix}')")
-        return f"{DANGEROUS_MARKER}|{path}|{command}"
+        payload = json.dumps({"path": path, "command": command}, ensure_ascii=False)
+        return f"{DANGEROUS_MARKER}|{payload}"
 
     return _run_command(path, command)
 

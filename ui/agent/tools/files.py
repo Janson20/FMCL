@@ -22,23 +22,39 @@ CATEGORY_FILE = "file"
 # 确认标记：写/改/删操作返回此前缀，agent_chat 识别后弹出确认框
 FILE_EDIT_MARKER = "__FILE_EDIT__"
 
+
+def _get_str(value, default: str = "") -> str:
+    """安全获取字符串值 — AI 传入的 JSON 参数可能是 bool/int 而非 str"""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
 # ============ 路径安全校验 ============
 
 
 def _safe_resolve(file_path: str) -> Optional[Path]:
     """将路径解析为相对于 CWD 的绝对路径，限制在 CWD 内
 
+    Windows 兼容：使用 strict=False 避免非存在路径解析失败。
+
     Returns:
-        安全的 Path 对象，或 None（路径越界或不存在于读操作中）
+        安全的 Path 对象，或 None（路径越界）
     """
     cwd = Path(os.getcwd()).resolve()
     target = Path(file_path)
     if not target.is_absolute():
         target = (cwd / target)
     try:
-        resolved = target.resolve()
+        # strict=False：Windows 下非存在路径也能正常解析
+        resolved = target.resolve(strict=False)
     except (OSError, RuntimeError):
         return None
+    # 确保是绝对路径（resolve 可能因路径不存在而不完全展开）
+    if not resolved.is_absolute():
+        resolved = cwd / resolved
     # 检查是否在 CWD 子树内
     try:
         resolved.relative_to(cwd)
@@ -87,9 +103,9 @@ def _diff_preview(old_text: str, new_text: str, context_lines: int = 3) -> str:
 
 def _read_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     """读取文件内容，支持 offset/limit 行范围"""
-    file_path = params.get("filePath", "").strip()
-    offset_str = params.get("offset", "1").strip()
-    limit_str = params.get("limit", "").strip()
+    file_path = _get_str(params.get("filePath")).strip()
+    offset_str = _get_str(params.get("offset"), "1").strip()
+    limit_str = _get_str(params.get("limit")).strip()
 
     if not file_path:
         return "错误: 缺少 filePath 参数"
@@ -104,7 +120,7 @@ def _read_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     except PermissionError:
         return f"错误: 无权限读取文件: {file_path}"
     except Exception as e:
-        return f"❌ 读取文件 '{file_path}' 失败: {e}"
+        return f"[ERROR] 读取文件 '{file_path}' 失败: {e}"
 
     total = len(lines)
     try:
@@ -139,8 +155,8 @@ def _read_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
 
 def _write_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     """写入/创建文件，若文件已存在生成 diff 预览"""
-    file_path = params.get("filePath", "").strip()
-    content = params.get("content", "")
+    file_path = _get_str(params.get("filePath")).strip()
+    content = _get_str(params.get("content"))
 
     if not file_path:
         return "错误: 缺少 filePath 参数"
@@ -175,15 +191,20 @@ def _write_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     operation = "覆盖" if existed else "创建"
     summary = f"将在 {str(resolved)} {operation}文件:\n```diff\n{diff}\n```"
 
-    return f"{FILE_EDIT_MARKER}|write|{json.dumps(confirm_data, ensure_ascii=False)}|{summary}"
+    payload = json.dumps({
+        "op": "write",
+        "data": confirm_data,
+        "summary": summary,
+    }, ensure_ascii=False)
+    return f"{FILE_EDIT_MARKER}|{payload}"
 
 
 def _replace_in_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     """在文件中查找替换"""
-    file_path = params.get("filePath", "").strip()
-    old_str = params.get("oldStr", "")
-    new_str = params.get("newStr", "")
-    replace_all = params.get("replaceAll", "false").strip().lower() in ("true", "1", "yes")
+    file_path = _get_str(params.get("filePath")).strip()
+    old_str = _get_str(params.get("oldStr"))
+    new_str = _get_str(params.get("newStr"))
+    replace_all = _get_str(params.get("replaceAll"), "false").strip().lower() in ("true", "1", "yes")
 
     if not file_path:
         return "错误: 缺少 filePath 参数"
@@ -201,7 +222,7 @@ def _replace_in_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> 
         with open(str(resolved), "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
     except Exception as e:
-        return f"❌ 读取文件 '{file_path}' 失败: {e}"
+        return f"[ERROR] 读取文件 '{file_path}' 失败: {e}"
 
     count = content.count(old_str)
     if count == 0:
@@ -230,12 +251,17 @@ def _replace_in_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> 
     }
 
     summary = f"将在 {file_path} 中替换 {replacements} 处:\n```diff\n{diff_text}\n```"
-    return f"{FILE_EDIT_MARKER}|replace|{json.dumps(confirm_data, ensure_ascii=False)}|{summary}"
+    payload = json.dumps({
+        "op": "replace",
+        "data": confirm_data,
+        "summary": summary,
+    }, ensure_ascii=False)
+    return f"{FILE_EDIT_MARKER}|{payload}"
 
 
 def _delete_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     """删除文件"""
-    file_path = params.get("filePath", "").strip()
+    file_path = _get_str(params.get("filePath")).strip()
     if not file_path:
         return "错误: 缺少 filePath 参数"
 
@@ -264,14 +290,19 @@ def _delete_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     }
 
     summary = f"将删除文件: {file_path}\n大小: {size_str}\n内容预览:\n{preview[:500]}"
-    return f"{FILE_EDIT_MARKER}|delete|{json.dumps(confirm_data, ensure_ascii=False)}|{summary}"
+    payload = json.dumps({
+        "op": "delete",
+        "data": confirm_data,
+        "summary": summary,
+    }, ensure_ascii=False)
+    return f"{FILE_EDIT_MARKER}|{payload}"
 
 
 def _search_files_by_name(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     """Glob 模式搜索文件名"""
-    pattern = params.get("pattern", "").strip()
-    root_dir = params.get("rootDir", os.getcwd()).strip()
-    limit_str = params.get("limit", "50").strip()
+    pattern = _get_str(params.get("pattern")).strip()
+    root_dir = _get_str(params.get("rootDir"), os.getcwd()).strip()
+    limit_str = _get_str(params.get("limit"), "50").strip()
 
     if not pattern:
         return "错误: 缺少 pattern 参数"
@@ -297,7 +328,7 @@ def _search_files_by_name(params: Dict[str, str], callbacks: Dict[str, Callable]
             if len(results) >= limit:
                 break
     except Exception as e:
-        return f"❌ 搜索失败: {e}"
+        return f"[ERROR] 搜索失败: {e}"
 
     if not results:
         return "未找到匹配文件"
@@ -307,10 +338,10 @@ def _search_files_by_name(params: Dict[str, str], callbacks: Dict[str, Callable]
 
 def _search_files_by_content(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     """Grep 正则搜索文件内容"""
-    regex = params.get("regex", "").strip()
-    file_pattern = params.get("filePattern", "*").strip()
-    root_dir = params.get("rootDir", os.getcwd()).strip()
-    limit_str = params.get("limit", "100").strip()
+    regex = _get_str(params.get("regex")).strip()
+    file_pattern = _get_str(params.get("filePattern"), "*").strip()
+    root_dir = _get_str(params.get("rootDir"), os.getcwd()).strip()
+    limit_str = _get_str(params.get("limit"), "100").strip()
 
     if not regex:
         return "错误: 缺少 regex 参数"
@@ -355,7 +386,7 @@ def _search_files_by_content(params: Dict[str, str], callbacks: Dict[str, Callab
             if len(results) >= limit:
                 break
     except Exception as e:
-        return f"❌ 搜索失败: {e}"
+        return f"[ERROR] 搜索失败: {e}"
 
     if not results:
         return "未找到匹配内容"
@@ -372,8 +403,8 @@ def _search_files_by_content(params: Dict[str, str], callbacks: Dict[str, Callab
 
 def _list_directory(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     """列举目录内容"""
-    dir_path = params.get("dirPath", os.getcwd()).strip()
-    recursive = params.get("recursive", "false").strip().lower() in ("true", "1", "yes")
+    dir_path = _get_str(params.get("dirPath"), os.getcwd()).strip()
+    recursive = _get_str(params.get("recursive"), "false").strip().lower() in ("true", "1", "yes")
 
     resolved = _safe_resolve_for_read(dir_path)
     if resolved is None or not resolved.is_dir():
@@ -385,30 +416,30 @@ def _list_directory(params: Dict[str, str], callbacks: Dict[str, Callable]) -> s
             for root, dirs, files in os.walk(str(resolved)):
                 rel_root = os.path.relpath(root, os.getcwd())
                 for d in dirs:
-                    items.append(f"📁 {os.path.join(rel_root, d)}/")
+                    items.append(f"[DIR] {os.path.join(rel_root, d)}/")
                 for f in files:
                     fpath = os.path.join(root, f)
                     try:
                         fsize = os.path.getsize(fpath)
                     except Exception:
                         fsize = 0
-                    items.append(f"📄 {os.path.join(rel_root, f)} ({_format_size(fsize)})")
+                    items.append(f"[FILE] {os.path.join(rel_root, f)} ({_format_size(fsize)})")
         else:
             items = []
             for entry in sorted(os.listdir(str(resolved))):
                 entry_path = resolved / entry
                 if entry_path.is_dir():
-                    items.append(f"📁 {entry}/")
+                    items.append(f"[DIR] {entry}/")
                 else:
                     try:
                         fsize = entry_path.stat().st_size
                     except Exception:
                         fsize = 0
-                    items.append(f"📄 {entry} ({_format_size(fsize)})")
+                    items.append(f"[FILE] {entry} ({_format_size(fsize)})")
     except PermissionError:
         return f"错误: 无权限访问目录: {dir_path}"
     except Exception as e:
-        return f"❌ 列出目录 '{dir_path}' 失败: {e}"
+        return f"[ERROR] 列出目录 '{dir_path}' 失败: {e}"
 
     if not items:
         return f"目录 {dir_path} 为空"

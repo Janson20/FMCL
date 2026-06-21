@@ -29,12 +29,13 @@ class PermissionRule:
     effect: Effect  # "allow" | "deny" | "ask"
 
 
+# 注意：规则按顺序匹配，命中第一条即停止。ask/deny 必须在 allow 通配符之前！
 DEFAULT_RULES: List[PermissionRule] = [
-    PermissionRule(action="*", resource="*", effect="allow"),
     PermissionRule(action="exec_command", resource="*", effect="ask"),
     PermissionRule(action="write_file", resource="*", effect="ask"),
     PermissionRule(action="replace_in_file", resource="*", effect="ask"),
     PermissionRule(action="delete_file", resource="*", effect="ask"),
+    PermissionRule(action="*", resource="*", effect="allow"),
 ]
 
 

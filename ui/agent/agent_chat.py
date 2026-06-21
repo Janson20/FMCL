@@ -312,6 +312,90 @@ class OptionSelectDialog(ctk.CTkToplevel):
             self._callback(flat_answers)
 
 
+# ============ 文件编辑确认弹窗 ============
+
+class FileEditConfirmDialog(ctk.CTkToplevel):
+    """文件编辑确认弹窗 - 显示 diff 预览，用户确认后执行"""
+
+    def __init__(self, parent, confirm_data: dict, op_type: str, summary: str,
+                 callback: Callable[[bool], None]):
+        super().__init__(parent)
+        self._callback = callback
+
+        self.title("FMCL - 确认文件操作")
+        self.configure(fg_color=COLORS["bg_dark"])
+        try:
+            self.grab_set()
+        except Exception:
+            pass
+
+        file_path = confirm_data.get("filePath", "")
+        op_labels = {"write": "创建/覆盖文件", "replace": "替换文件内容", "delete": "删除文件"}
+        op_label = op_labels.get(op_type, "文件操作")
+
+        # 计算窗口高度
+        line_count = min(summary[:600].count("\n") + 5, 30)
+        h = min(200 + line_count * 18, 680)
+        w = 620
+        self.geometry(f"{w}x{h}")
+        self.resizable(False, False)
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - w) // 2
+        y = max(0, (self.winfo_screenheight() - h) // 2)
+        self.geometry(f"+{x}+{y}")
+
+        main = ctk.CTkFrame(self, fg_color="transparent")
+        main.pack(fill=ctk.BOTH, expand=True, padx=20, pady=20)
+
+        # 标题行
+        ctk.CTkLabel(main, text=op_label,
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+                     text_color=COLORS["text_primary"],
+                     ).pack(anchor=ctk.W, pady=(0, 2))
+        ctk.CTkLabel(main, text=f"文件: {file_path}",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                     text_color=COLORS["text_secondary"],
+                     ).pack(anchor=ctk.W, pady=(0, 10))
+
+        # Diff 内容区（可滚动）
+        text_box = ctk.CTkTextbox(main, font=ctk.CTkFont(family="Consolas", size=10),
+                                   fg_color=COLORS["bg_medium"],
+                                   text_color=COLORS["text_primary"],
+                                   wrap=ctk.NONE)
+        text_box.pack(fill=ctk.BOTH, expand=True, pady=(0, 12))
+        text_box.insert("1.0", summary[:3000])
+        text_box.configure(state=ctk.DISABLED)
+
+        # 按钮
+        btn_frame = ctk.CTkFrame(main, fg_color="transparent")
+        btn_frame.pack(fill=ctk.X)
+
+        ctk.CTkButton(btn_frame, text="取消", width=90, height=32,
+                       font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                       fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"],
+                       text_color=COLORS["text_primary"],
+                       command=self._on_cancel).pack(side=ctk.LEFT)
+
+        ctk.CTkButton(btn_frame, text="确认执行", width=90, height=32,
+                       font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+                       fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                       command=self._on_confirm).pack(side=ctk.RIGHT)
+
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+    def _on_confirm(self):
+        self.grab_release()
+        self.destroy()
+        if self._callback:
+            self._callback(True)
+
+    def _on_cancel(self):
+        self.grab_release()
+        self.destroy()
+        if self._callback:
+            self._callback(False)
+
+
 # ============ Skill 管理弹窗 ============
 
 class SkillManageDialog(ctk.CTkToplevel):
@@ -1208,17 +1292,22 @@ class AgentChatView(ctk.CTkFrame):
             logger.error(f"[Agent] 处理循环异常: {e}", exc_info=True)
             show_notification("🤖", _("notify_ai_task_failed"), str(e)[:50], notify_type="error")
         finally:
-            logger.info("[Agent] === AI 处理循环结束 ===")
-            self._ai_processing = False
-            self.after(0, self._reset_send_button)
-            # 后台保存，UI 刷新在主线程
-            sess = self._session
-            threading.Thread(target=lambda s=sess: s.save(), daemon=True).start()
-            self.after(0, self._refresh_todos)
-            self.after(0, self._refresh_session_list)
-            self.after(0, lambda: self._token_label.configure(
-                text=f"Token ~{self._session.estimate_tokens():,}"
-            ))
+            wait_user = bool(self._pending_dangerous or self._pending_ask_user or self._pending_file_edit)
+            logger.info(f"[Agent] === AI 处理循环结束 === (wait_user={wait_user})")
+            if wait_user:
+                # 等待用户确认时，保存会话但不重置 UI（确认回调会启动新循环）
+                sess = self._session
+                threading.Thread(target=lambda s=sess: s.save(), daemon=True).start()
+            else:
+                self._ai_processing = False
+                self.after(0, self._reset_send_button)
+                sess = self._session
+                threading.Thread(target=lambda s=sess: s.save(), daemon=True).start()
+                self.after(0, self._refresh_todos)
+                self.after(0, self._refresh_session_list)
+                self.after(0, lambda: self._token_label.configure(
+                    text=f"Token ~{self._session.estimate_tokens():,}"
+                ))
 
     def _handle_stream_events(self, stream_gen) -> tuple:
         """处理流式事件 - 更新 _streaming_block + 调度渲染
@@ -1325,11 +1414,16 @@ class AgentChatView(ctk.CTkFrame):
         if effect == "ask" and tool_name == "exec_command":
             result_text = self._registry.execute(tool_name, tool_params, self._callbacks)
             if result_text.startswith(DANGEROUS_MARKER):
-                parts = result_text.split("|", 2)
-                if len(parts) >= 3:
-                    self._pending_dangerous = (parts[1], parts[2], tool_call_id)
-                    self.after(0, lambda p=parts: self._show_dangerous_dialog(p[1], p[2]))
+                try:
+                    rest = result_text[len(DANGEROUS_MARKER) + 1:]
+                    payload = json.loads(rest)
+                    path = payload["path"]
+                    command = payload["command"]
+                    self._pending_dangerous = (path, command, tool_call_id)
+                    self.after(0, lambda p=path, c=command: self._show_dangerous_dialog(p, c))
                     return "WAIT_USER"
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.error(f"[Agent] DANGEROUS_MARKER 解析失败: {e}")
             self._session.add_message({
                 "role": "tool", "tool_call_id": tool_call_id, "content": result_text,
             })
@@ -1339,18 +1433,18 @@ class AgentChatView(ctk.CTkFrame):
         if effect == "ask" and tool_name in ("write_file", "replace_in_file", "delete_file"):
             result_text = self._registry.execute(tool_name, tool_params, self._callbacks)
             if result_text.startswith(FILE_EDIT_MARKER):
-                parts = result_text.split("|", 3)
-                if len(parts) >= 4:
-                    try:
-                        confirm_data = json.loads(parts[2])
-                        op_type = parts[1]
-                        summary = parts[3]
-                        self.after(0, lambda c=confirm_data, o=op_type, s=summary:
-                                   self._show_file_edit_dialog(c, o, s))
-                        self._pending_file_edit = (confirm_data, op_type, tool_call_id)
-                        return "WAIT_USER"
-                    except json.JSONDecodeError:
-                        pass
+                try:
+                    rest = result_text[len(FILE_EDIT_MARKER) + 1:]
+                    payload = json.loads(rest)
+                    confirm_data = payload["data"]
+                    op_type = payload["op"]
+                    summary = payload.get("summary", "")
+                    self._pending_file_edit = (confirm_data, op_type, tool_call_id)
+                    self.after(0, lambda c=confirm_data, o=op_type, s=summary:
+                               self._show_file_edit_dialog(c, o, s))
+                    return "WAIT_USER"
+                except (json.JSONDecodeError, KeyError) as e:
+                    logger.error(f"[Agent] FILE_EDIT_MARKER 解析失败: {e}, result头部: {result_text[:200]}")
             self._session.add_message({
                 "role": "tool", "tool_call_id": tool_call_id, "content": result_text,
             })
@@ -1408,12 +1502,13 @@ class AgentChatView(ctk.CTkFrame):
         """显示文件编辑确认弹窗"""
         if not self._pending_file_edit:
             return
-        op_labels = {"write": "写入文件", "replace": "替换文件内容", "delete": "删除文件"}
-        op_label = op_labels.get(op_type, "文件操作")
-        file_path = confirm_data.get("filePath", "")
-        msg = f"{op_label}\n\n文件: {file_path}\n\n{summary[:500]}\n\n确定要执行吗？"
-        confirmed = show_confirmation(msg, title="FMCL")
-        self._on_file_edit_confirmed(confirmed)
+        FileEditConfirmDialog(
+            self.winfo_toplevel(),
+            confirm_data=confirm_data,
+            op_type=op_type,
+            summary=summary,
+            callback=self._on_file_edit_confirmed,
+        )
 
     def _on_file_edit_confirmed(self, confirmed: bool):
         """处理文件编辑确认结果"""
@@ -1437,6 +1532,10 @@ class AgentChatView(ctk.CTkFrame):
         file_path = confirm_data.get("filePath", "")
         try:
             if op_type == "write" or op_type == "replace":
+                # 确保父目录存在
+                parent = os.path.dirname(file_path)
+                if parent and not os.path.isdir(parent):
+                    os.makedirs(parent, exist_ok=True)
                 content = confirm_data.get("newText", "")
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(content)
