@@ -94,9 +94,9 @@ jobs:
           path: FMCL-Setup-*.exe
           retention-days: 7
 
-  build-macos-intel:
-    name: Build macOS Intel DMG
-    runs-on: macos-13
+  build-macos:
+    name: Build macOS DMG
+    runs-on: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -116,64 +116,23 @@ jobs:
         run: pyinstaller build.spec --noconfirm
         env:
           PLATFORM: mac
-          ARCH: amd64
-
-      - name: Create DMG
-        run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          rm -rf dmg_temp FMCL-*-mac-amd64.dmg
-          mkdir -p dmg_temp
-          cp -R dist/FMCL.app dmg_temp/
-          ln -sf /Applications dmg_temp/Applications
-          hdiutil create -volname "FMCL" -srcfolder dmg_temp -ov -format UDZO "FMCL-${VERSION}-mac-amd64.dmg"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: FMCL-mac-amd64
-          path: FMCL-*-mac-amd64.dmg
-          retention-days: 7
-
-  build-macos-arm:
-    name: Build macOS Apple Silicon DMG
-    runs-on: macos-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install pyinstaller
-          pip install -r requirements-unix.txt
-
-      - name: Build with PyInstaller
-        run: pyinstaller build.spec --noconfirm
-        env:
-          PLATFORM: mac
           ARCH: arm64
 
       - name: Create DMG
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          rm -rf dmg_temp FMCL-*-mac-arm64.dmg
+          rm -rf dmg_temp FMCL-*-mac.dmg
           mkdir -p dmg_temp
           cp -R dist/FMCL.app dmg_temp/
           ln -sf /Applications dmg_temp/Applications
-          hdiutil create -volname "FMCL" -srcfolder dmg_temp -ov -format UDZO "FMCL-${VERSION}-mac-arm64.dmg"
+          hdiutil create -volname "FMCL" -srcfolder dmg_temp -ov -format UDZO "FMCL-${VERSION}-mac.dmg"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FMCL-mac-arm64
-          path: FMCL-*-mac-arm64.dmg
+          name: FMCL-mac
+          path: FMCL-*-mac.dmg
           retention-days: 7
 
   build-linux:
@@ -304,7 +263,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build-windows, build-macos-intel, build-macos-arm, build-linux]
+    needs: [build-windows, build-macos, build-linux]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -374,8 +333,7 @@ jobs:
           echo "| Platform | File |" >> CHANGELOG.md
           echo "|----------|------|" >> CHANGELOG.md
           echo "| Windows | [FMCL-Setup-${VERSION}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-Setup-${VERSION}.exe) |" >> CHANGELOG.md
-          echo "| macOS Intel | [FMCL-${VERSION}-mac-amd64.dmg](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-${VERSION}-mac-amd64.dmg) |" >> CHANGELOG.md
-          echo "| macOS Apple Silicon | [FMCL-${VERSION}-mac-arm64.dmg](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-${VERSION}-mac-arm64.dmg) |" >> CHANGELOG.md
+          echo "| macOS (Apple Silicon, Intel via Rosetta 2) | [FMCL-${VERSION}-mac.dmg](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-${VERSION}-mac.dmg) |" >> CHANGELOG.md
           echo "| Linux DEB | [FMCL-${VERSION}-linux-amd64.deb](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-${VERSION}-linux-amd64.deb) |" >> CHANGELOG.md
           echo "| Linux AppImage | [FMCL-${VERSION}-x86_64.AppImage](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-${VERSION}-x86_64.AppImage) |" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
