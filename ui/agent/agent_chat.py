@@ -381,7 +381,7 @@ class AgentChatView(ctk.CTkFrame):
         ctk.CTkLabel(header, text=_("agent_provider") + ":", font=ctk.CTkFont(family=FONT_FAMILY, size=12),
                      text_color=COLORS["text_secondary"]).pack(side=ctk.LEFT, padx=(10, 4))
 
-        self._provider_var = ctk.StringVar(value="jingdu")
+        self._provider_var = ctk.StringVar(value="净读 AI")
         providers = get_provider_names()
         provider_names = [p["name"] for p in providers]
         self._provider_menu = ctk.CTkOptionMenu(
@@ -651,10 +651,23 @@ class AgentChatView(ctk.CTkFrame):
             for msg in loaded.messages:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
-                if role == "user":
+
+                if role == "system":
+                    if content.startswith("[tool_start]"):
+                        tool_name = content[len("[tool_start]"):].strip()
+                        self._append_tool_start(tool_name)
+                    else:
+                        self._append_system_message(content)
+                elif role == "user":
                     self._append_message("user", content)
                 elif role == "assistant":
+                    thinking = msg.get("_thinking", "")
+                    if thinking:
+                        self._append_thinking(thinking)
                     self._append_message("assistant", content)
+                elif role == "tool":
+                    tool_name = msg.get("_tool_name", "?")
+                    self._append_tool_result(tool_name, content[:500])
             self._refresh_todos()
 
     def _on_delete_session(self, session_id: str):
@@ -662,7 +675,9 @@ class AgentChatView(ctk.CTkFrame):
         if confirmed:
             AgentSession.delete(session_id)
             if self._session and self._session.id == session_id:
-                self._on_new_session()
+                self._session = None
+                self._clear_display()
+                self._refresh_todos()
             self._refresh_session_list()
 
     def _on_rename_session(self, session_id: str, old_title: str):
@@ -766,12 +781,20 @@ class AgentChatView(ctk.CTkFrame):
         html = self._html_template("".join(parts))
         try:
             self._msg_frame.load_html(html)
-            # load_html 会重置滚动位置，延迟滚动到底部
-            self.after(50, self._scroll_to_bottom)
+            # 取消上一次待执行的滚动，延迟重新滚动（流式更新时每次 load_html 重置位置，
+            # 只保留最后一次滚动调度，避免频繁抖动）
+            self._defer_scroll()
         except Exception:
             pass
 
+    def _defer_scroll(self):
+        if hasattr(self, '_scroll_after_id') and self._scroll_after_id:
+            self.after_cancel(self._scroll_after_id)
+            self._scroll_after_id = None
+        self._scroll_after_id = self.after(100, self._scroll_to_bottom)
+
     def _scroll_to_bottom(self):
+        self._scroll_after_id = None
         try:
             self._msg_frame.yview_moveto(1.0)
         except Exception:
@@ -928,18 +951,23 @@ class AgentChatView(ctk.CTkFrame):
                 self._streaming_block = {"role": "assistant", "content": "", "thinking": "", "tag": ""}
                 content, tool_calls, needs_break = self._handle_stream_events(stream_gen)
                 # 完成流式渲染：将流式块固定为永久消息块
-                if self._streaming_block and (self._streaming_block.get("content") or self._streaming_block.get("thinking")):
-                    self._message_blocks.append(self._streaming_block)
+                streaming_thinking = ""
+                if self._streaming_block:
+                    streaming_thinking = self._streaming_block.get("thinking", "")
+                    if self._streaming_block.get("content") or streaming_thinking:
+                        self._message_blocks.append(self._streaming_block)
                 self._streaming_block = None
 
                 if needs_break:
                     return  # 等待用户确认
 
-                # 追加 assistant 消息
+                # 追加 assistant 消息（保留思考过程供历史回放）
                 if content or tool_calls:
                     msg = {"role": "assistant", "content": content}
                     if tool_calls:
                         msg["tool_calls"] = tool_calls
+                    if streaming_thinking:
+                        msg["_thinking"] = streaming_thinking
                     self._session.add_message(msg)
 
                 # 执行工具调用
@@ -954,6 +982,9 @@ class AgentChatView(ctk.CTkFrame):
                         elif isinstance(result, str) and result == "WAIT_USER":
                             self._session.save()
                             return
+
+                    # 每次工具调用后立即刷新 Todo 面板
+                    self.after(0, self._refresh_todos)
 
                     if not all_ok:
                         continue
@@ -1078,8 +1109,11 @@ class AgentChatView(ctk.CTkFrame):
         if effect == "deny":
             self._append_system_message(f"🔒 工具 {tool_name} 被策略禁止")
             self._session.add_message({
+                "role": "system", "content": f"[tool_start] {tool_name}",
+            })
+            self._session.add_message({
                 "role": "tool", "tool_call_id": tool_call_id,
-                "content": f"工具 {tool_name} 被权限策略禁止",
+                "content": f"工具 {tool_name} 被权限策略禁止", "_tool_name": tool_name,
             })
             return True
         if effect == "ask" and tool_name == "exec_command":
@@ -1091,12 +1125,20 @@ class AgentChatView(ctk.CTkFrame):
                     self.after(0, lambda p=parts: self._show_dangerous_dialog(p[1], p[2]))
                     return "WAIT_USER"
             self._session.add_message({
+                "role": "system", "content": f"[tool_start] {tool_name}",
+            })
+            self._session.add_message({
                 "role": "tool", "tool_call_id": tool_call_id, "content": result_text,
+                "_tool_name": tool_name,
             })
             self._append_tool_result(tool_name, result_text[:300])
             return True
 
         # 执行工具
+        # 先记录 tool_start 到 session
+        self._session.add_message({
+            "role": "system", "content": f"[tool_start] {tool_name}",
+        })
         result_text = self._registry.execute(tool_name, tool_params, self._callbacks)
 
         # 检测 ask_user
@@ -1113,6 +1155,7 @@ class AgentChatView(ctk.CTkFrame):
 
         self._session.add_message({
             "role": "tool", "tool_call_id": tool_call_id, "content": result_text,
+            "_tool_name": tool_name,
         })
         self._append_tool_result(tool_name, result_text[:300])
         return True
@@ -1138,6 +1181,7 @@ class AgentChatView(ctk.CTkFrame):
             result_text = f"⚠️ 用户取消了命令执行\n路径: {ep}\n命令: {ec}"
         self._session.add_message({
             "role": "tool", "tool_call_id": tc_id, "content": result_text,
+            "_tool_name": "exec_command",
         })
         self._append_tool_result("exec_command", result_text[:300])
         self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
@@ -1160,6 +1204,7 @@ class AgentChatView(ctk.CTkFrame):
         self._session.add_message({
             "role": "tool", "tool_call_id": tc_id,
             "content": f"用户回答: {', '.join(answers)}",
+            "_tool_name": "ask_user",
         })
         self._append_message("user", f"选择: {', '.join(answers)}")
         self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))

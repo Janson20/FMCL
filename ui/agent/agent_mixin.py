@@ -80,8 +80,11 @@ class AgentMixin(object):
             # 净读 AI 始终可用
             try:
                 provider = JingduProvider(api_key=self._get_agent_token())
+                cbs = dict(self.callbacks)
+                cbs["get_current_session_id"] = self._get_agent_current_session_id
+                cbs["get_config"] = self._get_agent_cfg
                 self._agent_chat.set_provider(provider)
-                self._agent_chat.set_callbacks(self.callbacks)
+                self._agent_chat.set_callbacks(cbs)
                 logger.info("[Agent] 净读 AI Provider 初始化成功")
             except Exception as e:
                 logger.error(f"[Agent] Provider 初始化失败: {e}")
@@ -117,7 +120,11 @@ class AgentMixin(object):
         """更新 AGENT 的回调（在启动器就绪后调用）"""
         logger.info("[Agent] _update_agent_callbacks 被调用")
         if hasattr(self, "_agent_chat") and self._agent_chat:
-            self._agent_chat.set_callbacks(self.callbacks)
+            # 注入 get_current_session_id 回调供 todo_write 工具使用
+            cbs = dict(self.callbacks)
+            cbs["get_current_session_id"] = self._get_agent_current_session_id
+            cbs["get_config"] = self._get_agent_cfg
+            self._agent_chat.set_callbacks(cbs)
         else:
             logger.warning("[Agent] _agent_chat 尚未创建，跳过更新")
         self._sync_agent_status()
@@ -127,3 +134,11 @@ class AgentMixin(object):
         if hasattr(self, "_agent_chat") and self._agent_chat and self._agent_chat._session:
             return self._agent_chat._session.id
         return ""
+
+    def _get_agent_cfg(self) -> dict:
+        """获取 Agent 配置（供 web_search 等工具使用）"""
+        try:
+            from ui.agent.config import get_agent_config
+            return {"bing_api_key": get_agent_config().bing_api_key}
+        except Exception:
+            return {}
