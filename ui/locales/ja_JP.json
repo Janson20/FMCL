@@ -620,6 +620,7 @@
   "agent_confirm_delete_session": "このセッションを削除しますか？この操作は取り消せません。",
   "agent_rename_session": "名前変更",
   "agent_delete_session": "削除",
+  "agent_close_confirm": "AIが処理中です。強制終了してもよろしいですか？",
 
   "terms_title": "利用規約とプライバシー契約",
   "terms_content": "このランチャーを使用することにより、Minecraft EULA、Jingdu AIプライバシー契約、Jingdu利用規約に同意したことになります。\n\n規約リンク: https://jingdu.qzz.io/terms",

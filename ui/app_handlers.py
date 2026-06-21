@@ -17,7 +17,7 @@ import customtkinter as ctk
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
-from ui.dialogs import show_notification
+from ui.dialogs import show_notification, show_confirmation
 from ui.windows.resource_manager import ResourceManagerWindow
 from ui.windows.launcher_settings import LauncherSettingsWindow
 from ui.windows.modpack_install import ModpackInstallWindow
@@ -1474,5 +1474,14 @@ class EventHandlerMixin(object):
 
     def on_closing(self):
         """窗口关闭事件"""
+        # 检查 AI 是否正在处理任务
+        if hasattr(self, "_agent_chat") and self._agent_chat is not None:
+            if self._agent_chat.is_processing():
+                confirmed = show_confirmation(
+                    _("agent_close_confirm"),
+                    title="FMCL"
+                )
+                if not confirmed:
+                    return
         self._running = False
         self.destroy()

@@ -620,6 +620,7 @@
   "agent_confirm_delete_session": "Are you sure you want to delete this session? This cannot be undone.",
   "agent_rename_session": "Rename",
   "agent_delete_session": "Delete",
+  "agent_close_confirm": "AI is processing. Are you sure you want to force quit?",
 
   "terms_title": "Terms & Privacy Agreement",
   "terms_content": "By using this launcher, you agree to the Minecraft EULA, Jingdu AI Privacy Agreement, and Jingdu Terms of Service.\n\nTerms link: https://jingdu.qzz.io/terms",

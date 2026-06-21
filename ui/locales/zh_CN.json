@@ -620,6 +620,7 @@
   "agent_confirm_delete_session": "确定要删除此会话吗？此操作不可恢复。",
   "agent_rename_session": "重命名",
   "agent_delete_session": "删除",
+  "agent_close_confirm": "AI 处理中，确定要强制退出吗？",
 
   "terms_title": "使用条款与隐私协议",
   "terms_content": "使用该启动器代表你已同意Minecraft EULA，净读AI隐私协议，净读使用条款\n\n条款链接: https://jingdu.qzz.io/terms",

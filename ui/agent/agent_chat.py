@@ -324,6 +324,7 @@ class AgentChatView(ctk.CTkFrame):
         self._provider: Optional[BaseProvider] = None
         self._session: Optional[AgentSession] = None
         self._running = False
+        self._ai_processing = False
         self._pending_dangerous = None
         self._pending_ask_user = None
         self._thinking_visible = True  # 默认展开思考
@@ -813,10 +814,9 @@ class AgentChatView(ctk.CTkFrame):
         if hasattr(self, '_render_after_id') and self._render_after_id:
             self.after_cancel(self._render_after_id)
             self._render_after_id = None
+        self._render_scheduled = True
         delay = 1 if force else 500
-        if not self._render_scheduled or force:
-            self._render_scheduled = True
-            self._render_after_id = self.after(delay, self._do_render)
+        self._render_after_id = self.after(delay, self._do_render)
 
     def _do_render(self):
         self._render_scheduled = False
@@ -885,6 +885,10 @@ class AgentChatView(ctk.CTkFrame):
     def set_callbacks(self, callbacks: Dict[str, Callable]):
         self._callbacks = callbacks
 
+    def is_processing(self) -> bool:
+        """返回 AI 是否正在处理任务"""
+        return self._ai_processing
+
     def send_message(self, text: str):
         text = text.strip()
         if not text:
@@ -906,9 +910,6 @@ class AgentChatView(ctk.CTkFrame):
         self._session.add_message({"role": "user", "content": text})
         if not self._session.title:
             self._session.set_title(text)
-        # 磁盘写入移到后台线程，避免卡 UI
-        sess = self._session
-        threading.Thread(target=lambda s=sess: s.save(), daemon=True, name="AgentSave").start()
         _trigger_agent_ach("agent_first_chat")
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
 
@@ -924,6 +925,7 @@ class AgentChatView(ctk.CTkFrame):
         iteration = 0
         empty_count = 0
         logger.info("[Agent] === AI 处理循环开始（流式模式）===")
+        self._ai_processing = True
 
         try:
             while iteration < max_iterations:
@@ -1012,8 +1014,7 @@ class AgentChatView(ctk.CTkFrame):
                     if not all_ok:
                         continue
 
-                    # 后台保存
-                    threading.Thread(target=lambda s=self._session: s.save(), daemon=True).start()
+                    # 不在循环中保存，最终由 finally 统一保存
                     continue
                 else:
                     logger.info("[Agent] 任务完成")
@@ -1027,14 +1028,13 @@ class AgentChatView(ctk.CTkFrame):
             show_notification("🤖", _("notify_ai_task_failed"), str(e)[:50], notify_type="error")
         finally:
             logger.info("[Agent] === AI 处理循环结束 ===")
+            self._ai_processing = False
             self.after(0, self._reset_send_button)
-            # 磁盘 I/O 移后台
+            # 后台保存，UI 刷新在主线程
             sess = self._session
-            def _finalize():
-                sess.save()
-                self.after(0, self._refresh_todos)
-                self.after(0, self._refresh_session_list)
-            threading.Thread(target=_finalize, daemon=True).start()
+            threading.Thread(target=lambda s=sess: s.save(), daemon=True).start()
+            self.after(0, self._refresh_todos)
+            self.after(0, self._refresh_session_list)
             self.after(0, lambda: self._token_label.configure(
                 text=f"Token ~{self._session.estimate_tokens():,}"
             ))
