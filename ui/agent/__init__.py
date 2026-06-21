@@ -9,7 +9,8 @@ from ui.agent.providers.custom import CustomProvider
 from ui.agent.agent_chat import AgentChatView
 from ui.agent.agent_mixin import AgentMixin
 from ui.agent.tool_registry import ToolRegistry, get_registry, get_tool_definitions
-from ui.agent.tools.system import execute_dangerous_command, DANGEROUS_MARKER, ASK_USER_MARKER
+from ui.agent.tools.system import execute_dangerous_command, DANGEROUS_MARKER
+from ui.agent.tools.user import ASK_USER_MARKER
 
 __all__ = [
     "ModelInfo",

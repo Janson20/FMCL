@@ -514,6 +514,12 @@
 
   "settings_tab_launcher": "🚀 启动器功能",
   "settings_tab_account": "👤 账户管理",
+  "settings_tab_ai": "🤖 AI 模型",
+  "settings_save": "保存",
+  "settings_saved": "设置已保存",
+  "settings_ai_test": "测试连接",
+  "settings_ai_custom": "自定义端点",
+  "settings_ai_key_required": "请先输入 API Key",
   "account_info_title": "📋 账户信息",
   "account_info_username": "用户名",
   "account_info_uuid": "UUID",
@@ -612,6 +618,8 @@
   "agent_new_session_created": "已创建新会话",
   "agent_session_loaded": "已加载历史会话",
   "agent_confirm_delete_session": "确定要删除此会话吗？此操作不可恢复。",
+  "agent_rename_session": "重命名",
+  "agent_delete_session": "删除",
 
   "terms_title": "使用条款与隐私协议",
   "terms_content": "使用该启动器代表你已同意Minecraft EULA，净读AI隐私协议，净读使用条款\n\n条款链接: https://jingdu.qzz.io/terms",

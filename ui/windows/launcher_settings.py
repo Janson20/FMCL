@@ -85,6 +85,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         tab_launcher = tabview.add(_("settings_tab_launcher"))
         tab_account = tabview.add(_("settings_tab_account"))
+        tab_ai = tabview.add(_("settings_tab_ai"))
 
         # ── 标签页1: 启动器功能 ──
         container = ctk.CTkScrollableFrame(tab_launcher, fg_color="transparent")
@@ -754,6 +755,9 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             self._account_info_frame.pack(fill=ctk.X, padx=12, pady=(0, 10))
             self.after(100, self._on_account_refresh)
 
+        # ── 标签页3: AI 模型配置 ──
+        self._build_ai_tab(tab_ai)
+
         # ── 底部按钮 ──
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(pady=(0, 15), fill=ctk.X, padx=20)
@@ -1279,3 +1283,264 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self._update_mc_account_quick_info()
         if self.parent and hasattr(self.parent, '_update_sidebar_account'):
             self.parent._update_sidebar_account()
+
+    # ── AI 模型配置 ──
+
+    def _build_ai_tab(self, tab):
+        """构建 AI 模型配置标签页"""
+        container = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        container.pack(fill=ctk.BOTH, expand=True, padx=10, pady=10)
+
+        # 获取当前配置
+        try:
+            from ui.agent.config import get_agent_config, save_agent_config
+            config = get_agent_config()
+        except Exception:
+            config = None
+
+        # ── OpenAI ──
+        self._build_provider_section(container, "openai", "OpenAI",
+            desc_line1="配置 OpenAI API Key 以使用 GPT-4o、GPT-4o-mini 等模型",
+            desc_line2="API Key 以 sk- 开头。获取地址: https://platform.openai.com/api-keys")
+
+        # ── Anthropic ──
+        self._build_provider_section(container, "anthropic", "Anthropic",
+            desc_line1="配置 Anthropic API Key 以使用 Claude 系列模型",
+            desc_line2="API Key 以 sk-ant- 开头。获取地址: https://console.anthropic.com/")
+
+        # ── 自定义端点 ──
+        self._build_provider_section(container, "custom", _("settings_ai_custom"),
+            desc_line1="配置自定义 OpenAI 兼容 API 端点",
+            desc_line2="支持 Ollama、vLLM、LiteLLM 等兼容服务")
+
+        # ── Bing API Key（用于 WebSearch）─
+        bing_section = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
+        bing_section.pack(fill=ctk.X, pady=(15, 5))
+        self._r(bing_section, fg_color="bg_medium")
+
+        bing_title = ctk.CTkLabel(bing_section, text="Bing Search API",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_primary"])
+        bing_title.pack(anchor=ctk.W, padx=12, pady=(10, 3))
+
+        bing_desc = ctk.CTkLabel(bing_section, text="可选：配置 Bing API Key 以获得更精准的搜索结果",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"])
+        bing_desc.pack(anchor=ctk.W, padx=12, pady=(0, 5))
+
+        bing_entry_frame = ctk.CTkFrame(bing_section, fg_color="transparent")
+        bing_entry_frame.pack(fill=ctk.X, padx=12, pady=(0, 10))
+
+        bing_label = ctk.CTkLabel(bing_entry_frame, text="API Key:",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_primary"])
+        bing_label.pack(side=ctk.LEFT)
+        self._r(bing_label, text_color="text_primary")
+
+        self._bing_key_entry = ctk.CTkEntry(bing_entry_frame, height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11), width=260,
+            fg_color=COLORS["bg_dark"], border_color=COLORS["card_border"],
+            text_color=COLORS["text_primary"], show="•")
+        self._bing_key_entry.pack(side=ctk.LEFT, padx=(10, 5))
+        self._r(self._bing_key_entry, fg_color="bg_dark", border_color="card_border", text_color="text_primary")
+
+        # 预填
+        bing_key = config.bing_api_key if config else ""
+        self._bing_key_entry.insert(0, bing_key)
+
+        # ── 保存按钮 ──
+        save_ai_btn = ctk.CTkButton(container, text=_("settings_save"),
+            height=34, font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=self._on_save_ai_config)
+        save_ai_btn.pack(pady=(15, 5))
+
+    def _build_provider_section(self, container, pid, name, desc_line1, desc_line2):
+        from ui.agent.config import get_agent_config
+
+        config = get_agent_config()
+        pc = config.providers.get(pid) if config else None
+        api_key = pc.api_key if pc else ""
+        api_url = pc.api_url if pc else ""
+        models_str = ", ".join(pc.custom_models) if pc and pc.custom_models else ""
+
+        section = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
+        section.pack(fill=ctk.X, pady=(5, 5))
+        self._r(section, fg_color="bg_medium")
+
+        # 标题 + 测试连接按钮
+        title_frame = ctk.CTkFrame(section, fg_color="transparent")
+        title_frame.pack(fill=ctk.X, padx=12, pady=(10, 3))
+
+        title_label = ctk.CTkLabel(title_frame, text=name,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_primary"])
+        title_label.pack(side=ctk.LEFT)
+        self._r(title_label, text_color="text_primary")
+
+        test_btn = ctk.CTkButton(title_frame, text=_("settings_ai_test"),
+            height=24, font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+            command=lambda p=pid: self._on_test_provider(p))
+        test_btn.pack(side=ctk.RIGHT)
+
+        # 描述
+        desc = ctk.CTkLabel(section, text=desc_line1 + "\n" + desc_line2,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10), text_color=COLORS["text_secondary"],
+            wraplength=440, justify=ctk.LEFT)
+        desc.pack(anchor=ctk.W, padx=12, pady=(0, 5))
+
+        # API Key
+        key_frame = ctk.CTkFrame(section, fg_color="transparent")
+        key_frame.pack(fill=ctk.X, padx=12, pady=3)
+
+        key_label = ctk.CTkLabel(key_frame, text="API Key:",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_primary"])
+        key_label.pack(side=ctk.LEFT)
+        self._r(key_label, text_color="text_primary")
+
+        key_entry = ctk.CTkEntry(key_frame, height=28, font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_dark"], border_color=COLORS["card_border"],
+            text_color=COLORS["text_primary"], show="•")
+        key_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(10, 0))
+        key_entry.insert(0, api_key)
+        self._r(key_entry, fg_color="bg_dark", border_color="card_border", text_color="text_primary")
+
+        setattr(self, f"_{pid}_key_entry", key_entry)
+
+        # Base URL (仅 custom / anthropic 显示)
+        if pid in ("custom", "anthropic", "openai"):
+            url_frame = ctk.CTkFrame(section, fg_color="transparent")
+            url_frame.pack(fill=ctk.X, padx=12, pady=3)
+
+            url_label = ctk.CTkLabel(url_frame, text="Base URL:",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_primary"])
+            url_label.pack(side=ctk.LEFT)
+            self._r(url_label, text_color="text_primary")
+
+            url_entry = ctk.CTkEntry(url_frame, height=28, font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                fg_color=COLORS["bg_dark"], border_color=COLORS["card_border"],
+                text_color=COLORS["text_primary"])
+            url_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(10, 0))
+            if api_url:
+                url_entry.insert(0, api_url)
+            self._r(url_entry, fg_color="bg_dark", border_color="card_border", text_color="text_primary")
+
+            setattr(self, f"_{pid}_url_entry", url_entry)
+
+        # 自定义模型列表（仅 custom）
+        if pid == "custom":
+            models_frame = ctk.CTkFrame(section, fg_color="transparent")
+            models_frame.pack(fill=ctk.X, padx=12, pady=(3, 10))
+
+            models_label = ctk.CTkLabel(models_frame, text="模型列表:",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_primary"])
+            models_label.pack(side=ctk.LEFT)
+            self._r(models_label, text_color="text_primary")
+
+            models_entry = ctk.CTkEntry(models_frame, height=28, font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                fg_color=COLORS["bg_dark"], border_color=COLORS["card_border"],
+                text_color=COLORS["text_primary"],
+                placeholder_text="gpt-4o, claude-3.5-sonnet, ...")
+            models_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(10, 0))
+            models_entry.insert(0, models_str)
+            self._r(models_entry, fg_color="bg_dark", border_color="card_border", text_color="text_primary")
+
+            setattr(self, f"_{pid}_models_entry", models_entry)
+
+    def _on_save_ai_config(self):
+        """保存 AI 配置"""
+        try:
+            from ui.agent.config import get_agent_config, save_agent_config
+            config = get_agent_config()
+
+            for pid in ("openai", "anthropic", "custom"):
+                key_entry = getattr(self, f"_{pid}_key_entry", None)
+                api_key = key_entry.get().strip() if key_entry else ""
+                url_entry = getattr(self, f"_{pid}_url_entry", None)
+                api_url = url_entry.get().strip() if url_entry else ""
+
+                # 只保存有数据的
+                if api_key or api_url:
+                    from ui.agent.config import ProviderConfig
+                    pc = ProviderConfig(
+                        enabled=bool(api_key),
+                        api_key=api_key,
+                        api_url=api_url,
+                        custom_models=[],
+                    )
+                    # custom 的模型列表
+                    if pid == "custom":
+                        models_entry = getattr(self, f"_{pid}_models_entry", None)
+                        if models_entry:
+                            models_str = models_entry.get().strip()
+                            pc.custom_models = [m.strip() for m in models_str.split(",") if m.strip()]
+
+                    config.providers[pid] = pc
+
+            # Bing API Key
+            bing_key = self._bing_key_entry.get().strip()
+            config.bing_api_key = bing_key
+
+            save_agent_config()
+            import tkinter.messagebox as messagebox
+            messagebox.showinfo("FMCL", _("settings_saved"))
+        except Exception as e:
+            import tkinter.messagebox as messagebox
+            messagebox.showerror("FMCL", f"保存失败: {e}")
+
+    def _on_test_provider(self, pid):
+        """测试提供商连接"""
+        import threading
+
+        def _do_test():
+            try:
+                key_entry = getattr(self, f"_{pid}_key_entry", None)
+                api_key = key_entry.get().strip() if key_entry else ""
+
+                url_entry = getattr(self, f"_{pid}_url_entry", None)
+                api_url = url_entry.get().strip() if url_entry else ""
+
+                if not api_key:
+                    import tkinter.messagebox as messagebox
+                    self.after(0, lambda: messagebox.showwarning("FMCL", _("settings_ai_key_required")))
+                    return
+
+                import json, urllib.request, urllib.error
+                if pid == "anthropic":
+                    # Anthropic: GET /v1/messages 需要 POST，用 models 端点测试
+                    test_url = "https://api.anthropic.com/v1/messages"
+                    req_data = json.dumps({
+                        "model": "claude-3-5-haiku-20241022",
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "max_tokens": 1,
+                    }).encode("utf-8")
+                    req = urllib.request.Request(api_url or test_url, data=req_data,
+                        headers={"Content-Type": "application/json", "x-api-key": api_key,
+                                 "anthropic-version": "2023-06-01",
+                                 "User-Agent": "FMCL/2.0"},
+                        method="POST")
+                    try:
+                        with urllib.request.urlopen(req, timeout=15) as resp:
+                            json.loads(resp.read().decode("utf-8"))
+                        self.after(0, lambda: messagebox.showinfo("FMCL", "✅ 连接成功"))
+                    except urllib.error.HTTPError as e:
+                        if e.code == 401:
+                            self.after(0, lambda: messagebox.showerror("FMCL", "❌ 认证失败：API Key 无效"))
+                        else:
+                            body = e.read().decode("utf-8", errors="ignore")[:200]
+                            self.after(0, lambda b=body: messagebox.showerror("FMCL", f"❌ HTTP {e.code}: {b}"))
+                    except Exception as e:
+                        self.after(0, lambda err=str(e): messagebox.showerror("FMCL", f"❌ 连接失败: {err}"))
+                else:
+                    # OpenAI 兼容
+                    from ui.agent.provider import BaseProvider
+                    result = BaseProvider.test_connection(api_url or "https://api.openai.com/v1", api_key, timeout=15)
+                    if result["ok"]:
+                        self.after(0, lambda: messagebox.showinfo("FMCL", "✅ 连接成功"))
+                    else:
+                        self.after(0, lambda msg=result["message"]: messagebox.showerror("FMCL", f"❌ {msg}"))
+
+            except Exception as e:
+                import tkinter.messagebox as messagebox
+                self.after(0, lambda err=str(e): messagebox.showerror("FMCL", f"测试失败: {err}"))
+
+        threading.Thread(target=_do_test, daemon=True).start()

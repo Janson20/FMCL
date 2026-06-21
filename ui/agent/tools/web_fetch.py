@@ -8,7 +8,7 @@ import urllib.request
 import urllib.error
 import re
 from html.parser import HTMLParser
-from typing import Dict, Optional
+from typing import Dict, Optional, Callable
 from logzero import logger
 
 from ui.agent.tools.base import ToolInfo, CATEGORY_WEB

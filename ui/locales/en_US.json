@@ -514,6 +514,12 @@
 
   "settings_tab_launcher": "🚀 Launcher Features",
   "settings_tab_account": "👤 Account",
+  "settings_tab_ai": "🤖 AI Model",
+  "settings_save": "Save",
+  "settings_saved": "Settings saved",
+  "settings_ai_test": "Test Connection",
+  "settings_ai_custom": "Custom Endpoint",
+  "settings_ai_key_required": "Please enter API Key first",
   "account_info_title": "📋 Account Info",
   "account_info_username": "Username",
   "account_info_uuid": "UUID",
@@ -612,6 +618,8 @@
   "agent_new_session_created": "New session created",
   "agent_session_loaded": "Session loaded",
   "agent_confirm_delete_session": "Are you sure you want to delete this session? This cannot be undone.",
+  "agent_rename_session": "Rename",
+  "agent_delete_session": "Delete",
 
   "terms_title": "Terms & Privacy Agreement",
   "terms_content": "By using this launcher, you agree to the Minecraft EULA, Jingdu AI Privacy Agreement, and Jingdu Terms of Service.\n\nTerms link: https://jingdu.qzz.io/terms",

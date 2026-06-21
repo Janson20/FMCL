@@ -7,7 +7,7 @@ AI 通过此工具创建和维护结构化任务列表，
 
 import json
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable
 from logzero import logger
 
 from ui.agent.tools.base import ToolInfo, CATEGORY_SYSTEM

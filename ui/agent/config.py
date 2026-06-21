@@ -46,6 +46,9 @@ class AgentConfig:
     stream_enabled: bool = True
     compact_auto: bool = True      # 自动压缩上下文
 
+    # Bing API Key
+    bing_api_key: str = ""
+
     def get_provider_config(self, provider_id: str) -> ProviderConfig:
         """获取指定提供商的配置"""
         if provider_id not in self.providers:
@@ -96,6 +99,7 @@ class AgentConfig:
             "max_iterations": self.max_iterations,
             "stream_enabled": self.stream_enabled,
             "compact_auto": self.compact_auto,
+            "bing_api_key": self.bing_api_key,
         }
 
     @classmethod
@@ -110,6 +114,7 @@ class AgentConfig:
         config.max_iterations = data.get("max_iterations", 50)
         config.stream_enabled = data.get("stream_enabled", True)
         config.compact_auto = data.get("compact_auto", True)
+        config.bing_api_key = data.get("bing_api_key", "")
 
         # 加载提供商配置
         providers_data = data.get("providers", {})

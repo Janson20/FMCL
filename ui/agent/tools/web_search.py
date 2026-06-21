@@ -8,7 +8,7 @@
 import json
 import urllib.request
 import urllib.parse
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable
 from logzero import logger
 
 from ui.agent.tools.base import ToolInfo, CATEGORY_WEB

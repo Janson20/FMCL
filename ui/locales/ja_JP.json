@@ -514,6 +514,12 @@
 
   "settings_tab_launcher": "🚀 ランチャー機能",
   "settings_tab_account": "👤 アカウント管理",
+  "settings_tab_ai": "🤖 AI モデル",
+  "settings_save": "保存",
+  "settings_saved": "設定を保存しました",
+  "settings_ai_test": "接続テスト",
+  "settings_ai_custom": "カスタム",
+  "settings_ai_key_required": "APIキーを入力してください",
   "account_info_title": "📋 アカウント情報",
   "account_info_username": "ユーザー名",
   "account_info_uuid": "UUID",
@@ -612,6 +618,8 @@
   "agent_new_session_created": "新しいセッションを作成しました",
   "agent_session_loaded": "セッションを読み込みました",
   "agent_confirm_delete_session": "このセッションを削除しますか？この操作は取り消せません。",
+  "agent_rename_session": "名前変更",
+  "agent_delete_session": "削除",
 
   "terms_title": "利用規約とプライバシー契約",
   "terms_content": "このランチャーを使用することにより、Minecraft EULA、Jingdu AIプライバシー契約、Jingdu利用規約に同意したことになります。\n\n規約リンク: https://jingdu.qzz.io/terms",

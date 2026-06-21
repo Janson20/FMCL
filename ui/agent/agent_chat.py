@@ -20,10 +20,13 @@
 import json
 import threading
 import time
+import tkinter as tk
 from typing import Dict, List, Optional, Callable, Any, Generator
 from logzero import logger
 
 import customtkinter as ctk
+import markdown
+from tkinterweb import HtmlFrame
 
 from ui.constants import COLORS, FONT_FAMILY
 from ui.dialogs import show_notification, show_confirmation
@@ -327,6 +330,11 @@ class AgentChatView(ctk.CTkFrame):
 
         self._registry = get_registry()
 
+        # 消息块必须在 _init_session 之前初始化（_init_session 会追加消息）
+        self._message_blocks: List[dict] = []
+        self._streaming_block: Optional[dict] = None
+        self._render_scheduled = False
+
         self._init_session()
         self._build_ui()
         self._refresh_session_list()
@@ -448,22 +456,18 @@ class AgentChatView(ctk.CTkFrame):
         panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=10)
         panel.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 5))
 
-        # 消息显示区
-        self._msg_display = ctk.CTkTextbox(
-            panel, font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["bg_medium"], border_color=COLORS["card_border"],
-            text_color=COLORS["text_primary"], wrap=ctk.WORD,
-            state=ctk.DISABLED,
+        # 消息显示区 - 使用 HtmlFrame 支持 Markdown 渲染
+        self._msg_frame = HtmlFrame(
+            panel,
+            messages_enabled=False,
+            images_enabled=False,
+            forms_enabled=False,
+            objects_enabled=False,
+            javascript_enabled=False,
+            dark_theme_enabled=True,
+            vertical_scrollbar=True,
         )
-        self._msg_display.pack(fill=ctk.BOTH, expand=True, padx=6, pady=(6, 4))
-        self._msg_display.tag_config("user", foreground=COLORS["accent"])
-        self._msg_display.tag_config("assistant", foreground=COLORS["success"])
-        self._msg_display.tag_config("system", foreground=COLORS["text_secondary"])
-        self._msg_display.tag_config("tool", foreground=COLORS["warning"])
-        self._msg_display.tag_config("thinking", foreground=COLORS["text_secondary"])
-        self._msg_display.tag_config("thinking_hidden", foreground=COLORS["text_secondary"], elide=True)
-        self._msg_display.tag_config("divider", foreground=COLORS["text_secondary"])
-        self._msg_display.tag_config("tool_card", background=COLORS["bg_light"])
+        self._msg_frame.pack(fill=ctk.BOTH, expand=True, padx=6, pady=(6, 4))
 
         # 进度指示
         self._progress_bar = ctk.CTkProgressBar(panel, height=4, fg_color=COLORS["bg_medium"],
@@ -493,6 +497,9 @@ class AgentChatView(ctk.CTkFrame):
         # 声明
         ctk.CTkLabel(panel, text=_("agent_disclaimer"), font=ctk.CTkFont(family=FONT_FAMILY, size=9),
                      text_color=COLORS["text_secondary"]).pack(pady=(0, 4))
+
+        # 渲染 _init_session 时已追加的消息
+        self._render_full()
 
     def _build_todo_panel(self, parent):
         panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=10, width=180)
@@ -591,17 +598,21 @@ class AgentChatView(ctk.CTkFrame):
             sid = s["id"]
             title = s.get("title", "无标题")
             if len(title) > 18:
-                title = title[:18] + "..."
+                display = title[:18] + "..."
+            else:
+                display = title
 
             frame = ctk.CTkFrame(self._session_list_frame, fg_color=COLORS["bg_medium"], corner_radius=6)
             frame.pack(fill=ctk.X, pady=2, padx=2)
 
-            btn = ctk.CTkButton(frame, text=title, height=26,
-                                 font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                                 fg_color="transparent", hover_color=COLORS["bg_light"],
-                                 text_color=COLORS["text_primary"], anchor=ctk.W,
-                                 command=lambda sid=sid: self._on_load_session(sid))
-            btn.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(4, 0))
+            # 使用 Label + left-click 代替 CTkButton 以支持右键菜单
+            lbl = ctk.CTkLabel(frame, text=f"💬 {display}", height=26,
+                                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                                fg_color="transparent", text_color=COLORS["text_primary"],
+                                anchor=ctk.W, corner_radius=6)
+            lbl.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(4, 0))
+            lbl.bind("<Button-1>", lambda e, sid=sid: self._on_load_session(sid))
+            lbl.bind("<Button-3>", lambda e, sid=sid, t=title: self._on_session_context_menu(e, sid, t))
 
             del_btn = ctk.CTkButton(frame, text="X", width=22, height=22,
                                      font=ctk.CTkFont(family=FONT_FAMILY, size=9),
@@ -609,6 +620,16 @@ class AgentChatView(ctk.CTkFrame):
                                      text_color=COLORS["text_secondary"],
                                      command=lambda sid=sid: self._on_delete_session(sid))
             del_btn.pack(side=ctk.RIGHT, padx=(0, 4))
+
+    def _on_session_context_menu(self, event, session_id: str, title: str):
+        """右键上下文菜单"""
+        menu = tk.Menu(self, tearoff=0, bg=COLORS["bg_medium"], fg=COLORS["text_primary"],
+                       activebackground=COLORS["accent"], activeforeground="white",
+                       font=(FONT_FAMILY, 10))
+        menu.add_command(label=_("agent_rename_session"), command=lambda: self._on_rename_session(session_id, title))
+        menu.add_separator()
+        menu.add_command(label=_("agent_delete_session"), command=lambda: self._on_delete_session(session_id))
+        menu.post(event.x_root, event.y_root)
 
     def _on_new_session(self):
         if self._session:
@@ -644,49 +665,155 @@ class AgentChatView(ctk.CTkFrame):
                 self._on_new_session()
             self._refresh_session_list()
 
-    # ============ 消息渲染 ============
+    def _on_rename_session(self, session_id: str, old_title: str):
+        """重命名会话"""
+        dialog = TextInputDialog(
+            self.winfo_toplevel(),
+            title="重命名会话",
+            question=f"请输入新名称:",
+            callback=lambda new_name: self._do_rename_session(session_id, new_name),
+        )
+
+    def _do_rename_session(self, session_id: str, new_name: str):
+        new_name = new_name.strip()
+        if not new_name:
+            return
+        session = AgentSession.load(session_id)
+        if session:
+            session.title = new_name
+            session.save()
+            self._refresh_session_list()
+
+    # ============ 消息渲染 (Markdown) ============
+
+    _MD = markdown.Markdown(extensions=["fenced_code", "tables", "nl2br"])
+    _MD_LOCK = threading.Lock()
+
+    _CSS = """
+    body { margin: 0; padding: 8px; font-family: 'Microsoft YaHei', sans-serif; font-size: 13px;
+           color: #d4d4d4; background: #1e1e2e; line-height: 1.6; }
+    .msg { margin: 4px 0; padding: 8px 12px; border-radius: 8px; }
+    .msg-user { background: #2a2a3e; border-left: 3px solid #7c3aed; }
+    .msg-assistant { background: #1e2a1e; border-left: 3px solid #22c55e; }
+    .msg-system { background: #2a2a2e; border-left: 3px solid #6b7280; color: #9ca3af; font-size: 12px; }
+    .msg-tool { background: #2a2a20; border-left: 3px solid #eab308; font-size: 12px; }
+    .msg-thinking { background: #1e1e2a; border-left: 3px dashed #6b7280; color: #9ca3af; font-size: 11px;
+                     font-style: italic; max-height: 200px; overflow-y: auto; }
+    .msg-divider { border: none; border-top: 1px solid #3f3f5c; margin: 8px 0; }
+    .role-icon { font-size: 11px; margin-bottom: 4px; opacity: 0.7; }
+    .role-icon span { font-weight: bold; }
+    pre { background: #111827; padding: 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+    code { background: #374151; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+    pre code { background: none; padding: 0; }
+    blockquote { border-left: 3px solid #6b7280; margin: 4px 0; padding: 4px 12px; color: #9ca3af; }
+    a { color: #60a5fa; }
+    table { border-collapse: collapse; margin: 4px 0; }
+    th, td { border: 1px solid #3f3f5c; padding: 4px 8px; }
+    th { background: #2a2a3e; }
+    ul, ol { padding-left: 20px; }
+    h1, h2, h3, h4 { margin: 6px 0 2px; }
+    """
+
+    def _html_template(self, body: str) -> str:
+        return f"<html><head><style>{self._CSS}</style></head><body>{body}</body></html>"
+
+    def _md_to_html(self, text: str) -> str:
+        try:
+            with self._MD_LOCK:
+                self._MD.reset()
+                return self._MD.convert(text)
+        except Exception:
+            return text.replace("\n", "<br>")
+
+    def _escape_html(self, text: str) -> str:
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def _build_block_html(self, block: dict) -> str:
+        role = block.get("role", "system")
+        content = block.get("content", "")
+        thinking = block.get("thinking", "")
+        tag = block.get("tag", "")
+
+        icons = {"user": "🧑 你", "assistant": "🤖 FMCL Agent", "system": "⚙️ 系统", "tool": "🔧 工具"}
+        icon = icons.get(role, "💬")
+        if tag:
+            icon += f" [{tag}]"
+
+        if role in ("assistant",):
+            # assistant 用 markdown 渲染
+            html = f'<div class="msg msg-{role}"><div class="role-icon">{icon}</div>'
+            if thinking:
+                html += f'<div class="msg-thinking">{self._escape_html(thinking)}</div>'
+            html += self._md_to_html(content) + "</div>"
+        elif role in ("system", "tool"):
+            html = f'<div class="msg msg-{role}"><div class="role-icon">{icon}</div>{self._escape_html(content)}</div>'
+        else:
+            # user: 也是 markdown，但简单
+            html = f'<div class="msg msg-user"><div class="role-icon">{icon}</div>{self._md_to_html(content)}</div>'
+        return html
+
+    def _render_full(self):
+        """完整重建 HTML 并加载到 HtmlFrame"""
+        parts = []
+        for block in self._message_blocks:
+            if block.get("type") == "divider":
+                parts.append('<hr class="msg-divider">')
+            else:
+                parts.append(self._build_block_html(block))
+        # 流式块
+        if self._streaming_block:
+            parts.append(self._build_block_html(self._streaming_block))
+        html = self._html_template("".join(parts))
+        try:
+            self._msg_frame.load_html(html)
+            # load_html 会重置滚动位置，延迟滚动到底部
+            self.after(50, self._scroll_to_bottom)
+        except Exception:
+            pass
+
+    def _scroll_to_bottom(self):
+        try:
+            self._msg_frame.yview_moveto(1.0)
+        except Exception:
+            pass
+
+    def _schedule_render(self):
+        if not self._render_scheduled:
+            self._render_scheduled = True
+            self.after(30, self._do_render)
+
+    def _do_render(self):
+        self._render_scheduled = False
+        self._render_full()
 
     def _append_message(self, role: str, text: str, tag: str = ""):
-        role_tag = {"user": "🧑", "assistant": "🤖", "system": "⚙️", "tool": "🔧"}.get(role, "💬")
-        prefix = f"{role_tag} "
-        if tag:
-            prefix += f"[{tag}] "
-        self._safe_insert(f"{prefix}{text}\n\n", role)
+        block = {"role": role, "content": text, "tag": tag, "thinking": ""}
+        self._message_blocks.append(block)
+        self._schedule_render()
 
     def _append_system_message(self, text: str):
-        self._safe_insert(f"⚙️ {text}\n\n", "system")
+        self._append_message("system", text)
 
     def _append_divider(self):
-        self._safe_insert("─" * 50 + "\n\n", "divider")
+        self._message_blocks.append({"type": "divider"})
+        self._schedule_render()
 
     def _append_thinking(self, text: str):
-        self._safe_insert(f"💭 {text}\n", "thinking")
+        # 将思考文本拼到最后一个 assistant 块或流式块
+        target = self._streaming_block or (self._message_blocks[-1] if self._message_blocks else None)
+        if target and target.get("role") == "assistant":
+            target["thinking"] = (target.get("thinking", "") + text)
 
     def _append_tool_start(self, name: str):
-        self._safe_insert(f"🔧 正在调用 {name}...\n\n", "tool")
+        self._append_message("tool", f"正在调用 {name}...")
 
     def _append_tool_result(self, name: str, summary: str):
-        self._safe_insert(f"🔧 [{name}]\n{summary}\n\n", "tool")
-
-    def _safe_insert(self, text: str, tag: str = ""):
-        try:
-            self._msg_display.configure(state=ctk.NORMAL)
-            if tag:
-                self._msg_display.insert(ctk.END, text, tag)
-            else:
-                self._msg_display.insert(ctk.END, text)
-            self._msg_display.configure(state=ctk.DISABLED)
-            self._msg_display.see(ctk.END)
-        except Exception:
-            pass
+        self._append_message("tool", f"[{name}]\n{summary[:1000]}")
 
     def _clear_display(self):
-        try:
-            self._msg_display.configure(state=ctk.NORMAL)
-            self._msg_display.delete("1.0", ctk.END)
-            self._msg_display.configure(state=ctk.DISABLED)
-        except Exception:
-            pass
+        self._message_blocks.clear()
+        self._streaming_block = None
+        self._schedule_render()
 
     # ============ Todo 面板 ============
 
@@ -797,8 +924,13 @@ class AgentChatView(ctk.CTkFrame):
                         break
                     continue
 
-                # 处理流式事件
+                # 处理流式事件 - 先创建流式块
+                self._streaming_block = {"role": "assistant", "content": "", "thinking": "", "tag": ""}
                 content, tool_calls, needs_break = self._handle_stream_events(stream_gen)
+                # 完成流式渲染：将流式块固定为永久消息块
+                if self._streaming_block and (self._streaming_block.get("content") or self._streaming_block.get("thinking")):
+                    self._message_blocks.append(self._streaming_block)
+                self._streaming_block = None
 
                 if needs_break:
                     return  # 等待用户确认
@@ -849,7 +981,7 @@ class AgentChatView(ctk.CTkFrame):
             ))
 
     def _handle_stream_events(self, stream_gen) -> tuple:
-        """处理流式事件
+        """处理流式事件 - 更新 _streaming_block + 调度渲染
 
         Returns:
             (content_text, tool_calls_list, needs_break)
@@ -868,11 +1000,15 @@ class AgentChatView(ctk.CTkFrame):
                 if event_type == "text_delta":
                     text = event.get("text", "")
                     accumulated_text += text
-                    self.after(0, lambda t=text: self._safe_insert(t, "assistant"))
+                    if self._streaming_block:
+                        self._streaming_block["content"] = accumulated_text
+                        self._schedule_render()
 
                 elif event_type == "thinking_delta":
                     thinking_text = event.get("text", "")
-                    self.after(0, lambda t=thinking_text: self._append_thinking(t))
+                    if self._streaming_block:
+                        self._streaming_block["thinking"] = (self._streaming_block.get("thinking", "") + thinking_text)
+                        self._schedule_render()
 
                 elif event_type == "tool_call_start":
                     tc_id = event.get("tool_call_id", "")
@@ -880,9 +1016,10 @@ class AgentChatView(ctk.CTkFrame):
                     tool_calls.append(current_tool_call)
 
                 elif event_type == "tool_call_name":
+                    name = event.get("tool_name", "")
                     if current_tool_call:
-                        current_tool_call["function"]["name"] = event.get("tool_name", "")
-                    self.after(0, lambda n=event.get("tool_name", ""): self._append_tool_start(n))
+                        current_tool_call["function"]["name"] = name
+                    self._append_tool_start(name)
 
                 elif event_type == "tool_call_args":
                     if current_tool_call:
@@ -890,7 +1027,6 @@ class AgentChatView(ctk.CTkFrame):
 
                 elif event_type == "tool_call_complete":
                     tc = event.get("tool_call", {})
-                    # 替换当前 tool_call
                     for i, t in enumerate(tool_calls):
                         if t["id"] == tc.get("id"):
                             tool_calls[i] = tc
@@ -902,16 +1038,16 @@ class AgentChatView(ctk.CTkFrame):
                     self.after(0, lambda t=total: self._token_label.configure(text=f"Token: {t}"))
 
                 elif event_type == "done":
-                    self.after(0, self._append_divider)
+                    self._append_divider()
 
                 elif event_type == "error":
                     err_msg = event.get("message", "未知错误")
-                    self.after(0, lambda e=err_msg: self._append_system_message(f"❌ {e}"))
+                    self._append_system_message(f"❌ {err_msg}")
                     return accumulated_text, tool_calls, True
 
         except Exception as e:
             logger.error(f"[Agent] 流式处理异常: {e}")
-            self.after(0, lambda e=str(e): self._append_system_message(f"流式错误: {e}"))
+            self._append_system_message(f"流式错误: {e}")
 
         return accumulated_text, tool_calls, False
 
@@ -919,7 +1055,7 @@ class AgentChatView(ctk.CTkFrame):
         """处理非流式响应"""
         content = response.get("content", "")
         if content:
-            self.after(0, lambda t=content: self._append_message("assistant", t) if content else None)
+            self._append_message("assistant", content)
         tool_calls = response.get("tool_calls", [])
         if tool_calls:
             self._session.add_message(response)
@@ -940,7 +1076,7 @@ class AgentChatView(ctk.CTkFrame):
         # 权限检查
         effect = check_permission(tool_name)
         if effect == "deny":
-            self.after(0, lambda: self._append_system_message(f"🔒 工具 {tool_name} 被策略禁止"))
+            self._append_system_message(f"🔒 工具 {tool_name} 被策略禁止")
             self._session.add_message({
                 "role": "tool", "tool_call_id": tool_call_id,
                 "content": f"工具 {tool_name} 被权限策略禁止",
@@ -957,7 +1093,7 @@ class AgentChatView(ctk.CTkFrame):
             self._session.add_message({
                 "role": "tool", "tool_call_id": tool_call_id, "content": result_text,
             })
-            self.after(0, lambda n=tool_name, r=result_text: self._append_tool_result(n, r[:300]))
+            self._append_tool_result(tool_name, result_text[:300])
             return True
 
         # 执行工具
@@ -978,7 +1114,7 @@ class AgentChatView(ctk.CTkFrame):
         self._session.add_message({
             "role": "tool", "tool_call_id": tool_call_id, "content": result_text,
         })
-        self.after(0, lambda n=tool_name, r=result_text: self._append_tool_result(n, r[:300]))
+        self._append_tool_result(tool_name, result_text[:300])
         return True
 
     def _show_dangerous_dialog(self, path: str, command: str):
@@ -1003,7 +1139,7 @@ class AgentChatView(ctk.CTkFrame):
         self._session.add_message({
             "role": "tool", "tool_call_id": tc_id, "content": result_text,
         })
-        self.after(0, lambda r=result_text: self._append_tool_result("exec_command", r[:300]))
+        self._append_tool_result("exec_command", result_text[:300])
         self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
 
@@ -1025,7 +1161,7 @@ class AgentChatView(ctk.CTkFrame):
             "role": "tool", "tool_call_id": tc_id,
             "content": f"用户回答: {', '.join(answers)}",
         })
-        self.after(0, lambda a=answers: self._append_message("user", f"选择: {', '.join(a)}"))
+        self._append_message("user", f"选择: {', '.join(answers)}")
         self._send_btn.configure(state=ctk.DISABLED, text=_("agent_thinking"))
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
 
