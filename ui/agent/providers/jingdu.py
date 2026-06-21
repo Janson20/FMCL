@@ -1,7 +1,16 @@
-"""净读 AI 提供商 - 封装净读 AI API（DeepSeek 后端）
+"""净读 AI 提供商 - 封装净读 AI API（DeepSeek V4 后端）
 
 API 端点: https://jingdu.qzz.io/api/deepseek/v1/chat/completions
-兼容 OpenAI chat/completions 格式，额外支持 reasoning_content（R1 模型）。
+兼容 OpenAI chat/completions 格式。
+
+模型更新 (2026/06):
+- deepseek-v4-flash: 新一代主力模型，1M 上下文，384K 输出，支持思考模式切换
+- deepseek-v4-pro: 旗舰推理模型，1M 上下文，384K 输出
+- deepseek-chat / deepseek-reasoner: 将于 2026/07/24 弃用
+
+思考模式控制:
+- thinking: {"type": "enabled"/"disabled"}  开关
+- reasoning_effort: "high"/"max"             思考强度（默认 high）
 """
 
 import json
@@ -11,21 +20,32 @@ from typing import Dict, List, Optional, Generator
 from logzero import logger
 
 from ui.agent.provider import BaseProvider
+from ui.agent.models import get_model_by_id
 from ui.agent.stream import SSEParser, SSEEventType
 
 JDZ_DEFAULT_API_URL = "https://jingdu.qzz.io/api/deepseek/v1/chat/completions"
-JDZ_DEFAULT_MODEL = "deepseek-chat"
+JDZ_DEFAULT_MODEL = "deepseek-v4-flash"
 
 
 class JingduProvider(BaseProvider):
-    """净读 AI 提供商（DeepSeek API）"""
+    """净读 AI 提供商（DeepSeek V4 API）"""
 
     provider_id = "jingdu"
     provider_name = "净读 AI"
     default_api_url = JDZ_DEFAULT_API_URL
 
-    def __init__(self, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None):
+    def __init__(
+        self,
+        api_key: str,
+        api_url: str = "",
+        timeout: int = 120,
+        extra_headers: Optional[Dict[str, str]] = None,
+        thinking_enabled: Optional[bool] = None,   # None = 模型默认
+        reasoning_effort: str = "high",             # "high" | "max"
+    ):
         super().__init__(api_key=api_key, api_url=api_url or JDZ_DEFAULT_API_URL, timeout=timeout, extra_headers=extra_headers)
+        self.thinking_enabled = thinking_enabled
+        self.reasoning_effort = reasoning_effort
 
     def _build_headers(self) -> Dict[str, str]:
         return {
@@ -51,8 +71,28 @@ class JingduProvider(BaseProvider):
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+
+        # V4 思考模式控制
+        model_info = get_model_by_id(model) if model else None
+        if model_info is None:
+            model_info = get_model_by_id(JDZ_DEFAULT_MODEL)
+
+        if model_info and model_info.supports_reasoning:
+            # 确定思考模式开关：显式传参 > 模型默认 > True
+            if self.thinking_enabled is not None:
+                thinking_on = self.thinking_enabled
+            else:
+                thinking_on = model_info.thinking_default
+
+            thinking_type = "enabled" if thinking_on else "disabled"
+            payload["thinking"] = {"type": thinking_type}
+
+            if thinking_on:
+                payload["reasoning_effort"] = self.reasoning_effort
+
         if tools:
             payload["tools"] = tools
+
         return payload
 
     def chat(
@@ -80,7 +120,14 @@ class JingduProvider(BaseProvider):
             if not message:
                 return {"role": "assistant", "content": ""}
 
-            # 将 tool_calls 标准化为列表格式
+            # 将 reasoning_content 合并到 content（如果 V4 返回了思考内容）
+            reasoning = message.get("reasoning_content", "")
+            content = message.get("content", "") or ""
+            if reasoning and not content:
+                content = f"[思考过程]\n{reasoning}\n\n[分析完毕]"
+            message["content"] = content
+
+            # 标准化 tool_calls
             tool_calls = message.get("tool_calls", [])
             if tool_calls:
                 for tc in tool_calls:
@@ -160,7 +207,6 @@ class JingduProvider(BaseProvider):
                     elif event.type == SSEEventType.ERROR:
                         yield {"type": "error", "message": event.error_message}
 
-            # 处理流结束后完成的工具调用
             completed_tools = parser.get_completed_tool_calls()
             if completed_tools:
                 for tc in completed_tools:

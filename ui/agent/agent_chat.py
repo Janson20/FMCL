@@ -2,7 +2,7 @@
 
 布局:
 ┌─ 顶栏: 模型选择器 ─────────────────────────────┐
-│ 净读 AI [deepseek-chat ▼]    积分: 500    新会话 │
+│ 净读 AI [deepseek-v4-flash ▼]    积分: 500    新会话 │
 ├──────┬────────────────────────┬─────────────────┤
 │ 会话 │  对话区（流式输出）    │  Todo 面板      │
 │ 列表 │                       │                 │
@@ -336,7 +336,7 @@ class AgentChatView(ctk.CTkFrame):
         system_prompt = get_system_prompt() + get_skills_context_text()
         self._session = AgentSession.create_new(
             provider_id="jingdu",
-            model_id="deepseek-chat",
+            model_id="deepseek-v4-flash",
             system_prompt=system_prompt,
         )
         if self._session.messages:
@@ -386,7 +386,7 @@ class AgentChatView(ctk.CTkFrame):
         self._provider_menu.pack(side=ctk.LEFT, padx=(0, 8))
 
         # Model 选择
-        self._model_var = ctk.StringVar(value="deepseek-chat")
+        self._model_var = ctk.StringVar(value="deepseek-v4-flash")
         self._model_menu = ctk.CTkOptionMenu(
             header, values=[], variable=self._model_var,
             width=160, height=28, font=ctk.CTkFont(family=FONT_FAMILY, size=11),
@@ -394,8 +394,33 @@ class AgentChatView(ctk.CTkFrame):
             dropdown_fg_color=COLORS["bg_medium"],
             command=self._on_model_changed,
         )
-        self._model_menu.pack(side=ctk.LEFT, padx=(0, 10))
+        self._model_menu.pack(side=ctk.LEFT, padx=(0, 4))
         self._refresh_model_list("jingdu")
+
+        # 思考模式开关（仅 DeepSeek V4 模型可见）
+        self._thinking_var = ctk.BooleanVar(value=False)  # 默认非思考
+        self._thinking_check = ctk.CTkCheckBox(
+            header, text="思考", variable=self._thinking_var,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            border_color=COLORS["text_secondary"],
+            checkmark_color=COLORS["bg_dark"],
+            command=self._on_thinking_toggled,
+            width=20, height=20,
+        )
+        # 初态：jingdu V4 Flash 默认不显示（thinking_default=False），模型切换后再决定
+        self._thinking_check.pack_forget()
+
+        # reasoning_effort（思考强度，思考开启时显示）
+        self._effort_var = ctk.StringVar(value="high")
+        self._effort_menu = ctk.CTkOptionMenu(
+            header, values=["high", "max"], variable=self._effort_var,
+            width=60, height=22, font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            fg_color=COLORS["bg_medium"], button_color=COLORS["accent"],
+            dropdown_fg_color=COLORS["bg_medium"],
+        )
+        self._effort_menu.pack_forget()
 
         # 新会话按钮
         ctk.CTkButton(header, text=_("agent_new_session"), width=70, height=26,
@@ -523,6 +548,37 @@ class AgentChatView(ctk.CTkFrame):
 
     def _on_model_changed(self, choice: str):
         logger.info(f"[Agent] 模型切换: {choice}")
+        # 仅在 jingdu 且模型支持推理时显示思考开关
+        model_info = None
+        for m in get_model_catalog():
+            if m.name == choice:
+                model_info = m
+                break
+
+        if model_info and model_info.provider_id == "jingdu" and model_info.supports_reasoning:
+            self._thinking_check.pack(side=ctk.LEFT, padx=(0, 4), after=self._model_menu)
+            self._thinking_var.set(model_info.thinking_default)
+            if model_info.thinking_default:
+                self._effort_menu.pack(side=ctk.LEFT, padx=(0, 4), after=self._thinking_check)
+            else:
+                self._effort_menu.pack_forget()
+        else:
+            self._thinking_check.pack_forget()
+            self._effort_menu.pack_forget()
+            self._thinking_var.set(False)
+
+        # 更新 provider 的 thinking 设置
+        if self._provider and hasattr(self._provider, 'thinking_enabled'):
+            self._provider.thinking_enabled = self._thinking_var.get()
+
+    def _on_thinking_toggled(self):
+        thinking_on = self._thinking_var.get()
+        if thinking_on:
+            self._effort_menu.pack(side=ctk.LEFT, padx=(0, 4), after=self._thinking_check)
+        else:
+            self._effort_menu.pack_forget()
+        if self._provider and hasattr(self._provider, 'thinking_enabled'):
+            self._provider.thinking_enabled = thinking_on
 
     # ============ 会话管理 ============
 
@@ -712,7 +768,7 @@ class AgentChatView(ctk.CTkFrame):
                 # 流式调用
                 tools = self._registry.get_definitions()
                 provider_id, model_id = self._get_active_model()
-                model_name = model_id or "deepseek-chat"
+                model_name = model_id or "deepseek-v4-flash"
 
                 provider = self._provider
                 if provider is None:
@@ -720,6 +776,11 @@ class AgentChatView(ctk.CTkFrame):
                     break
 
                 try:
+                    # 同步 DeepSeek 思考模式设置
+                    if hasattr(provider, 'thinking_enabled'):
+                        provider.thinking_enabled = self._thinking_var.get()
+                    if hasattr(provider, 'reasoning_effort'):
+                        provider.reasoning_effort = self._effort_var.get()
                     stream_gen = provider.stream_chat(
                         messages=self._session.messages,
                         tools=tools,
@@ -980,7 +1041,7 @@ class AgentChatView(ctk.CTkFrame):
         for m in get_model_catalog():
             if m.name == model_name and m.provider_id == pid:
                 return pid, m.id
-        return pid, "deepseek-chat"
+        return pid, "deepseek-v4-flash"
 
     def _reset_send_button(self):
         try:

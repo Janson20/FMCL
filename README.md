@@ -272,7 +272,7 @@
 ### 🤖 AGENT 智能助手
 - **快速输入框**：启动器顶部标题栏右侧新增 AI 快速输入框，输入内容后按回车直接跳转到"🤖 AGENT"标签页并自动发送消息，无需手动切换标签页
 - **自然语言控制**："🤖 AGENT"标签页，三栏布局（对话历史 | 对话区 | 任务面板），支持通过自然语言管理 Minecraft
-- **多模型支持**：内置净读 AI（DeepSeek V3 / R1）、OpenAI（GPT-4o / GPT-4o-mini / o3-mini）、Anthropic（Claude Sonnet 4 / Claude 3.5 Haiku）和自定义 OpenAI 兼容端点；顶部模型选择器一键切换
+- **多模型支持**：内置净读 AI（DeepSeek V4 Flash / V4 Pro，1M 上下文，384K 输出，支持思考模式开关 + 强度控制（high/max））、OpenAI（GPT-4o / GPT-4o-mini / o3-mini）、Anthropic（Claude Sonnet 4 / Claude 3.5 Haiku）和自定义 OpenAI 兼容端点；顶部模型选择器一键切换
 - **流式 SS E输出**：AI 回复逐 token 流式输出，支持思考过程展示（DeepSeek R1 / o3-mini 推理内容折叠显示）
 - **AI 驱动**：基于 Function Calling 实现智能决策，自动分析意图 → 顺序调用工具 → 分析结果
 - **核心工具集**：封装了版本获取/安装/删除/启动、模组/资源包/光影搜索安装、整合包搜索下载安装开服、服务器管理、版本资源查询、终端命令执行、联网搜索、网页抓取、会话任务管理等 **26 个工具**供 AI 调用

@@ -36,7 +36,7 @@ class AgentSession:
     id: str
     title: str = ""
     provider_id: str = "jingdu"
-    model_id: str = "deepseek-chat"
+    model_id: str = "deepseek-v4-flash"
     messages: List[dict] = field(default_factory=list)
     created_at: float = 0.0
     updated_at: float = 0.0
@@ -136,7 +136,7 @@ class AgentSession:
             id=data.get("id", ""),
             title=data.get("title", ""),
             provider_id=data.get("provider_id", "jingdu"),
-            model_id=data.get("model_id", "deepseek-chat"),
+            model_id=data.get("model_id", "deepseek-v4-flash"),
             messages=data.get("messages", []),
             created_at=data.get("created_at", 0.0),
             updated_at=data.get("updated_at", 0.0),
@@ -215,7 +215,7 @@ class AgentSession:
             return []
 
     @classmethod
-    def create_new(cls, provider_id: str = "jingdu", model_id: str = "deepseek-chat", system_prompt: str = "") -> "AgentSession":
+    def create_new(cls, provider_id: str = "jingdu", model_id: str = "deepseek-v4-flash", system_prompt: str = "") -> "AgentSession":
         """创建新会话"""
         session = cls(
             id=str(uuid.uuid4()),

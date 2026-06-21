@@ -10,13 +10,14 @@ from typing import List, Optional
 @dataclass
 class ModelInfo:
     """单个 AI 模型的元数据"""
-    id: str                          # API 模型标识，如 "deepseek-chat", "gpt-4o"
+    id: str                          # API 模型标识，如 "deepseek-v4-flash", "gpt-4o"
     provider_id: str                 # 所属提供商 ID，如 "jingdu", "openai", "anthropic"
     name: str                        # 用户友好的显示名称
     description: str = ""            # 简短描述
     supports_tools: bool = True      # 是否支持 Function Calling
     supports_stream: bool = True     # 是否支持 SSE 流式输出
     supports_reasoning: bool = False # 是否支持思维链/推理过程
+    thinking_default: bool = True    # DeepSeek: 默认是否开启思考模式
     context_limit: int = 128000      # 上下文 Token 上限
     max_output: int = 8192           # 最大输出 Token 数
     cost_input_per_1m: float = 0.0   # 每百万输入 Token 价格($)
@@ -30,49 +31,71 @@ def _build_catalog() -> List[ModelInfo]:
     """构建所有可用模型的目录（净读 AI 排首位）"""
     models: List[ModelInfo] = []
 
-    # ============ 净读 AI（DeepSeek，默认首选）============
+    # ============ 净读 AI（DeepSeek V4，默认首选）============
+
+    # DeepSeek-V4-Flash（主力模型，非思考模式）
     models.append(ModelInfo(
-        id="deepseek-chat",
+        id="deepseek-v4-flash",
         provider_id="jingdu",
-        name="DeepSeek V3",
-        description="适合日常对话与工具调用，性价比高",
+        name="DeepSeek V4 Flash",
+        description="最新旗舰轻量模型，1M 上下文，384K 输出，默认非思考",
         supports_tools=True,
         supports_stream=True,
-        supports_reasoning=False,
-        context_limit=128000,
-        max_output=8192,
+        supports_reasoning=True,
+        thinking_default=False,
+        context_limit=1048576,
+        max_output=393216,
         cost_input_per_1m=0.27,
         cost_output_per_1m=1.10,
         status="active",
     ))
+    # DeepSeek-V4-Pro（推理增强，思考模式默认开启）
     models.append(ModelInfo(
-        id="deepseek-reasoner",
+        id="deepseek-v4-pro",
         provider_id="jingdu",
-        name="DeepSeek R1",
-        description="推理增强模型，善于复杂逻辑分析",
+        name="DeepSeek V4 Pro",
+        description="旗舰推理模型，1M 上下文，384K 输出，默认思考模式",
         supports_tools=True,
         supports_stream=True,
         supports_reasoning=True,
-        context_limit=128000,
-        max_output=8192,
+        thinking_default=True,
+        context_limit=1048576,
+        max_output=393216,
         cost_input_per_1m=0.55,
         cost_output_per_1m=2.19,
         status="active",
     ))
-    # 净读 AI 其他 DeepSeek 模型（如果 API 支持）
+
+    # 旧版兼容（2026/07/24 弃用）
     models.append(ModelInfo(
-        id="deepseek-coder",
+        id="deepseek-chat",
         provider_id="jingdu",
-        name="DeepSeek Coder",
-        description="专注代码生成与理解",
+        name="DeepSeek V3 (旧版)",
+        description="将于 2026/07/24 弃用，请使用 V4 Flash 非思考模式",
         supports_tools=True,
         supports_stream=True,
         supports_reasoning=False,
+        thinking_default=False,
         context_limit=128000,
         max_output=8192,
-        cost_input_per_1m=0.14,
-        cost_output_per_1m=0.28,
-        status="beta",
+        cost_input_per_1m=0.27,
+        cost_output_per_1m=1.10,
+        status="deprecated",
+    ))
+    models.append(ModelInfo(
+        id="deepseek-reasoner",
+        provider_id="jingdu",
+        name="DeepSeek R1 (旧版)",
+        description="将于 2026/07/24 弃用，请使用 V4 Pro",
+        supports_tools=True,
+        supports_stream=True,
+        supports_reasoning=True,
+        thinking_default=True,
+        context_limit=128000,
+        max_output=8192,
+        cost_input_per_1m=0.55,
+        cost_output_per_1m=2.19,
+        status="deprecated",
     ))
 
     # ============ OpenAI ============
