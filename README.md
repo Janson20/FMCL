@@ -275,12 +275,13 @@
 - **多模型支持**：内置净读 AI（DeepSeek V4 Flash / V4 Pro，1M 上下文，384K 输出，支持思考模式开关 + 强度控制（high/max））、OpenAI（GPT-4o / GPT-4o-mini / o3-mini）、Anthropic（Claude Sonnet 4 / Claude 3.5 Haiku）和自定义 OpenAI 兼容端点；顶部模型选择器一键切换
 - **流式 SS E输出**：AI 回复逐 token 流式输出，支持思考过程展示（DeepSeek R1 / o3-mini 推理内容折叠显示）
 - **AI 驱动**：基于 Function Calling 实现智能决策，自动分析意图 → 顺序调用工具 → 分析结果
-- **核心工具集**：封装了版本获取/安装/删除/启动、模组/资源包/光影搜索安装、整合包搜索下载安装开服、服务器管理、版本资源查询、终端命令执行、联网搜索、网页抓取、会话任务管理等 **26 个工具**供 AI 调用
+- **核心工具集**：封装了版本获取/安装/删除/启动、模组/资源包/光影搜索安装、整合包搜索下载安装开服、服务器管理、版本资源查询、终端命令执行、联网搜索、网页抓取、**文件操作（读取/写入/替换/删除/搜索/列举）**、会话任务管理等 **33 个工具**供 AI 调用
+- **文件操作工具**：新增 `read_file`（读取文件，支持行偏移/行数限制）、`write_file`（创建/覆盖文件，自动创建父目录，diff 预览确认）、`replace_in_file`（精确查找替换，oldStr 必须完全匹配）、`delete_file`（删除文件，预览确认）、`search_files_by_name`（Glob 搜索文件名）、`search_files_by_content`（正则搜索文件内容，支持文件过滤）、`list_directory`（列举目录，支持递归）。写/改/删操作在专用确认弹窗中预览 diff 后由用户确认执行，所有文件操作限制在启动器工作目录内
 - **联网搜索**：新增 `web_search` 工具，支持 DuckDuckGo 免费搜索和 Bing API 搜索
 - **网页抓取**：新增 `web_fetch` 工具，将网页转为 Markdown/纯文本/HTML 格式供 AI 分析
 - **任务面板**：右侧 Todo 面板实时跟踪 AI 的任务列表（pending/in_progress/completed），持久化存储
 - **对话历史管理**：左侧会话列表面板，支持多会话、切换会话、删除会话，历史对话自动保存到 JSON 文件
-- **Skill 技能系统**：支持加载自定义技能文件（`./data/agent/skills/{name}/SKILL.md`）注入 AI 上下文
+- **Skill 技能系统**：支持加载自定义技能文件（`./data/agent/skills/{name}/SKILL.md`）注入 AI 上下文。顶栏「Skills」按钮打开管理窗口，可查看已安装技能、一键新建（自动生成模板）、在文件管理器中打开目录。
 - **权限引擎**：三级权限策略（allow/deny/ask），支持按工具配置，规则持久化
 - **上下文自动压缩**：Token 超过阈值自动裁剪旧消息，保证长对话稳定性
 - **ask_user 增强提问**：支持多问题、多选、自定义答案、推荐选项标记（(Recommended)）
