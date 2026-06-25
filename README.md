@@ -98,7 +98,18 @@
   ./FMCL-x.x.x-x86_64.AppImage
   ```
 
-### 方式二：从源码运行
+### 方式二：Linux 一键安装
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Janson20/FMCL/main/scripts/install.sh | bash
+```
+
+脚本自动完成：安装系统依赖 → 安装 uv → 克隆项目 → uv sync → 注册 `fmcl` 命令。
+
+支持 Debian / Ubuntu / Fedora / RHEL / CentOS / Arch / openSUSE，安装完成后直接运行 `fmcl` 即可启动。
+自定义安装目录：`./scripts/install.sh ~/.local/share/fmcl`
+
+### 方式三：从源码运行
 
 ```bash
 # 克隆仓库
