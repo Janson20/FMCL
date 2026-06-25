@@ -6,12 +6,14 @@
 # 用法:
 #   curl -fsSL https://raw.githubusercontent.com/Janson20/FMCL/main/scripts/install.sh | bash
 #   或
-#   ./scripts/install.sh [安装目录]
+#   bash scripts/install.sh [安装目录]
+#   或
+#   chmod +x scripts/install.sh && ./scripts/install.sh [安装目录]
 #
 # 默认安装目录: /opt/fmcl
-# 自定义目录:   ./scripts/install.sh ~/.local/share/fmcl
+# 自定义目录:   bash scripts/install.sh ~/.local/share/fmcl
 # ============================================================
-set -euo pipefail
+set -euo pipefail 2>/dev/null || { set -eu; echo "[WARN]  shell 不支持 pipefail，继续执行..."; }
 
 # ── 颜色输出 ──────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
