@@ -13,7 +13,6 @@
 import hashlib
 import os
 import platform
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -165,24 +164,13 @@ def _get_platform_asset_pattern() -> Optional[str]:
     根据当前平台返回匹配的安装包文件名模式
 
     Returns:
-        匹配模式字符串，如 "Setup-x.x.x.exe" 或 None（不支持的平台）
+        匹配模式字符串，如 "Setup-" 或 None（不支持的平台）
     """
     system = platform.system().lower()
-    machine = platform.machine().lower()
 
     if system == "windows":
-        # Windows: FMCL-Setup-x.x.x.exe
+        # Windows: FMCL-Setup-x.x.x.exe（v2.10.3+ 仅提供 Windows 安装包）
         return "Setup-"
-    elif system == "darwin":
-        if "arm" in machine or "aarch" in machine:
-            # macOS Apple Silicon: FMCL-x.x.x-mac-arm64.dmg
-            return "-mac-arm64.dmg"
-        else:
-            # macOS Intel: FMCL-x.x.x-mac-amd64.dmg
-            return "-mac-amd64.dmg"
-    elif system == "linux":
-        # Linux: 优先 AppImage，其次 deb
-        return "-linux-amd64"
 
     return None
 
@@ -198,7 +186,6 @@ def find_suitable_asset(assets: list) -> Optional[Dict[str, Any]]:
         匹配的 asset 字典，或 None
     """
     system = platform.system().lower()
-    machine = platform.machine().lower()
 
     candidates = []
 
@@ -211,23 +198,9 @@ def find_suitable_asset(assets: list) -> Optional[Dict[str, Any]]:
                 candidates.append((10, asset))
             elif name.endswith(".exe") and "setup" not in name:
                 candidates.append((5, asset))
-
-        elif system == "darwin":
-            if "arm" in machine or "aarch" in machine:
-                if "arm64" in name and name.endswith(".dmg"):
-                    candidates.append((10, asset))
-            else:
-                if "amd64" in name and name.endswith(".dmg"):
-                    candidates.append((10, asset))
-                elif "mac" in name and name.endswith(".dmg"):
-                    candidates.append((5, asset))
-
-        elif system == "linux":
-            # 优先 AppImage
-            if name.endswith(".appimage"):
-                candidates.append((10, asset))
-            elif name.endswith(".deb"):
-                candidates.append((5, asset))
+        else:
+            # macOS / Linux：自 v2.10.3 起不再提供预编译包
+            return None
 
     if not candidates:
         return None
@@ -335,30 +308,11 @@ def install_update(file_path: str) -> bool:
         if system == "windows":
             logger.info(f"启动安装程序: {file_path}")
             os.startfile(str(path))
-
-        elif system == "darwin":
-            # macOS: 打开 DMG 文件
-            cmd = ["open", str(path)]
-            logger.info(f"打开 DMG: {' '.join(cmd)}")
-            subprocess.Popen(cmd, start_new_session=True)
-
-        elif system == "linux":
-            # Linux AppImage: 添加执行权限并运行
-            if str(path).endswith(".AppImage"):
-                os.chmod(str(path), 0o755)
-                cmd = [str(path), "--appimage-extract-and-run"]
-                logger.info(f"运行 AppImage: {' '.join(cmd)}")
-                subprocess.Popen(cmd, start_new_session=True)
-            elif str(path).endswith(".deb"):
-                # deb 包需要 sudo 安装
-                cmd = ["sudo", "dpkg", "-i", str(path)]
-                logger.info(f"安装 deb 包: {' '.join(cmd)}")
-                subprocess.Popen(cmd, start_new_session=True)
-            else:
-                logger.warning(f"不支持的 Linux 安装包格式: {path.suffix}")
-                return False
         else:
-            logger.warning(f"不支持的平台: {system}")
+            # macOS / Linux：自 v2.10.3 起不再提供预编译包，更新功能仅支持 Windows
+            logger.warning(f"当前平台 ({system}) 不支持自动更新安装，请使用安装脚本或源码运行")
+            slog.info("update_platform_unsupported", platform=system,
+                      message="v2.10.3+ 仅提供 Windows 预编译包")
             return False
 
         logger.info("安装程序已启动，即将退出当前程序...")
