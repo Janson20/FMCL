@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # ============================================================
 # FMCL Linux 源码安装脚本
 # 支持: Debian / Ubuntu / Fedora / RHEL / CentOS / Arch / openSUSE
@@ -52,7 +52,7 @@ else
 fi
 
 # ── 1. 安装系统依赖 ──────────────────────────────────────
-step "1/6 安装系统依赖 (git, tkinter 运行库)..."
+step "1/7 安装系统依赖 (git, tkinter 运行库)..."
 
 install_deps_debian() {
     ${USE_SUDO} apt-get update -qq
@@ -105,7 +105,7 @@ else
 fi
 
 # ── 2. 安装 uv ──────────────────────────────────────────
-step "2/6 安装 uv (Python 包管理器)..."
+step "2/7 安装 uv (Python 包管理器)..."
 
 if command -v uv &>/dev/null; then
     info "uv 已安装: $(uv --version 2>/dev/null || echo 'ok')"
@@ -118,7 +118,7 @@ else
 fi
 
 # ── 3. 克隆项目 ──────────────────────────────────────────
-step "3/6 克隆 FMCL 项目到 ${INSTALL_DIR}..."
+step "3/7 克隆 FMCL 项目到 ${INSTALL_DIR}..."
 
 if [ -d "${INSTALL_DIR}/.git" ]; then
     info "项目目录已存在，执行 git pull 更新..."
@@ -139,15 +139,51 @@ fi
 
 info "项目已就绪: ${INSTALL_DIR}"
 
-# ── 4. uv sync ───────────────────────────────────────────
-step "4/6 安装 Python 依赖 (uv sync)..."
+# ── 4. 自动选择最快的 PyPI 镜像源 ──────────────────────
+step "4/7 测试最快的 PyPI 镜像源..."
+
+FASTEST_MIRROR=""
+BEST_TIME="9999"
+
+for mirror in \
+    "https://pypi.tuna.tsinghua.edu.cn/simple" \
+    "https://mirrors.aliyun.com/pypi/simple" \
+    "https://pypi.mirrors.ustc.edu.cn/simple" \
+    "https://mirrors.tencent.com/pypi/simple" \
+    "https://pypi.org/simple"
+do
+    time_total=$(curl -sI -o /dev/null --connect-timeout 5 --max-time 5 \
+        -w '%{time_total}' "${mirror}" 2>/dev/null || echo "9999")
+    time_total="${time_total:-9999}"
+
+    if awk -v t="${time_total}" -v b="${BEST_TIME}" 'BEGIN {exit (t < b) ? 0 : 1}' 2>/dev/null; then
+        BEST_TIME="${time_total}"
+        FASTEST_MIRROR="${mirror}"
+        info "  ✓ ${mirror} (最快)"
+    else
+        info "    ${mirror} (${time_total}s)"
+    fi
+done
+
+if [ -n "${FASTEST_MIRROR}" ] && [ "${FASTEST_MIRROR}" != "https://pypi.org/simple" ]; then
+    info "选择镜像源: ${FASTEST_MIRROR}"
+    export UV_DEFAULT_INDEX="${FASTEST_MIRROR}"
+    uv config set --global default-index "${FASTEST_MIRROR}" 2>/dev/null || true
+elif [ -n "${FASTEST_MIRROR}" ]; then
+    info "默认源 (pypi.org) 速度最快，无需切换"
+else
+    warn "无法测试镜像速度，将使用默认源"
+fi
+
+# ── 5. uv sync ───────────────────────────────────────────
+step "5/7 安装 Python 依赖 (uv sync)..."
 
 cd "${INSTALL_DIR}"
 uv sync
 info "Python 依赖安装完成"
 
-# ── 5. 设置 FHS 目录结构 ─────────────────────────────────
-step "5/6 设置 Linux FHS 目录..."
+# ── 6. 设置 FHS 目录结构 ─────────────────────────────────
+step "6/7 设置 Linux FHS 目录..."
 
 ${USE_SUDO} mkdir -p /etc/fmcl
 ${USE_SUDO} mkdir -p /var/log/fmcl
@@ -163,8 +199,8 @@ mkdir -p "${HOME}/.fmcl"
 
 info "FHS 目录结构创建完成"
 
-# ── 6. 注册 fmcl 命令 ────────────────────────────────────
-step "6/6 注册 fmcl 命令..."
+# ── 7. 注册 fmcl 命令 ────────────────────────────────────
+step "7/7 注册 fmcl 命令..."
 
 FMCL_LAUNCHER=$(cat << EOF
 #!/bin/bash
