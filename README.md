@@ -6,417 +6,26 @@
 
 ## 功能特点
 
-### 🎮 版本管理
-- 浏览并安装所有 Minecraft 版本（正式版 + 测试版）
-- 已安装版本列表，支持一键选择和启动
-- 版本删除，释放磁盘空间
-- 分页浏览可用版本列表（每页 20 个）
-- 每个版本条目提供 ⚙ 版本设置、🧩 安装模组、X 删除三个快捷按钮
+| 分类 | 简介 | 详情 |
+|------|------|------|
+| 🎮 版本管理 | 浏览/安装/删除 Minecraft 版本，支持正式版与测试版 | 每页 20 个，支持一键选择、快捷操作 |
+| 🔧 多模组加载器 | Forge / Fabric / NeoForge / Quilt 一站式安装，版本隔离 | 与原版并行安装，自动适配 YY.D.H 新版本格式 |
+| ⚡ 国内镜像加速 | 内置 BMCLAPI 镜像源，国内下载速度大幅提升 | 一键开关，覆盖版本清单/资源/库/安装器 |
+| 🧩 模组管理 | Modrinth + CurseForge 在线搜索安装，AI 搜索 | 自动匹配版本和加载器，支持依赖递归安装 |
+| 📦 整合包 | 支持 .mrpack 安装与开服，Modrinth 在线下载 | 并行安装优化，分段进度显示 |
+| 🖥 服务器管理 | 一键安装/启动 MC 服务器，实时日志与命令交互 | 自动同意 EULA，智能 Java 管理，1G~16G 内存 |
+| 🌐 陶瓦联机 | 基于 EasyTier P2P 虚拟组网，局域网广播模拟 | Base34 大厅编号，TCP 端口转发，成员管理 |
+| 💾 存档备份 | 手动/自动备份，一键恢复，压缩/校验/导出 | 支持版本隔离目录扫描，备份索引记录 |
+| 🤖 AGENT 助手 | 自然语言控制启动器，33 个工具可供 AI 调用 | 多模型支持，流式 SSE 输出，50 轮工具循环 |
+| 🎵 音乐播放器 | 本地文件夹播放，全局快捷键，Windows SMTC | 支持 MP3/FLAC/OGG/WAV 等，四种播放模式，迷你窗口 |
+| 🎨 动态主题 | 5 种预设 + 自定义 Hex + 版本动态颜色 | 支持导入 .json 主题，主题持久化保存 |
+| 🏆 成就系统 | 47 项成就，9 大分类，Toast 通知，云存档同步 | 多阶段成就，进度条可视化，每日签到 |
+| 💥 崩溃分析 | 智能诊断 + 净读 AI 深度分析 | 识别 11 种崩溃类型，支持导出报告和 AI 修复建议 |
+| 🔒 安全 | SSL 验证、Fernet 加密、输入防注入、SHA 校验 | 密钥文件可迁移，断点续传，原子写入，安装回滚 |
+| 🌐 多语言 | 简体中文 / English / 繁體中文 / 日本語 | 自动检测系统语言，设置内一键切换即时生效 |
+| ⬆ 自动更新 | GitHub Release 检测 + 静默安装 | 自动识别平台下载对应安装包，可配置开关 |
 
-### 🎨 动态主题引擎
-- **🎨 预设主题**：内置 5 种预设主题（默认深色、海洋蓝调、森林绿意、薰衣草紫、日落暖橙），一键切换
-- **📂 导入 .json 主题**：支持用户导入自定义 `.json` 主题文件，主题文件存储在 `themes/` 目录
-- **🎲 自定义强调色**：在设置中输入 Hex 色值（如 `#e94560`）自定义强调色，或点击「随机」生成随机颜色
-- **📊 版本动态主题**：开启后，启动器会根据当前运行的 Minecraft 版本自动调整强调色（如 1.21 深紫色调）
-- **主题持久化**：主题选择和自定义强调色自动保存到 `config.json`，下次启动自动恢复
-
-### 🔗 链接标签页
-- **多标签页布局**：主界面包含"🎮 游戏"、"💾 备份"、"🖥 开服"、"🔗 链接"、"🌐 联机"、"🎵 音乐"、"🤖 AGENT"、"🏆 成就"和"📜 协议"九个标签页
-- **默认游戏标签页**：保留原有的三栏布局（侧边栏、已安装版本、操作面板），所有游戏功能保持不变
-- **链接标签页**：收录了29个常用的Minecraft相关网站，包括官方网站、中文社区、资源平台和实用工具
-- **网站卡片**：每个网站以卡片形式展示，包含名称、描述、标签和直达链接
-- **一键访问**：点击"🌐 打开链接"按钮在浏览器中打开网站
-- **链接复制**：点击"📋 复制链接"按钮复制网站URL到剪贴板
-- **智能标签**：每个网站显示最多3个分类标签，便于快速识别网站类型
-
-### ⚡ 国内镜像加速
-- 内置 [BMCLAPI](https://bmclapi2.bangbang93.com/) 镜像源（by bangbang93），国内下载速度大幅提升
-- 一键开关镜像源，切换即时生效
-- 自动连接测试，状态栏显示连接结果
-- 覆盖范围：版本清单、游戏资源、库文件、Forge/Fabric/NeoForge 安装器
-- **SSL 证书验证**：所有网络请求默认验证 SSL 证书，确保通信安全可靠
-
-### 🔧 多模组加载器
-- **Forge** - 最广泛使用的模组加载器
-- **Fabric** - 轻量级模组加载器
-- **NeoForge** - Forge 的社区分支
-- **Quilt** - Fabric 的分支加载器
-- 安装模组加载器时自动安装原版 Minecraft（与原版安装**并行执行**，无须额外等待），无需重复操作
-- **版本隔离**：安装了模组加载器的版本自动启用版本隔离，自动创建 `mods/`、`config/`、`saves/`、`resourcepacks/`、`shaderpacks/` 等子目录，游戏从 `.minecraft/versions/{版本名}/` 读取所有资源，各版本互不干扰
-- **新版本格式支持**：NeoForge 安装器已适配 Minecraft 2026 年起的新版本命名规则 `YY.D.H`（如 `26.1`、`26.1.1`），兼容旧版 `1.X.Y` 格式
-- **版本匹配优化**：基于 PCL-CE 的 `RegexPatterns` 重构了版本号正则匹配，集中化管理于 `version_utils.py` 模块，统一处理 Minecraft 版本号解析、加载器识别和版本比较
-- **模组更新检测优化**：基于 PCL-CE 的 SemVer 比较策略重写了 `compare_mod_versions`，正确支持 pre-release 版本判断（beta/alpha/snapshot）；`get_project_latest_version` 增加多策略回退（精确匹配→放宽 loader→最新版本）；更新检查 API 调用次数减半（slug 直连免去 project 查询）
-- **CurseForge 双源集成**：新增 `curseforge.py` 模块，支持 CurseForge 平台资源搜索与下载；默认双源（Modrinth + CurseForge）搜索，同名资源优先取高下载量平台；模组更新检测同步查询双源，取最新版本
-
-### 🧩 Modrinth 模组浏览与安装
-- 集成 [Modrinth](https://modrinth.com/) API，在线搜索和安装模组
-- 安装了模组加载器的版本自动显示 🧩 按钮，一键打开模组浏览器
-- 自动识别游戏版本和模组加载器类型（Forge/Fabric/NeoForge），精准筛选兼容模组
-- 支持关键词搜索，窗口打开时自动加载热门模组列表
-- **🤖 AI 智能搜索**：搜索栏新增 AI 搜索按钮，基于净读 AI 自动将用户搜索词优化扩展为多个英文关键词，多词并行搜索 Modrinth 后合并去重、按下载量（热度）排序，显著提升搜索覆盖率和结果质量（需登录净读 AI）
-- 分页浏览搜索结果，支持翻页查看更多模组
-- 一键安装：自动获取兼容版本并下载到 `mods/` 目录
-- 支持版本隔离：自动将模组安装到对应版本的独立目录
-- **新版本命名适配**：支持 2026 年起的新版本格式 `YY.D.H`（如 `26.1`、`26.1.1`），兼容旧版 `1.X.Y` 格式
-- **模组加载器版本匹配优化**：Fabric/Quilt 格式（`fabric-loader-{version}-{mc}`）和 Forge/NeoForge 格式（`{mc}-{loader}-{version}`）均支持新版本号模糊匹配，启动和安装模组时自动识别
-
-### 📦 Modrinth 整合包安装
-- 支持安装 `.mrpack` 格式的 Modrinth 整合包
-- **🌐 从 Modrinth 下载**：内置整合包浏览器，支持关键词搜索、AI 智能搜索（需登录净读 AI）、按 MC 版本分组浏览、版本选择和一键下载
-- 自动读取整合包元数据（名称、简介、Minecraft 版本）
-- 可选组件支持：可选择安装整合包包含的可选文件
-- **版本隔离**：整合包资源默认安装到 `versions/<版本ID>/` 目录，避免不同整合包之间的模组和配置冲突
-- **并行安装优化**：整合包文件下载与原版 Minecraft 安装并行执行，模组文件多线程并行下载，大幅提升安装速度
-- **分段进度显示**：实时显示整合包文件下载和原版安装的独立进度百分比及总进度条
-- 自动下载整合包所需的所有模组、配置文件并处理依赖关系
-- 安装完成后自动刷新版本列表，可直接启动游戏
-- **多语言支持**：安装窗口界面文字跟随启动器语言设置切换
-
-### 📦 整合包开服
-- 支持将 `.mrpack` 整合包安装为服务器
-- **🌐 从 Modrinth 下载**：内置整合包浏览器（支持 AI 智能搜索），与整合包安装窗口一致
-- 自动安装整合包文件（mods、configs 等）到服务器目录
-- 自动下载对应版本的 vanilla 服务器核心
-- 自动同意 EULA，创建基本 server.properties
-- 支持自定义服务器名称
-- **自动检测并安装服务端 mod loader**：自动识别整合包中的 Forge/Fabric/NeoForge/Quilt，下载并运行对应的服务端安装器
-- **自动下载 Fabric API**：Fabric 服务端安装完成后，自动从 Modrinth 下载 Fabric API 及其依赖
-- **并行安装优化**：整合包文件下载与原版客户端安装并行执行，模组文件多线程并行下载
-- **分段进度显示**：实时显示整合包文件下载和原版安装的独立进度百分比及总进度条
-- 安装完成后自动刷新服务器列表，可直接启动
-- **多语言支持**：开服窗口界面文字跟随启动器语言设置切换
-
-### 🌐 CurseForge 支持（可选）
-如果需要同时搜索 CurseForge 平台的资源，需配置 API Key：
-
-1. 前往 [CurseForge Developer Portal](https://console.curseforge.com/) 创建应用
-2. 在系统环境变量中设置 `CURSEFORGE_API_KEY=your_key_here`
-3. 或在项目根目录 `.env` 文件中添加: `CURSEFORGE_API_KEY=your_key_here`
-4. 未配置 API Key 时，自动回退到仅 Modrinth 搜索
-
-### 📦 资源管理
-- 支持模组、资源包、地图、光影四种资源类型
-- **🔍 全标签页搜索**：每个标签页顶部都有搜索栏，支持按资源名称快速过滤
-- **🧩 模组详情提取**：自动从模组 jar 文件中提取元数据（名称、modid、版本号、作者、简介、图标），无需联网
-- **模组卡片布局**：左侧显示模组图标（自动提取或回退图标），右侧展示名称、版本号、作者与简介、modid 与文件名
-- **加载进度提示**：首次打开模组标签页时显示「正在读取模组信息... (x/y)」进度，不阻塞界面
-- **🖼 资源包/光影缩略图**：自动从 zip 文件中提取 `pack.png` 或其他预览图并显示缩略图，无需额外配置
-- **🔍 模组更新检测**：一键检查已安装模组的更新（通过 Modrinth API），显示可更新模组的列表，支持一键更新（自动保持兼容性，下载对应游戏版本和加载器的模组版本）。**使用 SemVer 规范比较版本号**，正确区分正式版、beta、alpha、snapshot 优先级；**API 调用减半**，通过 slug 直连版本接口免去项目查询
-- **📋 导出模组列表**：一键生成当前版本所有模组的列表（包含名称、modid、版本号），自动复制到剪贴板，方便在论坛求助时粘贴
-- 拖拽安装：将文件直接拖入窗口即可安装
-- 地图 zip 自动解压到 `saves/` 目录
-- 模组一键启用/禁用（`.disabled` 后缀）
-- 各类型独立文件夹，一键打开
-- 支持版本隔离模式
-
-### 🖥 服务器管理
-- **开服标签页**：独立的"🖥 开服"标签页，支持下载并启动 Minecraft 服务器
-- **一键加入**：点击「加入服务器」按钮，自动下载对应客户端版本并直连 localhost:25565
-- **一键安装**：输入版本号或从快速选择列表点击安装，自动下载服务器端文件
-- **自动同意 EULA**：安装服务器时自动创建 `eula.txt` 并同意
-- **智能 Java 管理**：跨平台 Java 运行时扫描（Windows 注册表/macOS java_home/Linux update-alternatives + /usr/lib/jvm），自动匹配最佳版本；Minecraft runtime 优先，系统 Java 回退；未安装时提供包管理器安装命令和官方下载链接
-- **版本隔离**：每个服务器版本独立目录 `.minecraft/server/<version>/`，互不干扰
-- **自动生成配置**：安装时自动创建 `server.properties`（离线模式、最大 20 人等默认配置）
-- **内存设置**：支持选择 1G ~ 16G 最大内存
-- **启动/停止**：一键启动服务器，通过 stdin 发送 `stop` 命令优雅停止
-- **实时日志**：左侧控制台实时显示服务器输出日志
-- **命令发送**：支持在控制台输入任意服务器命令（如 `op`, `gamemode`, `stop` 等）
-- **玩家列表**：状态栏实时显示在线玩家数量和玩家名称
-- **内存监控**：状态栏实时显示服务器进程内存占用（每 2 秒刷新）
-- **进程监控**：自动检测服务器进程退出，更新 UI 状态
-- **Fabric API 自动安装**：启动 Fabric 服务器时自动检测 mods 目录，缺失则从 Modrinth 下载 Fabric API
-- **删除管理**：支持删除已安装的服务器版本
-
-### 🌐 陶瓦联机
-- **联机标签页**：新增"🌐 联机"标签页，基于 [EasyTier](https://github.com/EasyTier/EasyTier) 虚拟组网实现 P2P 联机，支持多种 NAT 环境穿透。**仅支持 Windows 系统**。
-- **陶瓦大厅编号**：采用 `U/` 前缀的 21 位陶瓦大厅编号系统（Base34 编码 + 校验和），自动生成或输入即可创建/加入联机房间
-- **EasyTier 自动安装**：启动时自动检测 EasyTier 核心文件，未安装时提供一键下载（多镜像源容灾）
-- **创建大厅**：输入 MC 端口和显示名称，一键生成陶瓦编号，启动 EasyTier 作为主机
-- **加入大厅**：输入好友的陶瓦编号，自动加入虚拟局域网并设置端口转发
-- **局域网广播模拟**：加入后自动向 `127.0.0.1:4445` 发送 Minecraft 局域网广播包，让游戏多人列表中直接显示大厅世界
-- **TCP 端口转发**：加入者自动建立 `127.0.0.1` 到虚拟局域网目标 IP 的双向 TCP 代理，支持最多 10 路并发
-- **实时日志查看**：右侧日志面板实时显示 EasyTier 运行输出，便于排查问题
-- **网络就绪检测**：主机创建大厅后等待 relay 节点连接完成再显示就绪；加入时端口转发带重试机制（最多3次），避免首次连接失败
-- **成员管理**：实时追踪成员在线状态（10秒超时自动清理），成员加入/退出时自动刷新大厅列表；客户端心跳失败时自动检测主机离线并退出
-- **成员排序**：主机（HOST）始终显示在最前面，其他玩家按加入顺序排列，显示名称、厂商信息
-- **心跳延迟显示**：客户端加入大厅后，成员列表底部实时显示与主机的往返延迟（ms）
-- **局域网世界发现**：点击"扫描"按钮自动发现本地局域网中的 Minecraft 共享世界，显示世界名称和端口号
-- **大厅状态监控**：主机创建大厅后自动监控 MC 实例存活状态（每15秒 Ping 一次），MC 关闭时自动退出大厅
-- **陶瓦大厅编号兼容**：同时支持 `U/` 前缀（Scaffolding）和传统陶瓦 `XXXXX-XXXXX-XXXXX-XXXXX-XXXXX` 编号格式
-- **延迟优先模式**：EasyTier 默认启用 `--latency-first` 参数，优先选择低延迟连接路径
-- **LobbyState 状态机**：联机状态管理采用 Idle → Creating/Joining → Connected → Leaving 标准状态转换
-- **IPv6 组播支持**：局域网发现同时监听 IPv4 (`224.0.2.60:4445`) 和 IPv6 (`ff75:230::60:4445`) 广播
-
-### 💾 存档备份
-- **备份管理标签页**：独立的"💾 备份"标签页，位于"游戏"和"开服"之间
-- **手动备份**：选择存档，一键备份，支持添加备注
-- **自动备份**：游戏启动前/退出后自动执行，可配置触发时机
-- **备份列表**：查看某存档的所有备份，显示时间、大小、备注、游戏版本
-- **一键恢复**：选择备份还原，自动保护当前存档（重命名为 `_bak_时间戳`）
-- **备份删除**：删除过期或多余的备份（需二次确认）
-- **备份导出**：将备份导出为 ZIP 文件，方便分享
-- **存储设置**：自定义备份目录、压缩等级、最大备份数、恢复时旧存档处理方式
-- **进度提示**：压缩/解压时实时显示进度条，不阻塞界面
-- **完整性校验**：恢复前自动校验 ZIP 完整性，失败则阻止恢复并提示
-- **磁盘空间检查**：备份前检查可用空间，不足时提前警告
-- **自动清理**：超出最大备份数量时自动删除最旧的备份
-- **版本隔离支持**：自动扫描全局 `saves/` 和版本隔离目录中的存档
-- **备份索引**：使用 `index.json` 记录备份元数据，便于快速检索
-
-### 🖥️ 现代化界面
-- 基于 CustomTkinter 的深色主题，流畅美观
-- **跨平台中文字体适配**：自动检测系统并选择合适的中文字体（Windows: Microsoft YaHei / macOS: PingFang SC / Linux: Noto Sans CJK SC 等）；Linux 下若无中文字体则自动通过包管理器安装
-- **首次使用协议弹窗**：首次启动时弹出完整用户协议（TERMS_OF_USE.md）阅读窗口，使用与主界面一致的 CustomTkinter 风格，包含可滚动协议全文和带 Markdown 渲染的排版（标题着色、段落分隔、列表缩进等），需勾选"我已仔细阅读并同意以上全部条款"后方可确认继续使用
-- 启动画面：加载时在屏幕中央展示应用图标，加载完成后自动切换到主窗口
-- 三栏布局：左侧边栏（账号信息、皮肤、日志）、中间已安装版本、右侧操作面板
-- 异步操作：所有网络与安装任务在后台线程执行，UI 不卡顿
-- 实时进度条与状态提示
-- 游戏启动后自动最小化启动器窗口（可选，检测到游戏窗口出现后执行）
-
-### ⚙ 启动器设置
-- 独立设置窗口，点击顶栏「⚙ 设置」按钮打开
-- 🔽 启动后最小化开关
-- 🇨🇳 使用国内镜像源开关
-- ⚡ 下载线程数滑块（1-255），实时调整多线程下载并发数
-- 🌐 界面语言切换（简体中文/English/繁體中文/日本語），切换后点击「应用」自动重启启动器生效
-- 🤖 净读 AI 账号登录（用于崩溃智能分析功能）
-- 🎨 动态主题引擎（详见下方「🎨 动态主题引擎」）
-- 设置自动持久化到 `config.json`
-
-### 🎨 动态主题引擎
-- **🎨 预设主题**：内置 5 种预设主题（默认深色、海洋蓝调、森林绿意、薰衣草紫、日落暖橙），一键切换
-- **📂 导入 .json 主题**：支持用户导入自定义 `.json` 主题文件，主题文件存储在 `themes/` 目录
-- **🎲 自定义强调色**：在设置中输入 Hex 色值（如 `#e94560`）自定义强调色，或点击「随机」生成随机颜色
-- **📊 版本动态主题**：开启后，启动器会根据当前运行的 Minecraft 版本自动调整强调色：
-  - 1.21 深紫色调 | 1.20 樱花金 | 1.19 深绿色 | 1.18 天空蓝 | 1.17 铜绿色
-  - 1.16 下界红 | 1.15 蜂蜜黄 | 1.14 竹绿 | 1.13 海洋蓝 | 等更多版本
-- **主题持久化**：主题选择和自定义强调色自动保存到 `config.json`，下次启动自动恢复
-
-### ℹ 关于
-- 点击顶栏「ℹ 关于」按钮打开关于对话框，显示 FMCL 版本号、Python 版本、操作系统、系统架构等信息
-- **📜 协议标签页**：新增独立标签页，完整展示 `TERMS_OF_USE.md` 用户协议全文，使用 markdown 库转为 HTML 并通过 tkinterweb 渲染，支持深色主题样式和滚动阅读
-
-### 👤 自定义角色
-- 角色名由当前选中的账号自动确定（微软账号使用 Xbox 昵称、离线账号使用自定义名称、Yggdrasil 使用认证服用户名）
-- 旧版 `player_name` 配置在首次启动时自动迁移为离线账号
-
-### 🎨 自定义皮肤
-- 左侧边栏支持选择自定义皮肤文件（PNG 格式）
-- 自动验证皮肤尺寸（支持 64x64 / 64x32 / 128x128 / 128x64）
-- 皮肤文件自动复制到 `.minecraft/skins/` 目录
-
-### 👤 账号管理
-- **微软正版登录**：通过 PKCE OAuth 安全流程完成微软账号授权；**备用方案**：支持设备代码登录（Device Code Flow），无需本地回调服务器，可在任意设备浏览器输入代码完成验证
-- **离线登录**：无需网络验证即可创建离线账号，自动生成 UUID（基于 `uuid.uuid3`）
-- **Yggdrasil 外置登录**：支持皮肤站等第三方验证服务器（如 LittleSkin），自动注入 `authlib-injector` Java 代理
-- **Token 自动续期**：微软账号的 `access_token` 在启动游戏前自动检查并使用 `refresh_token` 无感续期
-- **全局账号档案**：所有账号信息独立存储于 `accounts.json`（AES 加密 Token），不依赖游戏目录
-- **账号管理窗口**：侧边栏和设置中均可打开，支持添加/删除/切换账号，实时显示当前选中账号
-- **导入导出**：支持将账号凭据导出为加密的 `.fmcl_accounts` 文件（密码保护），或从文件导入
-- **旧配置迁移**：首次启动自动将旧的 `player_name` 配置迁移为离线账号，无需手动设置
-
-### 📋 启动器日志
-- 左侧边栏内置实时日志查看器
-- 自动捕获 logzero 日志输出
-- 支持清空日志
-
-### ⚡ 性能优化
-- **JSON 高速解析**：使用 orjson 替代标准库 json，解析速度提升 3-10 倍（自动回退）
-- **并发文件校验**：基于 ThreadPoolExecutor 的多线程哈希校验，校验大量文件时速度提升 3-5 倍
-- **异步批量下载**：基于 asyncio + aiohttp 的并发下载器，单线程内高效处理数百个下载任务
-- **JVM 参数优化**：自动注入 G1GC、固定堆内存等优化标志，减少游戏卡顿
-- **stdout 管道管理**：检测到游戏窗口出现后自动关闭 stdout 管道，避免管道缓冲区满导致游戏最后加载阶段卡顿
-- **延迟加载**：非首屏模块（pyautogui、keyboard、shutil 等）延迟导入，加快启动速度
-- **URL 重写缓存**：镜像源 URL 转换结果缓存，避免重复匹配
-- **算法优化**：版本查找使用 set 实现 O(1) 查找，替代列表 O(n) 线性搜索
-
-### 📥 预下载
-- 在协议同意并确认公告后，检查是否已预下载 Minecraft 资源包，加速后续版本安装
-- 多线程分段下载，充分利用带宽
-- 实时进度条显示下载/解压进度
-- 支持取消下载，取消后仍可正常使用启动器
-- 选择"是"或"取消"后均不再重复提示
-
-### 📸 截图工具
-- 内置区域截图工具，框选屏幕区域即可保存
-- 快捷键 `Ctrl+Alt+T` 随时触发
-
-### 📋 日志系统
-- 基于 logzero 的完整日志记录
-- **跨平台日志存储**：
-  - Windows/macOS: `latest.log` 保留在程序目录
-  - Linux: 优先 `/var/log/fmcl/latest.log`（遵循 FHS 标准）；若目录不可写则自动回退到 `~/.fmcl/latest.log`
-- **结构化日志**：核心流程额外输出 JSONL 格式结构化日志到 `latest_structured.log`，方便程序化分析和统计
-  - ★★★ 必须场景：崩溃捕获（含 error_type、version、loader、log_snippet）、关键下载失败（含 status_code、mirror_source）、模组安装决策（含 decision_reason、dependencies）
-  - ★★☆ 推荐场景：服务器启动全流程（含 server_type、mods_count）、备份/恢复操作（含 size_bytes、reason）、游戏启动命令生成（含 jvm_args、game_args）、自动更新行为（含 failure_stage、error_message）
-
-### 💥 崩溃检测与报告
-- 自动检测游戏异常退出（退出码非 0）
-- **智能崩溃诊断**：基于日志关键词匹配，自动识别 11 种常见崩溃类型（Mixin 错误、依赖缺失、内存溢出、模组冲突等），并给出修复建议
-- 崩溃时自动收集崩溃报告、游戏日志、JVM 崩溃日志等诊断信息
-- 提供五个操作按钮：
-  - **打开崩溃报告** - 直接查看 Minecraft 生成的崩溃报告文件
-  - **打开游戏日志** - 查看游戏运行日志
-  - **导出崩溃报告** - 将崩溃报告、游戏日志、JVM 崩溃日志、启动器日志、系统信息打包为 ZIP 文件，方便分享给他人分析
-  - **上传并分享日志** - 一键将游戏日志（latest.log）上传到 LogShare.CN，自动复制分享链接到剪贴板，方便快速分享给他人排查问题
-  - **AI 智能分析（净读 AI）** - 接入净读 AI DeepSeek 模型，自动分析崩溃原因并给出具体修复建议，结果支持保存为 TXT 文件
-
-### 🤖 净读 AI 集成
-- 在设置中登录净读账号，获取 Token 用于 AI 功能
-- 崩溃分析：将崩溃报告、游戏日志、启动器日志和系统信息发送至 DeepSeek 模型进行分析
-- 分析结果以弹窗展示，包含崩溃原因分析和建议操作
-- 支持将 AI 分析结果保存为 TXT 文件
-- **隐私保护**：首次使用 AI 分析时弹出隐私说明，需用户勾选同意后才可使用；同意状态持久化保存，后续无需重复确认
-- **安全存储**：登录 Token 使用 Fernet (AES-128-CBC + HMAC-SHA256) 加密存储于 `config.json`，密钥文件保存在 `<base_dir>/.fmcl_key`，支持跨机器迁移
-
-### 🤖 AGENT 智能助手
-- **快速输入框**：启动器顶部标题栏右侧新增 AI 快速输入框，输入内容后按回车直接跳转到"🤖 AGENT"标签页并自动发送消息，无需手动切换标签页
-- **自然语言控制**："🤖 AGENT"标签页，三栏布局（对话历史 | 对话区 | 任务面板），支持通过自然语言管理 Minecraft
-- **多模型支持**：内置净读 AI（DeepSeek V4 Flash / V4 Pro，1M 上下文，384K 输出，支持思考模式开关 + 强度控制（high/max））、OpenAI（GPT-4o / GPT-4o-mini / o3-mini）、Anthropic（Claude Sonnet 4 / Claude 3.5 Haiku）和自定义 OpenAI 兼容端点；顶部模型选择器一键切换
-- **流式 SS E输出**：AI 回复逐 token 流式输出，支持思考过程展示（DeepSeek R1 / o3-mini 推理内容折叠显示）
-- **AI 驱动**：基于 Function Calling 实现智能决策，自动分析意图 → 顺序调用工具 → 分析结果
-- **核心工具集**：封装了版本获取/安装/删除/启动、模组/资源包/光影搜索安装、整合包搜索下载安装开服、服务器管理、版本资源查询、终端命令执行、联网搜索、网页抓取、**文件操作（读取/写入/替换/删除/搜索/列举）**、会话任务管理等 **33 个工具**供 AI 调用
-- **文件操作工具**：新增 `read_file`（读取文件，支持行偏移/行数限制）、`write_file`（创建/覆盖文件，自动创建父目录，diff 预览确认）、`replace_in_file`（精确查找替换，oldStr 必须完全匹配）、`delete_file`（删除文件，预览确认）、`search_files_by_name`（Glob 搜索文件名）、`search_files_by_content`（正则搜索文件内容，支持文件过滤）、`list_directory`（列举目录，支持递归）。写/改/删操作在专用确认弹窗中预览 diff 后由用户确认执行，所有文件操作限制在启动器工作目录内
-- **联网搜索**：新增 `web_search` 工具，支持 DuckDuckGo 免费搜索和 Bing API 搜索
-- **网页抓取**：新增 `web_fetch` 工具，将网页转为 Markdown/纯文本/HTML 格式供 AI 分析
-- **任务面板**：右侧 Todo 面板实时跟踪 AI 的任务列表（pending/in_progress/completed），持久化存储
-- **对话历史管理**：左侧会话列表面板，支持多会话、切换会话、删除会话，历史对话自动保存到 JSON 文件
-- **Skill 技能系统**：支持加载自定义技能文件（`./data/agent/skills/{name}/SKILL.md`）注入 AI 上下文。顶栏「Skills」按钮打开管理窗口，可查看已安装技能、一键新建（自动生成模板）、在文件管理器中打开目录。
-- **权限引擎**：三级权限策略（allow/deny/ask），支持按工具配置，规则持久化
-- **上下文自动压缩**：Token 超过阈值自动裁剪旧消息，保证长对话稳定性
-- **ask_user 增强提问**：支持多问题、多选、自定义答案、推荐选项标记（(Recommended)）
-- **智能工作流**：AI 自动分析用户意图 → 顺序调用工具 → 分析结果 → 需要时通过 `ask_user` 提问让用户选择 → 最多 50 轮独立工具循环
-- **原生 Function Calling**：AI 回复直接使用 OpenAI 兼容的 `tool_calls` JSON 格式
-- **使用场景示例**：
-  1. "帮我下载最新版 Minecraft" → AI 获取版本列表 → 安装最新正式版
-  2. "帮我启动 1.20.1" → AI 获取本地版本列表 → 发现多个 1.20.1 版本 → `ask_user` 弹出选项（原版/Forge/Fabric）→ 用户选择后启动
-  3. "给 1.20.1 装个钠" → AI 搜索 Modrinth → 找到 Sodium → 自动匹配版本和加载器 → 安装
-  4. "帮我开个服务器" → AI 自动创建服务器 → 同意 EULA → 配置内存 → 启动
-  5. "最新 Minecraft 新闻" → AI 调用 web_search 搜索 → 汇总最新动态
-  6. "帮我搜空岛整合包" → AI 在 Modrinth 搜索 → `ask_user` 展示结果 → 用户选择后下载安装
-- **终端命令执行**：内置 60+ 高危命令前缀检测，权限引擎控制
-- **独立轮次上限**：最多 **50 轮**工具调用循环
-- **Token 配置**：通过 ⚙ 设置 → 净读 AI 登录；OpenAI/Anthropic/自定义 API Key 在 `config.json` 的 `agent.providers` 中配置
-- **隐私说明**：Token 仅保存在本地配置文件中，不会上传至任何第三方
-- **命令行模式**：`python main.py -A "指令"` 或 `python main.py -A` 交互模式
-- **独立控制台程序**：`FMCL-Agent.exe`（控制台子系统）
-
-### 🎵 音乐播放器
-- **🎵 音乐标签页**：独立的音乐播放标签页，选择本地文件夹作为播放列表
-- **📂 文件夹播放列表**：选择一个音乐文件夹，自动递归扫描所有音频文件（支持 MP3/FLAC/OGG/WAV/M4A/AAC 等格式）
-- **🎼 元数据提取**：自动读取音频文件内置的元数据（标题、艺术家、专辑），右侧面板显示专辑封面图
-- **⏯ 播放控制**：播放/暂停、停止、上一首、下一首、音量调节、静音切换、进度条拖拽跳转
-- **🎚 淡入淡出**：播放时自动淡入，暂停/停止时平滑淡出，避免音量突变的不适感
-- **🔀 四种播放模式**：顺序播放（➡）、列表循环（🔁）、单曲循环（🔂）、随机播放（🔀），一键切换
-- **⌨ 全局快捷键**：使用项目已有的 `keyboard` 库注册全局热键，即使启动器在后台也能控制音乐播放：
-  - `Ctrl+Shift+Space` 播放/暂停
-  - `Ctrl+Shift+Left` 上一首
-  - `Ctrl+Shift+Right` 下一首
-  - `Ctrl+Shift+Down` 停止
-  - `Ctrl+Shift+Up` 音量+
-  - `Ctrl+Shift+PageDown` 音量-
-  - `Ctrl+Shift+M` 静音切换
-- **🪟 Windows SMTC**：集成 Windows 系统媒体传输控件（SMTC），任务栏媒体弹窗可显示歌曲标题、艺术家和专辑信息
-- **🔽 迷你模式**：可一键切换为紧凑的迷你播放条，仅显示当前曲目和基本控制按钮
-- **💾 状态记忆**：自动保存上次打开的文件夹、播放进度、当前曲目、音量和播放模式到 `config.json`，下次启动自动恢复
-- **🎨 主题适配**：音乐标签页所有 UI 组件均已注册主题引用，跟随启动器主题色切换
-
-### � 工具标签页
-- **🔧 工具标签页**：新增实用工具标签页，位于音乐与协议标签页之间
-- **🗑 清理游戏垃圾**：扫描 `.minecraft` 目录下所有 `.log` 和 `.tmp` 文件，显示文件数量和总大小，一键删除释放磁盘空间
-- **🎲 今日人品**：基于当日日期使用 SHA256 生成 0-100 的人品值，同一天结果相同，根据数值范围显示不同等级（大凶/凶/平/吉/大吉/欧皇）
-- **⬇ 多线程下载**：支持自定义下载链接、User-Agent（默认 FMCL/2.0）和保存路径，使用启动器设置中的线程数进行多线程并发下载，实时显示下载进度和速度
-- **🗺 坐标转换器**：主世界与下界坐标互相转换（主世界 X/Z ÷ 8 = 下界 X/Z，Y 轴不变），输入坐标一键计算
-- **🔢 Hash 计算器**：选择文件计算 MD5 / SHA1 / SHA256 / SHA512 哈希值，后台分块读取不阻塞 UI，结果可直接复制
-- **🔍 端口检测器**：检测指定 IP/域名:端口 的 TCP 连通性，显示延迟（ms）和错误信息，支持 MC Java/Bedrock/HTTP/HTTPS 快捷预设，保留最近 10 条检测历史
-- **💎 Minecraft 冷知识**：内置 40 条 MC 趣味冷知识，每日自动展示一条（同一天相同），也可随机切换
-- **🧠 MC 知识问答**：调用净读 AI 生成 20 道 Minecraft 选择题（一次性批量生成节省积分），支持点选或输入答案，点击"下一题"自动删除当前题目；剩余 ≤5 题时后台自动补充新题，题库持久化存储于 quiz.json
-
-### �🔒 安全特性
-- **SSL 证书验证**：所有 HTTP 请求（Modrinth API、GitHub Release、镜像源等）均启用 SSL 证书验证，防止中间人攻击
-- **数据加密存储**：敏感 Token 使用随机密钥文件 + Fernet 对称加密存储，支持密码派生密钥（环境变量 `FMCL_ENC_KEY_PASSWORD`）
-- **密钥文件可迁移**：`.fmcl_key` 密钥文件可随 `config.json` 一起拷贝到新机器，Token 无缝迁移
-- **输入验证与防注入**：所有用户输入（版本 ID、服务器 IP、内存参数等）均经过白名单验证，防止命令注入和路径穿越攻击
-- **文件完整性校验**：Modrinth 模组下载后自动验证 SHA1/SHA512 哈希，更新包下载后验证文件大小和 SHA256，确保文件未被篡改
-- **健壮下载引擎**：Modrinth 下载集成连接池复用（避免重复 TLS 握手）、指数退避重试（超时/中断自动重试 3 次）、断点续传（Range 头 + 追加写入），确保差劲网络下的下载可靠性
-- **原子写入**：配置文件、备份索引等更新时使用临时文件 + 重命名机制，防止写入中断导致文件损坏
-- **安装回滚**：整合包安装失败时自动清理部分下载的文件和目录，避免残留损坏
-
-### 🌐 多语言界面
-- 支持简体中文、English、繁體中文、日本語四种语言
-- 从配置文件读取语言设置
-- 启动时自动检测系统语言并切换对应界面语言（可通过设置窗口手动切换）
-- 在设置窗口中切换语言后，点击「应用」按钮自动重启启动器，新语言即时生效
-- **游戏语言**：启动时自动将 `.minecraft/options.txt` 中的语言设置修改为 `zh_cn`，确保首次启动游戏时即为中文界面
-- **覆盖范围**：主界面、设置窗口、备份管理、服务器管理、整合包安装、整合包开服等所有窗口均支持多语言切换
-
-### ⬆ 自动更新
-- 启动时自动从 GitHub Release 检查新版本（可配置开关）
-- 发现新版本时弹出更新对话框，展示版本号和更新日志
-- 自动识别当前平台，下载对应的安装包（Windows NSIS / macOS DMG / Linux AppImage）
-- 下载完成后自动执行静默安装（Windows 使用 `/S` 参数），安装程序启动后自动退出当前程序
-- 也可手动点击顶栏「⬆ 更新」按钮检查更新
-
-### 📢 启动公告
-- 启动顺序：协议同意 → 自动从服务器获取最新公告 → 确认公告后进入预下载检查
-- 公告内容以弹窗形式展示，包含滚动文本区域
-- 获取失败时静默跳过，不影响正常使用
-
-### 🏆 成就系统
-- **9 大分类**：游戏玩家、模组玩家、服务器主、备份习惯、联机玩家、AGENT 智能助手、个性化、高级用户、音乐生活，共 47 项成就
-- **多阶段成就**：部分成就支持 `I / II / III` 多阶段，根据触发次数/进度自动升级名称
-- **实时追踪**：游戏启动、版本安装、备份创建、服务器管理、音乐播放、模式切换等操作自动触发成就进度更新
-- **🎵 音乐联动**：首次播放音乐、累计播放歌曲、使用全部播放模式、切换迷你模式、调整音量等行为触发专属成就
-- **Toast 通知**：成就解锁时右下角弹出通知卡片，带渐隐动画，多个通知自动堆叠
-- **成就标签页**：新增 `🏆 成就` 标签页，分类展示所有成就卡片，显示当前进度和阶段名称
-- **进度条可视化**：多阶段成就显示进度条，直观展示当前进度百分比
-- **数据持久化**：成就数据保存在 `achievements.db`（SQLite），支持 SQLite WAL 模式
-- **线程安全**：使用可重入锁（RLock）保护数据库操作，避免签到和进度更新并发时的死锁
-- **每日签到**：自动记录连续打开启动器天数，追踪「签到达人」成就
-
-### 🔔 全局通知
-- **Toast 通知**：采用与成就通知相同的卡片样式，右下角弹出，支持渐隐动画和自动堆叠
-- **四种类型**：`info`（蓝色边框）、`success`（绿色边框）、`warning`（橙色边框）、`error`（红色边框）
-- **全局调用**：任意模块均可通过 `from ui.dialogs import show_notification` 直接调用，无需传递父窗口引用
-- **线程安全**：内部通过 `app.after()` 确保 UI 操作在主线程执行，后台线程可安全调用
-- **任务集成**：以下任务完成（成功/失败）时自动弹出通知：
-  - 📥 游戏下载（版本安装）
-  - 🧩 资源下载（模组/资源包/光影/地图安装与批量更新）
-  - 🖥 服务器安装
-  - 📦 整合包安装
-  - 🖥 整合包开服
-  - 💾 存档备份
-  - 🔄 存档恢复
-  - 🏠 联机大厅创建
-  - 🚪 联机大厅加入
-  - 🤖 AI 智能助手任务
-- **使用示例**：
-  ```python
-  from ui.dialogs import show_notification
-  
-  # 信息通知
-  show_notification("ℹ️", "操作完成", "版本安装成功", notify_type="info")
-  
-  # 成功通知
-  show_notification("✅", "备份完成", "存档已自动备份", notify_type="success")
-  
-  # 警告通知
-  show_notification("⚠️", "磁盘空间不足", "剩余空间 < 1GB", notify_type="warning")
-  
-  # 错误通知
-  show_notification("❌", "安装失败", "网络连接超时", notify_type="error")
-  ```
-
-### ☁ 成就云存档
-- **自动同步**：启动时后台自动下载云端存档并合并（保留完成度更高的记录），无需手动操作
-- **推送同步**：获得新成就时自动将最新数据推送到云端
-- **手动同步**：成就标签页点击「☁ 同步」按钮，支持下载 → 合并 → 上传完整流程
-- **同步时间显示**：成就标签页顶部显示上次同步时间（精确到秒），手动/自动同步后实时更新
-- **智能合并**：逐条比较本地与远程成就进度，保留 stage 更高或 current_value 更高的版本
-- **重置云端**：支持重置云端存档（需三次确认：按钮 + 确认对话框 + 输入确认短语）
-- **重置本地**：支持重置本地所有成就（同样需三次确认）
-- **登录提示**：未登录净读 AI 时提示前往设置登录，Token 复用净读 AI 账号
-- **安全保护**：Bearer Token 认证、FMCL 请求头、频率限制（30次/小时）、文件大小限制（1MB）、仅接受 `.db` 后缀
+> 完整功能列表详见 [docs/FEATURES.md](docs/FEATURES.md)
 
 ---
 
@@ -506,231 +115,37 @@ pip install -r requirements-unix.txt
 python main.py
 
 # 运行 Agent CLI 模式
-python main.py login -name <用户名> -pwd <密码>   # 登录净读 AI
-python main.py -agent "帮我安装最新版"
+python main.py --agent "帮我安装最新版"
 python main.py -A              # 交互模式
-
-# 打包后使用独立控制台程序（无 Python 环境依赖）
-FMCL-Agent "帮我安装最新版"
-FMCL-Agent              # 交互模式
 ```
 
 > 💡 建议使用虚拟环境：`python -m venv .venv && source .venv/bin/activate`
+> Linux 用户请参阅 [docs/LINUX_FILE_LOCATIONS.md](docs/LINUX_FILE_LOCATIONS.md) 了解 FHS 标准下的文件存储路径
 
 ---
 
-## 使用方法
+## 快速开始
 
-### 首次启动
+### 安装版本
 
-1. 启动程序后自动检查运行环境
-2. 首次运行会自动下载最新正式版 Minecraft
-3. 下载完成后即可启动游戏
+1. 在右侧面板输入版本号（如 `1.20.4`）
+2. 选择模组加载器（可选）：Forge / Fabric / NeoForge / 无
+3. 点击「📥 安装版本」，等待完成
 
-### 日常使用
+### 启动游戏
 
-#### 安装新版本
+1. 在左侧「已安装版本」列表中点击要启动的版本
+2. 点击底部「🚀 启动游戏」
 
-1. 在右侧面板「版本 ID」输入框中输入版本号（如 `1.20.4`）
-2. 可选择模组加载器：
-   - **无** - 仅安装原版 Minecraft
-   - **Forge** - 安装 Forge 模组加载器（自动安装原版）
-   - **Fabric** - 安装 Fabric 模组加载器（自动安装原版）
-   - **NeoForge** - 安装 NeoForge 模组加载器（自动安装原版）
-3. 点击「📥 安装版本」，等待进度条完成
+### 常用操作
 
-> 💡 安装模组加载器时，原版 Minecraft 会自动安装并**与原版安装并行执行**（两者互不影响），显著缩短安装等待时间。安装完成后两者均可独立启动。
+- **安装模组**：已安装加载器的版本右侧点击 🧩 按钮，搜索安装 Modrinth 模组
+- **安装整合包**：点击「📦 安装整合包」，选择 .mrpack 文件或从 Modrinth 下载
+- **开服**：切换到"🖥 开服"标签页，安装并启动 Minecraft 服务器
+- **备份存档**：切换到"💾 备份"标签页，手动或自动备份存档
 
-#### 快速选择版本
-
-1. 在右侧「📋 快速选择」区域浏览可用版本
-2. 点击「📦 正式版」/「🔬 测试版」切换版本类型
-3. 点击版本条目自动填入版本 ID 输入框
-4. 使用底部分页控件（◀ ▶）翻页浏览更多版本
-
-#### 启动游戏
-
-1. 在左侧「📦 已安装版本」面板中点击要启动的版本
-2. 选中版本会高亮显示
-3. 点击底部「🚀 启动游戏」按钮
-4. 游戏运行期间「⏹」按钮会激活，点击可强制结束游戏进程
-
-#### 删除版本
-
-- 点击已安装版本条目右侧的 `X` 按钮
-- 确认删除后版本将被移除（不可恢复）
-
-#### 启动器设置
-
-点击顶栏「⚙ 设置」按钮打开设置窗口，可配置以下选项：
-
-- **🔽 启动后最小化**：开启后当检测到游戏窗口出现时自动最小化启动器到任务栏
-- **🇨🇳 使用国内镜像源**：默认开启，国内用户建议保持开启，切换后自动测试连接
-- **🌐 界面语言**：支持简体中文、English、繁體中文、日本語，切换后点击「应用」自动重启启动器使新语言生效
-- **⚡ 下载线程数**：拖动滑块调整下载并发数（1-255）
-- **🤖 净读 AI**：登录账号后可在游戏崩溃时使用 AI 智能分析功能
-- 设置会自动持久化到 `config.json`
-
-#### 账号与角色名
-
-角色名由当前选中的账号自动确定，无需手动输入。如需更换角色名：
-
-1. 点击左侧边栏「👤 账号管理」按钮（或设置中的账号管理入口）
-2. 在账号管理窗口中选择或添加账号（微软正版 / 离线 / Yggdrasil）
-3. 设为当前账号后，启动游戏时将自动使用该账号的角色名
-
-#### 自定义皮肤
-
-1. 在左侧边栏「🎨 自定义皮肤」区域点击「📂 选择皮肤」按钮
-2. 选择一个 PNG 格式的皮肤文件（支持 64x64 / 64x32 / 128x128 / 128x64）
-3. 皮肤文件会自动复制到 `.minecraft/skins/` 目录
-4. 点击「🗑」按钮可移除当前皮肤
-
-> ⚠️ 皮肤功能仅在正版（在线）模式下生效。
-
-#### 启动器日志
-
-- 左侧边栏「📋 启动器日志」区域实时显示启动器运行日志
-- 日志自动捕获 logzero 输出，包括版本安装、游戏启动等操作记录
-- 点击「清空日志」按钮可清除当前日志内容
-
-#### 刷新版本列表
-
-- 点击右上角「🔄 刷新」按钮
-- 先加载已安装版本（本地，快速），再加载可用版本列表（需要网络）
-
-#### 资源管理（模组/资源包/地图/光影）
-
-选择一个已安装版本后，点击版本列表标题栏的 ⚙ 设置按钮，打开资源管理窗口。
-
-**支持四种资源类型：**
-
-| 标签页 | 支持格式 | 安装目录 |
-|--------|----------|----------|
-| 🧩 模组 | `.jar` `.zip` `.jar.disabled` | `mods/` |
-| 🎨 资源包 | `.zip` | `resourcepacks/` |
-| 🗺️ 地图 | `.zip`（自动解压）/ 文件夹 | `saves/` |
-| ✨ 光影 | `.zip` | `shaderpacks/` |
-
-**安装方式：**
-
-- **拖拽安装**：将资源文件直接拖拽到窗口中即可安装
-- **选择文件安装**：点击「➕ 选择文件安装」按钮，通过文件选择对话框选取文件
-
-> 💡 地图 zip 文件会自动解压到 `saves/地图名/` 目录下，无需手动解压。支持 zip 内带一层包装目录的常见格式。
-
-**其他操作：**
-
-- 📂 **打开文件夹**：在系统文件管理器中打开对应的资源目录
-- 🔕 **禁用/启用模组**：模组标签页中可一键切换 `.disabled` 状态
-- 🗑️ **删除资源**：移除不需要的资源文件
-
-> 💡 支持版本隔离模式：安装了模组加载器（Forge/Fabric/NeoForge）的版本自动启用版本隔离，资源将安装到 `.minecraft/versions/{版本名}/` 对应子目录下；原版客户端使用全局 `.minecraft/` 目录。
-
-#### 安装 Modrinth 整合包
-
-在右侧操作面板点击「📦 安装整合包」按钮，打开整合包安装窗口。
-
-**方式一：从本地文件安装**
-
-1. 点击「📂 选择 .mrpack 文件」，从本地选择一个 `.mrpack` 格式的整合包文件
-2. 程序自动读取并显示整合包信息（名称、简介、Minecraft 版本）
-3. 如有可选组件，可勾选需要安装的组件
-4. 点击「📦 开始安装」，等待安装完成
-5. 安装完成后刷新版本列表，选择对应版本即可启动游戏
-
-**方式二：从 Modrinth 下载**
-
-1. 点击「🌐 从 Modrinth 下载」按钮，打开整合包浏览窗口
-2. 窗口打开时自动加载热门整合包列表，也可输入关键词搜索
-3. 找到想要的整合包后点击「� 安装」→ 选择具体版本 → 下载 `.mrpack` 文件
-4. 下载完成后自动回到安装窗口，显示整合包信息
-5. 确认信息后点击「📦 开始安装」即可
-
-> 💡 安装过程采用并行优化：整合包文件（模组等）与原版 Minecraft 同时下载，模组文件多线程并行下载，显著缩短等待时间。进度区域实时显示两个任务的百分比。另可通过 [Modrinth 网站](https://modrinth.com/modpacks) 手动下载 `.mrpack` 文件。
-
-#### Modrinth 模组浏览与安装
-
-安装了模组加载器（Forge/Fabric/NeoForge）的版本会在版本列表中显示 🧩 按钮，点击即可打开 Modrinth 模组浏览器。
-
-**功能说明：**
-
-- 🔍 **关键词搜索**：在搜索框中输入模组名称或关键词，按回车或点击搜索
-- 📋 **热门模组**：窗口打开时自动加载当前版本和加载器兼容的热门模组列表
-- 🏷️ **自动筛选**：自动识别游戏版本和加载器类型，只显示兼容的模组
-- 📊 **智能版本显示**：模组支持的版本列表自动压缩展示（如 `1.16.x` 表示全版本覆盖，`1.20-1.20.2` 表示范围）
-- 📄 **分页浏览**：使用「上一页」「下一页」按钮翻页查看更多模组
-- 📥 **一键安装**：点击模组右侧的「安装」按钮，自动下载兼容版本到 `mods/` 目录
-- 🔗 **依赖自动安装**：安装模组时自动递归安装 `required` 依赖，找不到兼容版本时跳过并提示
-
-> 💡 模组浏览器会自动将模组安装到版本隔离目录（如 `.minecraft/versions/1.20.4-forge-49.0.26/mods/`）或全局 `mods/` 目录。
-
-#### 存档备份
-
-切换到"💾 备份"标签页，可管理 Minecraft 存档的备份和恢复。
-
-**手动备份：**
-
-1. 左侧列表会自动扫描所有存档（包括版本隔离目录中的存档）
-2. 点击选择要备份的存档
-3. 在顶部输入框中可选填写备注
-4. 点击「📥 备份」按钮，等待进度条完成
-
-**恢复备份：**
-
-1. 选择存档后，右侧会显示该存档的所有备份
-2. 找到要恢复的备份，点击「🔄」恢复按钮
-3. 确认后，当前存档会自动重命名为 `_bak_时间戳` 保留
-4. 备份解压恢复，自动校验 `level.dat` 完整性
-
-**自动备份：**
-
-1. 左侧底部可开启「启动游戏前备份」和「游戏退出后备份」
-2. 自动备份会备份最近修改的存档，备注标记为"自动备份(启动前/退出后)"
-
-**备份设置：**
-
-点击右上角「⚙ 设置」按钮打开备份设置窗口，可配置：
-- **备份存储路径**：自定义备份保存位置（默认为程序目录/backups）
-- **压缩等级**：1（最快）到 9（最小体积），推荐 6（适中）
-- **最大备份数**：每个存档保留的最大备份数，超出自动删除最旧的
-- **恢复时旧存档处理**：重命名为 .bak / 直接覆盖 / 移至回收站
-
-> 💡 备份文件存储在 `backups/<存档名>/` 目录下，使用 ZIP 格式压缩。每个备份都有对应的 `index.json` 索引文件记录元数据。
-
-#### 服务器管理
-
-切换到"🖥 开服"标签页，可快速搭建本地 Minecraft 服务器。
-
-**安装服务器：**
-
-1. 在右侧面板「版本 ID」输入框中输入版本号（如 `1.21.4`），仅支持正式版
-2. 或从「📋 快速选择」列表中点击版本号自动填入
-3. 点击「📥 安装服务器」，等待进度条完成
-4. 安装完成后，服务器文件将存放在 `.minecraft/server/<版本号>/` 目录下
-
-> 💡 安装过程会自动安装同名客户端版本、下载服务器 jar、同意 EULA 并生成默认配置。Java 运行时优先使用系统已安装版本，未安装时会自动下载 Minecraft runtime。
-
-**整合包开服：**
-
-1. 点击右侧面板「📦 整合包开服」按钮，打开整合包开服窗口
-2. 选择本地 `.mrpack` 文件（或点击「🌐 从 Modrinth 下载」在线获取），程序自动读取整合包信息
-3. 可选自定义服务器名称（留空则自动命名为 `整合包名-版本号`）
-4. 如有可选组件，可勾选需要安装的组件
-5. 点击「🚀 开始安装服务器」，等待安装完成
-6. 安装完成后刷新服务器列表，选择该服务器即可启动
-
-> 💡 安装过程与整合包安装一样采用并行优化，进度区域实时显示分段进度。程序会自动检测整合包中的 mod loader 并下载安装对应的服务端版本（Forge/Fabric/NeoForge/Quilt），无需手动操作。
-
-**启动服务器：**
-
-1. 在中间已安装服务器列表中选择要启动的版本
-2. 在右侧设置最大内存（建议至少 2G）
-3. 点击「🚀 启动服务器」按钮
-4. 服务器启动后，左侧控制台实时显示日志，底部命令框可输入服务器命令
-5. 服务器运行期间「⏹」按钮会激活，点击可优雅停止服务器
-
-> 💡 服务器默认使用离线模式（`online-mode=false`），无需正版账号即可加入。
+> 完整使用说明详见 [docs/USAGE.md](docs/USAGE.md)
+> 配置项说明详见 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 
 ---
 
@@ -738,245 +153,32 @@ FMCL-Agent              # 交互模式
 
 ```
 FMCL/
-├── main.py                # 主程序入口，延迟导入优化、日志配置、UI 创建、线程管理，支持 -A/-agent CLI 模式（含 AttachConsole GUI 子系统支持）
-├── cli_agent.py           # Agent CLI 核心逻辑（无 GUI，复用 agent 组件，支持单指令/交互模式）
-├── agent_cli.py           # Agent CLI 独立入口（供 PyInstaller 打包为 FMCL-Agent.exe 控制台程序）
-├── launcher/              # 启动器核心逻辑（包）
-│   ├── __init__.py        # MinecraftLauncher 组合类（多继承自 core/server/mrpack）
-│   ├── core.py            # MinecraftLauncherCore - 环境检查、版本安装、游戏启动、镜像源管理
-│   ├── server.py          # ServerMixin - 服务器安装/启动/停止/管理
-│   ├── mrpack.py          # MrpackMixin - 整合包安装/开服（并行下载优化）
-│   ├── predownload.py      # 预下载模块 - 首次启动资源包预下载
-│   └── verify.py          # 并发文件校验（ThreadPoolExecutor）
-├── ui/                    # CustomTkinter 现代化 UI（包）
-│   ├── __init__.py        # 向后兼容导出
-│   ├── app.py             # ModernApp 组合类（多继承自 app_base/app_server/app_handlers/app_crash/agent）
-│   ├── app_base.py        # ModernAppBase(ctk.CTk) - 主窗口 UI 构建、侧边栏、日志捕获
-│   ├── app_server.py      # ServerTabMixin - 开服标签页（服务器安装/启动/停止 + 版本管理）
-│   ├── app_handlers.py    # EventHandlerMixin - 版本管理、游戏操作、更新检查、队列处理
-│   ├── app_crash.py       # CrashHandlerMixin - 崩溃诊断、AI 分析
-│   ├── app_backup.py      # BackupTabMixin - 存档备份标签页
-│   ├── agent/             # AGENT 智能助手模块（包）
-│   │   ├── __init__.py    # 模块导出
-│   │   ├── agent_mixin.py # AgentMixin - AGENT 标签页集成
-│   │   ├── agent_chat.py  # 聊天 UI 组件 + 选项弹窗（原生 Function Calling，最大 50 轮）
-│   │   ├── provider.py    # AI API 调用封装（OpenAI 兼容，返回完整 message 含 tool_calls）
-│   │   ├── tools.py       # Tool 定义（Function Calling 格式） + 系统提示词
-│   │   ├── engine.py      # Tool 执行引擎（含高危命令检测 ASK_USER_MARKER）
-│   │   └── xml_parser.py  # XML 响应解析器（已弃用，保留用于测试兼容）
-│   ├── constants.py       # 颜色主题、字体检测、资源类型配置
-│   ├── theme_engine.py    # 动态主题引擎（主题加载/切换/导入、版本动态调色、预设主题）
-│   ├── dialogs.py         # 通用对话框（确认/提示）、版本选择对话框
-│   └── windows/           # 独立窗口类
-│       ├── resource_manager.py   # 资源管理窗口（模组/资源包/地图/光影）
-│       ├── launcher_settings.py  # 启动器设置窗口（镜像源/最小化等）
-│       ├── modpack_install.py    # Modrinth 整合包安装窗口
-│       ├── modpack_server.py     # 整合包开服窗口
-│       ├── modpack_browser.py    # Modrinth 整合包浏览与下载窗口
-│       ├── mod_browser.py        # Modrinth 资源浏览与安装窗口（模组/资源包/光影 三标签页）
-│       └── backup_settings.py    # 备份设置窗口
-├── downloader.py          # 多线程下载器 & 异步批量下载 & 模组加载器安装
-│   ├── MultiThreadDownloader  # 多线程分段下载 + 文件合并
-│   ├── AsyncBatchDownloader   # asyncio + aiohttp 异步并发下载
-│   └── install_mod_loader # Forge/Fabric/NeoForge 统一安装
-├── modrinth.py            # Modrinth API 集成 & 健壮下载引擎
-│   ├── search_mods        # 搜索模组（关键词 + 版本/加载器筛选）
-│   ├── search_resource_packs # 搜索资源包（关键词 + 版本筛选）
-│   ├── search_shaders     # 搜索光影（关键词 + 版本筛选）
-│   ├── search_modpacks    # 搜索整合包（关键词 + 版本筛选）
-│   ├── ai_expand_search_keywords  # AI 优化搜索词为多个英文关键词
-│   ├── ai_merged_search   # AI 多词搜索合并去重按热度排序
-│   ├── get_mod_versions   # 获取版本列表
-│   ├── get_modpack_versions # 获取整合包版本列表
-│   ├── download_mod       # 下载文件（断点续传 + 指数退避重试）
-│   ├── download_modpack_file  # 下载整合包 .mrpack 文件（断点续传 + 指数退避重试）
-│   ├── install_mod_with_deps  # 安装模组及依赖（递归）
-│   ├── install_resource_pack  # 安装资源包
-│   ├── install_shader     # 安装光影
-│   ├── 连接池复用         # 共享 requests.Session + HTTPAdapter，复用 TCP 连接避免重复 TLS 握手
-│   ├── 指数退避重试       # 网络超时/中断自动重试 3 次，退避时间 2^retry 秒
-│   ├── 断点续传下载       # Range 头支持，下载中断后从断点继续
-│   ├── 版本解析工具       # 从版本 ID 解析加载器/游戏版本（含 NeoForge 特殊处理 + 新版 YY.D.H 格式）
-│   └── 版本压缩展示       # 智能压缩版本列表（基于 Modrinth 完整版本判断全版本覆盖，支持旧版 + 新版格式）
-├── updater.py             # 自动更新模块
-│   ├── check_for_update   # 从 GitHub Release 检查新版本
-│   ├── find_suitable_asset # 根据平台匹配安装包
-│   ├── download_update    # 下载更新安装包（带进度回调）
-│   └── install_update     # 执行静默安装（/S 参数）
-├── mirror.py              # BMCLAPI 国内镜像源模块
-│   ├── MirrorSource       # 镜像源管理器（URL 重写缓存）
-│   ├── URL 重写规则       # 官方 URL -> BMCLAPI 映射（前缀长度排序）
-│   └── Monkey Patch       # minecraft_launcher_lib 补丁
-├── backup_manager.py      # 存档备份管理（备份/恢复/删除/校验/导出）
-├── secure_storage.py      # 安全存储模块（Fernet 加密 Token，密钥文件管理）
-├── validation.py          # 输入验证模块（版本ID/IP/端口/内存校验，路径穿越防护）
-├── screen_shot.py         # 截图工具（Ctrl+Alt+T 触发）
-├── structured_logger.py   # 结构化日志（JSONL 格式，核心流程结构化记录）
-├── config.json            # 用户配置（镜像源开关、下载线程数等）
-├── requirements.txt       # Python 依赖
-├── pyproject.toml         # 项目元数据（版本号等）
-├── build.spec             # PyInstaller 构建配置（含 FMCL GUI 程序 + FMCL-Agent 独立控制台程序）
-├── icon.ico               # 应用图标（多尺寸 ICO）
-├── installer.nsi          # Windows NSIS 安装脚本
-├── Makefile               # 构建/开发命令集合
-├── package.json           # Node.js 开发工具配置
-├── scripts/
-│   ├── release.py         # 自动发布脚本
-│   └── fix_common_issues.py  # 常见问题修复工具
-└── docs/
-    ├── SETUP.md           # 构建设置详细文档
-    ├── BUILD_FIXES.md     # 构建问题修复记录
-    └── TROUBLESHOOTING.md # 故障排除指南
+├── main.py                # 程序入口
+├── launcher/              # 启动器核心逻辑
+├── ui/                    # CustomTkinter 界面
+│   ├── app.py             # 主窗口（Mixin 组合模式）
+│   ├── agent/             # AI 智能助手子系统
+│   └── windows/           # 独立子窗口
+├── downloader.py          # 多线程/异步下载器
+├── modrinth.py            # Modrinth API 集成
+├── curseforge.py          # CurseForge API 集成
+├── mirror.py              # BMCLAPI 镜像源
+├── backup_manager.py      # 存档备份管理
+├── secure_storage.py      # 安全存储（Fernet 加密）
+├── config.py              # 跨平台配置管理
+├── validation.py          # 输入验证
+├── updater.py             # 自动更新
+├── scripts/               # 构建/发布脚本
+├── tests/                 # 测试
+└── docs/                  # 文档
+    ├── FEATURES.md        # 完整功能列表
+    ├── USAGE.md           # 详细使用指南
+    ├── ARCHITECTURE.md    # 项目架构与技术栈
+    ├── CONFIGURATION.md   # 配置说明
+    └── ...
 ```
 
-### 模块依赖关系
-
-```
-main.py
-  ├── -A / -agent 参数 → 调用 _attach_console() → cli_agent.py (CLI Agent)
-  │   ├── agent_cli.py (独立控制台入口，打包为 FMCL-Agent.exe)
-  │   ├── config.py (全局配置，读取 jdz_token)
-  │   ├── launcher/ (核心逻辑包)
-  │   └── ui/agent/ (复用 AIProvider、工具定义、执行引擎)
-  │       ├── provider.py (AI API 调用，返回完整 message 含 tool_calls)
-  │       ├── tools.py (Function Calling 工具定义 + system prompt)
-  │       ├── engine.py (Tool 执行引擎 + 高危检测 + ask_user)
-  │       └── agent_chat.py (GUI 循环调度，原生 Function Calling，最大 50 轮)
-  ├── config.py (全局配置)
-  │   └── secure_storage.py (Token 加密存储)
-  ├── validation.py (输入验证)
-  ├── backup_manager.py (存档备份管理)
-  ├── launcher/ (核心逻辑包)
-  │   ├── core.py (环境检查、版本安装、游戏启动)
-  │   ├── server.py (服务器管理)
-  │   ├── mrpack.py (整合包安装/开服)
-  │   ├── verify.py (并发文件校验)
-  │   ├── mirror.py (镜像源)
-  │   └── downloader.py (下载器 & 模组加载器)
-  ├── ui/ (界面包)
-  │   ├── app.py → app_base.py / app_server.py / app_handlers.py / app_crash.py / app_backup.py
-  │   ├── constants.py (颜色主题、字体)
-  │   ├── dialogs.py (通用对话框)
-  │   ├── windows/ (独立窗口)
-  │   ├── launcher.get_callbacks() (通过回调与核心逻辑交互)
-  │   ├── modrinth.py (Modrinth 模组搜索与安装)
-  │   └── updater.py (自动更新)
-  └── updater.py (自动更新 - GitHub Release)
-```
-
----
-
-## 技术栈
-
-| 组件 | 技术 | 说明 |
-|------|------|------|
-| UI 框架 | CustomTkinter | 现代 Tkinter 封装，深色主题 |
-| Minecraft 库 | minecraft-launcher-lib | 版本安装、启动命令生成 |
-| 镜像源 | BMCLAPI (bangbang93) | 国内加速下载 |
-| 启动优化 | 延迟导入 + 后台初始化 | 窗口先显示，核心后台加载 |
-| JSON 解析 | orjson (回退 stdlib json) | 3-10 倍解析加速 |
-| 并发校验 | ThreadPoolExecutor | 多线程文件哈希校验 |
-| 异步下载 | asyncio + aiohttp | 批量并发下载 |
-| JVM 优化 | G1GC + 固定堆内存 | 减少游戏卡顿 |
-| Java 扫描 | 跨平台系统扫描 | Windows/macOS/Linux 自动检测最佳 Java 版本 |
-| URL 缓存 | dict 缓存重写结果 | 避免重复匹配规则 |
-| 拖拽支持 | tkinterdnd2 | 文件拖拽安装资源 |
-| 日志 | logzero | 轻量级日志框架 |
-| 结构化日志 | JSONL 格式 | 核心流程结构化记录，方便程序化分析 |
-| HTTP | requests.Session + HTTPAdapter | 连接池复用（20 池/50 最大），避免重复 TLS 握手 |
-| 加密 | cryptography (Fernet) | 敏感 Token AES-128-CBC + HMAC-SHA256 加密存储 |
-| 密钥管理 | PBKDF2-HMAC-SHA256 | 密码派生密钥（600000 次迭代） |
-| 输入验证 | 正则 + 白名单 | 防止命令注入和路径穿越攻击 |
-| 文件完整性 | SHA1 / SHA256 / SHA512 | 模组和更新包下载后自动校验哈希 |
-| 模组搜索 | Modrinth API V2 | 在线搜索和安装模组/整合包 |
-| 下载 | 多线程分段下载 | 大文件并行下载加速 |
-| 断点续传 | Range 头 + 追加写入 | 下载中断后自动从断点继续 |
-| 指数退避重试 | 3 次重试，退避 2^retry 秒 | 网络超时/中断自动恢复 |
-| 截图 | pyautogui + keyboard | 区域截图 + 快捷键监听 |
-| 自动更新 | GitHub Release API | 版本检查 + 静默安装 |
-| 构建打包 | PyInstaller + NSIS | 可执行文件 + Windows 安装包 |
-| Linux 兼容构建 | Docker + manylinux_2_28 + Python `--enable-shared` | GLIBC 2.28 兼容，覆盖 Ubuntu 18.04+、Debian 10+、RHEL 8+ |
-| CI/CD | GitHub Actions | 多平台自动构建与发布 |
-| 提交规范 | Husky + Commitlint | 约定式提交自动校验 |
-
----
-
-## 配置说明
-
-### 配置文件位置（跨平台）
-
-**Windows/macOS:**
-- 配置文件: `config.json`（程序根目录）
-- 密钥文件: `.fmcl_key`（程序根目录，用于加密存储敏感 Token）
-- 日志文件: `latest.log`（程序根目录）
-- Minecraft 目录: `.minecraft/`（程序根目录）
-
-**Linux (FHS 标准):**
-- 配置文件: `/etc/fmcl/config.json`
-- 密钥文件: `~/.fmcl/.fmcl_key`
-- 日志文件: `/var/log/fmcl/latest.log`
-- Minecraft 目录: `~/.minecraft/`
-- 运行时目录: `~/.fmcl/`
-
-> 💡 **Linux 首次运行**: 
-> - **日志目录** (`/var/log/fmcl/`) 会自动创建（如权限不足会提示）
-> - **配置目录** (`/etc/fmcl/`) 需要手动创建或使用初始化脚本：
->   ```bash
->   chmod +x scripts/setup_linux.sh
->   ./scripts/setup_linux.sh
->   ```
->   或手动创建：
->   ```bash
->   sudo mkdir -p /etc/fmcl /var/log/fmcl
->   sudo chown $USER:$USER /etc/fmcl /var/log/fmcl
->   ```
-
-### 配置项说明
-
-配置文件 `config.json` 启动时自动加载：
-
-```json
-{
-  "mirror_enabled": true,
-  "download_threads": 4,
-  "minimize_on_game_launch": false,
-  "auto_check_update": true,
-  "player_name": "Steve",
-  "skin_path": null,
-  "jdz_token": "gAAAAABm...（Fernet 加密密文）",
-  "language": "zh_CN",
-  "ai_privacy_consent": false,
-  "terms_consent": false,
-  "backup_dir": null,
-  "backup_compress_level": 6,
-  "backup_max_per_world": 10,
-  "backup_restore_mode": "rename",
-  "backup_auto_launch": false,
-  "backup_auto_exit": false
-}
-```
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `mirror_enabled` | bool | `true` | 是否启用 BMCLAPI 国内镜像 |
-| `download_threads` | int | `4` | 多线程下载的线程数 |
-| `minimize_on_game_launch` | bool | `false` | 游戏启动后是否最小化启动器窗口 |
-| `auto_check_update` | bool | `true` | 启动时是否自动检查更新 |
-| `player_name` | string | `"Steve"` | （旧版兼容）自定义游戏角色名，现在由账号系统自动管理 |
-| `skin_path` | string/null | `null` | 自定义皮肤文件路径 |
-| `jdz_token` | string/null | `null` | 净读 AI Token（Fernet 加密存储，不可手动编辑） |
-| `language` | string | `"zh_CN"` | 界面语言（zh_CN/en_US/ja_JP/zh_TW） |
-| `theme_name` | string | `"default"` | 主题名称（default/ocean/forest/lavender/sunset 或用户导入的主题名） |
-| `accent_color` | string/null | `null` | 自定义强调色 Hex 值（如 `"#e94560"`，null 使用主题默认） |
-| `dynamic_version_theme` | bool | `false` | 是否启用 Minecraft 版本动态主题 |
-| `ai_privacy_consent` | bool | `false` | 是否已同意 AI 分析隐私说明 |
-| `terms_consent` | bool | `false` | 是否已同意使用条款（Minecraft EULA + 净读协议），首次启动时弹窗确认 |
-| `backup_dir` | string/null | `null` | 备份存储路径（null 则使用程序目录/backups） |
-| `backup_compress_level` | int | `6` | 备份压缩等级（1=最快, 9=最小体积） |
-| `backup_max_per_world` | int | `10` | 每个存档最大备份数（0=不限制） |
-| `backup_restore_mode` | string | `"rename"` | 恢复时旧存档处理方式（rename/overwrite/trash） |
-| `backup_auto_launch` | bool | `false` | 是否在游戏启动前自动备份 |
-| `backup_auto_exit` | bool | `false` | 是否在游戏退出后自动备份 |
+> 完整项目结构与模块依赖关系详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
 
@@ -1007,23 +209,6 @@ make fix              # 运行常见问题修复工具
 make clean            # 清理构建文件
 ```
 
-### Linux 初始化
-
-Linux 平台首次运行前，建议创建系统目录（日志目录会自动创建）：
-
-```bash
-# 方法一：使用初始化脚本（推荐）
-chmod +x scripts/setup_linux.sh
-./scripts/setup_linux.sh
-
-# 方法二：手动创建配置目录（日志目录会自动创建）
-sudo mkdir -p /etc/fmcl
-sudo chown $USER:$USER /etc/fmcl
-mkdir -p ~/.minecraft ~/.fmcl
-```
-
-详见：[Linux 文件存储说明](docs/LINUX_FILE_LOCATIONS.md)
-
 ### 构建
 
 ```bash
@@ -1034,6 +219,8 @@ make build-deb        # Linux DEB 包
 make build-appimage   # Linux AppImage
 ```
 
+> 构建问题排查请参考 [docs/BUILD_FIXES.md](docs/BUILD_FIXES.md)
+
 ### 发布流程
 
 1. 更新 `pyproject.toml` 和 `package.json` 中的版本号
@@ -1041,23 +228,9 @@ make build-appimage   # Linux AppImage
 3. 创建标签：`git tag vX.X.X`
 4. 推送：`git push origin main --tags`
 
-GitHub Actions 会自动：
-- Windows: 构建 `.exe` 安装包 (NSIS)
-- macOS: 构建 `.dmg` 磁盘映像 (Intel + Apple Silicon)
-- Linux: 构建 `.deb` 和 `.AppImage` 安装包
-- 创建 Release 并上传所有安装包
+GitHub Actions 会自动构建多平台安装包并创建 Release。
 
-详见：[CONTRIBUTING.md](CONTRIBUTING.md) | [SETUP.md](docs/SETUP.md)
-
-### CI 测试
-
-项目使用 GitHub Actions 进行持续集成（仅 Linux）：
-
-- **Lint**: flake8 代码检查
-- **Type Check**: mypy 类型检查
-- **Test**: pytest 运行测试（使用 xvfb 虚拟显示支持 GUI 依赖）
-
-CI 在 `main` 分支的 push 和 pull request 时自动触发。
+详见：[CONTRIBUTING.md](CONTRIBUTING.md) | [docs/SETUP.md](docs/SETUP.md)
 
 ### 提交规范
 
@@ -1072,28 +245,20 @@ perf: 性能优化
 chore: 构建/工具变动
 ```
 
-详见：[CONTRIBUTING.md](CONTRIBUTING.md)
-
 ---
 
 ## 故障排除
 
-查看完整指南：[TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+查看完整指南：[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
 
 | 问题 | 解决方案 |
 |------|----------|
 | 镜像源连接失败 | 尝试关闭「国内镜像」开关使用 Mojang 官方源 |
 | 版本安装失败 | 检查网络连接，查看 `latest.log` 日志 |
-| 游戏启动失败 | 确保已安装 Java 运行时，启动器会自动扫描系统 Java。如未安装，使用 `java -version` 验证，或通过包管理器安装（winget/brew/apt） |
+| 游戏启动失败 | 确保已安装 Java 运行时 |
 | macOS 提示无法验证开发者 | `xattr -cr FMCL.app` 移除隔离属性 |
-| Windows 杀毒误报 | 添加到杀毒软件排除列表 |
-| Windows 异常退出 | 尝试以管理员权限运行程序 |
-| 依赖安装失败 | `pip install -r requirements.txt --force-reinstall` |
-| **Linux GLIBC 版本错误** | 需要 GLIBC >= 2.28（Ubuntu 18.04+、Debian 10+、RHEL 8+），旧版 Linux 会出现 `GLIBC_X.XX not found` 错误 |
-| **Linux 配置目录权限错误** | 运行 `sudo mkdir -p /etc/fmcl && sudo chown $USER:$USER /etc/fmcl` |
-| **Linux 日志目录权限错误** | 程序会自动回退到 `~/.fmcl/latest.log`，无需手动处理 |
-| **Linux 无图形环境崩溃** | 在 WSL/无头服务器等无 X11/Wayland 环境时，鼠标检测线程会自动跳过，不会崩溃 |
-| **Linux emoji 表情无法显示** | 程序会自动检测并安装 emoji 字体（如 fonts-noto-color-emoji），如提示权限请手动安装字体包 |
+| Linux 配置目录权限错误 | `sudo mkdir -p /etc/fmcl && sudo chown $USER:$USER /etc/fmcl` |
+| Linux 无图形环境崩溃 | WSL/无头服务器下鼠标检测线程会自动跳过，不会崩溃 |
 
 ---
 
