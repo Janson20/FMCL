@@ -76,27 +76,14 @@
 | 平台 | 文件 | 说明 |
 |------|------|------|
 | Windows | `FMCL-Setup-x.x.x.exe` | NSIS 安装包，双击运行 |
-| macOS Intel | `FMCL-x.x.x-mac-amd64.dmg` | Intel 芯片 |
-| macOS Apple Silicon | `FMCL-x.x.x-mac-arm64.dmg` | M1/M2/M3 芯片 |
-| Linux | `FMCL-x.x.x-linux-amd64.deb` | Debian/Ubuntu 等发行版 |
-| Linux | `FMCL-x.x.x-x86_64.AppImage` | 通用 Linux 格式 |
+
+> **注意**：自 **v2.10.3** 起，不再通过 GitHub Actions 构建并发布 macOS（`.dmg`）与 Linux（`.deb` / `.AppImage`）二进制包。Linux 用户请使用下方「方式二：Linux 一键安装」脚本进行安装；macOS 用户请参考「方式三：从源码运行」。
 
 #### 安装说明
 
 - **Windows**: 双击 `.exe` 安装包，按向导完成安装。安装包已内置 7-Zip（24.09 版本），无需联网即可自动安装
-- **macOS**: 双击 `.dmg` 文件，将 FMCL.app 拖入 Applications 文件夹。首次打开若提示"无法验证开发者"，请在系统设置 > 安全性与隐私中点击"仍要打开"，或运行：
-  ```bash
-  xattr -cr /Applications/FMCL.app
-  ```
-- **Linux DEB**:
-  ```bash
-  sudo dpkg -i FMCL-x.x.x-linux-amd64.deb
-  ```
-- **Linux AppImage**:
-  ```bash
-  chmod +x FMCL-x.x.x-x86_64.AppImage
-  ./FMCL-x.x.x-x86_64.AppImage
-  ```
+- **Linux**: 请使用下方「方式二：Linux 一键安装」脚本
+- **macOS**: 请参考下方「方式三：从源码运行」
 
 ### 方式二：Linux 一键安装
 
@@ -239,7 +226,7 @@ make build-appimage   # Linux AppImage
 3. 创建标签：`git tag vX.X.X`
 4. 推送：`git push origin main --tags`
 
-GitHub Actions 会自动构建多平台安装包并创建 Release。
+GitHub Actions 会自动构建 Windows 安装包并创建 Release（自 v2.10.3 起不再自动构建 macOS / Linux 二进制包，如需可使用上方 `make build-dmg` / `make build-deb` / `make build-appimage` 在对应平台本地构建）。
 
 详见：[CONTRIBUTING.md](CONTRIBUTING.md) | [docs/SETUP.md](docs/SETUP.md)
 

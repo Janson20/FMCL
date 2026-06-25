@@ -94,176 +94,9 @@ jobs:
           path: FMCL-Setup-*.exe
           retention-days: 7
 
-  build-macos:
-    name: Build macOS DMG
-    runs-on: macos-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install pyinstaller
-          python -m pip install -r requirements-unix.txt
-
-      - name: Build with PyInstaller
-        run: pyinstaller build.spec --noconfirm
-        env:
-          PLATFORM: mac
-          ARCH: arm64
-
-      - name: Create DMG
-        run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          rm -rf dmg_temp FMCL-*-mac.dmg
-          mkdir -p dmg_temp
-          cp -R dist/FMCL.app dmg_temp/
-          ln -sf /Applications dmg_temp/Applications
-          hdiutil create -volname "FMCL" -srcfolder dmg_temp -ov -format UDZO "FMCL-${VERSION}-mac.dmg"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: FMCL-mac
-          path: FMCL-*-mac.dmg
-          retention-days: 7
-
-  build-linux:
-    name: Build Linux Packages
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Pull manylinux image
-        run: docker pull quay.io/pypa/manylinux_2_28_x86_64
-
-      - name: Build with PyInstaller in Docker
-        run: |
-          docker run --rm \
-            -v "$PWD:/app" \
-            -w /app \
-            -e PLATFORM=linux \
-            -e ARCH=amd64 \
-            quay.io/pypa/manylinux_2_28_x86_64 \
-            bash -exc '
-              dnf install -y tk-devel dbus-devel libXScrnSaver-devel nss-devel \
-                fontconfig cairo pango atk gtk3 alsa-lib \
-                openssl-devel zlib-devel bzip2-devel xz-devel \
-                readline-devel sqlite-devel libffi-devel 2>/dev/null
-
-              # Build Python 3.11 with --enable-shared for PyInstaller
-              PYTHON_VERSION=$(/opt/python/cp311-cp311/bin/python3.11 -c "import sys; print(sys.version.split()[0])")
-              PYTHON_SRC="/opt/_internal/cpython-${PYTHON_VERSION}"
-              if [ ! -f "${PYTHON_SRC}/Makefile" ]; then
-                curl -sS https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tar.xz -o /tmp/Python.tar.xz
-                tar xf /tmp/Python.tar.xz -C /tmp
-                PYTHON_SRC="/tmp/Python-${PYTHON_VERSION}"
-              fi
-              cd "${PYTHON_SRC}"
-              ./configure --prefix=/opt/python/cp311-cp311 --enable-shared --with-ensurepip=install LDFLAGS="-Wl,-rpath,/opt/python/cp311-cp311/lib" 2>&1 | tail -5
-              make -j$(nproc) 2>&1 | tail -3
-              make install 2>&1 | tail -3
-              cd /app
-
-              export PATH="/opt/python/cp311-cp311/bin:${PATH}"
-              export LD_LIBRARY_PATH="/opt/python/cp311-cp311/lib:${LD_LIBRARY_PATH}"
-              pip install --upgrade pip setuptools wheel
-              pip install pyinstaller
-              pip install -r requirements-unix.txt
-              pyinstaller build.spec --noconfirm
-            '
-
-      - name: Build DEB package
-        run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-          ARCHITECTURE="amd64"
-          PKG_NAME="fmcl_${VERSION}_${ARCHITECTURE}"
-
-          mkdir -p ${PKG_NAME}/DEBIAN
-          mkdir -p ${PKG_NAME}/usr/local/bin
-          mkdir -p ${PKG_NAME}/usr/share/applications
-
-          cp dist/FMCL ${PKG_NAME}/usr/local/bin/fmcl
-          chmod +x ${PKG_NAME}/usr/local/bin/fmcl
-
-          printf '[Desktop Entry]\nName=FMCL\nComment=Fusion Minecraft Launcher\nExec=/usr/local/bin/fmcl\nIcon=fmcl\nTerminal=false\nType=Application\nCategories=Game;\n' > ${PKG_NAME}/usr/share/applications/fmcl.desktop
-
-          printf 'Package: fmcl\nVersion: %s\nArchitecture: %s\nMaintainer: FMCL Team\nDescription: Fusion Minecraft Launcher\n A feature-rich Minecraft launcher with multi-threaded\n download support, Forge installation, and GUI version selection.\nDepends: libgtk-3-0, libnotify4, libnss3, libxss1, libxtst6, libgbm1\nSection: games\nPriority: optional\n' "$VERSION" "$ARCHITECTURE" > ${PKG_NAME}/DEBIAN/control
-
-          sudo apt-get update && sudo apt-get install -y dpkg fakeroot
-          fakeroot dpkg-deb --build ${PKG_NAME}
-          mv ${PKG_NAME}.deb FMCL-${VERSION}-linux-amd64.deb
-
-      - name: Build AppImage
-        run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
-
-          # Download and extract appimagetool
-          curl -sL https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -o appimagetool.AppImage
-          chmod +x appimagetool.AppImage
-          ./appimagetool.AppImage --appimage-extract
-          APPIMAGETOOL="$(pwd)/squashfs-root/AppRun"
-
-          # Create AppDir structure
-          mkdir -p FMCL.AppDir/usr/bin
-          mkdir -p FMCL.AppDir/usr/share/applications
-          mkdir -p FMCL.AppDir/usr/share/icons/hicolor/256x256/apps
-
-          cp dist/FMCL FMCL.AppDir/usr/bin/fmcl
-          chmod +x FMCL.AppDir/usr/bin/fmcl
-
-          # Generate a placeholder icon using pure Python (no PIL dependency)
-          python3 -c "
-          import struct, zlib
-          def create_png(width, height, r, g, b):
-              def chunk(ctype, data):
-                  c = ctype + data
-                  return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
-              raw = b''
-              for y in range(height):
-                  raw += b'\x00' + bytes([r, g, b]) * width
-              return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
-          png = create_png(256, 256, 74, 105, 132)
-          for p in ['FMCL.AppDir/fmcl.png', 'FMCL.AppDir/usr/share/icons/hicolor/256x256/apps/fmcl.png', 'FMCL.AppDir/.DirIcon']:
-              with open(p, 'wb') as f:
-                  f.write(png)
-          "
-
-          printf '#!/bin/sh\nSELF=$(readlink -f "$0")\nHERE=${SELF%%/*}\nexport PATH="${HERE}/usr/bin:${PATH}"\nexport LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"\nexec "${HERE}/usr/bin/fmcl" "$@"\n' > FMCL.AppDir/AppRun
-          chmod +x FMCL.AppDir/AppRun
-
-          printf '[Desktop Entry]\nName=FMCL\nComment=Fusion Minecraft Launcher\nExec=fmcl\nIcon=fmcl\nTerminal=false\nType=Application\nCategories=Game;\n' > FMCL.AppDir/fmcl.desktop
-
-          # Build AppImage using extracted tool
-          NO_STRIP=1 "$APPIMAGETOOL" FMCL.AppDir FMCL-${VERSION}-x86_64.AppImage
-
-      - name: Upload DEB artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: FMCL-linux-deb
-          path: FMCL-*-linux-amd64.deb
-          retention-days: 7
-
-      - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: FMCL-linux-appimage
-          path: FMCL-*-x86_64.AppImage
-          retention-days: 7
-
   release:
     name: Create Release
-    needs: [build-windows, build-macos, build-linux]
+    needs: [build-windows]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -280,7 +113,7 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release_files
-          find artifacts -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.deb" -o -name "*.AppImage" \) -exec cp {} release_files/ \;
+          find artifacts -type f -name "*.exe" -exec cp {} release_files/ \;
           ls -la release_files/
 
       - name: Generate changelog
@@ -333,9 +166,8 @@ jobs:
           echo "| Platform | File |" >> CHANGELOG.md
           echo "|----------|------|" >> CHANGELOG.md
           echo "| Windows | [FMCL-Setup-${VERSION}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-Setup-${VERSION}.exe) |" >> CHANGELOG.md
-          echo "| macOS (Apple Silicon, Intel via Rosetta 2) | [FMCL-${VERSION}-mac.dmg](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-${VERSION}-mac.dmg) |" >> CHANGELOG.md
-          echo "| Linux DEB | [FMCL-${VERSION}-linux-amd64.deb](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-${VERSION}-linux-amd64.deb) |" >> CHANGELOG.md
-          echo "| Linux AppImage | [FMCL-${VERSION}-x86_64.AppImage](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-${VERSION}-x86_64.AppImage) |" >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          echo "> macOS / Linux 二进制包自 v2.10.3 起不再随发布提供。Linux 用户请使用安装脚本 \`scripts/install.sh\` 进行安装。" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
 
           if [ -n "$PREV_TAG" ]; then
