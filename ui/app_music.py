@@ -1257,7 +1257,11 @@ class MusicPlayerMixin(object):
                 self._music_hotkeys_registered = True
                 logger.info("音乐播放全局热键已注册")
             except Exception as e:
-                logger.warning(f"注册全局热键失败: {e}")
+                # Linux 下 keyboard 库通常需要 root 且全局热键不可靠，降级为 debug 避免噪音
+                if sys.platform == "win32":
+                    logger.warning(f"注册全局热键失败: {e}")
+                else:
+                    logger.debug(f"当前平台不支持全局热键，已跳过: {e}")
 
         threading.Thread(target=_do_register, daemon=True).start()
 

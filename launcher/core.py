@@ -70,6 +70,36 @@ def concurrent_file_verify(
     return results
 
 
+def _read_project_version(pyproject_path: Path) -> str:
+    """读取 pyproject.toml 中的项目版本号。
+
+    优先使用 tomllib(Python 3.11+) 或 tomli 解析；若运行环境缺少 toml
+    解析库（例如 Python 3.10 未安装 tomli），则降级为正则从 [project]
+    段提取版本号，避免因无法读取版本号而导致启动器核心初始化失败。
+    """
+    try:
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib
+        with open(pyproject_path, "rb") as _f:
+            return tomllib.load(_f)["project"]["version"]
+    except Exception as e:
+        logger.warning(f"toml 解析失败，改用正则提取版本号: {e}")
+        try:
+            import re
+            text = Path(pyproject_path).read_text(encoding="utf-8")
+            # 仅在 [project] 段内匹配 version 字段，避免误取其他段的 version
+            section = re.search(r"(?ms)^\[project\]\s*(.*?)(?=^\[|\Z)", text)
+            scope = section.group(1) if section else text
+            m = re.search(r"""(?m)^\s*version\s*=\s*["']([^"']+)["']""", scope)
+            if m:
+                return m.group(1)
+        except Exception as e2:
+            logger.warning(f"正则提取版本号失败: {e2}")
+        return "unknown"
+
+
 class MinecraftLauncher:
     """Minecraft启动器类"""
 
@@ -87,16 +117,10 @@ class MinecraftLauncher:
         self.options = minecraft_launcher_lib.utils.generate_test_options()
         logger.info("MinecraftLauncher.__init__: 3. generate_test_options 完成")
         self.options["launcherName"] = "FMCL"
-        try:
-            import tomllib
-        except ImportError:
-            import tomli as tomllib
         _pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
         logger.info(f"MinecraftLauncher.__init__: 4. pyproject.toml 路径: {_pyproject}")
-        with open(_pyproject, "rb") as _f:
-            _toml_data = tomllib.load(_f)
+        self.options["launcherVersion"] = _read_project_version(_pyproject)
         logger.info("MinecraftLauncher.__init__: 5. pyproject.toml 读取完成")
-        self.options["launcherVersion"] = _toml_data["project"]["version"]
 
         self.current_max = 0
 

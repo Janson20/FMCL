@@ -151,7 +151,12 @@ def detect_mouse_move():
         return
 
     # 延迟导入 pyautogui，避免启动时 0.08s 的导入开销
-    import pyautogui
+    # 部分 Linux 环境 DISPLAY 有值但 ~/.Xauthority 缺失，导入即会触发 Xlib 连接异常
+    try:
+        import pyautogui
+    except Exception as e:
+        logger.debug(f"pyautogui 不可用，跳过鼠标检测线程: {e}")
+        return
 
     pos_file = config.base_dir / "pos.txt"
 

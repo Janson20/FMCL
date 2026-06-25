@@ -23,4 +23,5 @@ dependencies = [
     "winsdk>=1.0.0b10; sys_platform == 'win32'",
     "markdown>=3.7",
     "tkinterweb>=4.25.2",
+    "tomli>=2.0.0; python_version < '3.11'",
 ]
