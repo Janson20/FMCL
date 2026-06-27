@@ -1089,5 +1089,14 @@
   "tool_quiz_generated": "✅ Generated {count} questions",
   "tool_quiz_gen_error": "❌ Generation failed: {error}",
   "tool_quiz_auto_refilled": "✅ Auto-refilled {count} questions",
-  "tool_quiz_progress": "#{current}"
+  "tool_quiz_progress": "#{current}",
+
+  "monitor_title": "⏱ Performance Monitor",
+  "monitor_cpu": "CPU",
+  "monitor_memory": "Memory",
+  "monitor_gpu": "GPU",
+  "monitor_gpu_util": "Utilization",
+  "monitor_gpu_mem": "VRAM",
+  "monitor_gpu_na": "No GPU data",
+  "monitor_hint": "Tip: Use Ctrl+Shift+M to toggle"
 }

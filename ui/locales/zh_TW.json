@@ -1089,5 +1089,14 @@
   "tool_quiz_generated": "✅ 已產生 {count} 道題目",
   "tool_quiz_gen_error": "❌ 產生失敗: {error}",
   "tool_quiz_auto_refilled": "✅ 已自動補充 {count} 道題目",
-  "tool_quiz_progress": "#{current}"
+  "tool_quiz_progress": "#{current}",
+
+  "monitor_title": "⏱ 效能監控",
+  "monitor_cpu": "CPU",
+  "monitor_memory": "記憶體",
+  "monitor_gpu": "GPU",
+  "monitor_gpu_util": "利用率",
+  "monitor_gpu_mem": "VRAM",
+  "monitor_gpu_na": "無 GPU 資料",
+  "monitor_hint": "也可透過 Ctrl+Shift+M 開啟/關閉"
 }

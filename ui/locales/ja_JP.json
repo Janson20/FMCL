@@ -1089,5 +1089,14 @@
   "tool_quiz_generated": "✅ {count} 問生成しました",
   "tool_quiz_gen_error": "❌ 生成失敗: {error}",
   "tool_quiz_auto_refilled": "✅ {count} 問自動補充しました",
-  "tool_quiz_progress": "#{current}"
+  "tool_quiz_progress": "#{current}",
+
+  "monitor_title": "⏱ パフォーマンスモニター",
+  "monitor_cpu": "CPU",
+  "monitor_memory": "メモリ",
+  "monitor_gpu": "GPU",
+  "monitor_gpu_util": "使用率",
+  "monitor_gpu_mem": "VRAM",
+  "monitor_gpu_na": "GPU データなし",
+  "monitor_hint": "Ctrl+Shift+M でも切替可能"
 }

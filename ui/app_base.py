@@ -52,6 +52,12 @@ class ModernAppBase(ctk.CTk):
         # 启动队列轮询
         self.after(100, self._deferred_init)
 
+        # 延迟初始化性能监控
+        if hasattr(self, '_init_monitor'):
+            self._init_monitor()
+        if hasattr(self, '_register_monitor_hotkeys'):
+            self.after(800, self._register_monitor_hotkeys)
+
     def _deferred_init(self):
         """延迟初始化 - 确保 _task_queue 在其他 mixin 设置后再启动轮询"""
         self._poll_queue()
@@ -67,6 +73,17 @@ class ModernAppBase(ctk.CTk):
         if hasattr(self, '_unregister_hotkeys'):
             try:
                 self._unregister_hotkeys()
+            except Exception:
+                pass
+        if hasattr(self, '_unregister_monitor_hotkeys'):
+            try:
+                self._unregister_monitor_hotkeys()
+            except Exception:
+                pass
+        if hasattr(self, '_monitor_window') and self._monitor_window is not None:
+            try:
+                self._monitor_window.stop()
+                self._monitor_window.destroy()
             except Exception:
                 pass
         if hasattr(self, '_music_stop'):
@@ -144,6 +161,19 @@ class ModernAppBase(ctk.CTk):
         )
         self.refresh_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
+        # 性能监控按钮
+        self.monitor_btn = ctk.CTkButton(
+            header,
+            text="📊",
+            width=45,
+            height=35,
+            font=ctk.CTkFont(size=15),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=lambda: self._toggle_monitor_ui(show_hint=True),
+        )
+        self.monitor_btn.pack(side=ctk.RIGHT, padx=(10, 0))
+
         # 检查更新按钮
         self.update_btn = ctk.CTkButton(
             header,
@@ -196,6 +226,7 @@ class ModernAppBase(ctk.CTk):
         self._theme_refs.append((self.title_label, {"text_color": "text_primary"}))
         self._theme_refs.append((self.subtitle, {"text_color": "text_secondary"}))
         self._theme_refs.append((self.refresh_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append((self.monitor_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
         self._theme_refs.append((self.update_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
         self._theme_refs.append((self.settings_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
         self._theme_refs.append((self.about_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))

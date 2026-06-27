@@ -1089,5 +1089,14 @@
   "tool_quiz_generated": "✅ 已生成 {count} 道题目",
   "tool_quiz_gen_error": "❌ 生成失败: {error}",
   "tool_quiz_auto_refilled": "✅ 已自动补充 {count} 道题目",
-  "tool_quiz_progress": "#{current}"
+  "tool_quiz_progress": "#{current}",
+
+  "monitor_title": "⏱ 性能监控",
+  "monitor_cpu": "CPU",
+  "monitor_memory": "内存",
+  "monitor_gpu": "GPU",
+  "monitor_gpu_util": "利用率",
+  "monitor_gpu_mem": "显存",
+  "monitor_gpu_na": "无 GPU 数据",
+  "monitor_hint": "也可通过 Ctrl+Shift+M 开启/关闭"
 }
