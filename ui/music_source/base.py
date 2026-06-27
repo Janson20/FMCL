@@ -132,17 +132,19 @@ class BaseMusicSource(abc.ABC):
 
     def http_get(self, url: str, headers: Optional[Dict] = None,
                  timeout: int = DEFAULT_TIMEOUT,
-                 retries: int = MAX_RETRIES) -> requests.Response:
+                 retries: int = MAX_RETRIES, **kwargs) -> requests.Response:
         """带重试的GET请求"""
-        return self._request("GET", url, headers=headers, timeout=timeout, retries=retries)
+        return self._request("GET", url, headers=headers, timeout=timeout,
+                             retries=retries, **kwargs)
 
     def http_post(self, url: str, data: Optional[Dict] = None,
                   json: Optional[Dict] = None, headers: Optional[Dict] = None,
                   timeout: int = DEFAULT_TIMEOUT,
-                  retries: int = MAX_RETRIES) -> requests.Response:
+                  retries: int = MAX_RETRIES, **kwargs) -> requests.Response:
         """带重试的POST请求"""
         return self._request("POST", url, data=data, json=json,
-                             headers=headers, timeout=timeout, retries=retries)
+                             headers=headers, timeout=timeout,
+                             retries=retries, **kwargs)
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         retries = kwargs.pop("retries", MAX_RETRIES)

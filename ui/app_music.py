@@ -999,24 +999,25 @@ class MusicPlayerMixin(object):
 
     def _fetch_and_display_online_cover(self, url: str):
         """异步获取在线封面图并显示"""
+        app = self
         def _fetch():
             try:
                 resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
                 if resp.status_code == 200:
-                    self.after(0, lambda: self._display_cover(resp.content))
+                    app.after(0, lambda d=resp.content: app._display_cover(d))
             except Exception:
                 pass
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _display_cover(self, cover_data: bytes):
         try:
-            from PIL import Image, ImageTk
+            from PIL import Image
             import io
             image = Image.open(io.BytesIO(cover_data))
-            image = image.resize((150, 150), Image.LANCZOS)
-            photo = ImageTk.PhotoImage(image)
-            self._music_cover_label.configure(image=photo, text="")
-            self._music_cover_label._image = photo
+            cover_size = (150, 150)
+            ctk_image = ctk.CTkImage(light_image=image, dark_image=image, size=cover_size)
+            self._music_cover_label.configure(image=ctk_image, text="")
+            self._music_cover_label._image = ctk_image
         except Exception:
             self._music_cover_label.configure(text="🎵")
 
@@ -1443,6 +1444,7 @@ class MusicPlayerMixin(object):
 
     def _fetch_and_start_lyric(self, online_info: OnlineMusicInfo):
         """获取歌词并开始解析"""
+        app = self
         def _fetch():
             try:
                 src = MUSIC_SOURCES.get(online_info.source)
@@ -1451,9 +1453,9 @@ class MusicPlayerMixin(object):
                 lrc_text = src.get_lyric(online_info)
                 if not lrc_text:
                     return
-                self._music_lyric_parser.clear()
-                self._music_lyric_parser.parse(lrc_text)
-                self.after(0, lambda: self._start_lyric_poll())
+                app._music_lyric_parser.clear()
+                app._music_lyric_parser.parse(lrc_text)
+                app.after(0, app._start_lyric_poll)
             except Exception:
                 pass
         threading.Thread(target=_fetch, daemon=True).start()
@@ -1918,7 +1920,9 @@ class MusicPlayerMixin(object):
         quality = self._music_quality_var.get()
 
         def _fetch_and_play():
-            temp_path = None
+            result_path = None
+            result_info = online_info
+            app = self  # 捕获主应用引用，避免线程间 self 丢失
             tried_sources = [online_info.source]
             for source_id in tried_sources:
                 try:
@@ -1935,22 +1939,24 @@ class MusicPlayerMixin(object):
                     if not url:
                         logger.warning(f"无法获取播放URL [{source_id}]: {online_info.name}")
                         continue
-                    temp_path = self._music_download_to_temp(url, online_info.name)
-                    if temp_path:
+                    result_path = app._music_download_to_temp(url, online_info.name)
+                    if result_path:
                         break
                 except Exception as e:
                     logger.warning(f"获取在线URL失败 [{source_id}]: {e}")
                     continue
 
-            def _on_result():
-                self._music_search_status.configure(text="")
-                if temp_path:
-                    self._music_play_online_file(temp_path, online_info, 0)
-                else:
-                    self._music_search_status.configure(text=_("music_url_failed"))
-            self.after(0, _on_result)
+            app.after(0, lambda tp=result_path, oi=result_info: app._music_on_stream_ready(tp, oi))
 
         threading.Thread(target=_fetch_and_play, daemon=True).start()
+
+    def _music_on_stream_ready(self, temp_path: Optional[str], online_info: OnlineMusicInfo):
+        """流媒体文件下载完成回调"""
+        self._music_search_status.configure(text="")
+        if temp_path:
+            self._play_online_file(temp_path, online_info, 0)
+        else:
+            self._music_search_status.configure(text=_("music_url_failed"))
 
     def _music_download_to_temp(self, url: str, name_hint: str = "") -> Optional[str]:
         """下载在线音频流到临时文件"""

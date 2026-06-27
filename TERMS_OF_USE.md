@@ -1,7 +1,7 @@
 # FMCL 用户协议
 
-**版本：1.0**  
-**生效日期：2026-05-17**
+**版本：1.1**  
+**生效日期：2026-06-27**
 
 感谢你使用 FMCL（Fusion Minecraft Launcher，以下简称“本软件”）。本软件由 FMCL Team（以下简称“贡献者”或“我们”）共同开发，以 **GNU General Public License v3.0** 协议开放源代码。
 
