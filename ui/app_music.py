@@ -3,6 +3,8 @@ import os
 import sys
 import json
 import time
+import tempfile
+import shutil
 from collections import OrderedDict
 import platform
 import threading
@@ -10,11 +12,17 @@ import tkinter.filedialog as filedialog
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 
+import requests
 import customtkinter as ctk
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
+from ui.music_source import MUSIC_SOURCES, SOURCE_META, search_all
+from ui.music_source.base import MusicInfo as OnlineMusicInfo
+from ui.music_lyrics import LyricParser, LyricLine
+from ui.music_desktop_lyric import DesktopLyricWindow
+from ui.music_effects import AudioEffectProcessor, EffectSettings, EQ_FREQS, EQ_GAIN_MIN, EQ_GAIN_MAX, PITCH_MIN, PITCH_MAX, SPEED_MIN, SPEED_MAX
 
 _pygame_import_error = None
 try:
@@ -345,6 +353,26 @@ class MusicPlayerMixin(object):
         self._music_is_fading = False
         self._music_fade_out_target: Optional[str] = None
         self._music_modes_used: set = set()
+        # ── 在线搜索状态 ──
+        self._music_tab_mode: str = "local"          # "local" | "online"
+        self._music_search_results: List[OnlineMusicInfo] = []
+        self._music_search_widgets: List[dict] = []
+        self._music_search_thread_id = None
+        self._music_selected_source: str = "kw"
+        self._music_search_keyword: str = ""
+        self._music_current_online_info: Optional[OnlineMusicInfo] = None
+        self._music_is_online_playing: bool = False
+        self._music_temp_files: List[str] = []       # 缓存的临时文件列表
+        # ── 歌词状态 ──
+        self._music_lyric_parser: LyricParser = LyricParser()
+        self._music_lyric_lines: List[LyricLine] = []
+        self._music_show_lyric_translation: bool = True
+        self._music_show_lyric_roma: bool = False
+        self._music_desktop_lyric: Optional[DesktopLyricWindow] = None
+        self._music_lyric_poll_id = None
+        # ── 音效状态 ──
+        self._music_effects = AudioEffectProcessor()
+        self._music_effects_processed_files: List[str] = []  # 效果处理产生的临时文件
 
     def _init_music_lazy(self):
         if self._music_init_done:
@@ -373,14 +401,22 @@ class MusicPlayerMixin(object):
         self._music_tab_content = ctk.CTkFrame(self.music_tab, fg_color="transparent")
         self._music_tab_content.pack(fill=ctk.BOTH, expand=True)
 
-        self._music_main_frame = ctk.CTkFrame(self._music_tab_content, fg_color="transparent")
-        self._music_main_frame.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
+        # 子标签页切换栏
+        self._build_music_source_tabs()
 
+        # 本地音乐主框架
+        self._music_main_frame = ctk.CTkFrame(self._music_tab_content, fg_color="transparent")
         self._build_music_control_panel()
         self._build_music_playlist_panel()
         self._build_music_now_playing()
         self._build_music_mini_bar()
         self._music_mini_bar.pack_forget()
+
+        # 在线搜索框架
+        self._music_online_frame = ctk.CTkFrame(self._music_tab_content, fg_color="transparent")
+        self._build_music_online_panel()
+
+        self._music_main_frame.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
 
         self._init_music_lazy()
         self.after(500, self._register_hotkeys)
@@ -473,6 +509,17 @@ class MusicPlayerMixin(object):
         self._music_mode_btn.pack(side=ctk.LEFT, padx=(10, 0))
         self._update_mode_btn_text()
 
+        # 音效按钮
+        self._music_fx_btn = ctk.CTkButton(
+            ctrl_row, text="🎛",
+            width=36, height=30,
+            font=ctk.CTkFont(size=13),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._music_open_fx_panel,
+        )
+        self._music_fx_btn.pack(side=ctk.LEFT, padx=(4, 0))
+
         vol_frame = ctk.CTkFrame(ctrl_row, fg_color="transparent")
         vol_frame.pack(side=ctk.RIGHT)
 
@@ -564,6 +611,7 @@ class MusicPlayerMixin(object):
         self._theme_refs.append((self._music_mini_toggle_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
         self._theme_refs.append((self._music_song_count_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._music_control_panel, {"fg_color": "card_bg"}))
+        self._theme_refs.append((self._music_fx_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
 
     def _build_music_playlist_panel(self):
         list_frame = ctk.CTkFrame(self._music_main_frame, fg_color=COLORS["card_bg"], corner_radius=12)
@@ -621,11 +669,34 @@ class MusicPlayerMixin(object):
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLORS["text_secondary"],
         )
-        self._music_cover_album.pack(pady=(0, 20))
+        self._music_cover_album.pack(pady=(0, 10))
         self._theme_refs.append((self._music_cover_frame, {"fg_color": "card_bg"}))
         self._theme_refs.append((self._music_cover_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._music_cover_artist, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._music_cover_album, {"text_color": "text_secondary"}))
+
+        # 歌词显示区域（封面下方）
+        self._lyric_current_label = ctk.CTkLabel(
+            self._music_cover_frame,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLORS["accent"],
+            wraplength=180,
+            justify="center",
+        )
+        self._lyric_current_label.pack(pady=(0, 4))
+
+        self._lyric_trans_label = ctk.CTkLabel(
+            self._music_cover_frame,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+            wraplength=180,
+            justify="center",
+        )
+        self._lyric_trans_label.pack()
+        self._theme_refs.append((self._lyric_current_label, {"text_color": "accent"}))
+        self._theme_refs.append((self._lyric_trans_label, {"text_color": "text_secondary"}))
 
     def _build_music_mini_bar(self):
         self._music_mini_bar = ctk.CTkFrame(self._music_tab_content, fg_color=COLORS["card_bg"], corner_radius=8, height=55)
@@ -685,6 +756,173 @@ class MusicPlayerMixin(object):
         self._theme_refs.append((self._music_mini_vol, {"fg_color": "bg_light", "progress_color": "accent",
                                   "button_color": "text_primary", "button_hover_color": "accent_hover"}))
 
+    # ═══════════════ 子标签页切换栏 ═══════════════
+
+    def _build_music_source_tabs(self):
+        tab_bar = ctk.CTkFrame(self._music_tab_content, fg_color="transparent", height=32)
+        tab_bar.pack(fill=ctk.X, padx=15, pady=(10, 0))
+        tab_bar.pack_propagate(False)
+        self._music_source_tab_bar = tab_bar
+
+        btn_cfg = {"height": 28, "font": ctk.CTkFont(family=FONT_FAMILY, size=12),
+                    "fg_color": COLORS["bg_light"], "hover_color": COLORS["accent"]}
+
+        self._music_local_tab_btn = ctk.CTkButton(
+            tab_bar, text=_("music_tab_local"), width=100,
+            command=self._music_switch_to_local, **btn_cfg,
+        )
+        self._music_local_tab_btn.pack(side=ctk.LEFT, padx=(0, 4))
+
+        self._music_online_tab_btn = ctk.CTkButton(
+            tab_bar, text=_("music_tab_online"), width=100,
+            command=self._music_switch_to_online, **btn_cfg,
+        )
+        self._music_online_tab_btn.pack(side=ctk.LEFT)
+
+        self._theme_refs.append((self._music_local_tab_btn, {"fg_color": "bg_light", "hover_color": "accent"}))
+        self._theme_refs.append((self._music_online_tab_btn, {"fg_color": "bg_light", "hover_color": "accent"}))
+
+    def _music_switch_to_local(self):
+        self._music_tab_mode = "local"
+        self._music_online_frame.pack_forget()
+        if self._music_mini_mode:
+            self._music_mini_bar.pack(fill=ctk.X, padx=15, pady=(0, 15))
+        else:
+            self._music_main_frame.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
+        self._music_local_tab_btn.configure(fg_color=COLORS["accent"])
+        self._music_online_tab_btn.configure(fg_color=COLORS["bg_light"])
+        self._stop_search_loading()
+
+    def _music_switch_to_online(self):
+        self._music_tab_mode = "online"
+        self._music_mini_bar.pack_forget()
+        self._music_main_frame.pack_forget()
+        self._music_online_frame.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
+        self._music_online_tab_btn.configure(fg_color=COLORS["accent"])
+        self._music_local_tab_btn.configure(fg_color=COLORS["bg_light"])
+
+    # ═══════════════ 在线搜索面板 ═══════════════
+
+    def _build_music_online_panel(self):
+        # 搜索栏
+        search_bar = ctk.CTkFrame(self._music_online_frame, fg_color=COLORS["card_bg"], corner_radius=12)
+        search_bar.pack(fill=ctk.X, pady=(0, 10))
+
+        search_inner = ctk.CTkFrame(search_bar, fg_color="transparent")
+        search_inner.pack(fill=ctk.X, padx=12, pady=10)
+
+        self._music_search_entry = ctk.CTkEntry(
+            search_inner,
+            placeholder_text=_("music_search_placeholder"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            fg_color=COLORS["bg_light"],
+            border_color=COLORS["card_border"],
+            text_color=COLORS["text_primary"],
+        )
+        self._music_search_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(0, 8))
+        self._music_search_entry.bind("<Return>", lambda e: self._music_do_search())
+
+        self._music_search_btn = ctk.CTkButton(
+            search_inner, text=_("music_search_btn"), width=80, height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=self._music_do_search,
+        )
+        self._music_search_btn.pack(side=ctk.LEFT)
+
+        # 音源选择行
+        source_row = ctk.CTkFrame(search_bar, fg_color="transparent")
+        source_row.pack(fill=ctk.X, padx=12, pady=(0, 8))
+
+        ctk.CTkLabel(
+            source_row, text=_("music_source_select") + ": ",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        ).pack(side=ctk.LEFT)
+
+        self._music_source_buttons = {}
+        for meta in SOURCE_META:
+            btn = ctk.CTkButton(
+                source_row, text=meta["name"], width=70, height=24,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                fg_color=COLORS["bg_light"], hover_color=COLORS["accent"],
+                command=lambda s=meta["id"]: self._music_select_source(s),
+            )
+            btn.pack(side=ctk.LEFT, padx=(4, 0))
+            self._music_source_buttons[meta["id"]] = btn
+            self._theme_refs.append((btn, {"fg_color": "bg_light", "hover_color": "accent"}))
+
+        self._music_select_source(self._music_selected_source)
+
+        # 音质选择
+        quality_row = ctk.CTkFrame(search_bar, fg_color="transparent")
+        quality_row.pack(fill=ctk.X, padx=12, pady=(0, 8))
+
+        ctk.CTkLabel(
+            quality_row, text=_("music_quality_label") + ": ",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        ).pack(side=ctk.LEFT)
+
+        self._music_quality_var = ctk.StringVar(value="128k")
+        for q_text, q_val in [("128K", "128k"), ("320K", "320k"), ("FLAC", "flac")]:
+            ctk.CTkRadioButton(
+                quality_row, text=q_text, variable=self._music_quality_var, value=q_val,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                text_color=COLORS["text_primary"],
+            ).pack(side=ctk.LEFT, padx=(8, 0))
+
+        # 桌面歌词按钮
+        self._music_dlrc_btn = ctk.CTkButton(
+            quality_row, text=_("music_desktop_lyric"), width=80, height=24,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+            command=self._music_toggle_desktop_lyric,
+        )
+        self._music_dlrc_btn.pack(side=ctk.RIGHT)
+        self._theme_refs.append((self._music_dlrc_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+
+        self._theme_refs.append((search_bar, {"fg_color": "card_bg"}))
+
+        # 搜索结果列表
+        result_frame = ctk.CTkFrame(self._music_online_frame, fg_color=COLORS["card_bg"], corner_radius=12)
+        result_frame.pack(fill=ctk.BOTH, expand=True)
+        self._music_online_result_frame = result_frame
+
+        result_header = ctk.CTkFrame(result_frame, fg_color="transparent", height=30)
+        result_header.pack(fill=ctk.X, padx=12, pady=(10, 5))
+        result_header.pack_propagate(False)
+
+        ctk.CTkLabel(
+            result_header,
+            text=_("music_playlist"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(side=ctk.LEFT)
+
+        self._music_search_status = ctk.CTkLabel(
+            result_header,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+        )
+        self._music_search_status.pack(side=ctk.RIGHT)
+
+        self._music_online_scroll = ctk.CTkScrollableFrame(
+            result_frame,
+            fg_color="transparent",
+            scrollbar_button_color=COLORS["bg_light"],
+        )
+        self._music_online_scroll.pack(fill=ctk.BOTH, expand=True, padx=8, pady=(5, 10))
+        self._theme_refs.append((self._music_online_scroll, {"scrollbar_button_color": "bg_light"}))
+        self._theme_refs.append((result_frame, {"fg_color": "card_bg"}))
+
+    def _music_select_source(self, source_id: str):
+        self._music_selected_source = source_id
+        for sid, btn in self._music_source_buttons.items():
+            btn.configure(fg_color=COLORS["accent"] if sid == source_id else COLORS["bg_light"])
+
     def _update_mode_btn_text(self):
         mode_texts = {
             PLAY_MODE_SEQUENTIAL: "➡",
@@ -696,6 +934,30 @@ class MusicPlayerMixin(object):
             self._music_mode_btn.configure(text=mode_texts.get(self._music_play_mode, "🔁"))
 
     def _update_now_playing_info(self):
+        # 在线播放优先
+        if self._music_is_online_playing and self._music_current_online_info:
+            oi = self._music_current_online_info
+            title = oi.name
+            artist = oi.singer or ""
+            album = oi.album_name or ""
+            duration = oi.interval
+
+            self._music_now_label_top.configure(text=title)
+            sub_text = artist
+            if album:
+                sub_text = f"{artist} - {album}" if artist else album
+            self._music_now_label_sub.configure(text=sub_text)
+            self._music_mini_title.configure(text=title)
+            self._music_end_label.configure(text=_format_time(duration))
+            self._music_cover_label.configure(text="🎵")
+            self._music_cover_artist.configure(text=artist)
+            self._music_cover_album.configure(text=album)
+
+            if oi.img:
+                self._fetch_and_display_online_cover(oi.img)
+            self._music_smtc.update_now_playing(title, artist, album, None)
+            return
+
         path = self._get_current_file()
         if not path:
             self._music_now_label_top.configure(text=_("music_no_track"))
@@ -735,6 +997,17 @@ class MusicPlayerMixin(object):
         cover_bytes = meta.get("cover_data") if meta.get("has_cover") else None
         self._music_smtc.update_now_playing(title, artist, album, cover_bytes)
 
+    def _fetch_and_display_online_cover(self, url: str):
+        """异步获取在线封面图并显示"""
+        def _fetch():
+            try:
+                resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+                if resp.status_code == 200:
+                    self.after(0, lambda: self._display_cover(resp.content))
+            except Exception:
+                pass
+        threading.Thread(target=_fetch, daemon=True).start()
+
     def _display_cover(self, cover_data: bytes):
         try:
             from PIL import Image, ImageTk
@@ -768,8 +1041,19 @@ class MusicPlayerMixin(object):
             logger.warning("pygame 不可用，无法播放")
             return
         self._music_cancel_fade()
+        self._stop_lyric_poll()
+        # 应用音效处理
+        processed_path = filepath
+        if self._music_effects.settings.has_any_enabled:
+            try:
+                fx_path = self._music_effects.process(filepath)
+                if fx_path and fx_path != filepath:
+                    self._music_effects_processed_files.append(fx_path)
+                    processed_path = fx_path
+            except Exception:
+                pass
         try:
-            mixer.music.load(filepath)
+            mixer.music.load(processed_path)
             mixer.music.set_volume(0)
             mixer.music.play(start=start_pos if start_pos > 0 else 0)
             self._music_is_playing = True
@@ -779,6 +1063,7 @@ class MusicPlayerMixin(object):
             self._update_play_btn_ui()
             self._update_now_playing_info()
             self._start_progress_poll()
+            self._start_lyric_poll()
             self._music_smtc.set_playing()
             self._highlight_current_in_list()
             self._music_fade_in()
@@ -787,6 +1072,46 @@ class MusicPlayerMixin(object):
         except Exception as e:
             logger.error(f"播放失败: {filepath}: {e}")
             self._music_is_playing = False
+            self._update_play_btn_ui()
+
+    def _play_online_file(self, filepath: str, online_info: OnlineMusicInfo, start_pos: float = 0):
+        """播放在线缓存的临时文件"""
+        if _pygame_import_error is not None:
+            return
+        self._music_cancel_fade()
+        self._stop_lyric_poll()
+        # 应用音效处理
+        processed_path = filepath
+        if self._music_effects.settings.has_any_enabled:
+            try:
+                fx_path = self._music_effects.process(filepath)
+                if fx_path and fx_path != filepath:
+                    self._music_effects_processed_files.append(fx_path)
+                    processed_path = fx_path
+            except Exception:
+                pass
+        try:
+            mixer.music.load(processed_path)
+            mixer.music.set_volume(0)
+            mixer.music.play(start=start_pos if start_pos > 0 else 0)
+            self._music_is_playing = True
+            self._music_is_paused = False
+            self._music_is_online_playing = True
+            self._music_current_online_info = online_info
+            self._music_seek_offset = start_pos if start_pos > 0 else 0
+            self._music_duration = online_info.interval
+            self._update_play_btn_ui()
+            self._update_now_playing_info()
+            self._start_progress_poll()
+            self._fetch_and_start_lyric(online_info)
+            self._music_smtc.set_playing()
+            self._music_fade_in()
+            self._trigger_ach("music_first_play")
+            self._trigger_ach("music_play_count")
+        except Exception as e:
+            logger.error(f"在线播放失败: {e}")
+            self._music_is_playing = False
+            self._music_is_online_playing = False
             self._update_play_btn_ui()
 
     def _music_cancel_fade(self):
@@ -874,10 +1199,16 @@ class MusicPlayerMixin(object):
                 pass
 
     def _music_toggle_play(self):
-        if not self._music_playlist:
+        if not self._music_playlist and not self._music_is_online_playing:
             return
         if not self._music_is_playing and not self._music_is_paused:
+            if self._music_is_online_playing and self._music_current_online_info:
+                # 重播当前在线歌曲
+                self._music_play_online_url(self._music_current_online_info)
+                return
             if self._music_current_index < 0:
+                if self._music_is_online_playing:
+                    return
                 self._music_current_index = 0
             self._play_file(self._music_playlist[self._music_current_index], self._music_progress if self._music_progress > 0 else 0)
         elif self._music_is_paused:
@@ -890,6 +1221,7 @@ class MusicPlayerMixin(object):
                 self._music_is_paused = False
                 self._update_play_btn_ui()
                 self._start_progress_poll()
+                self._start_lyric_poll()
                 self._music_smtc.set_playing()
                 self._music_fade_in()
             except Exception as e:
@@ -899,6 +1231,7 @@ class MusicPlayerMixin(object):
                 return
             self._music_fade_out_target = 'pause'
             self._stop_progress_poll()
+            self._stop_lyric_poll()
             self._music_fade_out()
 
     def _music_stop(self, instant: bool = False):
@@ -908,6 +1241,7 @@ class MusicPlayerMixin(object):
         if not instant and self._music_is_playing and not self._music_is_paused:
             self._music_fade_out_target = 'stop'
             self._stop_progress_poll()
+            self._stop_lyric_poll()
             self._music_fade_out()
             return
         try:
@@ -917,9 +1251,12 @@ class MusicPlayerMixin(object):
             pass
         self._music_is_playing = False
         self._music_is_paused = False
+        self._music_is_online_playing = False
+        self._music_current_online_info = None
         self._music_progress = 0
         self._music_seek_offset = 0
         self._stop_progress_poll()
+        self._stop_lyric_poll()
         self._update_play_btn_ui()
         self._music_progress_bar.set(0)
         self._music_cur_label.configure(text="0:00")
@@ -1056,6 +1393,71 @@ class MusicPlayerMixin(object):
             pass
         self._music_progress_timer_id = self.after(500, self._poll_music_progress)
 
+    # ═══════════════ 歌词轮询 ═══════════════
+
+    def _start_lyric_poll(self):
+        self._stop_lyric_poll()
+        self._poll_lyric_progress()
+
+    def _stop_lyric_poll(self):
+        if self._music_lyric_poll_id is not None:
+            self.after_cancel(self._music_lyric_poll_id)
+            self._music_lyric_poll_id = None
+
+    def _poll_lyric_progress(self):
+        if not self._music_is_playing or self._music_is_paused:
+            self._stop_lyric_poll()
+            return
+        if not self._is_music_tab_active() and not (
+            self._music_desktop_lyric and self._music_desktop_lyric.is_visible
+        ):
+            self._music_lyric_poll_id = self.after(300, self._poll_lyric_progress)
+            return
+        try:
+            elapsed_ms = int(self._music_progress * 1000)
+            self._update_lyric_display(elapsed_ms)
+            if self._music_desktop_lyric and self._music_desktop_lyric.is_visible:
+                self._music_desktop_lyric.update_progress(elapsed_ms)
+        except Exception:
+            pass
+        self._music_lyric_poll_id = self.after(100, self._poll_lyric_progress)
+
+    def _update_lyric_display(self, elapsed_ms: int):
+        """更新内嵌歌词显示"""
+        if not hasattr(self, '_lyric_current_label') or not self._lyric_current_label:
+            return
+        current = self._music_lyric_parser.get_line_at(elapsed_ms)
+        if current is None:
+            self._lyric_current_label.configure(text="")
+            if hasattr(self, '_lyric_trans_label'):
+                self._lyric_trans_label.configure(text="")
+            return
+        self._lyric_current_label.configure(text=current.text)
+        trans = ""
+        if self._music_show_lyric_translation and current.translation:
+            trans = current.translation
+        elif self._music_show_lyric_roma and current.roma:
+            trans = current.roma
+        if hasattr(self, '_lyric_trans_label'):
+            self._lyric_trans_label.configure(text=trans)
+
+    def _fetch_and_start_lyric(self, online_info: OnlineMusicInfo):
+        """获取歌词并开始解析"""
+        def _fetch():
+            try:
+                src = MUSIC_SOURCES.get(online_info.source)
+                if not src:
+                    return
+                lrc_text = src.get_lyric(online_info)
+                if not lrc_text:
+                    return
+                self._music_lyric_parser.clear()
+                self._music_lyric_parser.parse(lrc_text)
+                self.after(0, lambda: self._start_lyric_poll())
+            except Exception:
+                pass
+        threading.Thread(target=_fetch, daemon=True).start()
+
     def _is_music_tab_active(self):
         try:
             current = self.tabview.get()
@@ -1067,6 +1469,16 @@ class MusicPlayerMixin(object):
     def _on_track_end(self):
         self._music_is_playing = False
         self._stop_progress_poll()
+        self._stop_lyric_poll()
+        if self._music_is_online_playing:
+            self._music_is_online_playing = False
+            self._music_current_online_info = None
+            self._update_play_btn_ui()
+            self._music_seek_offset = 0
+            self._music_progress_bar.set(0)
+            self._music_cur_label.configure(text="0:00")
+            self._music_smtc.set_stopped()
+            return
         if self._music_play_mode == PLAY_MODE_LOOP_SINGLE:
             self._play_file(self._music_playlist[self._music_current_index])
         elif self._music_play_mode == PLAY_MODE_SEQUENTIAL:
@@ -1408,23 +1820,577 @@ class MusicPlayerMixin(object):
             if hasattr(self, '_music_mini_toggle_btn') and self._music_mini_toggle_btn.winfo_exists():
                 self._music_mini_toggle_btn.configure(text=_("music_expand"))
 
+    # ═══════════════ 在线搜索逻辑 ═══════════════
+
+    def _music_do_search(self):
+        keyword = self._music_search_entry.get().strip()
+        if not keyword:
+            return
+        self._music_search_keyword = keyword
+        self._music_search_btn.configure(state="disabled", text="...")
+        self._music_search_status.configure(text=_("music_loading_url"))
+        threading.Thread(target=self._music_online_search_thread, args=(keyword,), daemon=True).start()
+
+    def _music_online_search_thread(self, keyword: str):
+        try:
+            source_id = self._music_selected_source
+            src = MUSIC_SOURCES.get(source_id)
+            if src:
+                results = src.search(keyword, page=1, limit=30)
+            else:
+                results = []
+        except Exception as e:
+            logger.warning(f"在线搜索失败 [{source_id}]: {e}")
+            results = []
+        self.after(0, lambda: self._music_rebuild_search_results(results))
+
+    def _music_rebuild_search_results(self, results):
+        self._music_search_results = results
+        for w in self._music_search_widgets:
+            try:
+                f = w.get("frame")
+                if f and f.winfo_exists():
+                    f.destroy()
+            except Exception:
+                pass
+        self._music_search_widgets.clear()
+        for idx, info in enumerate(results):
+            self._music_add_search_row(idx, info)
+        count = len(results)
+        song_count_key = "music_song_count"
+        count_text = _(song_count_key, count=count)
+        if count_text == song_count_key:
+            count_text = f"{count} 首"
+        self._music_search_status.configure(text=count_text if count > 0 else _("music_search_no_results"))
+        self._music_search_btn.configure(state="normal", text=_("music_search_btn"))
+
+    def _music_add_search_row(self, idx: int, info: OnlineMusicInfo):
+        row = ctk.CTkFrame(self._music_online_scroll, fg_color="transparent", height=32)
+        row.pack(fill=ctk.X, pady=1)
+
+        index_label = ctk.CTkLabel(
+            row, text=str(idx + 1), width=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+        )
+        index_label.pack(side=ctk.LEFT)
+
+        name_text = info.name if len(info.name) <= 35 else info.name[:33] + "..."
+        quality_badge = " ".join(t.get("type", "") for t in info.types[:2])
+        display = f"{name_text} - {info.singer}" if info.singer else name_text
+        name_label = ctk.CTkLabel(
+            row, text=display,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_primary"], anchor="w",
+        )
+        name_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(5, 5))
+
+        dur_text = _format_time(info.interval) if info.interval else ""
+        if dur_text:
+            ctk.CTkLabel(
+                row, text=dur_text,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+                text_color=COLORS["text_secondary"], width=40,
+            ).pack(side=ctk.RIGHT)
+
+        source_label = ctk.CTkLabel(
+            row, text=info.source.upper(),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=8),
+            text_color=COLORS["accent"], width=28,
+        )
+        source_label.pack(side=ctk.RIGHT, padx=(0, 4))
+
+        for child in [row, index_label, name_label]:
+            child.bind("<Button-1>", lambda e, i=idx: self._music_play_online_from_index(i))
+            child.bind("<Double-Button-1>", lambda e, i=idx: self._music_play_online_from_index(i))
+
+        self._music_search_widgets.append({"frame": row, "name_label": name_label, "index": idx})
+
+    def _music_play_online_from_index(self, idx: int):
+        if idx < 0 or idx >= len(self._music_search_results):
+            return
+        self._music_play_online_url(self._music_search_results[idx])
+
+    def _music_play_online_url(self, online_info: OnlineMusicInfo):
+        """触发在线歌曲播放：获取URL -> 下载到临时文件 -> 播放"""
+        self._music_stop(instant=True)
+        self._music_search_status.configure(text=_("music_loading_url"))
+        quality = self._music_quality_var.get()
+
+        def _fetch_and_play():
+            temp_path = None
+            tried_sources = [online_info.source]
+            for source_id in tried_sources:
+                try:
+                    src = MUSIC_SOURCES.get(source_id)
+                    if not src:
+                        continue
+                    url = src.get_music_url(online_info, quality)
+                    if not url:
+                        for fallback_q in ["128k", "320k", "flac"]:
+                            if fallback_q != quality:
+                                url = src.get_music_url(online_info, fallback_q)
+                                if url:
+                                    break
+                    if not url:
+                        logger.warning(f"无法获取播放URL [{source_id}]: {online_info.name}")
+                        continue
+                    temp_path = self._music_download_to_temp(url, online_info.name)
+                    if temp_path:
+                        break
+                except Exception as e:
+                    logger.warning(f"获取在线URL失败 [{source_id}]: {e}")
+                    continue
+
+            def _on_result():
+                self._music_search_status.configure(text="")
+                if temp_path:
+                    self._music_play_online_file(temp_path, online_info, 0)
+                else:
+                    self._music_search_status.configure(text=_("music_url_failed"))
+            self.after(0, _on_result)
+
+        threading.Thread(target=_fetch_and_play, daemon=True).start()
+
+    def _music_download_to_temp(self, url: str, name_hint: str = "") -> Optional[str]:
+        """下载在线音频流到临时文件"""
+        try:
+            resp = requests.get(url, timeout=30, stream=True,
+                              headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+            resp.raise_for_status()
+            ext = ".mp3"
+            content_type = resp.headers.get("Content-Type", "")
+            if "flac" in content_type or url.endswith(".flac"):
+                ext = ".flac"
+            elif "ogg" in content_type or url.endswith(".ogg"):
+                ext = ".ogg"
+            elif "m4a" in content_type or url.endswith(".m4a"):
+                ext = ".m4a"
+            safe_name = "".join(c for c in name_hint if c.isalnum() or c in "._- ")[:50]
+            fd, temp_path = tempfile.mkstemp(suffix=ext, prefix=f"fmcl_{safe_name}_")
+            os.close(fd)
+            with open(temp_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        f.write(chunk)
+            if os.path.getsize(temp_path) == 0:
+                os.remove(temp_path)
+                return None
+            self._music_temp_files.append(temp_path)
+            # 限制临时文件数量
+            while len(self._music_temp_files) > 10:
+                old = self._music_temp_files.pop(0)
+                try:
+                    os.remove(old)
+                except Exception:
+                    pass
+            return temp_path
+        except Exception as e:
+            logger.warning(f"下载音频流失败: {e}")
+            return None
+
+    def _music_cleanup_temp_files(self):
+        """清理所有缓存的临时文件"""
+        for fp in self._music_temp_files:
+            try:
+                if os.path.exists(fp):
+                    os.remove(fp)
+            except Exception:
+                pass
+        self._music_temp_files.clear()
+
+    def _stop_search_loading(self):
+        """停止搜索加载状态"""
+        if hasattr(self, '_music_search_btn') and self._music_search_btn.winfo_exists():
+            self._music_search_btn.configure(state="normal", text=_("music_search_btn"))
+        if hasattr(self, '_music_search_status') and self._music_search_status.winfo_exists():
+            self._music_search_status.configure(text="")
+
+    # ═══════════════ 桌面歌词管理 ═══════════════
+
+    def _music_toggle_desktop_lyric(self):
+        if self._music_desktop_lyric and self._music_desktop_lyric.is_visible:
+            self._music_hide_desktop_lyric()
+            self._music_dlrc_btn.configure(fg_color=COLORS["bg_light"])
+        else:
+            self._music_show_desktop_lyric()
+            self._music_dlrc_btn.configure(fg_color=COLORS["accent"])
+
+    def _music_show_desktop_lyric(self):
+        """显示桌面歌词窗口"""
+        if not self._music_desktop_lyric:
+            try:
+                self._music_desktop_lyric = DesktopLyricWindow(self)
+            except Exception as e:
+                logger.warning(f"创建桌面歌词窗口失败: {e}")
+                return
+        if self._music_lyric_parser.is_parsed:
+            self._music_desktop_lyric.set_lyric_lines(self._music_lyric_parser.lines)
+        self._music_desktop_lyric.show_lyric()
+        self._start_lyric_poll()
+
+    def _music_hide_desktop_lyric(self):
+        if self._music_desktop_lyric:
+            self._music_desktop_lyric.hide_lyric()
+
+    def _music_destroy_desktop_lyric(self):
+        if self._music_desktop_lyric:
+            self._music_desktop_lyric.destroy_lyric()
+            self._music_desktop_lyric = None
+
+    # ═══════════════ 音效面板 ═══════════════
+
+    def _music_open_fx_panel(self):
+        """打开音效设置面板"""
+        if hasattr(self, '_music_fx_window') and self._music_fx_window and self._music_fx_window.winfo_exists():
+            self._music_fx_window.lift()
+            self._music_fx_window.focus_force()
+            return
+        self._music_fx_window = ctk.CTkToplevel(self)
+        self._music_fx_window.title("音效设置")
+        self._music_fx_window.geometry("420x520")
+        self._music_fx_window.resizable(False, False)
+        self._music_fx_window.configure(fg_color=COLORS["card_bg"])
+        self._music_fx_window.protocol("WM_DELETE_WINDOW", self._music_close_fx_panel)
+        self._music_fx_window.grab_set()
+
+        main = ctk.CTkFrame(self._music_fx_window, fg_color="transparent")
+        main.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
+
+        self._build_fx_eq_section(main)
+        self._build_fx_reverb_section(main)
+        self._build_fx_pitch_section(main)
+        self._build_fx_speed_section(main)
+
+        # 底部: 重置按钮
+        ctk.CTkButton(
+            main, text=_("music_cache_clear"), width=100, height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_light"], hover_color=COLORS["accent"],
+            command=self._music_reset_fx,
+        ).pack(pady=(15, 0))
+
+        self._music_fx_window.after(100, lambda: self._music_fx_window.focus_force())
+
+    def _music_close_fx_panel(self):
+        if hasattr(self, '_music_fx_window') and self._music_fx_window:
+            try:
+                self._music_fx_window.grab_release()
+                self._music_fx_window.destroy()
+            except Exception:
+                pass
+            self._music_fx_window = None
+
+    def _build_fx_eq_section(self, parent):
+        s = self._music_effects.settings
+        label_font = ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold")
+
+        eq_frame = ctk.CTkFrame(parent, fg_color=COLORS["bg_dark"], corner_radius=8)
+        eq_frame.pack(fill=ctk.X, pady=(0, 8))
+
+        header = ctk.CTkFrame(eq_frame, fg_color="transparent")
+        header.pack(fill=ctk.X, padx=10, pady=(8, 5))
+
+        eq_enable_var = ctk.BooleanVar(value=s.eq_enabled)
+        ctk.CTkCheckBox(
+            header, text=_("music_eq_enable"), variable=eq_enable_var,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_primary"],
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=lambda: self._music_on_eq_toggle(eq_enable_var.get()),
+        ).pack(side=ctk.LEFT)
+
+        ctk.CTkLabel(
+            header, text=_("music_eq"),
+            font=label_font, text_color=COLORS["text_primary"],
+        ).pack(side=ctk.LEFT, padx=(10, 0))
+
+        # EQ 滑块
+        eq_sliders_frame = ctk.CTkFrame(eq_frame, fg_color="transparent")
+        eq_sliders_frame.pack(fill=ctk.X, padx=10, pady=(5, 10))
+
+        self._music_eq_sliders = []
+        for i, freq in enumerate(EQ_FREQS):
+            col_frame = ctk.CTkFrame(eq_sliders_frame, fg_color="transparent")
+            col_frame.pack(side=ctk.LEFT, expand=True, padx=1)
+
+            slider = ctk.CTkSlider(
+                col_frame, from_=EQ_GAIN_MIN, to=EQ_GAIN_MAX,
+                width=16, height=120, orientation="vertical",
+                command=lambda v, idx=i: self._music_on_eq_change(idx, v),
+                fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+                button_color=COLORS["text_primary"],
+            )
+            slider.set(s.eq_gains[i])
+            slider.pack()
+            self._music_eq_sliders.append(slider)
+
+            ctk.CTkLabel(
+                col_frame, text=str(freq) if freq >= 1000 else f"{freq}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=7),
+                text_color=COLORS["text_secondary"],
+            ).pack()
+
+            ctk.CTkLabel(
+                col_frame, text=f"{s.eq_gains[i]:+.0f}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=7),
+                text_color=COLORS["text_secondary"],
+            ).pack()
+
+    def _build_fx_reverb_section(self, parent):
+        s = self._music_effects.settings
+        label_font = ctk.CTkFont(family=FONT_FAMILY, size=11)
+
+        rv_frame = ctk.CTkFrame(parent, fg_color=COLORS["bg_dark"], corner_radius=8)
+        rv_frame.pack(fill=ctk.X, pady=(0, 8))
+
+        header = ctk.CTkFrame(rv_frame, fg_color="transparent")
+        header.pack(fill=ctk.X, padx=10, pady=(8, 5))
+
+        rv_enable_var = ctk.BooleanVar(value=s.reverb_enabled)
+        ctk.CTkCheckBox(
+            header, text=_("music_reverb"), variable=rv_enable_var,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_primary"],
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=lambda: self._music_on_reverb_toggle(rv_enable_var.get()),
+        ).pack(side=ctk.LEFT)
+
+        # Delay
+        row1 = ctk.CTkFrame(rv_frame, fg_color="transparent")
+        row1.pack(fill=ctk.X, padx=10, pady=(0, 3))
+        ctk.CTkLabel(row1, text="Delay", font=label_font, text_color=COLORS["text_secondary"]).pack(side=ctk.LEFT)
+        self._music_reverb_delay_label = ctk.CTkLabel(
+            row1, text=f"{s.reverb_delay_ms:.0f}ms",
+            font=label_font, text_color=COLORS["text_secondary"],
+        )
+        self._music_reverb_delay_label.pack(side=ctk.RIGHT)
+        delay_slider = ctk.CTkSlider(
+            rv_frame, from_=10, to=200, height=14,
+            command=lambda v: self._music_on_reverb_delay(v),
+            fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+        )
+        delay_slider.set(s.reverb_delay_ms)
+        delay_slider.pack(fill=ctk.X, padx=10, pady=(0, 3))
+        self._music_reverb_delay_slider = delay_slider
+
+        # Decay
+        row2 = ctk.CTkFrame(rv_frame, fg_color="transparent")
+        row2.pack(fill=ctk.X, padx=10, pady=(0, 3))
+        ctk.CTkLabel(row2, text="Decay", font=label_font, text_color=COLORS["text_secondary"]).pack(side=ctk.LEFT)
+        self._music_reverb_decay_label = ctk.CTkLabel(
+            row2, text=f"{s.reverb_decay:.1f}",
+            font=label_font, text_color=COLORS["text_secondary"],
+        )
+        self._music_reverb_decay_label.pack(side=ctk.RIGHT)
+        decay_slider = ctk.CTkSlider(
+            rv_frame, from_=0.1, to=0.9, height=14,
+            command=lambda v: self._music_on_reverb_decay(v),
+            fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+        )
+        decay_slider.set(s.reverb_decay)
+        decay_slider.pack(fill=ctk.X, padx=10, pady=(0, 3))
+        self._music_reverb_decay_slider = decay_slider
+
+        # Wet Level
+        row3 = ctk.CTkFrame(rv_frame, fg_color="transparent")
+        row3.pack(fill=ctk.X, padx=10, pady=(0, 8))
+        ctk.CTkLabel(row3, text="Wet", font=label_font, text_color=COLORS["text_secondary"]).pack(side=ctk.LEFT)
+        self._music_reverb_wet_label = ctk.CTkLabel(
+            row3, text=f"{s.reverb_wet_level:.1f}",
+            font=label_font, text_color=COLORS["text_secondary"],
+        )
+        self._music_reverb_wet_label.pack(side=ctk.RIGHT)
+        wet_slider = ctk.CTkSlider(
+            rv_frame, from_=0.0, to=1.0, height=14,
+            command=lambda v: self._music_on_reverb_wet(v),
+            fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+        )
+        wet_slider.set(s.reverb_wet_level)
+        wet_slider.pack(fill=ctk.X, padx=10, pady=(0, 3))
+        self._music_reverb_wet_slider = wet_slider
+
+    def _build_fx_pitch_section(self, parent):
+        s = self._music_effects.settings
+        label_font = ctk.CTkFont(family=FONT_FAMILY, size=11)
+
+        pitch_frame = ctk.CTkFrame(parent, fg_color=COLORS["bg_dark"], corner_radius=8)
+        pitch_frame.pack(fill=ctk.X, pady=(0, 8))
+
+        header = ctk.CTkFrame(pitch_frame, fg_color="transparent")
+        header.pack(fill=ctk.X, padx=10, pady=(8, 5))
+
+        pt_enable_var = ctk.BooleanVar(value=s.pitch_enabled)
+        ctk.CTkCheckBox(
+            header, text=_("music_pitch"), variable=pt_enable_var,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_primary"],
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=lambda: self._music_on_pitch_toggle(pt_enable_var.get()),
+        ).pack(side=ctk.LEFT)
+
+        self._music_pitch_label = ctk.CTkLabel(
+            header, text=f"{s.pitch_semitones:+.1f} semitones",
+            font=label_font, text_color=COLORS["text_secondary"],
+        )
+        self._music_pitch_label.pack(side=ctk.RIGHT)
+
+        pitch_slider = ctk.CTkSlider(
+            pitch_frame, from_=PITCH_MIN, to=PITCH_MAX, height=14,
+            command=lambda v: self._music_on_pitch_change(v),
+            fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+        )
+        pitch_slider.set(s.pitch_semitones)
+        pitch_slider.pack(fill=ctk.X, padx=10, pady=(0, 8))
+        self._music_pitch_slider = pitch_slider
+
+    def _build_fx_speed_section(self, parent):
+        s = self._music_effects.settings
+        label_font = ctk.CTkFont(family=FONT_FAMILY, size=11)
+
+        speed_frame = ctk.CTkFrame(parent, fg_color=COLORS["bg_dark"], corner_radius=8)
+        speed_frame.pack(fill=ctk.X)
+
+        header = ctk.CTkFrame(speed_frame, fg_color="transparent")
+        header.pack(fill=ctk.X, padx=10, pady=(8, 5))
+
+        sp_enable_var = ctk.BooleanVar(value=s.speed_enabled)
+        ctk.CTkCheckBox(
+            header, text=_("music_pitch_label"), variable=sp_enable_var,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_primary"],
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            command=lambda: self._music_on_speed_toggle(sp_enable_var.get()),
+        ).pack(side=ctk.LEFT)
+
+        self._music_speed_label = ctk.CTkLabel(
+            header, text=f"{s.speed_rate:.2f}x",
+            font=label_font, text_color=COLORS["text_secondary"],
+        )
+        self._music_speed_label.pack(side=ctk.RIGHT)
+
+        speed_slider = ctk.CTkSlider(
+            speed_frame, from_=SPEED_MIN, to=SPEED_MAX, height=14,
+            command=lambda v: self._music_on_speed_change(v),
+            fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+        )
+        speed_slider.set(s.speed_rate)
+        speed_slider.pack(fill=ctk.X, padx=10, pady=(0, 8))
+        self._music_speed_slider = speed_slider
+
+    # ── 音效回调 ──
+
+    def _music_on_eq_toggle(self, enabled: bool):
+        self._music_effects.settings.eq_enabled = enabled
+
+    def _music_on_eq_change(self, idx: int, value: float):
+        self._music_effects.settings.eq_gains[idx] = value
+
+    def _music_on_reverb_toggle(self, enabled: bool):
+        self._music_effects.settings.reverb_enabled = enabled
+
+    def _music_on_reverb_delay(self, value: float):
+        self._music_effects.settings.reverb_delay_ms = value
+        if hasattr(self, '_music_reverb_delay_label'):
+            self._music_reverb_delay_label.configure(text=f"{value:.0f}ms")
+
+    def _music_on_reverb_decay(self, value: float):
+        self._music_effects.settings.reverb_decay = value
+        if hasattr(self, '_music_reverb_decay_label'):
+            self._music_reverb_decay_label.configure(text=f"{value:.1f}")
+
+    def _music_on_reverb_wet(self, value: float):
+        self._music_effects.settings.reverb_wet_level = value
+        if hasattr(self, '_music_reverb_wet_label'):
+            self._music_reverb_wet_label.configure(text=f"{value:.1f}")
+
+    def _music_on_pitch_toggle(self, enabled: bool):
+        self._music_effects.settings.pitch_enabled = enabled
+
+    def _music_on_pitch_change(self, value: float):
+        self._music_effects.settings.pitch_semitones = value
+        if hasattr(self, '_music_pitch_label'):
+            self._music_pitch_label.configure(text=f"{value:+.1f} semitones")
+
+    def _music_on_speed_toggle(self, enabled: bool):
+        self._music_effects.settings.speed_enabled = enabled
+
+    def _music_on_speed_change(self, value: float):
+        self._music_effects.settings.speed_rate = value
+        if hasattr(self, '_music_speed_label'):
+            self._music_speed_label.configure(text=f"{value:.2f}x")
+
+    def _music_reset_fx(self):
+        """重置所有音效"""
+        s = self._music_effects.settings
+        s.eq_enabled = False
+        s.eq_gains = [0.0] * 10
+        s.reverb_enabled = False
+        s.reverb_delay_ms = 60.0
+        s.reverb_decay = 0.4
+        s.reverb_wet_level = 0.3
+        s.pitch_enabled = False
+        s.pitch_semitones = 0.0
+        s.speed_enabled = False
+        s.speed_rate = 1.0
+
+        # 更新UI滑块
+        if hasattr(self, '_music_eq_sliders'):
+            for sl in self._music_eq_sliders:
+                sl.set(0)
+        if hasattr(self, '_music_reverb_delay_slider'):
+            self._music_reverb_delay_slider.set(60)
+        if hasattr(self, '_music_reverb_decay_slider'):
+            self._music_reverb_decay_slider.set(0.4)
+        if hasattr(self, '_music_reverb_wet_slider'):
+            self._music_reverb_wet_slider.set(0.3)
+        if hasattr(self, '_music_pitch_slider'):
+            self._music_pitch_slider.set(0)
+        if hasattr(self, '_music_speed_slider'):
+            self._music_speed_slider.set(1.0)
+
+    def _music_cleanup_fx_files(self):
+        """清理音效处理产生的临时文件"""
+        for fp in self._music_effects_processed_files:
+            try:
+                if os.path.exists(fp):
+                    os.remove(fp)
+            except Exception:
+                pass
+        self._music_effects_processed_files.clear()
+        self._music_effects.cleanup()
+
+    # ═══════════════ 清理 ═══════════════
+
     def _music_cleanup(self):
         self._music_stop(instant=True)
+        self._stop_lyric_poll()
         self._update_music_footer()
         self._unregister_hotkeys()
         self._save_music_state()
+        self._music_cleanup_temp_files()
+        self._music_cleanup_fx_files()
+        self._music_destroy_desktop_lyric()
 
     def _update_music_footer(self):
         if not hasattr(self, '_music_footer_frame'):
             return
         path = self._get_current_file()
-        if path and (self._music_is_playing or self._music_is_paused):
-            meta = self._get_metadata(path)
-            title = meta.get("title", os.path.basename(path))
-            artist = meta.get("artist", "")
-            text = title
-            if artist:
-                text = f"{title} - {artist}"
+        if (path or self._music_is_online_playing) and (self._music_is_playing or self._music_is_paused):
+            if self._music_is_online_playing and self._music_current_online_info:
+                oi = self._music_current_online_info
+                title = oi.name
+                artist = oi.singer or ""
+                text = title
+                if artist:
+                    text = f"{title} - {artist}"
+            else:
+                meta = self._get_metadata(path)
+                title = meta.get("title", os.path.basename(path))
+                artist = meta.get("artist", "")
+                text = title
+                if artist:
+                    text = f"{title} - {artist}"
             if len(text) > 40:
                 text = text[:38] + "..."
             self._music_footer_label.configure(text=text)
