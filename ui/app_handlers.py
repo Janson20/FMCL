@@ -1346,7 +1346,7 @@ class EventHandlerMixin(object):
         about.configure(fg_color=COLORS["bg_dark"])
 
         # 窗口尺寸与居中
-        w, h = 460, 390
+        w, h = 460, 520
         about.geometry(f"{w}x{h}")
         about.update_idletasks()
         x = (about.winfo_screenwidth() - w) // 2
@@ -1441,12 +1441,80 @@ class EventHandlerMixin(object):
                 anchor=ctk.W,
             ).pack(side=ctk.LEFT, padx=(10, 0))
 
+        # 鸣谢
+        ctk.CTkLabel(
+            main_frame,
+            text=_("about_acknowledgments"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(anchor=ctk.W, pady=(10, 6))
+
+        import webbrowser
+
+        acknowledgments = [
+            {
+                "name": "PCL-CE",
+                "url": "https://github.com/PCL-community/PCL-CE",
+                "license_url": "https://github.com/PCL-Community/PCL-CE/blob/dev/LICENSE",
+            },
+            {
+                "name": "opencode",
+                "url": "https://github.com/anomalyco/opencode",
+                "license_url": "https://github.com/anomalyco/opencode/blob/dev/LICENSE",
+            },
+        ]
+
+        for ack in acknowledgments:
+            ack_row = ctk.CTkFrame(main_frame, fg_color="transparent")
+            ack_row.pack(fill=ctk.X, pady=2)
+
+            ctk.CTkLabel(
+                ack_row,
+                text=ack["name"],
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLORS["text_primary"],
+            ).pack(side=ctk.LEFT)
+
+            ctk.CTkButton(
+                ack_row,
+                text=_("about_address"),
+                width=50,
+                height=24,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                fg_color=COLORS["bg_light"],
+                hover_color=COLORS["card_border"],
+                command=lambda u=ack["url"]: webbrowser.open(u),
+            ).pack(side=ctk.RIGHT, padx=(4, 0))
+
+            ctk.CTkButton(
+                ack_row,
+                text=_("about_license_btn"),
+                width=56,
+                height=24,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                fg_color=COLORS["bg_light"],
+                hover_color=COLORS["card_border"],
+                command=lambda u=ack["license_url"]: webbrowser.open(u),
+            ).pack(side=ctk.RIGHT, padx=(0, 0))
+
         # 许可证信息
         ctk.CTkLabel(
             main_frame,
             text=_("about_license"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
+        ).pack(pady=(10, 10))
+
+        # 赞赏按钮
+        ctk.CTkButton(
+            main_frame,
+            text=_("about_donate"),
+            width=80,
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=lambda: webbrowser.open("https://ifdian.net/a/janson20"),
         ).pack(pady=(0, 10))
 
         # 底部确定按钮
@@ -1459,7 +1527,7 @@ class EventHandlerMixin(object):
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
             command=about.destroy,
-        ).pack(pady=(20, 0))
+        ).pack(pady=(0, 0))
 
         about.bind("<Return>", lambda e: about.destroy())
         about.focus_set()

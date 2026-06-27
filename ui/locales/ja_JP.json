@@ -97,6 +97,10 @@
   "about_arch": "アーキテクチャ",
   "about_license": "GPLv3 オープンソースライセンス",
   "about_terms_not_found": "利用規約ファイル（TERMS_OF_USE.md）を読み込めません。ファイルが存在するか確認してください。",
+  "about_acknowledgments": "謝辞",
+  "about_address": "アドレス",
+  "about_license_btn": "ライセンス",
+  "about_donate": "支援",
   "confirm": "OK",
   
   "skin_size_invalid": "無効なスキンサイズ {width}x{height}。64x64 または 64x32 を使用してください",

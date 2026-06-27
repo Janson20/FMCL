@@ -97,6 +97,10 @@
   "about_arch": "Architecture",
   "about_license": "Open source under GPLv3",
   "about_terms_not_found": "Unable to load Terms of Use file (TERMS_OF_USE.md), please check if the file exists.",
+  "about_acknowledgments": "Acknowledgments",
+  "about_address": "Website",
+  "about_license_btn": "License",
+  "about_donate": "Donate",
   "confirm": "Confirm",
   
   "skin_size_invalid": "Invalid skin size {width}x{height}. Please use 64x64 or 64x32",

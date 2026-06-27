@@ -97,6 +97,10 @@
   "about_arch": "架構",
   "about_license": "使用 GPLv3 協議開源",
   "about_terms_not_found": "無法載入使用者協議檔案（TERMS_OF_USE.md），請檢查檔案是否存在。",
+  "about_acknowledgments": "致謝",
+  "about_address": "位址",
+  "about_license_btn": "授權條款",
+  "about_donate": "贊助",
   "confirm": "確定",
   
   "skin_size_invalid": "皮膚尺寸 {width}x{height} 不支援，請使用 64x64 或 64x32",
