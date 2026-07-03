@@ -37,6 +37,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         self._current_page = 0
         self._searching = False
         self._installing_ids: set = set()
+        self._updating_ids: set = set()
+        self._update_info: Dict[str, dict] = {}  # 更新信息缓存
 
         self.title(_("plugin_market_title"))
         self.geometry("780x660")
@@ -201,7 +203,31 @@ class PluginBrowserWindow(ctk.CTkToplevel):
             return
         self._plugins = plugins
         self._update_tag_bar()
+        self._check_updates_async()
         self._apply_filter()
+
+    def _check_updates_async(self):
+        """异步检查插件更新"""
+        def _check():
+            versions = self._pm.get_installed_versions_map()
+            self._update_info = self._market.check_updates(versions)
+            self.after(0, lambda: (
+                self._render_page(),
+                self._update_status_summary(),
+            ))
+
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _update_status_summary(self):
+        """在状态栏显示更新摘要"""
+        update_count = sum(
+            1 for info in self._update_info.values() if info["has_update"]
+        )
+        if update_count > 0:
+            self._set_status(
+                _("plugin_market_updates_available", count=update_count),
+                "warning",
+            )
 
     def _update_tag_bar(self):
         """更新标签筛选栏"""
@@ -326,10 +352,16 @@ class PluginBrowserWindow(ctk.CTkToplevel):
             if state:
                 installed_state = state.value
 
+        # 更新检查
+        update_info = self._update_info.get(pid, {})
+        has_update = update_info.get("has_update", False)
+        installed_ver = update_info.get("installed", "")
+        latest_ver = update_info.get("latest", version)
+
         card = ctk.CTkFrame(self._list_frame, fg_color=COLORS["card_bg"], corner_radius=8)
         card.pack(fill=ctk.X, pady=3)
 
-        # 顶行: 名称 + 已安装状态
+        # 顶行: 名称 + 已安装状态 / 更新标记
         top_row = ctk.CTkFrame(card, fg_color="transparent")
         top_row.pack(fill=ctk.X, padx=10, pady=(8, 2))
 
@@ -340,6 +372,20 @@ class PluginBrowserWindow(ctk.CTkToplevel):
             text_color=COLORS["text_primary"],
         ).pack(side=ctk.LEFT)
 
+        # 更新提示
+        if has_update:
+            update_tag = ctk.CTkFrame(
+                top_row, fg_color=COLORS["warning"], corner_radius=4,
+            )
+            update_tag.pack(side=ctk.RIGHT, padx=2)
+            ctk.CTkLabel(
+                update_tag,
+                text=_("plugin_update_available_tag"),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color="#ffffff",
+            ).pack(padx=6, pady=2)
+
+        # 已安装标记
         if installed:
             state_labels = {
                 "enabled": _("installed"),
@@ -359,11 +405,18 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         meta_row = ctk.CTkFrame(card, fg_color="transparent")
         meta_row.pack(fill=ctk.X, padx=10, pady=(0, 2))
 
+        if has_update:
+            ver_text = f"v{installed_ver} → v{latest_ver}"
+            ver_color = COLORS["warning"]
+        else:
+            ver_text = f"v{version}"
+            ver_color = COLORS["accent"]
+
         ctk.CTkLabel(
             meta_row,
-            text=f"v{version}",
+            text=ver_text,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["accent"],
+            text_color=ver_color,
         ).pack(side=ctk.LEFT)
 
         ctk.CTkLabel(
@@ -438,8 +491,23 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         btn_row.pack(fill=ctk.X, padx=10, pady=(2, 8))
 
         is_installing = pid in self._installing_ids
+        is_updating = pid in self._updating_ids
 
-        if installed:
+        if installed and has_update:
+            # 更新按钮
+            update_btn = ctk.CTkButton(
+                btn_row,
+                text=_("plugin_updating") if is_updating else _("plugin_update"),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                fg_color=COLORS["warning"],
+                hover_color="#e67e22",
+                width=80, height=26,
+                state="disabled" if is_updating else "normal",
+                command=lambda p=plugin: self._update_plugin(p),
+            )
+            update_btn.pack(side=ctk.LEFT)
+
+        elif installed:
             if installed_state == "enabled":
                 ctk.CTkButton(
                     btn_row,
@@ -537,6 +605,48 @@ class PluginBrowserWindow(ctk.CTkToplevel):
     def _on_install_failed(self, pid: str, error: str):
         """安装失败回调"""
         self._installing_ids.discard(pid)
+        self._set_status(f"{_('error')}: {error}")
+        self._render_page()
+
+    # ── 更新 ──
+
+    def _update_plugin(self, plugin_info: dict):
+        """从市场更新已安装的插件"""
+        pid = plugin_info["id"]
+        name = plugin_info.get("name", pid)
+
+        self._updating_ids.add(pid)
+        self._render_page()
+
+        self._set_status(_("plugin_updating_progress", name=name), "loading")
+
+        def _do_update():
+            ok, msg = self._pm.update_plugin_from_market(
+                pid,
+                progress_callback=lambda stage, cur, tot: self.after(
+                    0, lambda s=stage, c=cur, t=tot: self._set_status(
+                        _("plugin_market_downloading_progress", name=name, cur=c, total=t),
+                        "loading",
+                    )
+                ),
+            )
+            if ok:
+                self.after(0, lambda n=name: self._on_update_success(pid, n))
+            else:
+                self.after(0, lambda m=msg: self._on_update_failed(pid, m))
+
+        threading.Thread(target=_do_update, daemon=True).start()
+
+    def _on_update_success(self, pid: str, name: str):
+        """更新成功回调"""
+        self._updating_ids.discard(pid)
+        self._update_info.pop(pid, None)
+        self._set_status(_("plugin_update_success", name=name))
+        self._render_page()
+
+    def _on_update_failed(self, pid: str, error: str):
+        """更新失败回调"""
+        self._updating_ids.discard(pid)
         self._set_status(f"{_('error')}: {error}")
         self._render_page()
 

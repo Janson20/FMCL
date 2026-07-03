@@ -283,7 +283,64 @@ class PluginMarket:
             return {}
         return self._index_data.get("categories", {})
 
-    # ── 内部方法 ──
+    # ── 更新检查 ──
+
+    def check_updates(
+        self,
+        installed_versions: Dict[str, str],
+    ) -> Dict[str, dict]:
+        """检查已安装插件是否有可用更新
+
+        Args:
+            installed_versions: {plugin_id: installed_version}
+
+        Returns:
+            {
+                plugin_id: {
+                    "installed": "1.0.0",
+                    "latest": "1.1.0",
+                    "name": "显示名称",
+                    "permissions": [...],
+                    "has_update": True,
+                    "is_newer": False,   # 本地版本比市场新（开发中版本）
+                }
+            }
+        """
+        from plugin_manager.dependency import DependencyResolver
+        resolver = DependencyResolver()
+
+        results: Dict[str, dict] = {}
+
+        if not self._plugin_list:
+            return results
+
+        for p in self._plugin_list:
+            pid = p.get("id", "")
+            if pid not in installed_versions:
+                continue
+            installed_ver = installed_versions[pid]
+            market_ver = p.get("version", "0.0.0")
+
+            cmp = resolver.compare_versions(market_ver, installed_ver)
+
+            has_update = cmp > 0
+            is_newer = cmp < 0
+
+            if has_update or is_newer:
+                results[pid] = {
+                    "installed": installed_ver,
+                    "latest": market_ver,
+                    "name": p.get("name", pid),
+                    "author": p.get("author", ""),
+                    "permissions": p.get("permissions", []),
+                    "description": p.get("description", {}),
+                    "has_update": has_update,
+                    "is_newer": is_newer,
+                }
+
+        return results
+
+    # ── 下载与安装 ── 内部方法 ──
 
     def _is_cache_valid(self) -> bool:
         """检查本地缓存是否有效"""

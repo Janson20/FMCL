@@ -1191,5 +1191,12 @@
   "plugin_market_open": "瀏覽外掛市場",
   "plugin_market_unavailable": "外掛市場暫不可用，請檢查網路連線",
   "plugin_market_prev": "上一頁",
-  "plugin_market_next": "下一頁"
+  "plugin_market_next": "下一頁",
+  "plugin_update_available_tag": "可更新",
+  "plugin_update": "更新",
+  "plugin_updating": "更新中...",
+  "plugin_updating_progress": "正在更新 {name}...",
+  "plugin_update_success": "更新成功: {name}",
+  "plugin_update_failed": "更新失敗: {error}",
+  "plugin_market_updates_available": "發現 {count} 個可用更新"
 }

@@ -1191,5 +1191,12 @@
   "plugin_market_open": "Browse Plugin Market",
   "plugin_market_unavailable": "Plugin market unavailable, check network connection",
   "plugin_market_prev": "Previous",
-  "plugin_market_next": "Next"
+  "plugin_market_next": "Next",
+  "plugin_update_available_tag": "Update",
+  "plugin_update": "Update",
+  "plugin_updating": "Updating...",
+  "plugin_updating_progress": "Updating {name}...",
+  "plugin_update_success": "Updated: {name}",
+  "plugin_update_failed": "Update failed: {error}",
+  "plugin_market_updates_available": "{count} update(s) available"
 }

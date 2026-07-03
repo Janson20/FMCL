@@ -51,6 +51,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
         super().__init__(parent)
         self._pm = plugin_manager
         self._plugin_cards: Dict[str, Dict] = {}
+        self._update_info: Dict[str, dict] = {}
 
         self.title(_("plugin_manager_title"))
         self.geometry("680x580")
@@ -157,6 +158,23 @@ class PluginManagerWindow(ctk.CTkToplevel):
         self._set_status(_("refreshing") + "...")
         self._pm.scan()
         self._rebuild_cards()
+        self._check_updates_async()
+
+    def _check_updates_async(self):
+        """异步检查更新"""
+        def _check():
+            try:
+                market = self._pm.init_market()
+                if market is None:
+                    return
+                versions = self._pm.get_installed_versions_map()
+                self._update_info = market.check_updates(versions)
+                if self._update_info:
+                    self.after(0, self._rebuild_cards)
+            except Exception:
+                pass
+
+        threading.Thread(target=_check, daemon=True).start()
 
     def _rebuild_cards(self):
         """重新构建插件卡片"""
@@ -231,11 +249,20 @@ class PluginManagerWindow(ctk.CTkToplevel):
         meta_row = ctk.CTkFrame(card, fg_color="transparent")
         meta_row.pack(fill=ctk.X, padx=12, pady=(0, 2))
 
+        # 更新信息
+        update_info = self._update_info.get(pid, {})
+        if update_info.get("has_update"):
+            ver_text = f"v{version} → v{update_info['latest']}"
+            ver_color = COLORS["warning"]
+        else:
+            ver_text = f"v{version}"
+            ver_color = COLORS["accent"]
+
         ctk.CTkLabel(
             meta_row,
-            text=f"v{version}",
+            text=ver_text,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["accent"],
+            text_color=ver_color,
         ).pack(side=ctk.LEFT)
 
         ctk.CTkLabel(

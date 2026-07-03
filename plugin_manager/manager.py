@@ -369,11 +369,46 @@ class PluginManager:
             self._installer.cleanup_backup(plugin_id)
             return True, ""
 
+    def update_plugin_from_market(
+        self,
+        plugin_id: str,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    ) -> Tuple[bool, str]:
+        """从市场下载并更新已安装的插件
+
+        Args:
+            plugin_id: 插件 ID
+            progress_callback: 下载进度回调 (stage, cur, total)
+
+        Returns:
+            (是否成功, 错误信息)
+        """
+        market = self.market
+        if market is None:
+            return False, "插件市场暂不可用，请检查网络连接"
+
+        # 1. 从市场下载最新版 .fmpl
+        fmpl_path, error = market.download_plugin(
+            plugin_id, progress_callback=progress_callback,
+        )
+        if error:
+            return False, f"下载失败: {error}"
+
+        # 2. 使用已有的 update_plugin 方法更新
+        return self.update_plugin(plugin_id, fmpl_path)
+
     # ── 查询 ──
 
     def get_loaded_plugins(self) -> List[str]:
         """获取已加载的插件 ID 列表"""
         return list(self._instances.keys())
+
+    def get_installed_versions_map(self) -> Dict[str, str]:
+        """获取已安装插件的版本映射 {plugin_id: version}"""
+        result = {}
+        for pid, manifest in self._manifests.items():
+            result[pid] = manifest.version
+        return result
 
     def get_enabled_plugins(self) -> List[str]:
         """获取已启用的插件 ID 列表"""

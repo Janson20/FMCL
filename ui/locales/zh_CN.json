@@ -1191,5 +1191,12 @@
   "plugin_market_open": "浏览插件市场",
   "plugin_market_unavailable": "插件市场暂不可用，请检查网络连接",
   "plugin_market_prev": "上一页",
-  "plugin_market_next": "下一页"
+  "plugin_market_next": "下一页",
+  "plugin_update_available_tag": "可更新",
+  "plugin_update": "更新",
+  "plugin_updating": "更新中...",
+  "plugin_updating_progress": "正在更新 {name}...",
+  "plugin_update_success": "更新成功: {name}",
+  "plugin_update_failed": "更新失败: {error}",
+  "plugin_market_updates_available": "发现 {count} 个可用更新"
 }

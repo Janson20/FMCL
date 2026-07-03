@@ -1191,5 +1191,12 @@
   "plugin_market_open": "マーケットを開く",
   "plugin_market_unavailable": "マーケットが利用できません。ネットワークを確認してください",
   "plugin_market_prev": "前へ",
-  "plugin_market_next": "次へ"
+  "plugin_market_next": "次へ",
+  "plugin_update_available_tag": "更新可",
+  "plugin_update": "更新",
+  "plugin_updating": "更新中...",
+  "plugin_updating_progress": "{name} を更新中...",
+  "plugin_update_success": "更新完了: {name}",
+  "plugin_update_failed": "更新失敗: {error}",
+  "plugin_market_updates_available": "{count} 件の更新があります"
 }
