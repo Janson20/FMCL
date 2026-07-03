@@ -86,6 +86,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         tab_launcher = tabview.add(_("settings_tab_launcher"))
         tab_account = tabview.add(_("settings_tab_account"))
         tab_ai = tabview.add(_("settings_tab_ai"))
+        tab_plugin = tabview.add(_("settings_tab_plugin"))
 
         # ── 标签页1: 启动器功能 ──
         container = ctk.CTkScrollableFrame(tab_launcher, fg_color="transparent")
@@ -757,6 +758,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         # ── 标签页3: AI 模型配置 ──
         self._build_ai_tab(tab_ai)
+        self._build_plugin_tab(tab_plugin)
 
         # ── 底部按钮 ──
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -1544,3 +1546,93 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 self.after(0, lambda err=str(e): messagebox.showerror("FMCL", f"测试失败: {err}"))
 
         threading.Thread(target=_do_test, daemon=True).start()
+
+    def _build_plugin_tab(self, tab):
+        """构建插件管理标签页"""
+        container = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        container.pack(fill=ctk.BOTH, expand=True, padx=10, pady=10)
+
+        ctk.CTkLabel(
+            container,
+            text=_("plugin_manager_title"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(anchor=ctk.W, pady=(10, 5))
+
+        ctk.CTkLabel(
+            container,
+            text=_("plugin_manager_desc"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_secondary"],
+            wraplength=460,
+        ).pack(anchor=ctk.W, pady=(0, 15))
+
+        open_btn = ctk.CTkButton(
+            container,
+            text=_("plugin_open_manager"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            height=40,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._on_open_plugin_manager,
+        )
+        open_btn.pack(fill=ctk.X, pady=(0, 10))
+        self._r(open_btn, fg_color="accent", hover_color="accent_hover")
+
+        info_frame = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
+        info_frame.pack(fill=ctk.X, pady=10)
+
+        ctk.CTkLabel(
+            info_frame,
+            text=_("plugin_quick_info"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(anchor=ctk.W, padx=12, pady=(10, 5))
+
+        try:
+            pm = self.callbacks.get("get_plugin_manager", lambda: None)()
+            if pm:
+                pm.scan()
+                meta = pm.get_all_plugin_meta()
+                enabled = pm.get_enabled_plugins()
+                total = len(meta)
+                info_text = _("plugin_status_summary", enabled=len(enabled), total=total)
+            else:
+                info_text = _("plugin_not_initialized")
+        except Exception:
+            info_text = _("plugin_not_initialized")
+
+        self._plugin_info_label = ctk.CTkLabel(
+            info_frame,
+            text=info_text,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        )
+        self._plugin_info_label.pack(anchor=ctk.W, padx=12, pady=(0, 10))
+
+        tips = [
+            _("plugin_tip_1"),
+            _("plugin_tip_2"),
+            _("plugin_tip_3"),
+        ]
+        for tip in tips:
+            ctk.CTkLabel(
+                container,
+                text=f"  {tip}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color=COLORS["text_secondary"],
+            ).pack(anchor=ctk.W, pady=2)
+
+    def _on_open_plugin_manager(self):
+        """打开插件管理窗口"""
+        pm = self.callbacks.get("get_plugin_manager", lambda: None)()
+        if pm is None:
+            import tkinter.messagebox as messagebox
+            messagebox.showwarning(
+                _("warning"),
+                _("plugin_not_initialized"),
+                parent=self,
+            )
+            return
+        from ui.windows.plugin_manager import PluginManagerWindow
+        PluginManagerWindow(self, pm)

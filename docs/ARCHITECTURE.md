@@ -43,7 +43,9 @@ FMCL/
 │       ├── modpack_install.py    # Modrinth 整合包安装窗口
 │       ├── modpack_server.py     # 整合包开服窗口
 │       ├── modpack_browser.py    # Modrinth 整合包浏览与下载窗口
-│       ├── mod_browser.py        # Modrinth 资源浏览与安装窗口（模组/资源包/光影 三标签页）
+│   │   ├── mod_browser.py        # Modrinth 资源浏览与安装窗口（模组/资源包/光影 三标签页）
+│   │   ├── plugin_manager.py      # 插件管理窗口（已安装列表 + 启用/禁用/卸载/安装）
+│   │   ├── plugin_permission_dialog.py  # 插件权限确认弹窗
 │       └── backup_settings.py    # 备份设置窗口
 ├── downloader.py          # 多线程下载器 & 异步批量下载 & 模组加载器安装
 │   ├── MultiThreadDownloader  # 多线程分段下载 + 文件合并
@@ -110,6 +112,16 @@ main.py
   │       ├── engine.py (Tool 执行引擎 + 高危检测 + ask_user)
   │       └── agent_chat.py (GUI 循环调度，原生 Function Calling，最大 50 轮)
   ├── config.py (全局配置)
+├── plugin_manager/            # ★ 插件系统（包）- 第三方扩展框架
+│   ├── __init__.py            # 插件总控导入
+│   ├── manifest.py            # PluginManifest 数据模型 + plugin.json 规范
+│   ├── permissions.py         # 权限枚举 + 三级风险分级 + 运行时确认逻辑
+│   ├── base.py                # PluginBase 抽象基类 + HookPoint 枚举 + PluginState
+│   ├── hook_bus.py            # 线程安全钩子总线（4 种策略）
+│   ├── dependency.py          # SemVer 依赖解析 + Kahn 拓扑排序 + 循环检测
+│   ├── loader.py              # importlib 动态插件加载 + 热重载
+│   ├── installer.py           # .fmpl 包安装/卸载/回滚
+│   └── manager.py             # PluginManager 统一入口（组合所有子模块）
   │   └── secure_storage.py (Token 加密存储)
   ├── validation.py (输入验证)
   ├── backup_manager.py (存档备份管理)

@@ -527,8 +527,10 @@ class ServerMixin:
                 )
                 if sys.platform == 'win32':
                     popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+                self._emit_plugin_hook("server.pre_start", server_name=version_id)
                 process = subprocess.Popen(cmd, **popen_kwargs)
                 self._server_process = process
+                self._emit_plugin_hook("server.post_start", server_name=version_id, pid=process.pid)
                 logger.info(f"服务器 {version_id} 已启动 (PID: {process.pid})")
                 slog.info("server_start_attempt", server_version=version_id, server_type=_server_type,
                           java_path=str(run_script), eula_accepted=True, mods_count=_mods_count,
@@ -558,8 +560,10 @@ class ServerMixin:
             if sys.platform == 'win32':
                 popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
 
+            self._emit_plugin_hook("server.pre_start", server_name=version_id)
             process = subprocess.Popen(cmd, **popen_kwargs)
             self._server_process = process
+            self._emit_plugin_hook("server.post_start", server_name=version_id, pid=process.pid)
             logger.info(f"服务器 {version_id} 已启动 (PID: {process.pid})")
             slog.info("server_start_attempt", server_version=version_id, server_type=_server_type,
                       java_path=java_path, eula_accepted=True, mods_count=_mods_count,
@@ -580,6 +584,7 @@ class ServerMixin:
                 proc.stdin.write(b"stop\n")
                 proc.stdin.flush()
                 logger.info("已发送 stop 命令到服务器")
+                self._emit_plugin_hook("server.stopped", server_name="unknown", exit_code=0)
                 return True
             except Exception as e:
                 logger.error(f"发送 stop 命令失败: {e}")
@@ -588,6 +593,7 @@ class ServerMixin:
                 except Exception:
                     pass
                 self._server_process = None
+                self._emit_plugin_hook("server.stopped", server_name="unknown", exit_code=-1)
                 return False
         logger.warning("没有正在运行的服务器")
         return False

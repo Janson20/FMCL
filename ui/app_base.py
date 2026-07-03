@@ -65,6 +65,16 @@ class ModernAppBase(ctk.CTk):
     def destroy(self):
         """清理资源并关闭窗口"""
         self._running = False
+
+        # ── 插件钩子: app.shutdown ──
+        try:
+            pm = self.callbacks.get("get_plugin_manager", lambda: None)()
+            if pm:
+                from plugin_manager.base import HookPoint
+                pm.emit(HookPoint.APP_SHUTDOWN)
+        except Exception:
+            pass
+
         try:
             from ui.dialogs import cleanup_toast_queue
             cleanup_toast_queue()

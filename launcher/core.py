@@ -408,6 +408,9 @@ class MinecraftLauncher:
             logger.error(f"非法版本ID格式: {version_id}")
             return False, version_id
 
+        # ── 插件钩子: version.pre_install ──
+        self._emit_plugin_hook("version.pre_install", version_id=version_id, mod_loader=mod_loader)
+
         try:
             # 检查版本是否有效 — 用 set 实现 O(1) 查找
             available_versions = self.get_available_versions()
@@ -480,6 +483,7 @@ class MinecraftLauncher:
                 logger.info(f"安装完成: {installed_version_id} (Loader: {mod_loader} {loader_version})")
                 slog.info("version_installed", version=version_id, loader=mod_loader,
                           installed_version_id=installed_version_id, loader_version=loader_version)
+                self._emit_plugin_hook("version.post_install", version_id=installed_version_id, success=True)
                 return True, installed_version_id
             else:
                 # 仅安装原版 Minecraft
@@ -492,12 +496,14 @@ class MinecraftLauncher:
                 logger.info(f"Minecraft {version_id} 安装成功")
                 slog.info("version_installed", version=version_id, loader="vanilla",
                           installed_version_id=version_id)
+                self._emit_plugin_hook("version.post_install", version_id=version_id, success=True)
                 return True, version_id
 
         except Exception as e:
             logger.error(f"安装版本失败: {str(e)}")
             slog.error("version_install_failed", version=version_id, loader=mod_loader if mod_loader != "无" else "vanilla",
                        error=str(e)[:200])
+            self._emit_plugin_hook("version.post_install", version_id=version_id, success=False)
             return False, version_id
 
     def launch_game(self, version_id: str, minimize_after: bool = False, server_ip: str | None = None, server_port: int = 25565) -> bool:
@@ -726,10 +732,16 @@ class MinecraftLauncher:
                 )
                 if sys.platform == 'win32':
                     popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+            # ── 插件钩子: game.pre_launch ──
+            self._emit_plugin_hook("game.pre_launch", version_id=target_version, command=minecraft_command)
+
             self._game_process = subprocess.Popen(
                 minecraft_command,
                 **popen_kwargs,
             )
+
+            # ── 插件钩子: game.post_launch ──
+            self._emit_plugin_hook("game.post_launch", version_id=target_version, pid=self._game_process.pid)
 
             # ── 启动后内存释放 ──
             self._release_memory_after_launch()
@@ -868,6 +880,9 @@ class MinecraftLauncher:
             (是否成功, 版本ID) 元组
         """
         try:
+            # ── 插件钩子: version.pre_remove ──
+            self._emit_plugin_hook("version.pre_remove", version_id=version_id)
+
             versions_dir = self.config.get_versions_dir()
             version_dir = versions_dir / version_id
             version_json = versions_dir / f"{version_id}.json"
@@ -892,6 +907,39 @@ class MinecraftLauncher:
         except Exception as e:
             logger.error(f"删除版本失败: {str(e)}")
             return False, version_id
+
+    def _emit_plugin_hook(self, hook_name: str, **kwargs):
+        """发射插件钩子（安全包装，不影响主流程）
+
+        Args:
+            hook_name: 钩子名称，如 "version.post_install"
+            **kwargs: 传递给钩子处理器的参数
+        """
+        try:
+            pm = getattr(self, "_plugin_manager", None)
+            if pm is None:
+                return
+            from plugin_manager.base import HookPoint
+            hook_map = {
+                "game.pre_launch": HookPoint.GAME_PRE_LAUNCH,
+                "game.post_launch": HookPoint.GAME_POST_LAUNCH,
+                "game.stopped": HookPoint.GAME_STOPPED,
+                "game.crashed": HookPoint.GAME_CRASHED,
+                "version.pre_install": HookPoint.VERSION_PRE_INSTALL,
+                "version.post_install": HookPoint.VERSION_POST_INSTALL,
+                "version.pre_remove": HookPoint.VERSION_PRE_REMOVE,
+                "server.pre_start": HookPoint.SERVER_PRE_START,
+                "server.post_start": HookPoint.SERVER_POST_START,
+                "server.stopped": HookPoint.SERVER_STOPPED,
+                "download.pre_download": HookPoint.DOWNLOAD_PRE_DOWNLOAD,
+                "download.post_download": HookPoint.DOWNLOAD_POST_DOWNLOAD,
+            }
+            hook_point = hook_map.get(hook_name)
+            if hook_point:
+                pm.emit(hook_point, **kwargs)
+        except Exception as e:
+            from logzero import logger
+            logger.warning(f"插件钩子发射异常 ({hook_name}): {e}")
 
     def get_callbacks(self) -> Dict[str, Callable]:
         """获取供UI调用的回调函数字典"""

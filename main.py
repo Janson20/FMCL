@@ -337,6 +337,35 @@ def main():
             # 更新 UI 回调
             app.callbacks = callbacks
 
+            # ── 插件系统初始化 ──
+            try:
+                from plugin_manager import PluginManager
+                plugins_root = config.base_dir / "plugins"
+                plugin_manager = PluginManager(plugins_root)
+                app.callbacks["get_plugin_manager"] = lambda pm=plugin_manager: pm
+                # 将 plugin_manager 注入 launcher 以便发射钩子
+                launcher._plugin_manager = plugin_manager
+                # 设置通知回调：将插件通知显示到主界面状态栏
+                def _plugin_notify(plugin_id, title, message, level):
+                    app.set_status(f"[Plugin:{plugin_id}] {title}: {message}", level)
+                plugin_manager.set_notify_callback(_plugin_notify)
+                # 扫描已安装插件
+                discovered = plugin_manager.scan()
+                if discovered:
+                    logger.info(f"发现 {len(discovered)} 个插件: {discovered}")
+                    # 自动加载并启用已授权的插件
+                    for pid in discovered:
+                        perm_state = plugin_manager.get_permission_state(pid)
+                        if perm_state and not perm_state.get_ungranted_permissions():
+                            plugin_manager.load_plugin(pid)
+                            plugin_manager.enable_plugin(pid)
+                # 触发启动完成钩子
+                plugin_manager.emit(
+                    plugin_manager.hook_bus.HookPoint.APP_STARTUP,
+                )
+            except Exception as e:
+                logger.warning(f"插件系统初始化失败（不影响正常启动）: {e}")
+
             # ── 成就系统 wiring（引擎已在 splash 期间初始化） ──
             from achievement_engine import get_achievement_engine
             ach_engine = get_achievement_engine()
