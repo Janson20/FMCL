@@ -1623,6 +1623,42 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 text_color=COLORS["text_secondary"],
             ).pack(anchor=ctk.W, pady=2)
 
+        # 市场入口
+        market_btn = ctk.CTkButton(
+            container,
+            text=_("plugin_market_open"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            height=40,
+            fg_color=COLORS["success"],
+            hover_color="#27ae60",
+            command=self._on_open_plugin_market,
+        )
+        market_btn.pack(fill=ctk.X, pady=(20, 10))
+        self._r(market_btn, fg_color="success", hover_color="#27ae60")
+
+    def _on_open_plugin_market(self):
+        """打开插件市场窗口"""
+        pm = self.callbacks.get("get_plugin_manager", lambda: None)()
+        if pm is None:
+            import tkinter.messagebox as messagebox
+            messagebox.showwarning(
+                _("warning"),
+                _("plugin_not_initialized"),
+                parent=self,
+            )
+            return
+        market = pm.init_market()
+        if market is None:
+            import tkinter.messagebox as messagebox
+            messagebox.showwarning(
+                _("warning"),
+                _("plugin_market_unavailable"),
+                parent=self,
+            )
+            return
+        from ui.windows.plugin_browser import PluginBrowserWindow
+        PluginBrowserWindow(self, pm, market)
+
     def _on_open_plugin_manager(self):
         """打开插件管理窗口"""
         pm = self.callbacks.get("get_plugin_manager", lambda: None)()

@@ -11,6 +11,7 @@ from plugin_manager.dependency import DependencyResolver
 from plugin_manager.loader import PluginLoader
 from plugin_manager.installer import PluginInstaller
 from plugin_manager.manager import PluginManager
+from plugin_manager.market import PluginMarket
 
 __all__ = [
     "PluginManifest",
@@ -26,4 +27,5 @@ __all__ = [
     "PluginLoader",
     "PluginInstaller",
     "PluginManager",
+    "PluginMarket",
 ]

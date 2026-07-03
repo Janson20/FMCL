@@ -1178,5 +1178,18 @@
   "plugin_permission_core_launch_hook": "啟動掛鉤",
   "plugin_permission_core_process": "執行外部程序",
   "plugin_permission_data_store": "資料儲存",
-  "plugin_permission_data_settings": "修改設定"
+  "plugin_permission_data_settings": "修改設定",
+
+  "plugin_market_title": "外掛市場",
+  "plugin_market_loading": "正在取得外掛清單...",
+  "plugin_market_search_placeholder": "搜尋外掛...",
+  "plugin_market_no_results": "暫無外掛，點擊重新整理取得最新清單",
+  "plugin_market_total": "共 {total} 個外掛",
+  "plugin_market_downloading": "正在下載 {name}...",
+  "plugin_market_downloading_progress": "下載 {name}: {cur}/{total} 個檔案",
+  "plugin_market_installing": "安裝中...",
+  "plugin_market_open": "瀏覽外掛市場",
+  "plugin_market_unavailable": "外掛市場暫不可用，請檢查網路連線",
+  "plugin_market_prev": "上一頁",
+  "plugin_market_next": "下一頁"
 }

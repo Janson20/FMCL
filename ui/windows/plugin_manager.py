@@ -110,6 +110,17 @@ class PluginManagerWindow(ctk.CTkToplevel):
         )
         self._install_btn.pack(side=ctk.RIGHT, padx=(5, 0))
 
+        # 市场按钮
+        self._market_btn = ctk.CTkButton(
+            top_frame,
+            text=_("plugin_market_title"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["success"],
+            hover_color="#27ae60",
+            command=self._on_open_market,
+        )
+        self._market_btn.pack(side=ctk.RIGHT, padx=(5, 0))
+
         # 刷新按钮
         self._refresh_btn = ctk.CTkButton(
             top_frame,
@@ -425,6 +436,15 @@ class PluginManagerWindow(ctk.CTkToplevel):
         else:
             self._set_status(_("plugin_permission_unchanged"))
         self._refresh()
+
+    def _on_open_market(self):
+        """打开插件市场"""
+        market = self._pm.init_market()
+        if market is None:
+            self._set_status(_("plugin_market_unavailable"))
+            return
+        from ui.windows.plugin_browser import PluginBrowserWindow
+        PluginBrowserWindow(self, self._pm, market)
 
     def _on_install_from_file(self):
         """从文件安装插件"""

@@ -1178,5 +1178,18 @@
   "plugin_permission_core_launch_hook": "起動フック",
   "plugin_permission_core_process": "外部プロセス実行",
   "plugin_permission_data_store": "データ保存",
-  "plugin_permission_data_settings": "設定変更"
+  "plugin_permission_data_settings": "設定変更",
+
+  "plugin_market_title": "プラグインマーケット",
+  "plugin_market_loading": "プラグイン一覧を取得中...",
+  "plugin_market_search_placeholder": "プラグインを検索...",
+  "plugin_market_no_results": "プラグインがありません。更新をクリックしてください",
+  "plugin_market_total": "全 {total} 件",
+  "plugin_market_downloading": "{name} をダウンロード中...",
+  "plugin_market_downloading_progress": "{name} をダウンロード中: {cur}/{total} ファイル",
+  "plugin_market_installing": "インストール中...",
+  "plugin_market_open": "マーケットを開く",
+  "plugin_market_unavailable": "マーケットが利用できません。ネットワークを確認してください",
+  "plugin_market_prev": "前へ",
+  "plugin_market_next": "次へ"
 }

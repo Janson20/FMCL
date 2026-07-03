@@ -1178,5 +1178,18 @@
   "plugin_permission_core_launch_hook": "Launch Hooks",
   "plugin_permission_core_process": "Execute Processes",
   "plugin_permission_data_store": "Data Storage",
-  "plugin_permission_data_settings": "Modify Settings"
+  "plugin_permission_data_settings": "Modify Settings",
+
+  "plugin_market_title": "Plugin Market",
+  "plugin_market_loading": "Fetching plugin list...",
+  "plugin_market_search_placeholder": "Search plugins...",
+  "plugin_market_no_results": "No plugins found. Click refresh to get the latest list.",
+  "plugin_market_total": "{total} plugins total",
+  "plugin_market_downloading": "Downloading {name}...",
+  "plugin_market_downloading_progress": "Downloading {name}: {cur}/{total} files",
+  "plugin_market_installing": "Installing...",
+  "plugin_market_open": "Browse Plugin Market",
+  "plugin_market_unavailable": "Plugin market unavailable, check network connection",
+  "plugin_market_prev": "Previous",
+  "plugin_market_next": "Next"
 }

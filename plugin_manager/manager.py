@@ -493,6 +493,31 @@ class PluginManager:
 
     # ── 配置管理 ──
 
+    def init_market(self):
+        """初始化插件市场（延迟初始化，确保网络模块就绪）
+
+        Returns:
+            PluginMarket 实例，或 None（初始化失败时）
+        """
+        if hasattr(self, "_market") and self._market is not None:
+            return self._market
+        try:
+            from plugin_manager.market import PluginMarket
+            self._market = PluginMarket(
+                cache_dir=self._cache_dir,
+            )
+            return self._market
+        except Exception as e:
+            logger.warning(f"插件市场初始化失败: {e}")
+            return None
+
+    @property
+    def market(self):
+        """获取插件市场实例（懒初始化）"""
+        if not hasattr(self, "_market") or self._market is None:
+            return self.init_market()
+        return self._market
+
     def get_plugin_config(self, plugin_id: str) -> dict:
         """获取插件配置"""
         return self._configs.get(plugin_id, {})

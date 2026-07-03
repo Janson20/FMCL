@@ -46,6 +46,7 @@ FMCL/
 │   │   ├── mod_browser.py        # Modrinth 资源浏览与安装窗口（模组/资源包/光影 三标签页）
 │   │   ├── plugin_manager.py      # 插件管理窗口（已安装列表 + 启用/禁用/卸载/安装）
 │   │   ├── plugin_permission_dialog.py  # 插件权限确认弹窗
+│   │   ├── plugin_browser.py            # 插件市场浏览与一键安装窗口
 │       └── backup_settings.py    # 备份设置窗口
 ├── downloader.py          # 多线程下载器 & 异步批量下载 & 模组加载器安装
 │   ├── MultiThreadDownloader  # 多线程分段下载 + 文件合并
@@ -121,7 +122,8 @@ main.py
 │   ├── dependency.py          # SemVer 依赖解析 + Kahn 拓扑排序 + 循环检测
 │   ├── loader.py              # importlib 动态插件加载 + 热重载
 │   ├── installer.py           # .fmpl 包安装/卸载/回滚
-│   └── manager.py             # PluginManager 统一入口（组合所有子模块）
+│   ├── market.py               # 插件市场（GitHub 索引获取、搜索筛选、源码下载）
+│   ├── manager.py              # PluginManager 统一入口（组合所有子模块）
   │   └── secure_storage.py (Token 加密存储)
   ├── validation.py (输入验证)
   ├── backup_manager.py (存档备份管理)

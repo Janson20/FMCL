@@ -7,6 +7,7 @@ from ui.windows.mod_browser import ModBrowserWindow
 from ui.windows.modpack_browser import ModpackBrowserWindow
 from ui.windows.plugin_manager import PluginManagerWindow
 from ui.windows.plugin_permission_dialog import PluginPermissionDialog
+from ui.windows.plugin_browser import PluginBrowserWindow
 
 __all__ = [
     "ResourceManagerWindow",
@@ -17,4 +18,5 @@ __all__ = [
     "ModpackBrowserWindow",
     "PluginManagerWindow",
     "PluginPermissionDialog",
+    "PluginBrowserWindow",
 ]
