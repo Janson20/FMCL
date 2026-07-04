@@ -25,6 +25,7 @@ from ui.windows.mod_browser import ModBrowserWindow
 from ui.i18n import _, get_available_languages, set_language
 from structured_logger import slog
 from version_utils import has_mod_loader, is_snapshot
+from plugin_manager.base import HookPoint
 
 
 class EventHandlerMixin(object):
@@ -315,9 +316,34 @@ class EventHandlerMixin(object):
             if success:
                 self._killed_by_user = True
                 self.set_status("游戏进程已强制结束", "warning")
+                # 插件钩子: game.stopped (被用户强杀)
+                self._emit_game_stopped_hook(-1)
             else:
                 self.set_status("没有正在运行的游戏进程", "info")
             self.kill_btn.configure(state=ctk.DISABLED)
+
+    def _emit_game_stopped_hook(self, exit_code: int):
+        """发射游戏停止的插件钩子（异常不影响主流程）"""
+        self._emit_plugin_hook(HookPoint.GAME_STOPPED, exit_code=exit_code)
+
+    def _emit_game_crashed_hook(self, exit_code: int, crash_files: dict):
+        """发射游戏崩溃的插件钩子（异常不影响主流程）"""
+        self._emit_plugin_hook(
+            HookPoint.GAME_CRASHED,
+            exit_code=exit_code,
+            crash_files=crash_files,
+        )
+
+    def _emit_plugin_hook(self, hook_point, **kwargs):
+        """通用插件钩子发射器"""
+        try:
+            pm = self.callbacks.get("get_plugin_manager", lambda: None)()
+            if pm is None:
+                return
+            pm.emit(hook_point, **kwargs)
+        except Exception as e:
+            from logzero import logger
+            logger.warning(f"发射插件钩子异常 ({hook_point.value}): {e}")
 
     def _start_launch_animation(self):
         """启动进度条加载动画（来回滚动）"""
@@ -367,7 +393,7 @@ class EventHandlerMixin(object):
             crash_files = self._collect_crash_info()
             self._task_queue.put(("game_crashed", {"exit_code": exit_code, "crash_files": crash_files}))
         else:
-            self._task_queue.put(("game_exited", None))
+            self._task_queue.put(("game_exited", {"exit_code": exit_code}))
 
     def _collect_crash_info(self):
         """收集崩溃相关文件信息（后台线程调用），支持版本隔离目录"""
@@ -1135,6 +1161,13 @@ class EventHandlerMixin(object):
             else:
                 self.set_status(_("server_crashed").format(code=exit_code), "error")
 
+            # 插件钩子: server.stopped
+            self._emit_plugin_hook(
+                HookPoint.SERVER_STOPPED,
+                server_name=getattr(self, "selected_server_version", None) or "",
+                exit_code=exit_code,
+            )
+
             server_start_time = getattr(self, "_server_start_time", None)
             if server_start_time:
                 uptime_seconds = max(0, time.time() - server_start_time)
@@ -1188,9 +1221,15 @@ class EventHandlerMixin(object):
                 self.set_status("游戏已就绪", "success")
 
         elif task_type == "game_exited":
+            exit_code = data.get("exit_code", -1) if isinstance(data, dict) else data
             self._stop_launch_animation()
             self.kill_btn.configure(state=ctk.DISABLED)
             self.set_status("游戏已正常退出", "info")
+            # 插件钩子: game.stopped（强杀时已在 _on_kill_game 中发射，避免重复）
+            if not getattr(self, "_killed_by_user", False):
+                self._emit_game_stopped_hook(exit_code if isinstance(exit_code, int) else -1)
+            else:
+                self._killed_by_user = False  # 重置标志
             # 退出后自动备份
             if hasattr(self, '_auto_backup_after_exit'):
                 self._auto_backup_after_exit()
@@ -1201,6 +1240,9 @@ class EventHandlerMixin(object):
             exit_code = data["exit_code"]
             crash_files = data["crash_files"]
             self.set_status(f"游戏异常退出 (退出码: {exit_code})", "error")
+            # 插件钩子: game.stopped + game.crashed
+            self._emit_game_stopped_hook(exit_code)
+            self._emit_game_crashed_hook(exit_code, crash_files)
             self._trigger_ach("advanced_crash_analyst")
 
             # 提取 error_type 和 log_snippet 用于结构化日志

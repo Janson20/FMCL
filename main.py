@@ -362,6 +362,11 @@ def main():
                 # 触发启动完成钩子
                 from plugin_manager.base import HookPoint
                 plugin_manager.emit(HookPoint.APP_STARTUP)
+
+                # 注册插件标签页
+                tab_registrations = plugin_manager.emit(HookPoint.UI_TAB_REGISTER)
+                if tab_registrations:
+                    _build_plugin_tabs(app, plugin_manager, tab_registrations)
             except Exception as e:
                 logger.warning(f"插件系统初始化失败（不影响正常启动）: {e}")
 
@@ -564,6 +569,32 @@ def run_login_mode(username: str, password: str | None):
         logger.error(f"登录异常: {e}", exc_info=True)
     finally:
         sys.exit(0)
+
+
+# ── 插件 UI 构建辅助函数 ──
+
+
+def _build_plugin_tabs(app, plugin_manager, registrations):
+    """根据 UI_TAB_REGISTER 钩子结果，在 tabview 中创建插件标签页"""
+    from logzero import logger
+    import customtkinter as ctk
+    for plugin_id, tab_info in registrations:
+        if not isinstance(tab_info, dict):
+            continue
+        tab_text = tab_info.get("text", plugin_id)
+        instance = plugin_manager._instances.get(plugin_id)
+        if instance is None:
+            logger.warning(f"插件 {plugin_id} 注册了标签页但无实例")
+            continue
+        try:
+            tab_frame = app.tabview.add(tab_text)
+            tab_frame.configure(fg_color="transparent")
+            tab_ui = instance.get_tab_ui(tab_frame)
+            if tab_ui is not None:
+                tab_ui.pack(fill=ctk.BOTH, expand=True)
+            logger.info(f"插件标签页已注册: {plugin_id} -> {tab_text}")
+        except Exception as e:
+            logger.warning(f"构建插件标签页失败 ({plugin_id}): {e}")
 
 
 if __name__ == "__main__":

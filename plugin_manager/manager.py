@@ -89,6 +89,9 @@ class PluginManager:
         # 权限确认回调（由主 UI 设置，实现弹窗）
         self._perm_confirm_callback: Optional[Callable[[str, PluginPermission], bool]] = None
 
+        # 插件状态持久化文件
+        self._state_file = self._config_dir / "plugin_states.json"
+
     # ═══════════════════════════════════════════════════════════
     # 公共 API
     # ═══════════════════════════════════════════════════════════
@@ -121,21 +124,44 @@ class PluginManager:
     def scan(self) -> List[str]:
         """扫描 installed/ 目录，发现所有插件。
 
+        会自动恢复上次持久化的插件启用/禁用状态。
+
         Returns:
             发现的插件 ID 列表
         """
         with self._lock:
             discovered = self._loader.scan_installed()
             self._manifests.update(discovered)
+
+            # 加载持久化状态
+            persisted = self._load_plugin_states()
+
             for pid in discovered:
                 if pid not in self._states:
                     self._states[pid] = PluginState.SCANNED
                     self._load_config(pid)
                     self._load_perm_state(pid)
-            # 清理已删除的插件
+
+            # 清理已删除的插件（包括清理持久化文件中的无效条目）
             for pid in list(self._states.keys()):
                 if pid not in self._manifests and self._states[pid] == PluginState.SCANNED:
                     del self._states[pid]
+
+            # 清理持久化文件中已不存在的插件
+            stale_pids = [pid for pid in persisted if pid not in discovered]
+            if stale_pids:
+                self._save_plugin_states()
+
+            # 自动启用上次处于 ENABLED 状态的插件
+            for pid in discovered:
+                if persisted.get(pid) == PluginState.ENABLED.value:
+                    if self._states.get(pid) == PluginState.SCANNED:
+                        logger.info(f"恢复插件启用状态: {pid}")
+                        self.load_plugin(pid)
+                        ok, msg = self.enable_plugin(pid)
+                        if not ok:
+                            logger.warning(f"自动启用插件 {pid} 失败: {msg}")
+
             return list(discovered.keys())
 
     # ── 加载 / 启用 / 禁用 / 卸载 ──
@@ -237,6 +263,7 @@ class PluginManager:
                 instance.on_enable()
                 self._states[plugin_id] = PluginState.ENABLED
                 self._error_reasons.pop(plugin_id, None)
+                self._save_plugin_states()
                 logger.info(f"插件已启用: {plugin_id}")
                 return True, ""
             except Exception as e:
@@ -265,6 +292,7 @@ class PluginManager:
             self._exported_apis.pop(plugin_id, None)
 
             self._states[plugin_id] = PluginState.DISABLED
+            self._save_plugin_states()
             logger.info(f"插件已禁用: {plugin_id}")
             return True, ""
 
@@ -293,6 +321,9 @@ class PluginManager:
             self._perm_states.pop(plugin_id, None)
             self._error_reasons.pop(plugin_id, None)
             self._exported_apis.pop(plugin_id, None)
+
+            # 持久化状态同步
+            self._save_plugin_states()
 
             # 删除文件（清除 sys.modules）
             import sys
@@ -570,6 +601,41 @@ class PluginManager:
             logger.error(f"保存插件配置失败 ({plugin_id}): {e}")
 
     # ── 内部方法 ──
+
+    def _load_plugin_states(self) -> Dict[str, str]:
+        """从 plugin_states.json 加载上次持久化的插件状态
+
+        Returns:
+            {plugin_id: state_value} 字典
+        """
+        if not self._state_file.exists():
+            return {}
+        try:
+            data = json.loads(self._state_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return {}
+            return data
+        except Exception as e:
+            logger.warning(f"加载插件状态文件失败: {e}")
+            return {}
+
+    def _save_plugin_states(self):
+        """持久化当前插件状态到 plugin_states.json
+
+        仅保存 ENABLED / DISABLED 两种稳定状态，
+        过滤掉 SCANNED / LOADING / UNINSTALLING 等临时状态。
+        """
+        persistable = {}
+        for pid, state in self._states.items():
+            if state in (PluginState.ENABLED, PluginState.DISABLED):
+                persistable[pid] = state.value
+        try:
+            self._state_file.write_text(
+                json.dumps(persistable, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.error(f"保存插件状态文件失败: {e}")
 
     def _notify_user(self, plugin_id: str, title: str, message: str, level: str = "info"):
         """由 PluginBase.notify() 调用"""

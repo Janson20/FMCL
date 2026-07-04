@@ -164,7 +164,7 @@ class HookBus:
         Returns:
             取决于策略:
                 - ALL: None
-                - COLLECT: List[Any] 所有处理器返回值
+                - COLLECT: List[Tuple[str, Any]] 所有处理器返回值，附带 plugin_id
                 - FIRST: Any 首个非 None 值
                 - SHORT_CIRCUIT: bool 是否有处理器返回 True
         """
@@ -224,13 +224,17 @@ class HookBus:
                 )
 
     def _execute_collect(self, handlers: List[HookHandler], kwargs: dict) -> list:
-        """依次执行，收集所有返回值"""
+        """依次执行，收集所有返回值（附带 plugin_id）
+
+        Returns:
+            List[Tuple[str, Any]]: [(plugin_id, result), ...]
+        """
         results = []
         for handler in handlers:
             try:
                 result = handler.callback(**kwargs)
                 if result is not None:
-                    results.append(result)
+                    results.append((handler.plugin_id, result))
             except Exception as e:
                 logger.error(
                     f"HookBus: 插件 '{handler.plugin_id}' "

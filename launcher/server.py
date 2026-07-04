@@ -584,7 +584,6 @@ class ServerMixin:
                 proc.stdin.write(b"stop\n")
                 proc.stdin.flush()
                 logger.info("已发送 stop 命令到服务器")
-                self._emit_plugin_hook("server.stopped", server_name="unknown", exit_code=0)
                 return True
             except Exception as e:
                 logger.error(f"发送 stop 命令失败: {e}")
@@ -593,7 +592,6 @@ class ServerMixin:
                 except Exception:
                     pass
                 self._server_process = None
-                self._emit_plugin_hook("server.stopped", server_name="unknown", exit_code=-1)
                 return False
         logger.warning("没有正在运行的服务器")
         return False

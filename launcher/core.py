@@ -733,7 +733,16 @@ class MinecraftLauncher:
                 if sys.platform == 'win32':
                     popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
             # ── 插件钩子: game.pre_launch ──
-            self._emit_plugin_hook("game.pre_launch", version_id=target_version, command=minecraft_command)
+            pre_launch_results = self._emit_plugin_hook("game.pre_launch", version_id=target_version, command=minecraft_command)
+            if pre_launch_results:
+                for _, mod in pre_launch_results:
+                    if isinstance(mod, list):
+                        # 插件返回完整的修改后命令列表
+                        minecraft_command = mod
+                    elif isinstance(mod, dict):
+                        additions = mod.get("append_args", [])
+                        if additions:
+                            minecraft_command.extend(additions)
 
             self._game_process = subprocess.Popen(
                 minecraft_command,
@@ -936,7 +945,7 @@ class MinecraftLauncher:
             }
             hook_point = hook_map.get(hook_name)
             if hook_point:
-                pm.emit(hook_point, **kwargs)
+                return pm.emit(hook_point, **kwargs)
         except Exception as e:
             from logzero import logger
             logger.warning(f"插件钩子发射异常 ({hook_name}): {e}")
