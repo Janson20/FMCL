@@ -57,6 +57,14 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         # 异步加载插件列表
         self.after(100, self._async_load_index)
 
+        # 窗口获得焦点时自动刷新
+        self.bind("<FocusIn>", lambda e: self._on_focus_in())
+
+    def _on_focus_in(self):
+        """窗口获得焦点时刷新"""
+        if not self._searching:
+            self._async_load_index()
+
     def _center_on_parent(self, parent):
         try:
             self.update_idletasks()
@@ -124,8 +132,7 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         ).pack(side=ctk.LEFT)
 
         # ── 标签筛选栏 ──
-        self._tag_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._tag_frame.pack(fill=ctk.X, padx=16, pady=(0, 8))
+        self._tag_frame = ctk.CTkFrame(self, fg_color="transparent", height=0)
         self._tag_buttons: Dict[str, ctk.CTkButton] = {}
         self._active_tag: Optional[str] = None
 
@@ -237,7 +244,12 @@ class PluginBrowserWindow(ctk.CTkToplevel):
 
         tag_map = self._market.get_available_tags()
         if not tag_map:
+            self._tag_frame.pack_forget()
             return
+
+        # 显示标签栏
+        self._tag_frame.pack(fill=ctk.X, padx=16, pady=(0, 8))
+        self._tag_frame.configure(height=32)
 
         # 「全部」按钮
         all_btn = ctk.CTkButton(

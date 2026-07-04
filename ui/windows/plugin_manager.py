@@ -73,6 +73,13 @@ class PluginManagerWindow(ctk.CTkToplevel):
         # 加载数据
         self.after(100, self._refresh)
 
+        # 窗口获得焦点时自动刷新
+        self.bind("<FocusIn>", lambda e: self._on_focus_in())
+
+    def _on_focus_in(self):
+        """窗口获得焦点时刷新"""
+        self._refresh()
+
     def _center_on_parent(self, parent):
         try:
             pw = parent.winfo_width()
@@ -250,7 +257,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
         meta_row.pack(fill=ctk.X, padx=12, pady=(0, 2))
 
         # 更新信息
-        update_info = self._update_info.get(pid, {})
+        update_info = self._update_info.get(plugin_id, {})
         if update_info.get("has_update"):
             ver_text = f"v{version} → v{update_info['latest']}"
             ver_color = COLORS["warning"]

@@ -360,9 +360,8 @@ def main():
                             plugin_manager.load_plugin(pid)
                             plugin_manager.enable_plugin(pid)
                 # 触发启动完成钩子
-                plugin_manager.emit(
-                    plugin_manager.hook_bus.HookPoint.APP_STARTUP,
-                )
+                from plugin_manager.base import HookPoint
+                plugin_manager.emit(HookPoint.APP_STARTUP)
             except Exception as e:
                 logger.warning(f"插件系统初始化失败（不影响正常启动）: {e}")
 

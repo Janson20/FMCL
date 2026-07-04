@@ -31,6 +31,9 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self._settings_theme_refs = []
         self._build_ui()
 
+        # 窗口获得焦点时刷新插件信息
+        self.bind("<FocusIn>", lambda e: self._refresh_plugin_info())
+
     def _r(self, widget, **mapping):
         """注册组件到主题刷新列表"""
         self._settings_theme_refs.append((widget, mapping))
@@ -1658,6 +1661,24 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             return
         from ui.windows.plugin_browser import PluginBrowserWindow
         PluginBrowserWindow(self, pm, market)
+
+    def _refresh_plugin_info(self):
+        """刷新设置页中的插件概况信息"""
+        if not hasattr(self, '_plugin_info_label') or not self._plugin_info_label.winfo_exists():
+            return
+        try:
+            pm = self.callbacks.get("get_plugin_manager", lambda: None)()
+            if pm:
+                pm.scan()
+                meta = pm.get_all_plugin_meta()
+                enabled = pm.get_enabled_plugins()
+                total = len(meta)
+                info_text = _("plugin_status_summary", enabled=len(enabled), total=total)
+            else:
+                info_text = _("plugin_not_initialized")
+        except Exception:
+            info_text = _("plugin_not_initialized")
+        self._plugin_info_label.configure(text=info_text)
 
     def _on_open_plugin_manager(self):
         """打开插件管理窗口"""
