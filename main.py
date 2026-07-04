@@ -349,16 +349,10 @@ def main():
                 def _plugin_notify(plugin_id, title, message, level):
                     app.set_status(f"[Plugin:{plugin_id}] {title}: {message}", level)
                 plugin_manager.set_notify_callback(_plugin_notify)
-                # 扫描已安装插件
+                # 扫描已安装插件（内部自动恢复持久化状态并启用）
                 discovered = plugin_manager.scan()
                 if discovered:
                     logger.info(f"发现 {len(discovered)} 个插件: {discovered}")
-                    # 自动加载并启用已授权的插件
-                    for pid in discovered:
-                        perm_state = plugin_manager.get_permission_state(pid)
-                        if perm_state and not perm_state.get_ungranted_permissions():
-                            plugin_manager.load_plugin(pid)
-                            plugin_manager.enable_plugin(pid)
                 # 触发启动完成钩子
                 from plugin_manager.base import HookPoint
                 plugin_manager.emit(HookPoint.APP_STARTUP)

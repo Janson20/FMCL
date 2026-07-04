@@ -157,6 +157,10 @@ class PluginManager:
                 if persisted.get(pid) == PluginState.ENABLED.value:
                     if self._states.get(pid) == PluginState.SCANNED:
                         logger.info(f"恢复插件启用状态: {pid}")
+                        # 恢复启用前自动授权权限（持久化 ENABLED 状态表示用户此前已确认）
+                        perm_state = self._perm_states.get(pid)
+                        if perm_state is None or perm_state.get_ungranted_permissions():
+                            self.grant_all_permissions(pid)
                         self.load_plugin(pid)
                         ok, msg = self.enable_plugin(pid)
                         if not ok:
