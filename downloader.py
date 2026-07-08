@@ -422,8 +422,11 @@ _LITELOADER_VERSIONS_URL = "https://dl.liteloader.com/versions/versions.json"
 _LITELOADER_MIRROR_URL = "https://bmclapi.bangbang93.com/maven/com/mumfrey/liteloader/versions.json"
 
 
-def _get_liteloader_versions(version: str) -> Optional[str]:
-    """获取指定 MC 版本的最新 LiteLoader 版本号"""
+def _get_liteloader_versions(version: str) -> Optional[Dict]:
+    """获取指定 MC 版本的最新 LiteLoader 版本号及完整信息
+
+    返回包含 version, tweakClass, libraries 的字典，或 None。
+    """
     import json as _json
     try:
         url = _LITELOADER_MIRROR_URL if _is_mirror_enabled() else _LITELOADER_VERSIONS_URL
@@ -445,6 +448,7 @@ def _get_liteloader_versions(version: str) -> Optional[str]:
 
         best_version = None
         best_ver_num = -1
+        best_entry = None
 
         for _hash, entry in liteloader_data.items():
             if not isinstance(entry, dict):
@@ -463,8 +467,8 @@ def _get_liteloader_versions(version: str) -> Optional[str]:
             if ver_num > best_ver_num:
                 best_ver_num = ver_num
                 best_version = ver
+                best_entry = entry
 
-        # 回退：无 RELEASE 时取任何 stream 的最高版本
         if best_version is None:
             for _hash, entry in liteloader_data.items():
                 if not isinstance(entry, dict):
@@ -480,9 +484,14 @@ def _get_liteloader_versions(version: str) -> Optional[str]:
                 if ver_num > best_ver_num:
                     best_ver_num = ver_num
                     best_version = ver
+                    best_entry = entry
 
         if best_version:
-            return best_version
+            return {
+                "version": best_version,
+                "tweakClass": best_entry.get("tweakClass", "com.mumfrey.liteloader.launch.LiteLoaderTweaker"),
+                "libraries": best_entry.get("libraries", []),
+            }
 
         # 回退：snapshots（1.12.2 等版本只有 SNAPSHOT）
         snapshots = mc_data.get("snapshots", {})
@@ -490,12 +499,21 @@ def _get_liteloader_versions(version: str) -> Optional[str]:
         snap_latest = snap_ll.get("latest", {})
         snap_ver = snap_latest.get("version")
         if snap_ver:
-            return snap_ver
+            return {
+                "version": snap_ver,
+                "tweakClass": snap_latest.get("tweakClass", "com.mumfrey.liteloader.launch.LiteLoaderTweaker"),
+                "libraries": snap_latest.get("libraries", []),
+            }
 
-        # 最后回退：repo.lastSuccess
         repo = mc_data.get("repo", {})
         last_success = repo.get("lastSuccess", {})
-        return last_success.get("version")
+        if last_success.get("version"):
+            return {
+                "version": last_success["version"],
+                "tweakClass": "com.mumfrey.liteloader.launch.LiteLoaderTweaker",
+                "libraries": [],
+            }
+        return None
     except Exception as e:
         logger.error(f"解析 LiteLoader 版本列表失败: {e}")
         return None
@@ -505,8 +523,9 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
     """
     安装 LiteLoader（参考 HMCL LiteLoaderInstallTask）
 
-    LiteLoader 必须安装在一个已有 Forge 的版本上（通过 tweakClass 注入）。
-    这里创建一个新的版本 JSON patch，添加 LiteLoader library 和 tweakClass 参数。
+    通过 inheritsFrom 创建版本 patch。自动识别父版本格式：
+    - 旧版 MC (minecraftArguments): 将 --tweakClass 追加到字符串末尾
+    - 新版 MC (arguments): 使用 arguments.game 数组
 
     Args:
         version: Minecraft 版本号
@@ -519,14 +538,24 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
     import json as _json
     import minecraft_launcher_lib
 
-    loader_version = _get_liteloader_versions(version)
-    if not loader_version:
+    remote_data = _get_liteloader_versions(version)
+    if not remote_data:
         raise ValueError(f"未找到 MC {version} 对应的 LiteLoader 版本")
+
+    loader_version = remote_data["version"]
+    tweak_class = remote_data["tweakClass"]
+    remote_libraries = remote_data["libraries"]
 
     logger.info(f"安装 LiteLoader {loader_version} for MC {version}")
 
+    installed_version_id = f"{version}-liteloader-{loader_version}"
+
+    target_dir = Path(minecraft_dir) / "versions" / installed_version_id
+    if target_dir.exists():
+        logger.info(f"LiteLoader 版本 {installed_version_id} 已存在，跳过安装")
+        return installed_version_id, loader_version
+
     # 确保原版已安装
-    vanilla_version_id = version
     try:
         minecraft_launcher_lib.install.install_minecraft_version(
             version, minecraft_dir
@@ -534,46 +563,37 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
     except Exception:
         pass
 
-    # 读取原版版本 JSON
-    versions_dir = Path(minecraft_dir) / "versions" / vanilla_version_id
-    version_json_path = versions_dir / f"{vanilla_version_id}.json"
-    if not version_json_path.exists():
-        raise FileNotFoundError(f"版本 JSON 不存在: {version_json_path}")
+    # 读取父版本 JSON 判断参数格式
+    parent_json_path = Path(minecraft_dir) / "versions" / version / f"{version}.json"
+    if not parent_json_path.exists():
+        raise FileNotFoundError(f"版本 JSON 不存在: {parent_json_path}")
 
-    with open(version_json_path, "r", encoding="utf-8") as f:
-        base_version_json = _json.loads(f.read())
+    with open(parent_json_path, "r", encoding="utf-8") as f:
+        parent_data = _json.loads(f.read())
 
-    # 构建 LiteLoader 版本 ID
-    installed_version_id = f"{version}-liteloader-{loader_version}"
+    # 构建 libraries：remote 提供的 + LiteLoader 本体
+    libraries = list(remote_libraries)  # launchwrapper, asm-all 等
+    libraries.append({"name": f"com.mumfrey:liteloader:{loader_version}",
+                       "url": "http://dl.liteloader.com/versions/"})
 
-    # 检查是否已存在 LiteLoader 安装
-    target_dir = Path(minecraft_dir) / "versions" / installed_version_id
-    if target_dir.exists():
-        logger.info(f"LiteLoader 版本 {installed_version_id} 已存在，跳过安装")
-        return installed_version_id, loader_version
-
-    # 构建 LiteLoader library
-    lite_lib = {
-        "name": f"com.mumfrey:liteloader:{loader_version}",
-        "url": "http://dl.liteloader.com/versions/"
-    }
-
-    # 创建新版本 JSON（patch 格式，继承原版）
+    # 根据父版本格式构建新版本 JSON
     new_version = {
         "id": installed_version_id,
-        "inheritsFrom": vanilla_version_id,
+        "inheritsFrom": version,
         "type": "release",
         "mainClass": "net.minecraft.launchwrapper.Launch",
-        "arguments": {
-            "game": [
-                "--tweakClass",
-                "com.mumfrey.liteloader.launch.LiteLoaderTweaker"
-            ]
-        },
-        "libraries": [lite_lib],
+        "libraries": libraries,
     }
 
-    # 写入新版本 JSON
+    # 旧版 MC 用 minecraftArguments 字符串格式，新版用 arguments 字典格式
+    if "minecraftArguments" in parent_data:
+        # 旧格式：在父版本字符串末尾追加 --tweakClass
+        parent_args = parent_data["minecraftArguments"]
+        new_version["minecraftArguments"] = f"{parent_args} --tweakClass {tweak_class}"
+    else:
+        # 新格式：使用 arguments.game 数组
+        new_version["arguments"] = {"game": ["--tweakClass", tweak_class]}
+
     target_dir.mkdir(parents=True, exist_ok=True)
     new_json_path = target_dir / f"{installed_version_id}.json"
     with open(new_json_path, "w", encoding="utf-8") as f:
@@ -703,23 +723,25 @@ def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) ->
         libraries.append({"name": loader_info["maven"]})
 
     # 检查 launchwrapper
-    arguments = {"game": []}
+    game_args = []
     if launcher_meta.get("launcherMeta", {}).get("launchwrapper"):
         tweakers = launcher_meta["launcherMeta"]["launchwrapper"].get("tweakers", {})
         client_tweakers = tweakers.get("client", [])
         if client_tweakers:
-            arguments["game"].extend(["--tweakClass", client_tweakers[0]])
+            game_args.extend(["--tweakClass", client_tweakers[0]])
 
     # 创建新版本 JSON
+    # 注意: 不要在 arguments.game 为空时覆盖父版本的 minecraftArguments（旧版 MC 用字符串格式传参）
     vanilla_version_id = version
     new_version = {
         "id": installed_version_id,
         "inheritsFrom": vanilla_version_id,
         "type": "release",
         "mainClass": main_class,
-        "arguments": arguments,
         "libraries": libraries,
     }
+    if game_args:
+        new_version["arguments"] = {"game": game_args}
 
     target_dir.mkdir(parents=True, exist_ok=True)
     new_json_path = target_dir / f"{installed_version_id}.json"
@@ -933,12 +955,9 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
     """
     安装 OptiFine（参考 HMCL OptiFineInstallTask）
 
-    OptiFine 安装流程：
     1. 下载 OptiFine 安装器 JAR
-    2. 从安装器中提取 OptiFine 类库
-    3. 创建版本 JSON patch，添加 OptiFine library 和 tweakClass
-
-    注意: OptiFine 必须在最后安装（在 Forge 之后），且依赖 launchwrapper。
+    2. 复制到 libraries 目录
+    3. 创建版本 JSON patch，添加 OptiFine library、launchwrapper、tweakClass
 
     Args:
         version: Minecraft 版本号
@@ -951,7 +970,6 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
     import json as _json
     import minecraft_launcher_lib
     import tempfile
-    import zipfile
     import shutil
 
     loader_version = _get_optifine_versions(version)
@@ -974,10 +992,16 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
     except Exception:
         pass
 
+    # 读取父版本 JSON 判断参数格式
+    parent_json_path = Path(minecraft_dir) / "versions" / version / f"{version}.json"
+    if not parent_json_path.exists():
+        raise FileNotFoundError(f"版本 JSON 不存在: {parent_json_path}")
+    with open(parent_json_path, "r", encoding="utf-8") as f:
+        parent_data = _json.loads(f.read())
+
     # 下载 OptiFine 安装器
     # BMCLAPI OptiFine 下载格式:
     # https://bmclapi2.bangbang93.com/optifine/{mc_version}/{type}/{patch}
-    # loader_version 格式为 "{type}_{patch}", 按最后一个 _ 拆分
     last_underscore = loader_version.rfind("_")
     of_type = loader_version[:last_underscore] if last_underscore > 0 else "HD_U"
     of_patch = loader_version[last_underscore + 1:] if last_underscore > 0 else loader_version
@@ -993,42 +1017,39 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
         installer_path = tmp.name
 
     try:
-        # 从安装器提取 OptiFine 库文件
-        vanilla_version_id = version
-
-        # 创建 OptiFine 版本 JSON (patch 格式)
-        new_version = {
-            "id": installed_version_id,
-            "inheritsFrom": vanilla_version_id,
-            "type": "release",
-            "mainClass": "net.minecraft.launchwrapper.Launch",
-            "arguments": {
-                "game": [
-                    "--tweakClass",
-                    "optifine.OptiFineTweaker"
-                ]
-            },
-            "libraries": [
-                {"name": "net.minecraft:launchwrapper:1.12"},
-                {
-                    "name": f"optifine:OptiFine:{version}_{loader_version}",
-                },
-            ],
-        }
-
-        target_dir.mkdir(parents=True, exist_ok=True)
-        new_json_path = target_dir / f"{installed_version_id}.json"
-        with open(new_json_path, "w", encoding="utf-8") as f:
-            _json.dump(new_version, f, indent=2)
-
-        # 将 OptiFine 安装器复制到 libraries 目录
-        # 路径: libraries/optifine/OptiFine/{mc_version}_{of_version}/OptiFine-{mc_version}_{of_version}.jar
+        # 将 OptiFine JAR 复制到 libraries 目录
         maven_version = f"{version}_{loader_version}"
         of_lib_dir = Path(minecraft_dir) / "libraries" / "optifine" / "OptiFine" / maven_version
         of_lib_dir.mkdir(parents=True, exist_ok=True)
         of_lib_path = of_lib_dir / f"OptiFine-{maven_version}.jar"
         shutil.copy2(installer_path, str(of_lib_path))
 
+        # 构建 libraries：launchwrapper + OptiFine
+        libraries = [
+            {"name": "net.minecraft:launchwrapper:1.12"},
+            {"name": f"optifine:OptiFine:{maven_version}"},
+        ]
+
+        # 创建版本 JSON
+        new_version = {
+            "id": installed_version_id,
+            "inheritsFrom": version,
+            "type": "release",
+            "mainClass": "net.minecraft.launchwrapper.Launch",
+            "libraries": libraries,
+        }
+
+        # 旧版 MC 用 minecraftArguments 字符串格式，新版用 arguments 字典格式
+        if "minecraftArguments" in parent_data:
+            parent_args = parent_data["minecraftArguments"]
+            new_version["minecraftArguments"] = f"{parent_args} --tweakClass optifine.OptiFineTweaker"
+        else:
+            new_version["arguments"] = {"game": ["--tweakClass", "optifine.OptiFineTweaker"]}
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        new_json_path = target_dir / f"{installed_version_id}.json"
+        with open(new_json_path, "w", encoding="utf-8") as f:
+            _json.dump(new_version, f, indent=2)
     finally:
         try:
             os.unlink(installer_path)
