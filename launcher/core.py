@@ -369,13 +369,79 @@ class MinecraftLauncher:
             logger.info("文件夹检查完成")
 
     def get_available_versions(self) -> List[Dict[str, str]]:
-        """获取可用版本列表"""
+        """获取可用版本列表
+
+        对上覆 get_version_list() 中的 releaseTime 缺失做防御处理，
+        避免 Mojang 版本清单中偶发的数据异常导致整个列表获取失败。
+        """
         try:
             versions = self._mcllib.utils.get_available_versions(self.minecraft_dir)
             logger.info(f"获取到 {len(versions)} 个版本")
             return versions
         except Exception as e:
-            logger.error(f"获取版本列表失败: {str(e)}")
+            logger.error(f"获取版本列表失败 (upstream): {str(e)}，回退到安全实现")
+            return self._get_available_versions_safe()
+
+    def _get_available_versions_safe(self) -> List[Dict[str, str]]:
+        """安全版获取可用版本列表 — 过滤缺失 releaseTime 的异常条目"""
+        try:
+            from datetime import datetime
+            import json
+            import requests as _req
+
+            # 直接从 Mojang API 获取版本清单，不使用上游缓存（避开破损缓存）
+            manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
+            resp = _req.get(manifest_url, timeout=30,
+                          headers={"User-Agent": "FMCL/2.11.0"})
+            if resp.status_code != 200:
+                logger.warning(f"获取版本清单失败 HTTP {resp.status_code}")
+                return []
+            vlist = resp.json()
+
+            version_list = []
+            skipped = 0
+            for entry in vlist.get("versions", []):
+                try:
+                    version_list.append({
+                        "id": entry["id"],
+                        "type": entry.get("type", "release"),
+                        "releaseTime": datetime.fromisoformat(entry["releaseTime"]),
+                        "complianceLevel": entry.get("complianceLevel", 0),
+                    })
+                except (KeyError, TypeError, ValueError):
+                    skipped += 1
+
+            if skipped:
+                logger.warning(f"过滤了 {skipped} 个缺少 releaseTime 的异常版本条目")
+
+            # 合并已安装的本地版本（自带防御，不依赖上游 get_installed_versions）
+            installed_ids = {v["id"] for v in version_list}
+            versions_dir = self.config.get_versions_dir()
+            if versions_dir.exists():
+                for folder_name in os.listdir(str(versions_dir)):
+                    json_path = versions_dir / folder_name / f"{folder_name}.json"
+                    if not json_path.exists():
+                        continue
+                    try:
+                        with open(json_path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        vid = data.get("id", folder_name)
+                        if vid in installed_ids:
+                            continue
+                        rt_str = data.get("releaseTime", "2000-01-01T00:00:00+00:00")
+                        version_list.append({
+                            "id": vid,
+                            "type": data.get("type", "release"),
+                            "releaseTime": datetime.fromisoformat(rt_str.replace("Z", "+00:00")),
+                            "complianceLevel": data.get("complianceLevel", 0),
+                        })
+                    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+                        continue
+
+            logger.info(f"安全模式获取到 {len(version_list)} 个版本")
+            return version_list
+        except Exception as e:
+            logger.error(f"安全回退也失败: {str(e)}")
             return []
 
     def get_installed_versions(self) -> List[InstanceInfo]:

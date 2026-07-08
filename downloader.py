@@ -439,16 +439,61 @@ def _get_liteloader_versions(version: str) -> Optional[str]:
             logger.warning(f"LiteLoader 不支持 MC {version}")
             return None
 
-        # 获取最新正式/快照版本
-        artifacts = mc_data.get("artifacts", {})
-        liteloader_data = artifacts.get("com.mumfrey:liteloader", {})
-        ver_data = liteloader_data.get(version, {})
-        latest = ver_data.get("latest")
-        if latest and latest.get("version"):
-            return latest["version"]
+        # BMCLAPI 镜像使用英式拼写 "artefacts"，hash 为 key
+        artefacts = mc_data.get("artefacts", {})
+        liteloader_data = artefacts.get("com.mumfrey:liteloader", {})
 
-        # 尝试从 repoitory 分支中获取
-        repo = mc_data.get("repoitory", {})
+        best_version = None
+        best_ver_num = -1
+
+        for _hash, entry in liteloader_data.items():
+            if not isinstance(entry, dict):
+                continue
+            ver = entry.get("version")
+            if not ver:
+                continue
+            stream = entry.get("stream", "")
+            if stream and stream != "RELEASE":
+                continue
+            try:
+                parts = ver.split("_")[-1]
+                ver_num = int(parts)
+            except (ValueError, IndexError):
+                ver_num = 0
+            if ver_num > best_ver_num:
+                best_ver_num = ver_num
+                best_version = ver
+
+        # 回退：无 RELEASE 时取任何 stream 的最高版本
+        if best_version is None:
+            for _hash, entry in liteloader_data.items():
+                if not isinstance(entry, dict):
+                    continue
+                ver = entry.get("version")
+                if not ver:
+                    continue
+                try:
+                    parts = ver.split("_")[-1]
+                    ver_num = int(parts)
+                except (ValueError, IndexError):
+                    ver_num = 0
+                if ver_num > best_ver_num:
+                    best_ver_num = ver_num
+                    best_version = ver
+
+        if best_version:
+            return best_version
+
+        # 回退：snapshots（1.12.2 等版本只有 SNAPSHOT）
+        snapshots = mc_data.get("snapshots", {})
+        snap_ll = snapshots.get("com.mumfrey:liteloader", {})
+        snap_latest = snap_ll.get("latest", {})
+        snap_ver = snap_latest.get("version")
+        if snap_ver:
+            return snap_ver
+
+        # 最后回退：repo.lastSuccess
+        repo = mc_data.get("repo", {})
         last_success = repo.get("lastSuccess", {})
         return last_success.get("version")
     except Exception as e:
@@ -574,9 +619,8 @@ def _get_legacyfabric_versions(version: str) -> Optional[str]:
                            headers={"User-Agent": "FMCL/2.11.0"})
         if resp2.status_code != 200:
             return None
-        loader_versions = [_json.loads(line.strip()) for line in resp2.text.strip().split("\n") if line.strip()]
-        loader_versions = [lv for lv in loader_versions if isinstance(lv, dict)]
-        if not loader_versions:
+        loader_versions = _json.loads(resp2.text)
+        if not isinstance(loader_versions, list) or not loader_versions:
             return None
 
         # 取最新版本
@@ -856,7 +900,11 @@ _OPTIFINE_BMCLAPI_LIST_URL = "https://bmclapi2.bangbang93.com/optifine/{version}
 
 
 def _get_optifine_versions(version: str) -> Optional[str]:
-    """获取指定 MC 版本的最新 OptiFine 版本号"""
+    """获取指定 MC 版本的最新 OptiFine 版本号
+
+    BMCLAPI 返回格式: [{"patch": "E7", "type": "HD_U", ...}, ...]
+    返回格式: "{type}_{patch}" (如 "HD_U_E7", "HD_U_G6_pre1")
+    """
     import json as _json
     try:
         url = _OPTIFINE_BMCLAPI_LIST_URL.format(version=version)
@@ -868,9 +916,14 @@ def _get_optifine_versions(version: str) -> Optional[str]:
         versions = _json.loads(resp.text)
         if not versions:
             return None
-        # 取最新版本（通常最后一个是稳定版）
         latest = versions[-1]
-        return latest
+        if isinstance(latest, dict):
+            of_type = latest.get("type", "HD_U")
+            of_patch = latest.get("patch", "")
+            return f"{of_type}_{of_patch}"
+        elif isinstance(latest, str):
+            return latest
+        return None
     except Exception as e:
         logger.error(f"获取 OptiFine 版本列表失败: {e}")
         return None
@@ -922,12 +975,12 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
         pass
 
     # 下载 OptiFine 安装器
-    installer_url = _OPTIFINE_BMCLAPI_LIST_URL.format(version=version)
-    # 实际下载 URL 需要获取具体文件的链接
     # BMCLAPI OptiFine 下载格式:
-    # https://bmclapi2.bangbang93.com/optifine/{mc_version}/{of_type}/{of_patch}
-    of_type = loader_version.split("_")[0] if "_" in loader_version else "HD_U"
-    of_patch = loader_version.split("_")[-1] if "_" in loader_version else loader_version
+    # https://bmclapi2.bangbang93.com/optifine/{mc_version}/{type}/{patch}
+    # loader_version 格式为 "{type}_{patch}", 按最后一个 _ 拆分
+    last_underscore = loader_version.rfind("_")
+    of_type = loader_version[:last_underscore] if last_underscore > 0 else "HD_U"
+    of_patch = loader_version[last_underscore + 1:] if last_underscore > 0 else loader_version
     download_url = f"https://bmclapi2.bangbang93.com/optifine/{version}/{of_type}/{of_patch}"
 
     logger.info(f"下载 OptiFine 安装器: {download_url}")
