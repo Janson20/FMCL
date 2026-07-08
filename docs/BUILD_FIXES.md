@@ -240,44 +240,6 @@ PLATFORM=win ARCH=amd64 pyinstaller build.spec --noconfirm
 
 ---
 
-## 下一步
-
-### 立即测试
-
-```bash
-# 1. 提交修复
-git add .
-git commit -m "fix(ci): 修复构建配置和Node.js弃用警告"
-
-# 2. 推送到远程
-git push origin main
-
-# 3. 检查CI是否通过
-# 访问 GitHub Actions 页面查看结果
-
-# 4. 如果CI通过，创建测试发布
-python scripts/release.py 2.0.1
-git push origin main
-git push origin v2.0.1
-```
-
-### 长期改进
-
-1. **代码签名**
-   - 购买代码签名证书
-   - 在 CI 中添加签名步骤
-
-2. **自动更新**
-   - 实现自动检查更新功能
-   - 提供增量更新支持
-
-3. **性能优化**
-   - 优化构建大小
-   - 减少启动时间
-   - 改进内存使用
-
----
-
 ## 支持的平台
 
 ✅ Windows 10/11 (x64)

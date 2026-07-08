@@ -56,6 +56,8 @@ chmod +x scripts/setup_linux.sh
 - 设置正确的所有权和权限
 - 创建 `~/.minecraft` 和 `~/.fmcl` 目录
 
+> 注：Linux 一键安装请使用 `scripts/install.sh`，详见 [SETUP.md](SETUP.md)。
+
 ### 方法二：手动设置
 
 ```bash
