@@ -686,31 +686,11 @@ class PluginManager:
 
     def _check_fmcl_version(self, manifest: PluginManifest) -> Tuple[bool, str]:
         """检查 FMCL 版本兼容性"""
-        # 尝试通过 ui.constants 或 updater 获取运行时版本号，最后回退到读取 pyproject.toml
         try:
-            from ui.constants import _get_fmcl_version
-            fmcl_ver = _get_fmcl_version()
-        except Exception:
-            try:
-                from updater import get_current_version
-                fmcl_ver = get_current_version()
-            except Exception:
-                # 最后回退：尝试读取 pyproject.toml
-                try:
-                    import re
-                    pyproject_path = Path(__file__).parent.parent / "pyproject.toml"
-                    if pyproject_path.exists():
-                        content = pyproject_path.read_text(encoding="utf-8")
-                        m = re.search(r'version\s*=\s*"([^"]+)"', content)
-                        fmcl_ver = m.group(1) if m else "unknown"
-                    else:
-                        fmcl_ver = "unknown"
-                except Exception:
-                    fmcl_ver = "unknown"
-
-        if fmcl_ver == "unknown":
-            logger.warning("无法确定 FMCL 版本，跳过严格版本校验并视为兼容")
-            return True, ""
+            from config import Config
+            fmcl_ver = "2.10.4"  # TODO: 后续从 pyproject.toml 动态读取
+        except ImportError:
+            fmcl_ver = "2.10.4"
 
         # 最低版本检查
         if self._dependency.compare_versions(fmcl_ver, manifest.min_fmcl_version) < 0:
