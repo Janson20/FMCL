@@ -318,14 +318,21 @@ class AsyncBatchDownloader:
 
 # ─── 模组加载器安装 ──────────────────────────────────────────────
 
-# 模组加载器名称映射: 用户选择 -> minecraft_launcher_lib mod_loader ID
-# 参考 PCL-CE: McInstanceState 枚举定义的加载器分类
+# 模组加载器名称映射: 用户选择 -> minecraft_launcher_lib mod_loader ID / 自定义安装 ID
+# 参考 PCL-CE: McInstanceState 枚举定义的加载器分类 + HMCL 扩展
 MOD_LOADER_IDS = {
     "Forge": "forge",
     "Fabric": "fabric",
     "NeoForge": "neoforge",
     "Quilt": "quilt",
+    "LiteLoader": "liteloader",
+    "LegacyFabric": "legacyfabric",
+    "Cleanroom": "cleanroom",
+    "OptiFine": "optifine",
 }
+
+# 自定义安装的加载器（不走 minecraft_launcher_lib.mod_loader）
+_CUSTOM_INSTALL_LOADERS = {"liteloader", "legacyfabric", "cleanroom", "optifine"}
 
 
 def install_mod_loader(
@@ -341,7 +348,8 @@ def install_mod_loader(
     安装模组加载器（会自动安装原版 Minecraft 如果未安装）
 
     Args:
-        loader: 加载器类型 ("Forge", "Fabric", "NeoForge")
+        loader: 加载器类型 ("Forge", "Fabric", "NeoForge", "Quilt",
+                "LiteLoader", "LegacyFabric", "Cleanroom", "OptiFine")
         version: Minecraft版本 (如 "1.20.4" 或 "26.1")
         minecraft_dir: Minecraft目录
         num_threads: 线程数 (未使用，保留兼容)
@@ -351,8 +359,8 @@ def install_mod_loader(
 
     Returns:
         (installed_version_id, loader_version) 元组
-        installed_version_id: 安装后的完整版本ID (如 "1.20.4-forge-49.0.26" 或 "26.1-forge-1.0.0")
-        loader_version: 加载器版本号 (如 "49.0.26")
+        installed_version_id: 安装后的完整版本ID
+        loader_version: 加载器版本号
 
     Raises:
         ValueError: 不支持的加载器类型
@@ -363,6 +371,18 @@ def install_mod_loader(
     loader_id = MOD_LOADER_IDS.get(loader)
     if not loader_id:
         raise ValueError(f"不支持的模组加载器: {loader}，支持: {list(MOD_LOADER_IDS.keys())}")
+
+    # 自定义安装路径（不走 minecraft_launcher_lib.mod_loader）
+    if loader_id in _CUSTOM_INSTALL_LOADERS:
+        custom_installers = {
+            "liteloader": _install_liteloader,
+            "legacyfabric": _install_legacyfabric,
+            "cleanroom": _install_cleanroom,
+            "optifine": _install_optifine,
+        }
+        installer = custom_installers.get(loader_id)
+        if installer:
+            return installer(version, minecraft_dir, java)
 
     try:
         logger.info(f"正在安装 {loader} for Minecraft {version}")
@@ -392,3 +412,590 @@ def install_mod_loader(
         logger.error(f"安装 {loader} 失败: {str(e)}")
         slog.error("mod_loader_install_failed", loader=loader_id, version=version, error=str(e))
         raise
+
+
+# ══════════════════════════════════════════════════════════════════════
+# LiteLoader 安装
+# ══════════════════════════════════════════════════════════════════════
+
+_LITELOADER_VERSIONS_URL = "https://dl.liteloader.com/versions/versions.json"
+_LITELOADER_MIRROR_URL = "https://bmclapi.bangbang93.com/maven/com/mumfrey/liteloader/versions.json"
+
+
+def _get_liteloader_versions(version: str) -> Optional[str]:
+    """获取指定 MC 版本的最新 LiteLoader 版本号"""
+    import json as _json
+    try:
+        url = _LITELOADER_MIRROR_URL if _is_mirror_enabled() else _LITELOADER_VERSIONS_URL
+        resp = requests.get(url, timeout=30,
+                          headers={"User-Agent": "FMCL/2.11.0"})
+        if resp.status_code != 200:
+            logger.warning(f"获取 LiteLoader 版本列表失败: HTTP {resp.status_code}")
+            return None
+        data = _json.loads(resp.text)
+        versions_map = data.get("versions", {})
+        mc_data = versions_map.get(version)
+        if not mc_data:
+            logger.warning(f"LiteLoader 不支持 MC {version}")
+            return None
+
+        # 获取最新正式/快照版本
+        artifacts = mc_data.get("artifacts", {})
+        liteloader_data = artifacts.get("com.mumfrey:liteloader", {})
+        ver_data = liteloader_data.get(version, {})
+        latest = ver_data.get("latest")
+        if latest and latest.get("version"):
+            return latest["version"]
+
+        # 尝试从 repoitory 分支中获取
+        repo = mc_data.get("repoitory", {})
+        last_success = repo.get("lastSuccess", {})
+        return last_success.get("version")
+    except Exception as e:
+        logger.error(f"解析 LiteLoader 版本列表失败: {e}")
+        return None
+
+
+def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> Tuple[str, str]:
+    """
+    安装 LiteLoader（参考 HMCL LiteLoaderInstallTask）
+
+    LiteLoader 必须安装在一个已有 Forge 的版本上（通过 tweakClass 注入）。
+    这里创建一个新的版本 JSON patch，添加 LiteLoader library 和 tweakClass 参数。
+
+    Args:
+        version: Minecraft 版本号
+        minecraft_dir: .minecraft 目录
+        java: Java 可执行文件路径
+
+    Returns:
+        (installed_version_id, loader_version)
+    """
+    import json as _json
+    import minecraft_launcher_lib
+
+    loader_version = _get_liteloader_versions(version)
+    if not loader_version:
+        raise ValueError(f"未找到 MC {version} 对应的 LiteLoader 版本")
+
+    logger.info(f"安装 LiteLoader {loader_version} for MC {version}")
+
+    # 确保原版已安装
+    vanilla_version_id = version
+    try:
+        minecraft_launcher_lib.install.install_minecraft_version(
+            version, minecraft_dir
+        )
+    except Exception:
+        pass
+
+    # 读取原版版本 JSON
+    versions_dir = Path(minecraft_dir) / "versions" / vanilla_version_id
+    version_json_path = versions_dir / f"{vanilla_version_id}.json"
+    if not version_json_path.exists():
+        raise FileNotFoundError(f"版本 JSON 不存在: {version_json_path}")
+
+    with open(version_json_path, "r", encoding="utf-8") as f:
+        base_version_json = _json.loads(f.read())
+
+    # 构建 LiteLoader 版本 ID
+    installed_version_id = f"{version}-liteloader-{loader_version}"
+
+    # 检查是否已存在 LiteLoader 安装
+    target_dir = Path(minecraft_dir) / "versions" / installed_version_id
+    if target_dir.exists():
+        logger.info(f"LiteLoader 版本 {installed_version_id} 已存在，跳过安装")
+        return installed_version_id, loader_version
+
+    # 构建 LiteLoader library
+    lite_lib = {
+        "name": f"com.mumfrey:liteloader:{loader_version}",
+        "url": "http://dl.liteloader.com/versions/"
+    }
+
+    # 创建新版本 JSON（patch 格式，继承原版）
+    new_version = {
+        "id": installed_version_id,
+        "inheritsFrom": vanilla_version_id,
+        "type": "release",
+        "mainClass": "net.minecraft.launchwrapper.Launch",
+        "arguments": {
+            "game": [
+                "--tweakClass",
+                "com.mumfrey.liteloader.launch.LiteLoaderTweaker"
+            ]
+        },
+        "libraries": [lite_lib],
+    }
+
+    # 写入新版本 JSON
+    target_dir.mkdir(parents=True, exist_ok=True)
+    new_json_path = target_dir / f"{installed_version_id}.json"
+    with open(new_json_path, "w", encoding="utf-8") as f:
+        _json.dump(new_version, f, indent=2)
+
+    logger.info(f"LiteLoader 安装成功: {installed_version_id}")
+    slog.info("mod_loader_installed", loader="liteloader", version=version,
+              installed_version_id=installed_version_id, loader_version=loader_version)
+    return installed_version_id, loader_version
+
+
+# ══════════════════════════════════════════════════════════════════════
+# LegacyFabric 安装
+# ══════════════════════════════════════════════════════════════════════
+
+_LEGACY_FABRIC_GAME_URL = "https://meta.legacyfabric.net/v2/versions/game"
+_LEGACY_FABRIC_LOADER_URL = "https://meta.legacyfabric.net/v2/versions/loader"
+_LEGACY_FABRIC_LAUNCH_META_URL = "https://meta.legacyfabric.net/v2/versions/loader/{game}/{loader}"
+
+
+def _get_legacyfabric_versions(version: str) -> Optional[str]:
+    """获取指定 MC 版本的最新 LegacyFabric Loader 版本号"""
+    import json as _json
+    try:
+        # 获取游戏版本列表
+        resp = requests.get(_LEGACY_FABRIC_GAME_URL, timeout=30,
+                          headers={"User-Agent": "FMCL/2.11.0"})
+        if resp.status_code != 200:
+            return None
+        game_versions = {gv.get("version"): gv for gv in _json.loads(resp.text)}
+
+        # 标准化版本号（LegacyFabric 用 2point0_ 前缀表示 2.0）
+        normalized = version
+        if version.startswith("2.0"):
+            normalized = "2point0_" + version[4:]
+
+        if normalized not in game_versions:
+            logger.warning(f"LegacyFabric 不支持 MC {version}")
+            return None
+
+        # 获取 loader 版本列表
+        resp2 = requests.get(_LEGACY_FABRIC_LOADER_URL, timeout=30,
+                           headers={"User-Agent": "FMCL/2.11.0"})
+        if resp2.status_code != 200:
+            return None
+        loader_versions = [_json.loads(line.strip()) for line in resp2.text.strip().split("\n") if line.strip()]
+        loader_versions = [lv for lv in loader_versions if isinstance(lv, dict)]
+        if not loader_versions:
+            return None
+
+        # 取最新版本
+        latest = loader_versions[-1]
+        return latest.get("version")
+    except Exception as e:
+        logger.error(f"获取 LegacyFabric 版本列表失败: {e}")
+        return None
+
+
+def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) -> Tuple[str, str]:
+    """
+    安装 LegacyFabric（参考 HMCL LegacyFabricInstallTask）
+
+    Args:
+        version: Minecraft 版本号
+        minecraft_dir: .minecraft 目录
+        java: Java 可执行文件路径
+
+    Returns:
+        (installed_version_id, loader_version)
+    """
+    import json as _json
+    import minecraft_launcher_lib
+
+    loader_version = _get_legacyfabric_versions(version)
+    if not loader_version:
+        raise ValueError(f"未找到 MC {version} 对应的 LegacyFabric 版本")
+
+    logger.info(f"安装 LegacyFabric Loader {loader_version} for MC {version}")
+
+    installed_version_id = f"{version}-legacyfabric-{loader_version}"
+    target_dir = Path(minecraft_dir) / "versions" / installed_version_id
+    if target_dir.exists():
+        logger.info(f"LegacyFabric 版本 {installed_version_id} 已存在，跳过安装")
+        return installed_version_id, loader_version
+
+    # 确保原版已安装
+    try:
+        minecraft_launcher_lib.install.install_minecraft_version(
+            version, minecraft_dir
+        )
+    except Exception:
+        pass
+
+    # 标准化版本号用于 API
+    normalized = version
+    if version.startswith("2.0"):
+        normalized = "2point0_" + version[4:]
+
+    # 获取 launcher meta
+    launch_meta_url = _LEGACY_FABRIC_LAUNCH_META_URL.format(
+        game=normalized, loader=loader_version
+    )
+    resp = requests.get(launch_meta_url, timeout=30,
+                      headers={"User-Agent": "FMCL/2.11.0"})
+    resp.raise_for_status()
+    launcher_meta = _json.loads(resp.text)
+
+    # 提取 mainClass
+    main_class_obj = launcher_meta.get("launcherMeta", {}).get("mainClass", {})
+    if isinstance(main_class_obj, dict):
+        main_class = main_class_obj.get("client", "net.fabricmc.loader.impl.launch.knot.KnotClient")
+    else:
+        main_class = main_class_obj
+
+    # 提取 libraries
+    libraries_obj = launcher_meta.get("launcherMeta", {}).get("libraries", {})
+    libraries = []
+    for side in ("common", "server"):
+        for lib in libraries_obj.get(side, []):
+            libraries.append(lib)
+
+    # 添加 intermediary 和 loader
+    intermediary = launcher_meta.get("intermediary", {})
+    loader_info = launcher_meta.get("loader", {})
+    if intermediary.get("maven"):
+        libraries.append({"name": intermediary["maven"]})
+    if loader_info.get("maven"):
+        libraries.append({"name": loader_info["maven"]})
+
+    # 检查 launchwrapper
+    arguments = {"game": []}
+    if launcher_meta.get("launcherMeta", {}).get("launchwrapper"):
+        tweakers = launcher_meta["launcherMeta"]["launchwrapper"].get("tweakers", {})
+        client_tweakers = tweakers.get("client", [])
+        if client_tweakers:
+            arguments["game"].extend(["--tweakClass", client_tweakers[0]])
+
+    # 创建新版本 JSON
+    vanilla_version_id = version
+    new_version = {
+        "id": installed_version_id,
+        "inheritsFrom": vanilla_version_id,
+        "type": "release",
+        "mainClass": main_class,
+        "arguments": arguments,
+        "libraries": libraries,
+    }
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    new_json_path = target_dir / f"{installed_version_id}.json"
+    with open(new_json_path, "w", encoding="utf-8") as f:
+        _json.dump(new_version, f, indent=2)
+
+    logger.info(f"LegacyFabric 安装成功: {installed_version_id}")
+    slog.info("mod_loader_installed", loader="legacyfabric", version=version,
+              installed_version_id=installed_version_id, loader_version=loader_version)
+    return installed_version_id, loader_version
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Cleanroom 安装
+# ══════════════════════════════════════════════════════════════════════
+
+_CLEANROOM_INDEX_URL = "https://hmcl.glavo.site/metadata/cleanroom/index.json"
+_CLEANROOM_INSTALLER_URL = "https://hmcl.glavo.site/metadata/cleanroom/files/cleanroom-{version}-installer.jar"
+
+
+def _get_cleanroom_versions(version: str) -> Optional[str]:
+    """获取指定 MC 版本的最新 Cleanroom 版本号"""
+    import json as _json
+    if version != "1.12.2":
+        logger.warning(f"Cleanroom 仅支持 MC 1.12.2，不支持 {version}")
+        return None
+    try:
+        resp = requests.get(_CLEANROOM_INDEX_URL, timeout=30,
+                          headers={"User-Agent": "FMCL/2.11.0"})
+        if resp.status_code != 200:
+            return None
+        releases = _json.loads(resp.text)
+        if not releases:
+            return None
+        # 取最新版本
+        latest = releases[-1]
+        return latest.get("name")
+    except Exception as e:
+        logger.error(f"获取 Cleanroom 版本列表失败: {e}")
+        return None
+
+
+def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tuple[str, str]:
+    """
+    安装 Cleanroom（参考 HMCL CleanroomInstallTask）
+
+    Cleanroom 是 Forge 的 forks，仅支持 1.12.2。
+    安装方式：下载 Cleanroom 安装器 jar，手动执行 Forge 式安装（提取
+    install_profile.json 中的 version.json、安装 libraries、提取 forge universal jar），
+    最后将版本 ID 改为包含 "cleanroom" 标识。
+
+    Args:
+        version: Minecraft 版本号（仅 "1.12.2"）
+        minecraft_dir: .minecraft 目录
+        java: Java 可执行文件路径
+
+    Returns:
+        (installed_version_id, loader_version)
+    """
+    import json as _json
+    import minecraft_launcher_lib
+    import tempfile
+    import zipfile
+    import shutil
+
+    loader_version = _get_cleanroom_versions(version)
+    if not loader_version:
+        raise ValueError(f"未找到 MC {version} 对应的 Cleanroom 版本")
+
+    logger.info(f"安装 Cleanroom {loader_version} for MC {version}")
+
+    installed_version_id = f"{version}-cleanroom-{loader_version}"
+    target_dir = Path(minecraft_dir) / "versions" / installed_version_id
+    if target_dir.exists():
+        logger.info(f"Cleanroom 版本 {installed_version_id} 已存在，跳过安装")
+        return installed_version_id, loader_version
+
+    # 确保原版已安装
+    try:
+        minecraft_launcher_lib.install.install_minecraft_version(
+            version, minecraft_dir
+        )
+    except Exception:
+        pass
+
+    # 下载 Cleanroom 安装器
+    installer_url = _CLEANROOM_INSTALLER_URL.format(version=loader_version)
+    logger.info(f"下载 Cleanroom 安装器: {installer_url}")
+    resp = requests.get(installer_url, timeout=120,
+                      headers={"User-Agent": "FMCL/2.11.0"})
+    resp.raise_for_status()
+
+    with tempfile.NamedTemporaryFile(suffix=".jar", delete=False) as tmp:
+        tmp.write(resp.content)
+        installer_path = tmp.name
+
+    try:
+        with zipfile.ZipFile(installer_path, "r") as zf:
+            # 读取 install_profile.json
+            with zf.open("install_profile.json", "r") as f:
+                install_profile = _json.loads(f.read())
+
+            minecraft_version = install_profile.get("minecraft") or install_profile.get("install", {}).get("minecraft", version)
+            forge_version = f"{minecraft_version}-{loader_version}"
+
+            # 安装 libraries
+            if "libraries" in install_profile:
+                from minecraft_launcher_lib.install import install_libraries
+                install_libraries(minecraft_version, install_profile["libraries"], str(minecraft_dir), {})
+
+            # 提取 version.json
+            client_json = None
+            if "version.json" in zf.namelist():
+                with zf.open("version.json", "r") as f:
+                    client_json = _json.loads(f.read())
+            elif "versionInfo" in install_profile:
+                client_json = install_profile["versionInfo"]
+
+            if client_json is None:
+                raise RuntimeError("无法从 Cleanroom 安装器中提取 version.json")
+
+            # 使用 Cleanroom 版本 ID
+            client_json["id"] = installed_version_id
+
+            target_dir.mkdir(parents=True, exist_ok=True)
+            json_path = target_dir / f"{installed_version_id}.json"
+            with open(json_path, "w", encoding="utf-8") as f:
+                _json.dump(client_json, f, ensure_ascii=False, indent=4)
+
+            # 提取 forge universal jar
+            # Cleanroom 的 maven 路径: com.cleanroommc:cleanroom 而不是 net.minecraftforge:forge
+            cleanroom_lib_path = os.path.join(
+                minecraft_dir, "libraries", "com", "cleanroommc", "cleanroom", forge_version
+            )
+            os.makedirs(cleanroom_lib_path, exist_ok=True)
+
+            # 尝试多种可能的 universal jar 路径
+            possible_paths = [
+                f"maven/com/cleanroommc/cleanroom/{forge_version}/cleanroom-{forge_version}-universal.jar",
+                f"maven/net/minecraftforge/forge/{forge_version}/forge-{forge_version}-universal.jar",
+                f"forge-{forge_version}-universal.jar",
+                f"cleanroom-{forge_version}-universal.jar",
+            ]
+            extracted = False
+            for path in possible_paths:
+                try:
+                    with zf.open(path) as src:
+                        dest_file = os.path.join(
+                            cleanroom_lib_path,
+                            f"cleanroom-{forge_version}.jar"
+                        )
+                        with open(dest_file, "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                    extracted = True
+                    break
+                except KeyError:
+                    continue
+
+            if not extracted:
+                logger.warning("未在 Cleanroom 安装器中找到 universal jar，但不影响安装")
+    finally:
+        try:
+            os.unlink(installer_path)
+        except Exception:
+            pass
+
+    logger.info(f"Cleanroom 安装成功: {installed_version_id}")
+    slog.info("mod_loader_installed", loader="cleanroom", version=version,
+              installed_version_id=installed_version_id, loader_version=loader_version)
+    return installed_version_id, loader_version
+
+
+# ══════════════════════════════════════════════════════════════════════
+# OptiFine 安装
+# ══════════════════════════════════════════════════════════════════════
+
+_OPTIFINE_BMCLAPI_LIST_URL = "https://bmclapi2.bangbang93.com/optifine/{version}"
+
+
+def _get_optifine_versions(version: str) -> Optional[str]:
+    """获取指定 MC 版本的最新 OptiFine 版本号"""
+    import json as _json
+    try:
+        url = _OPTIFINE_BMCLAPI_LIST_URL.format(version=version)
+        resp = requests.get(url, timeout=30,
+                          headers={"User-Agent": "FMCL/2.11.0"})
+        if resp.status_code != 200:
+            logger.warning(f"获取 OptiFine 版本列表失败: HTTP {resp.status_code}")
+            return None
+        versions = _json.loads(resp.text)
+        if not versions:
+            return None
+        # 取最新版本（通常最后一个是稳定版）
+        latest = versions[-1]
+        return latest
+    except Exception as e:
+        logger.error(f"获取 OptiFine 版本列表失败: {e}")
+        return None
+
+
+def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tuple[str, str]:
+    """
+    安装 OptiFine（参考 HMCL OptiFineInstallTask）
+
+    OptiFine 安装流程：
+    1. 下载 OptiFine 安装器 JAR
+    2. 从安装器中提取 OptiFine 类库
+    3. 创建版本 JSON patch，添加 OptiFine library 和 tweakClass
+
+    注意: OptiFine 必须在最后安装（在 Forge 之后），且依赖 launchwrapper。
+
+    Args:
+        version: Minecraft 版本号
+        minecraft_dir: .minecraft 目录
+        java: Java 可执行文件路径
+
+    Returns:
+        (installed_version_id, loader_version)
+    """
+    import json as _json
+    import minecraft_launcher_lib
+    import tempfile
+    import zipfile
+    import shutil
+
+    loader_version = _get_optifine_versions(version)
+    if not loader_version:
+        raise ValueError(f"未找到 MC {version} 对应的 OptiFine 版本")
+
+    logger.info(f"安装 OptiFine {loader_version} for MC {version}")
+
+    installed_version_id = f"{version}-optifine-{loader_version}"
+    target_dir = Path(minecraft_dir) / "versions" / installed_version_id
+    if target_dir.exists():
+        logger.info(f"OptiFine 版本 {installed_version_id} 已存在，跳过安装")
+        return installed_version_id, loader_version
+
+    # 确保原版已安装
+    try:
+        minecraft_launcher_lib.install.install_minecraft_version(
+            version, minecraft_dir
+        )
+    except Exception:
+        pass
+
+    # 下载 OptiFine 安装器
+    installer_url = _OPTIFINE_BMCLAPI_LIST_URL.format(version=version)
+    # 实际下载 URL 需要获取具体文件的链接
+    # BMCLAPI OptiFine 下载格式:
+    # https://bmclapi2.bangbang93.com/optifine/{mc_version}/{of_type}/{of_patch}
+    of_type = loader_version.split("_")[0] if "_" in loader_version else "HD_U"
+    of_patch = loader_version.split("_")[-1] if "_" in loader_version else loader_version
+    download_url = f"https://bmclapi2.bangbang93.com/optifine/{version}/{of_type}/{of_patch}"
+
+    logger.info(f"下载 OptiFine 安装器: {download_url}")
+    resp = requests.get(download_url, timeout=120,
+                      headers={"User-Agent": "FMCL/2.11.0"})
+    resp.raise_for_status()
+
+    with tempfile.NamedTemporaryFile(suffix=".jar", delete=False) as tmp:
+        tmp.write(resp.content)
+        installer_path = tmp.name
+
+    try:
+        # 从安装器提取 OptiFine 库文件
+        vanilla_version_id = version
+
+        # 创建 OptiFine 版本 JSON (patch 格式)
+        new_version = {
+            "id": installed_version_id,
+            "inheritsFrom": vanilla_version_id,
+            "type": "release",
+            "mainClass": "net.minecraft.launchwrapper.Launch",
+            "arguments": {
+                "game": [
+                    "--tweakClass",
+                    "optifine.OptiFineTweaker"
+                ]
+            },
+            "libraries": [
+                {"name": "net.minecraft:launchwrapper:1.12"},
+                {
+                    "name": f"optifine:OptiFine:{version}_{loader_version}",
+                },
+            ],
+        }
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        new_json_path = target_dir / f"{installed_version_id}.json"
+        with open(new_json_path, "w", encoding="utf-8") as f:
+            _json.dump(new_version, f, indent=2)
+
+        # 将 OptiFine 安装器复制到 libraries 目录
+        # 路径: libraries/optifine/OptiFine/{mc_version}_{of_version}/OptiFine-{mc_version}_{of_version}.jar
+        maven_version = f"{version}_{loader_version}"
+        of_lib_dir = Path(minecraft_dir) / "libraries" / "optifine" / "OptiFine" / maven_version
+        of_lib_dir.mkdir(parents=True, exist_ok=True)
+        of_lib_path = of_lib_dir / f"OptiFine-{maven_version}.jar"
+        shutil.copy2(installer_path, str(of_lib_path))
+
+    finally:
+        try:
+            os.unlink(installer_path)
+        except Exception:
+            pass
+
+    logger.info(f"OptiFine 安装成功: {installed_version_id}")
+    slog.info("mod_loader_installed", loader="optifine", version=version,
+              installed_version_id=installed_version_id, loader_version=loader_version)
+    return installed_version_id, loader_version
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 镜像源辅助函数
+# ══════════════════════════════════════════════════════════════════════
+
+def _is_mirror_enabled() -> bool:
+    """检测镜像源是否启用"""
+    try:
+        from mirror import mirror
+        return mirror.enabled
+    except Exception:
+        return False

@@ -73,6 +73,15 @@ MIRROR_URLS = {
         "https://maven.fabricmc.net",
         "https://bmclapi2.bangbang93.com/maven",
     ),
+    # LegacyFabric
+    "legacyfabric_meta": (
+        "https://meta.legacyfabric.net",
+        "https://bmclapi2.bangbang93.com/fabric-meta",
+    ),
+    "legacyfabric_maven": (
+        "https://maven.legacyfabric.net",
+        "https://bmclapi2.bangbang93.com/maven",
+    ),
     # NeoForge
     "neoforge_forge": (
         "https://maven.neoforged.net/releases/net/neoforged/forge",
@@ -86,6 +95,21 @@ MIRROR_URLS = {
     "liteloader": (
         "http://dl.liteloader.com/versions/versions.json",
         "https://bmclapi.bangbang93.com/maven/com/mumfrey/liteloader/versions.json",
+    ),
+    # 额外 maven 仓库
+    "liteloader_maven": (
+        "http://dl.liteloader.com/versions",
+        "https://bmclapi2.bangbang93.com/maven",
+    ),
+    # OptiFine
+    "optifine_list": (
+        "https://optifine.cn/downloads",
+        "https://bmclapi2.bangbang93.com/optifine",
+    ),
+    # Cleanroom
+    "cleanroom_meta": (
+        "https://hmcl.glavo.site/metadata/cleanroom",
+        "https://bmclapi2.bangbang93.com/optifine",
     ),
     # authlib-injector
     "authlib_injector": (
@@ -104,6 +128,9 @@ URL_REPLACE_RULES: List[tuple] = [
     MIRROR_URLS["forge_maven_direct"],
     MIRROR_URLS["fabric_meta"],
     MIRROR_URLS["fabric_maven"],
+    MIRROR_URLS["legacyfabric_meta"],
+    MIRROR_URLS["legacyfabric_maven"],
+    MIRROR_URLS["liteloader_maven"],
     MIRROR_URLS["neoforge_forge"],
     MIRROR_URLS["neoforge_neoforge"],
 ]

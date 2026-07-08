@@ -9,7 +9,7 @@
 | 分类 | 简介 | 详情 |
 |------|------|------|
 | 🎮 版本管理 | 浏览/安装/删除 Minecraft 版本，支持正式版与测试版 | 每页 20 个，支持一键选择、快捷操作，JSON 解析版本信息 |
-| 🔧 多模组加载器 | Forge / Fabric / NeoForge / Quilt 一站式安装，版本隔离 | 与原版并行安装，自动适配 YY.D.H 新版本格式，JSON 检测加载器类型 |
+| 🔧 多模组加载器 | Forge / Fabric / NeoForge / Quilt / LiteLoader / LegacyFabric / Cleanroom / OptiFine 一站式安装，版本隔离 | 与原版并行安装，自动适配 YY.D.H 新版本格式，JSON 检测加载器类型 |
 | ⚡ 国内镜像加速 | 内置 BMCLAPI 镜像源，国内下载速度大幅提升 | 一键开关，覆盖版本清单/资源/库/安装器 |
 | 🧩 模组管理 | Modrinth + CurseForge 在线搜索安装，AI 搜索 | 自动匹配版本和加载器，支持依赖递归安装 |
 | 📦 整合包 | 支持 .mrpack 安装与开服，Modrinth 在线下载 | 并行安装优化，分段进度显示 |
@@ -129,7 +129,7 @@ python main.py -A              # 交互模式
 ### 安装版本
 
 1. 在右侧面板输入版本号（如 `1.20.4`）
-2. 选择模组加载器（可选）：Forge / Fabric / NeoForge / 无
+2. 选择模组加载器（可选）：Forge / Fabric / NeoForge / Quilt / LiteLoader / LegacyFabric / Cleanroom / OptiFine
 3. 点击「📥 安装版本」，等待完成
 
 ### 启动游戏

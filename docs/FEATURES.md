@@ -49,8 +49,12 @@
 - **Fabric** - 轻量级模组加载器
 - **NeoForge** - Forge 的社区分支
 - **Quilt** - Fabric 的分支加载器
+- **LiteLoader** - 轻量级加载器（1.5.2 ~ 1.12.2），需配合 Forge 使用
+- **LegacyFabric** - 适用于旧版 MC（1.3.2 ~ 1.13.2）的 Fabric 分支
+- **Cleanroom** - Forge 的分支优化版（仅 1.12.2）
+- **OptiFine** - 性能优化模组，支持光影（全版本）
 - **检测支持**：基于 JSON 全文本检测，支持 PCL-CE 全部 9 种加载器（Forge、NeoForge、Fabric、Quilt、LegacyFabric、Cleanroom、OptiFine、LiteLoader、LabyMod）
-- 其中 Forge/Fabric/NeoForge/Quilt 支持**一键安装**，其余加载器支持检测和版本隔离
+- **全部 8 种加载器支持一键安装**，其余 LabyMod 支持检测和版本隔离
 - 安装模组加载器时自动安装原版 Minecraft（与原版安装**并行执行**，无须额外等待）
 - **版本隔离**：安装了模组加载器的版本自动启用版本隔离，自动创建 `mods/`、`config/`、`saves/`、`resourcepacks/`、`shaderpacks/` 等子目录
 - **新版本格式支持**：NeoForge 安装器已适配 Minecraft 2026 年起的新版本命名规则 `YY.D.H`（如 `26.1`、`26.1.1`），兼容旧版 `1.X.Y` 格式

@@ -305,6 +305,10 @@ class EventHandlerMixin(object):
             _("mod_loader_fabric"): "Fabric",
             _("mod_loader_neoforge"): "NeoForge",
             _("mod_loader_quilt"): "Quilt",
+            _("mod_loader_liteloader"): "LiteLoader",
+            _("mod_loader_legacyfabric"): "LegacyFabric",
+            _("mod_loader_cleanroom"): "Cleanroom",
+            _("mod_loader_optifine"): "OptiFine",
         }
         raw_loader = loader_map.get(loader, "")
         if raw_loader and raw_loader != "None":

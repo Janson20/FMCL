@@ -511,11 +511,11 @@ class MinecraftLauncher:
             "Fabric": True,
             "NeoForge": True,
             "Quilt": True,
-            "OptiFine": False,
-            "LiteLoader": False,
+            "LiteLoader": True,
+            "LegacyFabric": True,
+            "Cleanroom": True,
+            "OptiFine": True,
             "LabyMod": False,
-            "Cleanroom": False,
-            "LegacyFabric": False,
         }
 
     def rename_instance(self, old_name: str, new_name: str) -> Tuple[bool, str]:
