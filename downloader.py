@@ -576,6 +576,13 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
     libraries.append({"name": f"com.mumfrey:liteloader:{loader_version}",
                        "url": "http://dl.liteloader.com/versions/"})
 
+    # LiteLoader API 返回的库可能没有 url 字段，导致 install_libraries 从默认的
+    # https://libraries.minecraft.net 下载失败（该仓库没有 LiteLoader 依赖的 asm 版本）。
+    # 为没有 url 的库补上 Maven Central 源。
+    for lib in libraries:
+        if isinstance(lib, dict) and "url" not in lib:
+            lib["url"] = "https://repo1.maven.org/maven2/"
+
     # 根据父版本格式构建新版本 JSON
     new_version = {
         "id": installed_version_id,
@@ -729,9 +736,9 @@ def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) ->
     intermediary = launcher_meta.get("intermediary", {})
     loader_info = launcher_meta.get("loader", {})
     if intermediary.get("maven"):
-        libraries.append({"name": intermediary["maven"]})
+        libraries.append({"name": intermediary["maven"], "url": "https://maven.fabricmc.net/"})
     if loader_info.get("maven"):
-        libraries.append({"name": loader_info["maven"]})
+        libraries.append({"name": loader_info["maven"], "url": "https://maven.fabricmc.net/"})
 
     # 检查 launchwrapper
     game_args = []

@@ -1258,6 +1258,27 @@ class MinecraftLauncher:
             if not has_fml_ignore_patch:
                 jvm_opts.append("-Dfml.ignorePatchDiscrepancies=true")
 
+        # ── LiteLoader ASM 兼容性 ──
+        # Minecraft 1.12.x 的 LaunchClassLoader 不包含 org.objectweb.asm 在 classloader 排除列表中，
+        # 导致 ASM 类加载失败（ClassNotFoundException）。通过 -Xbootclasspath/a 将 ASM jar
+        # 添加到 bootstrap classloader 路径，使所有 classloader（包括 LaunchClassLoader）可访问。
+        # 参考 HMCL MaintainTask / Forge CoreMod 的处理方式。
+        if loader_type == "liteloader":
+            asm_jar_path = os.path.join(self.minecraft_dir, "libraries", "org", "ow2", "asm", "asm-all", "5.2", "asm-all-5.2.jar")
+            if os.path.isfile(asm_jar_path):
+                jvm_opts.append(f"-Xbootclasspath/a:{asm_jar_path}")
+                logger.info(f"LiteLoader ASM 兼容: 已添加 -Xbootclasspath/a:{asm_jar_path}")
+            else:
+                # 尝试查找其他版本的 ASM jar
+                asm_dir = Path(self.minecraft_dir) / "libraries" / "org" / "ow2" / "asm"
+                if asm_dir.exists():
+                    for asm_subdir in sorted(asm_dir.iterdir(), reverse=True):
+                        jar_candidates = list(asm_subdir.glob("*.jar"))
+                        if jar_candidates:
+                            jvm_opts.append(f"-Xbootclasspath/a:{jar_candidates[0]}")
+                            logger.info(f"LiteLoader ASM 兼容: 已添加 -Xbootclasspath/a:{jar_candidates[0]}")
+                            break
+
         if is_cleanroom:
             # Cleanroom 专用 JVM 优化（参考 Cleanroom Loader 官方文档）
             if not has_gc:
