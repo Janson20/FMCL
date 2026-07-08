@@ -48,6 +48,7 @@ backups/
 plugins/
 ModTranslations/
 .physics_mod_cache/
+.mixin.out/
 
 # Build outputs
 *.exe

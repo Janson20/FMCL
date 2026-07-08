@@ -25,6 +25,7 @@ from version_utils import (
     InstanceInfo,
     has_mod_loader_from_json,
     parse_mod_loader_from_version,
+    resolve_version_jar_path,
 )
 from ui.theme_engine import init_theme_engine, get_theme_engine, Theme
 
@@ -974,6 +975,38 @@ class MinecraftLauncher:
                 options["serverPort"] = str(server_port)
                 logger.info(f"将直连服务器: {server_ip}:{server_port}")
 
+            # 确保版本 JAR 存在（参考 HMCL getVersionJar）
+            # 自定义安装的加载器只创建 JSON，需从 inheritsFrom 父版本复制 JAR
+            self._ensure_version_jar(target_version)
+
+            # 确保 natives 目录存在且包含原生库
+            # 自定义安装的版本没有独立的 natives 目录，需要回退到父版本的 natives
+            if "nativesDirectory" not in options:
+                # minecraft_launcher_lib 默认使用 versions/{id}/natives
+                # 但自定义版本没有 natives，所以指向父版本的 natives
+                default_natives = os.path.join(self.minecraft_dir, "versions", target_version, "natives")
+                parent_natives = None
+                try:
+                    version_json_path = Path(self.minecraft_dir) / "versions" / target_version / f"{target_version}.json"
+                    if version_json_path.exists():
+                        import json as _json
+                        obj = _json.loads(version_json_path.read_text(encoding="utf-8"))
+                        inherits_from = obj.get("inheritsFrom")
+                        if inherits_from:
+                            parent_natives_path = Path(self.minecraft_dir) / "versions" / str(inherits_from).strip() / "natives"
+                            if parent_natives_path.exists() and any(parent_natives_path.iterdir()):
+                                parent_natives = str(parent_natives_path)
+                except Exception:
+                    pass
+
+                if parent_natives:
+                    options["nativesDirectory"] = parent_natives
+                    logger.info(f"使用父版本 natives 目录: {parent_natives}")
+                elif not os.path.isdir(default_natives) or not any(Path(default_natives).iterdir()):
+                    # 确保默认 natives 目录存在
+                    os.makedirs(default_natives, exist_ok=True)
+                    options["nativesDirectory"] = default_natives
+
             # 获取启动命令（Yggdrasil 账号使用 authlib-injector）
             logger.info(f"正在生成启动命令: {target_version}")
             if self._account_system and account_options:
@@ -1108,6 +1141,64 @@ class MinecraftLauncher:
                               "optifine", "labymod" 或 ""
         """
         return parse_mod_loader_from_version(version_id) or ""
+
+    def _ensure_version_jar(self, version_id: str) -> bool:
+        """确保版本 JAR 文件存在
+
+        参考 HMCL DefaultGameRepository.getVersionJar():
+        自定义安装的加载器（LiteLoader、LegacyFabric、Cleanroom、OptiFine）
+        只创建了版本 JSON，没有创建版本 JAR。该方法通过解析 inheritsFrom 链
+        找到实际 JAR 文件，如果当前版本目录下不存在则从父版本复制。
+
+        Args:
+            version_id: 版本 ID
+
+        Returns:
+            是否确保了 JAR 存在
+        """
+        try:
+            jar_path_str = resolve_version_jar_path(version_id, self.minecraft_dir)
+            if not jar_path_str:
+                logger.warning(f"无法解析版本 JAR 路径: {version_id}")
+                return False
+
+            jar_path = Path(jar_path_str)
+            if jar_path.exists() and jar_path.stat().st_size > 0:
+                return True
+
+            # JAR 不存在，尝试从父版本复制
+            version_json_path = Path(self.minecraft_dir) / "versions" / version_id / f"{version_id}.json"
+            if not version_json_path.exists():
+                return False
+
+            import json as _json
+            try:
+                obj = _json.loads(version_json_path.read_text(encoding="utf-8"))
+            except Exception:
+                return False
+
+            inherits_from = obj.get("inheritsFrom")
+            if not inherits_from:
+                logger.warning(f"版本 {version_id} 的 JAR 不存在且无 inheritsFrom")
+                return False
+
+            # 在父版本目录下找 JAR
+            parent_id = str(inherits_from).strip()
+            parent_jar = Path(self.minecraft_dir) / "versions" / parent_id / f"{parent_id}.jar"
+            if not parent_jar.exists() or parent_jar.stat().st_size == 0:
+                logger.warning(f"父版本 {parent_id} 的 JAR 也不存在")
+                return False
+
+            # 复制父版本 JAR 到当前版本目录
+            jar_path.parent.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copy2(str(parent_jar), str(jar_path))
+            logger.info(f"已从父版本 {parent_id} 复制 JAR 到 {jar_path}")
+            return True
+
+        except Exception as e:
+            logger.warning(f"确保版本 JAR 时出错: {e}")
+            return False
 
     def _optimize_jvm_args(self, command: List[str], version_id: str = "") -> List[str]:
         """
