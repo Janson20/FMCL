@@ -493,6 +493,141 @@ class MinecraftLauncher:
         self._instance_info_cache = {}
         logger.debug("实例信息缓存已失效")
 
+    @staticmethod
+    def get_supported_loaders() -> Dict[str, bool]:
+        """获取所有支持的模组加载器列表
+
+        返回 PCL-CE 支持的所有加载器类型及其是否可安装的标志。
+
+        参考 PCL-CE: McInstanceState 枚举。
+
+        Returns:
+            {loader_name: installable} 字典
+            installable=True 的加载器可通过 install_mod_loader() 安装
+            installable=False 的加载器仅支持检测，需外部安装工具
+        """
+        return {
+            "Forge": True,
+            "Fabric": True,
+            "NeoForge": True,
+            "Quilt": True,
+            "OptiFine": False,
+            "LiteLoader": False,
+            "LabyMod": False,
+            "Cleanroom": False,
+            "LegacyFabric": False,
+        }
+
+    def rename_instance(self, old_name: str, new_name: str) -> Tuple[bool, str]:
+        """重命名 Minecraft 实例
+
+        重命名 versions/{old_name}/ 文件夹及其中的 JSON 文件，
+        同时更新 JSON 中的 id 字段。
+
+        参考 PCL-CE: 版本重命名通过重命名文件夹实现。
+
+        Args:
+            old_name: 旧实例名称
+            new_name: 新实例名称
+
+        Returns:
+            (是否成功, 消息) 元组
+        """
+        import json
+        import shutil
+
+        if not old_name or not new_name:
+            return False, "rename_instance_invalid"
+
+        # 验证新名称合法性（只允许字母数字下划线短横线点号）
+        if not re.match(r'^[a-zA-Z0-9_.\-+]+$', new_name):
+            return False, "rename_instance_invalid"
+
+        versions_dir = self.config.get_versions_dir()
+        old_dir = versions_dir / old_name
+        new_dir = versions_dir / new_name
+
+        if not old_dir.exists():
+            return False, f"实例 '{old_name}' 不存在"
+
+        if new_dir.exists():
+            return False, "rename_instance_exists"
+
+        # 找到要重命名的 JSON 文件
+        old_json_path = old_dir / f"{old_name}.json"
+        if not old_json_path.exists():
+            json_files = list(old_dir.glob("*.json"))
+            if len(json_files) == 1:
+                old_json_path = json_files[0]
+            else:
+                return False, "找不到实例 JSON 文件"
+
+        new_json_path = new_dir / f"{new_name}.json"
+
+        try:
+            # 1. 更新 JSON 中的 id 字段
+            json_data = json.loads(old_json_path.read_text(encoding="utf-8"))
+            json_data["id"] = new_name
+
+            # 2. 创建新目录
+            os.makedirs(str(new_dir), exist_ok=False)
+
+            # 3. 移动所有非 JSON 文件（jar、natives 等）
+            for item in os.listdir(str(old_dir)):
+                src = old_dir / item
+                dst = new_dir / item.name
+                if src.is_file() and src.name != old_json_path.name:
+                    shutil.move(str(src), str(dst))
+                elif src.is_dir() and src.name != new_name:
+                    shutil.move(str(src), str(dst))
+
+            # 4. 写入新的 JSON 文件
+            new_json_path.write_text(json.dumps(json_data, indent=2), encoding="utf-8")
+
+            # 5. 删除旧 JSON
+            old_json_path.unlink()
+
+            # 6. 如果旧目录为空，删除
+            if old_dir.exists():
+                try:
+                    remaining = list(old_dir.iterdir())
+                    if not remaining:
+                        old_dir.rmdir()
+                    else:
+                        for leftover in remaining:
+                            if leftover.is_file():
+                                leftover.unlink()
+                            elif leftover.is_dir():
+                                shutil.rmtree(str(leftover))
+                        if not any(old_dir.iterdir()):
+                            old_dir.rmdir()
+                except Exception as e:
+                    logger.debug(f"清理旧目录失败 (不影响重命名): {e}")
+
+            # 7. 重命名版本 JSON（如果存在独立 JSON 文件）
+            version_json = versions_dir / f"{old_name}.json"
+            if version_json.exists():
+                shutil.move(str(version_json), str(versions_dir / f"{new_name}.json"))
+
+            # 8. 失效缓存
+            self.invalidate_instance_cache()
+
+            logger.info(f"实例重命名成功: {old_name} → {new_name}")
+            slog.info("instance_renamed", old_name=old_name, new_name=new_name)
+            return True, new_name
+
+        except FileExistsError:
+            return False, "rename_instance_exists"
+        except Exception as e:
+            logger.error(f"重命名实例失败 ({old_name} → {new_name}): {e}")
+            # 尝试回滚
+            try:
+                if new_dir.exists():
+                    shutil.rmtree(str(new_dir))
+            except Exception:
+                pass
+            return False, str(e)
+
     def install_version(self, version_id: str, mod_loader: str = "无") -> Tuple[bool, str]:
         """
         安装Minecraft版本
@@ -1079,6 +1214,8 @@ class MinecraftLauncher:
             "get_installed_version_ids": self.get_installed_version_ids,
             "get_instance_info": self.get_instance_info,
             "invalidate_instance_cache": self.invalidate_instance_cache,
+            "rename_instance": self.rename_instance,
+            "get_supported_loaders": self.get_supported_loaders,
             "install_version": self.install_version,
             "remove_version": self.remove_version,
             "launch_game": self.launch_game,

@@ -319,10 +319,12 @@ class AsyncBatchDownloader:
 # ─── 模组加载器安装 ──────────────────────────────────────────────
 
 # 模组加载器名称映射: 用户选择 -> minecraft_launcher_lib mod_loader ID
+# 参考 PCL-CE: McInstanceState 枚举定义的加载器分类
 MOD_LOADER_IDS = {
     "Forge": "forge",
     "Fabric": "fabric",
     "NeoForge": "neoforge",
+    "Quilt": "quilt",
 }
 
 

@@ -194,6 +194,95 @@ def show_confirmation(message: str, title: str = "确认") -> bool:
     ).pack(side=ctk.LEFT, padx=10)
 
     dialog.wait_window()
+
+
+def show_input_dialog(parent, title: str, prompt: str, initial_value: str = "") -> Optional[str]:
+    """显示输入对话框，风格与 show_confirmation 一致
+
+    Args:
+        parent: 父窗口
+        title: 弹窗标题
+        prompt: 提示文本
+        initial_value: 输入框默认值
+
+    Returns:
+        用户输入的字符串，取消返回 None
+    """
+    result = [None]
+
+    dialog = ctk.CTkToplevel()
+    dialog.title(title)
+    dialog.geometry("420x220")
+    dialog.configure(fg_color=COLORS["bg_dark"])
+    dialog.transient(parent)
+    try:
+        dialog.grab_set()
+    except Exception:
+        pass
+
+    # 居中
+    dialog.update_idletasks()
+    x = (dialog.winfo_screenwidth() - 420) // 2
+    y = (dialog.winfo_screenheight() - 220) // 2
+    dialog.geometry(f"420x220+{x}+{y}")
+
+    ctk.CTkLabel(
+        dialog,
+        text=prompt,
+        font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+        text_color=COLORS["text_secondary"],
+        wraplength=370,
+    ).pack(pady=(25, 10))
+
+    entry = ctk.CTkEntry(
+        dialog,
+        font=ctk.CTkFont(family=FONT_FAMILY, size=14),
+        fg_color=COLORS["bg_medium"],
+        border_color=COLORS["card_border"],
+        text_color=COLORS["text_primary"],
+        placeholder_text=initial_value,
+        width=350,
+    )
+    entry.insert(0, initial_value)
+    entry.pack(pady=(0, 20))
+    entry.focus_set()
+    entry.select_range(0, len(initial_value))
+
+    btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+    btn_frame.pack()
+
+    def on_confirm():
+        result[0] = entry.get().strip()
+        dialog.grab_release()
+        dialog.destroy()
+
+    def on_cancel():
+        result[0] = None
+        dialog.grab_release()
+        dialog.destroy()
+
+    ctk.CTkButton(
+        btn_frame,
+        text="确认",
+        width=90,
+        fg_color=COLORS["accent"],
+        hover_color=COLORS["accent_hover"],
+        command=on_confirm,
+    ).pack(side=ctk.LEFT, padx=10)
+
+    ctk.CTkButton(
+        btn_frame,
+        text="取消",
+        width=90,
+        fg_color=COLORS["bg_medium"],
+        hover_color=COLORS["card_border"],
+        command=on_cancel,
+    ).pack(side=ctk.LEFT, padx=10)
+
+    dialog.bind("<Return>", lambda e: on_confirm())
+    dialog.bind("<Escape>", lambda e: on_cancel())
+
+    dialog.wait_window()
     return result[0]
 
 

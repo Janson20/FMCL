@@ -1141,7 +1141,7 @@ class ModernAppBase(ctk.CTk):
         self.modloader_menu = ctk.CTkOptionMenu(
             self._action_panel,
             variable=self.modloader_var,
-            values=[_("mod_loader_none"), _("mod_loader_forge"), _("mod_loader_fabric"), _("mod_loader_neoforge")],
+            values=[_("mod_loader_none"), _("mod_loader_forge"), _("mod_loader_fabric"), _("mod_loader_neoforge"), _("mod_loader_quilt")],
             height=35,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],

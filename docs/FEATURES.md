@@ -13,10 +13,12 @@
   - 支持 `inheritsFrom` 继承链递归解析
   - 在 JSON 全文本中检测加载器关键词（`net.fabricmc:fabric-loader` / `minecraftforge` / `net.neoforge` 等）
   - 自动提取加载器版本号
+  - 支持 PCL-CE 全部 9 种模组加载器检测：Forge、NeoForge、Fabric、Quilt、LegacyFabric、Cleanroom、OptiFine、LiteLoader、LabyMod
 - 版本列表中显示加载器类型和版本号（如 `[Fabric 0.15.11]`）
 - 版本删除，释放磁盘空间
+- **实例重命名**：📝 按钮重命名实例，自动更新文件夹名、JSON 文件和内部 id 字段
 - 分页浏览可用版本列表（每页 20 个）
-- 每个版本条目提供 ⚙ 版本设置、🧩 安装模组、X 删除三个快捷按钮
+- 每个版本条目提供 📝 重命名、⚙ 版本设置、🧩 安装模组、X 删除四个快捷按钮
 
 ## 🎨 动态主题引擎
 - **预设主题**：内置 5 种预设主题（默认深色、海洋蓝调、森林绿意、薰衣草紫、日落暖橙），一键切换
@@ -47,6 +49,8 @@
 - **Fabric** - 轻量级模组加载器
 - **NeoForge** - Forge 的社区分支
 - **Quilt** - Fabric 的分支加载器
+- **检测支持**：基于 JSON 全文本检测，支持 PCL-CE 全部 9 种加载器（Forge、NeoForge、Fabric、Quilt、LegacyFabric、Cleanroom、OptiFine、LiteLoader、LabyMod）
+- 其中 Forge/Fabric/NeoForge/Quilt 支持**一键安装**，其余加载器支持检测和版本隔离
 - 安装模组加载器时自动安装原版 Minecraft（与原版安装**并行执行**，无须额外等待）
 - **版本隔离**：安装了模组加载器的版本自动启用版本隔离，自动创建 `mods/`、`config/`、`saves/`、`resourcepacks/`、`shaderpacks/` 等子目录
 - **新版本格式支持**：NeoForge 安装器已适配 Minecraft 2026 年起的新版本命名规则 `YY.D.H`（如 `26.1`、`26.1.1`），兼容旧版 `1.X.Y` 格式

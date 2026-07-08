@@ -122,6 +122,21 @@ class EventHandlerMixin(object):
             del_btn.pack(side=ctk.RIGHT, padx=(0, 5))
             del_btn._role = "version_delete"
 
+            # 重命名按钮
+            rename_btn = ctk.CTkButton(
+                btn_frame,
+                text="📝",
+                width=30,
+                height=28,
+                font=ctk.CTkFont(size=11),
+                fg_color="transparent",
+                hover_color=COLORS["bg_light"],
+                text_color=COLORS["text_secondary"],
+                command=lambda v=ver: self._on_rename_version(v),
+            )
+            rename_btn.pack(side=ctk.RIGHT, padx=(0, 2))
+            rename_btn._role = "version_rename"
+
             # 版本设置按钮
             settings_btn = ctk.CTkButton(
                 btn_frame,
@@ -289,6 +304,7 @@ class EventHandlerMixin(object):
             _("mod_loader_forge"): "Forge",
             _("mod_loader_fabric"): "Fabric",
             _("mod_loader_neoforge"): "NeoForge",
+            _("mod_loader_quilt"): "Quilt",
         }
         raw_loader = loader_map.get(loader, "")
         if raw_loader and raw_loader != "None":
@@ -304,6 +320,36 @@ class EventHandlerMixin(object):
             return
         self.set_status(_("deleting_version", version=version), "loading")
         self._run_in_thread(self._remove_version, version)
+
+    def _on_rename_version(self, version: str):
+        """重命名版本按钮回调"""
+        from ui.dialogs import show_input_dialog
+
+        new_name = show_input_dialog(
+            parent=self,
+            title=_("rename_instance_title"),
+            prompt=_("rename_instance_prompt"),
+            initial_value=version,
+        )
+        if not new_name or new_name == version:
+            return
+
+        if not messagebox.askyesno(
+            _("rename_instance"),
+            _("rename_instance_confirm", old=version, new=new_name),
+        ):
+            return
+
+        self.set_status(f"正在重命名 {version} → {new_name}...", "loading")
+        self._run_in_thread(self._rename_version, version, new_name)
+
+    def _rename_version(self, old_name: str, new_name: str):
+        """重命名版本（后台线程）"""
+        try:
+            success, msg_or_name = self.callbacks["rename_instance"](old_name, new_name)
+            self._task_queue.put(("rename_done", (old_name, new_name, success, msg_or_name)))
+        except Exception as e:
+            self._task_queue.put(("rename_error", str(e)))
 
     def _remove_version(self, version_id: str):
         """删除版本（后台线程）"""
@@ -1076,6 +1122,24 @@ class EventHandlerMixin(object):
 
         elif task_type == "remove_error":
             self.set_status(f"删除错误: {data}", "error")
+
+        elif task_type == "rename_done":
+            old_name, new_name, success, msg = data
+            if success:
+                self.set_status(_("rename_instance_success", old=old_name, new=new_name).format(old=old_name, new=new_name), "success")
+                if self.selected_version == old_name:
+                    self.selected_version = new_name
+                self._refresh_versions()
+            else:
+                if msg == "rename_instance_invalid":
+                    self.set_status(_("rename_instance_invalid"), "error")
+                elif msg == "rename_instance_exists":
+                    self.set_status(_("rename_instance_exists", name=new_name), "error")
+                else:
+                    self.set_status(_("rename_instance_error", error=msg), "error")
+
+        elif task_type == "rename_error":
+            self.set_status(_("rename_instance_error", error=data), "error")
 
         elif task_type == "launch_done":
             version_id, target_version, success = data
