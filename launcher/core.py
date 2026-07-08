@@ -1013,7 +1013,7 @@ class MinecraftLauncher:
                 logger.info(f"追加 --quickPlayMultiplayer {server_addr}")
 
             # ── JVM 参数优化 ──
-            minecraft_command = self._optimize_jvm_args(minecraft_command)
+            minecraft_command = self._optimize_jvm_args(minecraft_command, target_version)
 
             # 结构化日志：记录游戏启动命令
             _java_cmd = minecraft_command[0] if minecraft_command else ""
@@ -1089,24 +1089,23 @@ class MinecraftLauncher:
         """
         return has_mod_loader_from_json(version_id, self.minecraft_dir)
 
-    def _optimize_jvm_args(self, command: List[str]) -> List[str]:
+    def _optimize_jvm_args(self, command: List[str], version_id: str = "") -> List[str]:
         """
         优化 JVM 启动参数
 
-        - 使用 G1GC 垃圾回收器，减少游戏卡顿
+        - 默认: 使用 G1GC 垃圾回收器，减少游戏卡顿
+        - Cleanroom: 使用 ZGC + CompactObjectHeaders (Java 25+)
         - 固定堆内存大小，避免动态扩展/收缩的开销
-        - 添加性能友好的 JVM 标志
         """
         optimized = []
         has_xms = False
         has_xmx = False
         has_gc = False
+        is_cleanroom = "cleanroom" in version_id.lower()
 
         for arg in command:
-            # 检测已有的内存参数
             if arg.startswith("-Xms"):
                 has_xms = True
-                # 如果用户设置了固定值，保留
                 optimized.append(arg)
             elif arg.startswith("-Xmx"):
                 has_xmx = True
@@ -1117,41 +1116,57 @@ class MinecraftLauncher:
             else:
                 optimized.append(arg)
 
-        # 在 -cp 之前插入优化参数（确保 JVM 能识别）
         # 找到 java 可执行文件的位置
-        insert_idx = 1  # 默认在第一个参数后插入
+        insert_idx = 1
         for i, arg in enumerate(optimized):
             if arg in ("java", "javaw") or arg.endswith("java.exe") or arg.endswith("javaw.exe"):
                 insert_idx = i + 1
                 break
 
         jvm_opts = []
-        if not has_gc:
-            jvm_opts.append("-XX:+UseG1GC")  # G1 垃圾回收器，减少卡顿
-        if not has_xms and has_xmx:
-            # 如果只设了 -Xmx 没设 -Xms，将 -Xms 设为 -Xmx 的一半
-            for arg in optimized:
-                if arg.startswith("-Xmx"):
-                    try:
-                        xmx_val = arg[4:]
-                        xmx_bytes = self._parse_memory_string(xmx_val)
-                        xms_bytes = xmx_bytes // 2
-                        xms_str = self._format_memory(xms_bytes)
-                        jvm_opts.append(f"-Xms{xms_str}")
-                    except Exception:
-                        jvm_opts.append("-Xms1G")
-                    break
 
-        # 额外性能优化标志
-        jvm_opts.extend([
-            "-XX:+ParallelRefProcEnabled",   # 并行引用处理
-            "-XX:MaxGCPauseMillis=200",       # 目标 GC 停顿时间
-        ])
+        if is_cleanroom:
+            # Cleanroom 专用 JVM 优化（参考 Cleanroom Loader 官方文档）
+            if not has_gc:
+                jvm_opts.append("-XX:+UseZGC")           # ZGC 极低延迟，适合大堆内存
+            jvm_opts.append("-XX:+UseCompactObjectHeaders")  # Java 25+ 对象头压缩
+            # Cleanroom 要求 -Xms == -Xmx，确保堆固定
+            if has_xmx and not has_xms:
+                for arg in optimized:
+                    if arg.startswith("-Xmx"):
+                        jvm_opts.append(arg.replace("-Xmx", "-Xms"))
+                        break
+            elif has_xms and not has_xmx:
+                for arg in optimized:
+                    if arg.startswith("-Xms"):
+                        jvm_opts.append(arg.replace("-Xms", "-Xmx"))
+                        break
+        else:
+            # 标准优化：G1GC
+            if not has_gc:
+                jvm_opts.append("-XX:+UseG1GC")
+            if not has_xms and has_xmx:
+                for arg in optimized:
+                    if arg.startswith("-Xmx"):
+                        try:
+                            xmx_val = arg[4:]
+                            xmx_bytes = self._parse_memory_string(xmx_val)
+                            xms_bytes = xmx_bytes // 2
+                            xms_str = self._format_memory(xms_bytes)
+                            jvm_opts.append(f"-Xms{xms_str}")
+                        except Exception:
+                            jvm_opts.append("-Xms1G")
+                        break
+
+            jvm_opts.extend([
+                "-XX:+ParallelRefProcEnabled",
+                "-XX:MaxGCPauseMillis=200",
+            ])
 
         if jvm_opts:
             for opt in reversed(jvm_opts):
                 optimized.insert(insert_idx, opt)
-            logger.info(f"JVM 优化参数: {jvm_opts}")
+            logger.info(f"JVM 优化参数 ({'Cleanroom/ZGC' if is_cleanroom else 'G1GC'}): {jvm_opts}")
 
         return optimized
 
