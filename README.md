@@ -159,28 +159,44 @@ python main.py -A              # 交互模式
 
 ```
 FMCL/
-├── main.py                # 程序入口
+├── main.py                # 程序入口（支持 GUI / CLI 双模式）
+├── config.py              # 跨平台配置管理（26 项配置）
 ├── launcher/              # 启动器核心逻辑
-├── ui/                    # CustomTkinter 界面
-│   ├── app.py             # 主窗口（Mixin 组合模式）
-│   ├── agent/             # AI 智能助手子系统
-│   └── windows/           # 独立子窗口
+│   ├── core.py            # 环境检查、版本安装、游戏启动
+│   ├── server.py          # 服务器安装/启动/停止
+│   ├── mrpack.py          # 整合包安装/开服
+│   ├── predownload.py     # 资源包预下载
+│   └── verify.py          # 并发文件校验
+├── ui/                    # CustomTkinter 现代化界面
+│   ├── app.py             # 主窗口（12 Mixin 组合模式）
+│   ├── agent/             # AI 智能助手子系统（4 供应商、13 工具）
+│   ├── windows/           # 14 个独立子窗口
+│   ├── theme_engine.py    # 动态主题引擎
+│   └── i18n.py            # 国际化（4 语言）
+├── plugin_manager/        # 插件系统（热加载、权限分级、20+ 钩子点）
 ├── downloader.py          # 多线程/异步下载器
 ├── modrinth.py            # Modrinth API 集成
 ├── curseforge.py          # CurseForge API 集成
 ├── mirror.py              # BMCLAPI 镜像源
 ├── backup_manager.py      # 存档备份管理
 ├── secure_storage.py      # 安全存储（Fernet 加密）
-├── config.py              # 跨平台配置管理
 ├── validation.py          # 输入验证
 ├── updater.py             # 自动更新
-├── scripts/               # 构建/发布脚本
+├── structured_logger.py   # 结构化日志（JSONL）
+├── achievement_engine.py  # 成就引擎（47 项成就）
+├── achievement_sync.py    # 成就云存档同步
+├── version_utils.py       # 版本工具（SemVer/正则/YY.D.H）
+├── screen_shot.py         # 截图工具
+├── cli_agent.py           # Agent CLI 核心逻辑
+├── agent_cli.py           # 独立控制台入口
+├── scripts/               # 构建/发布/安装脚本
 ├── tests/                 # 测试
 └── docs/                  # 文档
     ├── FEATURES.md        # 完整功能列表
     ├── USAGE.md           # 详细使用指南
     ├── ARCHITECTURE.md    # 项目架构与技术栈
     ├── CONFIGURATION.md   # 配置说明
+    ├── PLUGIN_DEV.md      # 插件开发指南
     └── ...
 ```
 
