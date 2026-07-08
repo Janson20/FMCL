@@ -1379,7 +1379,7 @@ class EventHandlerMixin(object):
         """显示关于对话框"""
         about = ctk.CTkToplevel(self)
         about.title(_("about_title"))
-        about.resizable(False, False)
+        about.resizable(False, True)
         about.transient(self)
         try:
             about.grab_set()
@@ -1395,8 +1395,8 @@ class EventHandlerMixin(object):
         y = (about.winfo_screenheight() - h) // 2
         about.geometry(f"+{x}+{y}")
 
-        # 主容器
-        main_frame = ctk.CTkFrame(about, fg_color="transparent")
+        # 主容器（可滚动）
+        main_frame = ctk.CTkScrollableFrame(about, fg_color="transparent")
         main_frame.pack(fill=ctk.BOTH, expand=True, padx=30, pady=30)
 
         # 顶部区域：logo + 标题
@@ -1508,7 +1508,12 @@ class EventHandlerMixin(object):
                 "name": "minecraft-launcher-lib",
                 "url": "https://github.com/JakobDev/minecraft-launcher-lib",
                 "license_url": "https://github.com/JakobDev/minecraft-launcher-lib/blob/master/LICENSE",
-            }
+            },
+            {
+                "name": "lx-music-desktop",
+                "url": "https://github.com/lyswhut/lx-music-desktop",
+                "license_url": "https://github.com/lyswhut/lx-music-desktop/blob/master/LICENSE",
+            },
         ]
 
         for ack in acknowledgments:
