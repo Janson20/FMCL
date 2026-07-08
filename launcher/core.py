@@ -189,6 +189,18 @@ class MinecraftLauncher:
             from launcher.java_scanner import recommend_for_mc
             javas = self._get_cached_java_runtimes()
             if javas:
+                # Cleanroom 需要 Java 21+（参考 HMCL GameJavaVersion.getCleanroomJavaVersion）
+                # 覆盖默认的 MC 版本推荐，优先选择满足 Cleanroom 要求的 Java
+                _loader_type = self._detect_mod_loader_type(target_version)
+                _need_java21 = (_loader_type == "cleanroom")
+                
+                if _need_java21:
+                    _java21_versions = [j for j in javas if j.major_version >= 21]
+                    if _java21_versions:
+                        best = min(_java21_versions, key=lambda j: j.major_version)
+                        logger.info(f"Cleanroom 需要 Java 21+，选择: {best.display_name}")
+                        return best.path
+                
                 best = recommend_for_mc(javas, target_version)
                 if best:
                     logger.info(f"从系统扫描选择最佳 Java: {best.display_name}")
