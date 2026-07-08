@@ -1,4 +1,10 @@
 # FMCL - Fusion Minecraft Launcher
+![License](https://img.shields.io/github/license/Janson20/FMCL?color=blue)
+![GitHub Release](https://img.shields.io/github/v/release/Janson20/FMCL?include_prereleases&sort=semver)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Downloads](https://img.shields.io/github/downloads/Janson20/FMCL/total?color=orange)
+![Stars](https://img.shields.io/github/stars/Janson20/FMCL?style=social)
 
 一个基于 `CustomTkinter` 的**现代 Minecraft 启动器**，集 **版本管理、多模组加载器（Forge/Fabric/NeoForge/Quilt 等8种）、国内 BMCLAPI 镜像加速、模组与整合包管理、服务器一键开服、P2P 陶瓦联机、存档备份、AI Agent 助手、音乐播放器、性能监控悬浮窗、动态主题、成就系统、崩溃分析、安全加密、插件系统、多语言、自动更新** 于一身——用开源的力量，打造真正全能的游戏伴侣。
 
