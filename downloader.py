@@ -599,6 +599,17 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
     with open(new_json_path, "w", encoding="utf-8") as f:
         _json.dump(new_version, f, indent=2)
 
+    # 下载所有需要的库文件（launchwrapper、liteloader 等）
+    try:
+        from minecraft_launcher_lib.install import install_libraries
+        install_libraries(version, libraries, minecraft_dir, {})
+        logger.info("LiteLoader 库文件下载完成")
+    except Exception as e:
+        logger.warning(f"LiteLoader 库文件下载失败（不影响启动）: {e}")
+
+    # 复制父版本 JAR 确保 classpath 完整
+    _ensure_version_jar_after_install(installed_version_id, version, minecraft_dir)
+
     logger.info(f"LiteLoader 安装成功: {installed_version_id}")
     slog.info("mod_loader_installed", loader="liteloader", version=version,
               installed_version_id=installed_version_id, loader_version=loader_version)
@@ -748,6 +759,17 @@ def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) ->
     with open(new_json_path, "w", encoding="utf-8") as f:
         _json.dump(new_version, f, indent=2)
 
+    # 下载所有需要的库文件
+    try:
+        from minecraft_launcher_lib.install import install_libraries
+        install_libraries(version, libraries, minecraft_dir, {})
+        logger.info("LegacyFabric 库文件下载完成")
+    except Exception as e:
+        logger.warning(f"LegacyFabric 库文件下载失败（不影响启动）: {e}")
+
+    # 复制父版本 JAR 确保 classpath 完整
+    _ensure_version_jar_after_install(installed_version_id, version, minecraft_dir)
+
     logger.info(f"LegacyFabric 安装成功: {installed_version_id}")
     slog.info("mod_loader_installed", loader="legacyfabric", version=version,
               installed_version_id=installed_version_id, loader_version=loader_version)
@@ -878,6 +900,16 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
             )
             os.makedirs(cleanroom_lib_path, exist_ok=True)
 
+            # 安装运行时库文件（version.json 中的 libraries）
+            try:
+                from minecraft_launcher_lib.install import install_libraries
+                runtime_libs = client_json.get("libraries", [])
+                if runtime_libs:
+                    install_libraries(version, runtime_libs, minecraft_dir, {})
+                    logger.info("Cleanroom 运行时库文件下载完成")
+            except Exception as e:
+                logger.warning(f"Cleanroom 运行时库文件下载失败（不影响启动）: {e}")
+
             # 尝试多种可能的 universal jar 路径
             possible_paths = [
                 f"maven/com/cleanroommc/cleanroom/{forge_version}/cleanroom-{forge_version}-universal.jar",
@@ -902,6 +934,9 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
 
             if not extracted:
                 logger.warning("未在 Cleanroom 安装器中找到 universal jar，但不影响安装")
+
+        # 复制父版本 JAR 确保 classpath 完整
+        _ensure_version_jar_after_install(installed_version_id, version, minecraft_dir)
     finally:
         try:
             os.unlink(installer_path)
@@ -1050,6 +1085,17 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
         new_json_path = target_dir / f"{installed_version_id}.json"
         with open(new_json_path, "w", encoding="utf-8") as f:
             _json.dump(new_version, f, indent=2)
+
+        # 下载所需库文件（launchwrapper）
+        try:
+            from minecraft_launcher_lib.install import install_libraries
+            install_libraries(version, libraries, minecraft_dir, {})
+            logger.info("OptiFine 库文件下载完成")
+        except Exception as e:
+            logger.warning(f"OptiFine 库文件下载失败（不影响启动）: {e}")
+
+        # 复制父版本 JAR 确保 classpath 完整
+        _ensure_version_jar_after_install(installed_version_id, version, minecraft_dir)
     finally:
         try:
             os.unlink(installer_path)
@@ -1073,3 +1119,31 @@ def _is_mirror_enabled() -> bool:
         return mirror.enabled
     except Exception:
         return False
+
+
+def _ensure_version_jar_after_install(installed_version_id: str, parent_version: str, minecraft_dir: str):
+    """安装后确保版本 JAR 文件存在
+
+    自定义安装的加载器只创建版本 JSON，没有 JAR 文件。
+    从父版本复制 JAR 到当前版本目录，使 minecraft_launcher_lib 能正确构建 classpath。
+
+    参考 HMCL DefaultGameRepository.getVersionJar() 的 JAR 解析逻辑。
+    """
+    try:
+        from pathlib import Path
+        target_jar = Path(minecraft_dir) / "versions" / installed_version_id / f"{installed_version_id}.jar"
+        if target_jar.exists() and target_jar.stat().st_size > 0:
+            return
+
+        # 查找父版本 JAR
+        parent_jar = Path(minecraft_dir) / "versions" / parent_version / f"{parent_version}.jar"
+        if not parent_jar.exists() or parent_jar.stat().st_size == 0:
+            logger.warning(f"父版本 {parent_version} 的 JAR 不存在，跳过复制")
+            return
+
+        target_jar.parent.mkdir(parents=True, exist_ok=True)
+        import shutil
+        shutil.copy2(str(parent_jar), str(target_jar))
+        logger.info(f"安装后已从父版本 {parent_version} 复制 JAR 到 {installed_version_id}")
+    except Exception as e:
+        logger.warning(f"安装后复制 JAR 失败（不影响安装）: {e}")

@@ -868,7 +868,108 @@ def parse_mc_version_from_json_full(json_text: str, inherit_name: Optional[str] 
 # 从版本 JSON 文本解析加载器信息（参考 PCL-CE: ModMinecraft.Load）
 # ══════════════════════════════════════════════════════════════════════
 
-# JSON 文本中检测加载器的关键词映射
+# ── HMCL 风格模组加载器检测规则 ──
+# 参考 HMCL LibraryAnalyzer.LibraryType - 通过解析 libraries 数组中的
+# Maven 坐标 (groupId:artifactId:version) 来识别加载器类型，比纯文本搜索更准确。
+
+# 每个规则: (loader_type, group_pattern, artifact_pattern, extra_check_fn)
+# extra_check_fn(lib_tuples) 返回 True 才匹配，None 表示无额外检查
+_LOADER_LIB_RULES = []
+
+def _register_rule(loader_type, group_pattern, artifact_pattern, extra_check=None):
+    _LOADER_LIB_RULES.append((
+        loader_type,
+        re.compile(group_pattern),
+        re.compile(artifact_pattern),
+        extra_check,
+    ))
+
+# 按 HMCL LibraryType 定义注册检测规则（按匹配优先级从高到低）
+
+# LEGACY_FABRIC: group=net.fabricmc, artifact=fabric-loader + 必须存在 net.legacyfabric 组
+_register_rule("legacyfabric", r"net\.fabricmc", r"fabric-loader",
+               extra_check=lambda libs: any(g == "net.legacyfabric" for g, a in libs))
+
+# FABRIC: group=net.fabricmc, artifact=fabric-loader + 确保没有 net.legacyfabric
+_register_rule("fabric", r"net\.fabricmc", r"fabric-loader",
+               extra_check=lambda libs: not any(g == "net.legacyfabric" for g, a in libs))
+
+# NEO_FORGE: group=net.neoforged.fancymodloader, artifact=(core|loader)
+_register_rule("neoforge", r"net\.neoforged\.fancymodloader", r"(core|loader)")
+
+# FORGE: group=net.minecraftforge, artifact=(forge|fmlloader) + 确保没有 NeoForge
+_register_rule("forge", r"net\.minecraftforge", r"(forge|fmlloader)",
+               extra_check=lambda libs: not any(
+                   re.match(r"net\.neoforged\.fancymodloader", g) and re.match(r"(core|loader)", a)
+                   for g, a in libs))
+
+# CLEANROOM: group=com.cleanroommc, artifact=cleanroom
+_register_rule("cleanroom", r"com\.cleanroommc", r"cleanroom")
+
+# LITELOADER: group=com.mumfrey, artifact=liteloader
+_register_rule("liteloader", r"com\.mumfrey", r"liteloader")
+
+# OPTIFINE: group=(net.)?optifine, artifact != launchwrapper
+_register_rule("optifine", r"(net\.)?optifine", r"^(?!.*launchwrapper).*$")
+
+# QUILT: group=org.quiltmc, artifact=quilt-loader
+_register_rule("quilt", r"org\.quiltmc", r"quilt-loader")
+
+# BOOTSTRAP_LAUNCHER: group=cpw.mods, artifact=bootstraplauncher (Forge 1.17+ 引导)
+# 不作为独立加载器，仅用于辅助判断
+
+
+def _parse_library_parts(name: str) -> tuple:
+    """解析 Maven 坐标 (groupId:artifactId:version) 为三元组"""
+    parts = name.split(":")
+    if len(parts) == 3:
+        return parts[0], parts[1], parts[2]
+    elif len(parts) == 4:
+        # 有 classifier 的情况: group:artifact:version:classifier
+        return parts[0], parts[1], parts[2]
+    return "", "", ""
+
+
+def detect_mod_loader_from_libraries(json_obj: dict) -> Optional[str]:
+    """从解析后的版本 JSON 对象的 libraries 中检测模组加载器类型
+
+    参考 HMCL LibraryAnalyzer.analyze() - 通过解析 libraries 数组中的
+    Maven 坐标 (groupId:artifactId) 来识别加载器，比纯文本搜索更准确可靠。
+
+    Args:
+        json_obj: 已合并 inheritsFrom 链的版本 JSON 对象
+
+    Returns:
+        加载器类型字符串 ("forge", "fabric", "neoforge", "quilt",
+                        "liteloader", "legacyfabric", "cleanroom",
+                        "optifine") 或 None
+    """
+    libraries = json_obj.get("libraries", []) if isinstance(json_obj, dict) else []
+    if not libraries:
+        return None
+
+    # 提取所有 library 的 (groupId, artifactId)
+    lib_tuples = []
+    for lib in libraries:
+        name = lib.get("name", "") if isinstance(lib, dict) else ""
+        g, a, _ = _parse_library_parts(name)
+        if g and a:
+            lib_tuples.append((g, a))
+
+    if not lib_tuples:
+        return None
+
+    # 按规则顺序匹配
+    for loader_type, group_re, artifact_re, extra_check in _LOADER_LIB_RULES:
+        for g, a in lib_tuples:
+            if group_re.search(g) and artifact_re.search(a):
+                if extra_check is None or extra_check(lib_tuples):
+                    return loader_type
+
+    return None
+
+
+# JSON 文本中检测加载器的关键词映射（作为后备方案）
 # 检测顺序：更具体的先检测（如 neoforge 在 forge 之前）
 _JSON_LOADER_DETECTION = [
     ("labymod_data", "labymod"),
@@ -1063,7 +1164,11 @@ def parse_instance_from_json(
         info.state = "old"
 
     # ── 检测加载器类型 ──
-    info.loader_type = parse_mod_loader_from_json(json_text)
+    # 参考 HMCL LibraryAnalyzer: 优先通过 libraries 库坐标匹配（更准确），
+    # 如果 libraries 被清空或不存在则回退到文本关键词搜索
+    info.loader_type = detect_mod_loader_from_libraries(json_obj)
+    if info.loader_type is None:
+        info.loader_type = parse_mod_loader_from_json(json_text)
 
     # ── 检测快照状态 ──
     if info.state == "original" and info.loader_type is None:
@@ -1242,6 +1347,72 @@ def has_mod_loader_from_json(version_id: str, minecraft_dir: str) -> bool:
         # 回退到名称匹配
         return parse_mod_loader_from_version(version_id) is not None
     return info.has_loader
+
+
+def resolve_version_jar_path(version_id: str, minecraft_dir: str) -> Optional[str]:
+    """解析版本 JAR 的实际路径
+
+    参考 HMCL DefaultGameRepository.getVersionJar():
+    - 通过解析 inheritsFrom 链找到实际 JAR 所属的版本 ID
+    - 优先使用 version JSON 中的 jar 字段，回退到版本 id
+    - 返回 versions/{jar_version_id}/{jar_version_id}.jar 的路径
+
+    Args:
+        version_id: 版本 ID（文件夹名）
+        minecraft_dir: .minecraft 目录路径
+
+    Returns:
+        JAR 文件的绝对路径，或 None（无法解析）
+    """
+    if not minecraft_dir or not version_id:
+        return None
+
+    versions_dir = Path(minecraft_dir) / "versions"
+    checked = set()
+    current_id = version_id
+    max_depth = 10
+
+    while current_id and current_id not in checked and max_depth > 0:
+        checked.add(current_id)
+        json_path = versions_dir / current_id / f"{current_id}.json"
+        if not json_path.exists():
+            # 尝试目录下唯一的 JSON
+            version_dir = versions_dir / current_id
+            if version_dir.exists():
+                try:
+                    json_files = list(version_dir.glob("*.json"))
+                    if len(json_files) == 1:
+                        json_path = json_files[0]
+                    else:
+                        break
+                except Exception:
+                    break
+            else:
+                break
+
+        try:
+            obj = json.loads(json_path.read_text(encoding="utf-8"))
+        except Exception:
+            break
+
+        # 检查 jar 字段（HMCL 中 getVersionJar 优先使用 jar 字段）
+        jar_field = obj.get("jar")
+        if jar_field:
+            return str(versions_dir / jar_field / f"{jar_field}.jar")
+
+        inherits_from = obj.get("inheritsFrom")
+        if not inherits_from:
+            # 没有继承关系，JAR 就是当前版本
+            jar_path = versions_dir / current_id / f"{current_id}.jar"
+            return str(jar_path) if jar_path.exists() else str(jar_path)
+
+        # 继续向上查找父版本
+        current_id = str(inherits_from).strip()
+        max_depth -= 1
+
+    # 最终回退：尝试直接使用版本 ID
+    jar_path = versions_dir / version_id / f"{version_id}.jar"
+    return str(jar_path) if jar_path.exists() else str(jar_path)
 
 
 def _try_read_instance_json(version_id: str, minecraft_dir: str) -> Optional[InstanceInfo]:
