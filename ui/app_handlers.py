@@ -1504,6 +1504,11 @@ class EventHandlerMixin(object):
                 "url": "https://github.com/anomalyco/opencode",
                 "license_url": "https://github.com/anomalyco/opencode/blob/dev/LICENSE",
             },
+            {
+                "name": "minecraft-launcher-lib",
+                "url": "https://github.com/JakobDev/minecraft-launcher-lib",
+                "license_url": "https://github.com/JakobDev/minecraft-launcher-lib/blob/master/LICENSE",
+            }
         ]
 
         for ack in acknowledgments:
