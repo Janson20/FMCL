@@ -15,6 +15,23 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
 
     PAGE_SIZE = 10
 
+    # 特殊模组加载器兼容映射：将无法被 API 识别的加载器映射为兼容等效类型
+    MOD_LOADER_COMPAT_MAP: Dict[str, str] = {
+        "legacyfabric": "fabric",
+        "cleanroom": "forge",
+    }
+
+    @property
+    def _search_loader(self) -> Optional[str]:
+        """获取用于 API 搜索/安装的加载器类型
+
+        对特殊加载器进行兼容映射，因为 CurseForge 和 Modrinth API
+        不识别 legacyfabric、cleanroom 等加载器类型。
+        """
+        if self._mod_loader is None:
+            return None
+        return self.MOD_LOADER_COMPAT_MAP.get(self._mod_loader, self._mod_loader)
+
     def __init__(self, parent, version_id: str, callbacks: Dict[str, Callable]):
         super().__init__(parent)
         self.version_id = version_id
@@ -245,7 +262,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
                     result = search_server_mods(
                         query=kw,
                         game_version=self._game_version,
-                        mod_loader=self._mod_loader,
+                        mod_loader=self._search_loader,
                         offset=0,
                         limit=30,
                     )
@@ -280,7 +297,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
             result = search_server_mods(
                 query=self._current_query,
                 game_version=self._game_version,
-                mod_loader=self._mod_loader,
+                mod_loader=self._search_loader,
                 offset=self._current_offset,
                 limit=self.PAGE_SIZE,
             )
@@ -445,7 +462,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         from modrinth import install_mod_with_deps
 
         try:
-            if not self._game_version or not self._mod_loader:
+            if not self._game_version or not self._search_loader:
                 self.after(0, lambda: self._set_status(_("mod_browser_unknown_loader")))
                 return
 
@@ -454,7 +471,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
             success, result, installed_names = install_mod_with_deps(
                 project_id,
                 game_version=self._game_version,
-                mod_loader=self._mod_loader,
+                mod_loader=self._search_loader,
                 mods_dir=mods_dir,
                 status_callback=lambda msg: self.after(0, lambda: self._set_status(msg)),
             )
