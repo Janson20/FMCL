@@ -95,11 +95,16 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             return Path(self.callbacks["get_minecraft_dir"]())
         return Path(".") / ".minecraft"
 
-    @staticmethod
-    def _has_mod_loader(version_id: str) -> bool:
-        """判断版本是否安装了模组加载器（需要版本隔离）"""
-        v = version_id.lower()
-        return any(loader in v for loader in ("forge", "fabric", "neoforge"))
+    def _has_mod_loader(self, version_id: str) -> bool:
+        """判断版本是否安装了模组加载器（需要版本隔离）
+
+        优先读取版本 JSON 文件判断，回退到版本 ID 字符串匹配。
+
+        参考 PCL-CE: McInstance.Modable 属性。
+        """
+        from version_utils import has_mod_loader_from_json
+        mc_dir = self._get_minecraft_dir()
+        return has_mod_loader_from_json(version_id, str(mc_dir))
 
     def _get_resource_dir(self, resource_type: str) -> Path:
         """获取指定资源类型的目录，仅模组加载器版本使用版本隔离目录"""

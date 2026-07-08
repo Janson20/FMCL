@@ -8,6 +8,17 @@ from logzero import logger
 from ui.agent.tools.base import ToolInfo, CATEGORY_RESOURCE
 
 
+def _get_version_ids(installed) -> list:
+    """从 installed 列表中提取版本 ID 字符串（兼容 List[InstanceInfo] 和 List[str]）"""
+    result = []
+    for v in installed:
+        if hasattr(v, 'folder_name'):
+            result.append(v.folder_name)
+        else:
+            result.append(v)
+    return result
+
+
 def _build_resource_tools() -> list:
     return [
         ToolInfo(
@@ -159,14 +170,22 @@ def _install_resource_pack(params: Dict[str, str], callbacks: Dict[str, Callable
             return "错误: 无法获取游戏信息"
 
         installed = callbacks["get_installed_versions"]()
-        if version_id not in installed:
-            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed) if installed else '无'}"
+        installed_ids = _get_version_ids(installed)
+        if version_id not in installed_ids:
+            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
 
         mc_dir = callbacks["get_minecraft_dir"]()
         game_dir = Path(mc_dir)
 
-        if "-" in version_id:
-            rp_dir = str(game_dir / "versions" / version_id / "resourcepacks")
+        # 版本隔离检测
+        target_full_version = version_id
+        for v in installed_ids:
+            if v == version_id or v.startswith(version_id + "-") or v.endswith("-" + version_id):
+                target_full_version = v
+                break
+
+        if "-" in target_full_version:
+            rp_dir = str(game_dir / "versions" / target_full_version / "resourcepacks")
         else:
             rp_dir = str(game_dir / "resourcepacks")
 
@@ -247,14 +266,22 @@ def _install_shader(params: Dict[str, str], callbacks: Dict[str, Callable]) -> s
             return "错误: 无法获取游戏信息"
 
         installed = callbacks["get_installed_versions"]()
-        if version_id not in installed:
-            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed) if installed else '无'}"
+        installed_ids = _get_version_ids(installed)
+        if version_id not in installed_ids:
+            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
 
         mc_dir = callbacks["get_minecraft_dir"]()
         game_dir = Path(mc_dir)
 
-        if "-" in version_id:
-            sd_dir = str(game_dir / "versions" / version_id / "shaderpacks")
+        # 版本隔离检测
+        target_full_version = version_id
+        for v in installed_ids:
+            if v == version_id or v.startswith(version_id + "-") or v.endswith("-" + version_id):
+                target_full_version = v
+                break
+
+        if "-" in target_full_version:
+            sd_dir = str(game_dir / "versions" / target_full_version / "shaderpacks")
         else:
             sd_dir = str(game_dir / "shaderpacks")
 

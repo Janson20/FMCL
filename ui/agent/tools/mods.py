@@ -131,17 +131,26 @@ def _install_mod(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
 
         installed = callbacks["get_installed_versions"]()
 
+        # installed 可能是 List[InstanceInfo] 或 List[str]
+        def _get_version_str(v):
+            if hasattr(v, 'folder_name'):
+                return v.folder_name
+            return v
+
         target_full_version = None
         for v in installed:
-            if v == version_id or v.startswith(version_id + "-") or v.endswith("-" + version_id):
-                if mod_loader in v.lower():
-                    target_full_version = v
+            v_str = _get_version_str(v)
+            if v_str == version_id or v_str.startswith(version_id + "-") or v_str.endswith("-" + version_id):
+                v_lower = v_str.lower()
+                if mod_loader in v_lower:
+                    target_full_version = v_str
                     break
 
         if not target_full_version:
             for v in installed:
-                if v == version_id or v.startswith(version_id + "-") or v.endswith("-" + version_id):
-                    target_full_version = v
+                v_str = _get_version_str(v)
+                if v_str == version_id or v_str.startswith(version_id + "-") or v_str.endswith("-" + version_id):
+                    target_full_version = v_str
                     break
 
         if not target_full_version:

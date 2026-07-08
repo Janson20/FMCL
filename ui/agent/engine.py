@@ -8,6 +8,17 @@ from typing import Dict, Any, Callable, Optional
 from logzero import logger
 
 
+def _extract_version_ids(installed) -> list:
+    """从 installed 列表中提取版本 ID 字符串（兼容 List[InstanceInfo] 和 List[str]）"""
+    result = []
+    for v in installed:
+        if hasattr(v, 'folder_name'):
+            result.append(v.folder_name)
+        else:
+            result.append(v)
+    return result
+
+
 DANGEROUS_PREFIXES = [
     "rm -rf ",
     "rm -fr ",
@@ -295,7 +306,21 @@ def _get_installed_versions(callbacks: Dict[str, Callable]) -> str:
 
     result = f"本地已安装 {len(versions)} 个版本:\n"
     for v in versions:
-        result += f"  - {v}\n"
+        if hasattr(v, 'folder_name'):
+            # InstanceInfo 对象
+            name = v.folder_name
+            tags = []
+            if v.loader_type:
+                tags.append(v.loader_type)
+                if v.loader_version:
+                    tags[-1] += f" {v.loader_version}"
+            if v.vanilla_name and v.vanilla_name != "Unknown":
+                tags.append(f"MC {v.vanilla_name}")
+            tag_str = f" ({', '.join(tags)})" if tags else ""
+            result += f"  - {name}{tag_str}\n"
+        else:
+            # 向后兼容：字符串
+            result += f"  - {v}\n"
     return result
 
 
@@ -422,17 +447,24 @@ def _install_mod(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
 
         installed = callbacks["get_installed_versions"]()
 
+        # installed 可能是 List[InstanceInfo] 或 List[str]
+        def _get_v_id(v):
+            return v.folder_name if hasattr(v, 'folder_name') else v
+
         target_full_version = None
         for v in installed:
-            if v == version_id or v.startswith(version_id + "-") or v.endswith("-" + version_id):
-                if mod_loader in v.lower():
-                    target_full_version = v
+            v_id = _get_v_id(v)
+            if v_id == version_id or v_id.startswith(version_id + "-") or v_id.endswith("-" + version_id):
+                if mod_loader in v_id.lower():
+                    target_full_version = v_id
                     break
 
         if not target_full_version:
             for v in installed:
-                if v == version_id or v.startswith(version_id + "-") or v.endswith("-" + version_id):
-                    target_full_version = v
+                v_id = _get_v_id(v)
+                if v_id == version_id or v_id.startswith(version_id + "-") or v_id.endswith("-" + version_id):
+                    target_full_version = v_id
+                    break
                     break
 
         if not target_full_version:
@@ -766,8 +798,9 @@ def _install_resource_pack(params: Dict[str, str], callbacks: Dict[str, Callable
             return "错误: 无法获取游戏信息"
 
         installed = callbacks["get_installed_versions"]()
-        if version_id not in installed:
-            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed) if installed else '无'}"
+        installed_ids = _extract_version_ids(installed)
+        if version_id not in installed_ids:
+            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
 
         mc_dir = callbacks["get_minecraft_dir"]()
         import os
@@ -867,8 +900,9 @@ def _install_shader(params: Dict[str, str], callbacks: Dict[str, Callable]) -> s
             return "错误: 无法获取游戏信息"
 
         installed = callbacks["get_installed_versions"]()
-        if version_id not in installed:
-            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed) if installed else '无'}"
+        installed_ids = _extract_version_ids(installed)
+        if version_id not in installed_ids:
+            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
 
         mc_dir = callbacks["get_minecraft_dir"]()
         import os
@@ -927,8 +961,9 @@ def _list_version_resources(params: Dict[str, str], callbacks: Dict[str, Callabl
         return "错误: 无法获取游戏信息"
 
     installed = callbacks["get_installed_versions"]()
-    if version_id not in installed:
-        return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed) if installed else '无'}"
+    installed_ids = _extract_version_ids(installed)
+    if version_id not in installed_ids:
+        return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
 
     import os
     from pathlib import Path

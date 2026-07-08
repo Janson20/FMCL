@@ -118,8 +118,9 @@ def _list_version_resources(params: Dict[str, str], callbacks: Dict[str, Callabl
         return "错误: 无法获取游戏信息"
 
     installed = callbacks["get_installed_versions"]()
-    if version_id not in installed:
-        return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed) if installed else '无'}"
+    installed_ids = [v.folder_name if hasattr(v, 'folder_name') else v for v in installed]
+    if version_id not in installed_ids:
+        return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
 
     mc_dir = callbacks["get_minecraft_dir"]()
     game_dir = Path(mc_dir)

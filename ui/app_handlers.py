@@ -24,7 +24,7 @@ from ui.windows.modpack_install import ModpackInstallWindow
 from ui.windows.mod_browser import ModBrowserWindow
 from ui.i18n import _, get_available_languages, set_language
 from structured_logger import slog
-from version_utils import has_mod_loader, is_snapshot
+from version_utils import has_mod_loader, is_snapshot, InstanceInfo
 from plugin_manager.base import HookPoint
 
 
@@ -32,15 +32,6 @@ class EventHandlerMixin(object):
     """事件处理和游戏管理 Mixin"""
 
     # ─── 版本列表渲染 ─────────────────────────────────────────
-
-    @staticmethod
-    def _has_mod_loader(version_id: str) -> bool:
-        """判断版本是否安装了模组加载器，委托到 version_utils
-
-        参考 PCL-CE: McInstance.Modable 属性。
-        支持: forge, fabric, neoforge, quilt, liteloader, legacyfabric, cleanroom, optifine, labymod
-        """
-        return has_mod_loader(version_id)
 
     @staticmethod
     def _get_version_type(version_id: str) -> str:
@@ -58,8 +49,12 @@ class EventHandlerMixin(object):
             return "snapshot"
         return "release"
 
-    def _render_installed_versions(self, versions: List[str]):
-        """渲染已安装版本列表"""
+    def _render_installed_versions(self, versions: List[InstanceInfo]):
+        """渲染已安装版本列表
+
+        Args:
+            versions: InstanceInfo 列表（已按文件夹名排序）
+        """
         # 清空现有
         for widget in self.version_list_frame.winfo_children():
             widget.destroy()
@@ -77,8 +72,18 @@ class EventHandlerMixin(object):
             ).pack(pady=30)
             return
 
-        for ver in versions:
-            has_loader = self._has_mod_loader(ver)
+        for info in versions:
+            display_text = info.folder_name
+            # 显示加载器类型标签
+            if info.loader_type:
+                loader_label = f" [{info.loader_type.title()}]"
+                if info.loader_version and info.loader_version != "Unknown":
+                    loader_label = f" [{info.loader_type.title()} {info.loader_version}]"
+                display_text += loader_label
+            elif info.vanilla_name not in ("Unknown", ""):
+                display_text += f"  ({info.vanilla_name})"
+
+            has_loader = info.has_loader
             btn_frame = ctk.CTkFrame(
                 self.version_list_frame,
                 fg_color=COLORS["bg_medium"],
@@ -88,9 +93,10 @@ class EventHandlerMixin(object):
             btn_frame.pack(fill=ctk.X, pady=2)
             btn_frame.pack_propagate(False)
 
+            ver = info.folder_name
             btn = ctk.CTkButton(
                 btn_frame,
-                text=f"  {ver}",
+                text=f"  {display_text}",
                 font=ctk.CTkFont(family=FONT_FAMILY, size=13),
                 fg_color="transparent",
                 hover_color=COLORS["bg_light"],
@@ -919,8 +925,13 @@ class EventHandlerMixin(object):
         count = len(installed)
         engine.update_progress("gamer_version_collector", value=count, trigger_type="set")
 
-        has_release = any(self._get_version_type(v) == "release" for v in installed)
-        has_snapshot = any(self._get_version_type(v) == "snapshot" for v in installed)
+        # installed 可能是 List[InstanceInfo]（新版）或 List[str]（旧版兼容）
+        if installed and isinstance(installed[0], InstanceInfo):
+            has_release = any(i.state in ("original", "snapshot") for i in installed)
+            has_snapshot = any(i.state == "snapshot" for i in installed)
+        else:
+            has_release = any(self._get_version_type(v) == "release" for v in installed)
+            has_snapshot = any(self._get_version_type(v) == "snapshot" for v in installed)
         engine.check_and_unlock("gamer_cross_era", has_release and has_snapshot)
 
         if version_id:

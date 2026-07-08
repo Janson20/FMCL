@@ -18,7 +18,13 @@ from config import Config
 from structured_logger import slog
 from mirror import MirrorSource
 from validation import validate_version_id, validate_server_ip, validate_server_port
-from version_utils import parse_mc_version_from_id
+from version_utils import (
+    parse_mc_version_from_id,
+    parse_mc_version_from_dir,
+    parse_instance_from_json,
+    InstanceInfo,
+    has_mod_loader_from_json,
+)
 from ui.theme_engine import init_theme_engine, get_theme_engine, Theme
 
 
@@ -124,6 +130,11 @@ class MinecraftLauncher:
 
         self.current_max = 0
 
+        # 实例信息缓存: {文件夹名 → InstanceInfo}
+        # 参考 PCL-CE: mcInstanceList 和 PCL.ini 缓存
+        self._instance_info_cache: Dict[str, InstanceInfo] = {}
+        self._instance_cache_valid: bool = False
+
         # 账号系统引用（由外部设置）
         self._account_system = None
 
@@ -228,7 +239,9 @@ class MinecraftLauncher:
 
     @staticmethod
     def _extract_mc_version(version_id: str) -> str:
-        """从版本 ID 提取 Minecraft 游戏版本号，委托到 version_utils
+        """从版本 ID 提取 Minecraft 游戏版本号
+
+        优先读取版本 JSON 文件解析，回退到版本 ID 字符串匹配。
 
         参考 PCL-CE: McInstanceInfo 的版本识别逻辑。
         支持 Forge/Fabric/Quilt/NeoForge 及新旧 MC 版本格式。
@@ -365,23 +378,120 @@ class MinecraftLauncher:
             logger.error(f"获取版本列表失败: {str(e)}")
             return []
 
-    def get_installed_versions(self) -> List[str]:
-        """获取已安装的版本列表"""
+    def get_installed_versions(self) -> List[InstanceInfo]:
+        """获取已安装的版本列表（返回结构化实例信息）
+
+        遍历 .minecraft/versions/ 目录，读取每个实例的版本 JSON，
+        解析为 InstanceInfo 对象。
+
+        参考 PCL-CE: InitMcInstanceList() 和 McInstance 类。
+
+        Returns:
+            InstanceInfo 列表，按文件夹名排序
+        """
         try:
             versions_dir = self.config.get_versions_dir()
             if not versions_dir.exists():
+                self._instance_info_cache = {}
+                self._instance_cache_valid = False
                 return []
 
-            installed = [
-                v for v in os.listdir(str(versions_dir))
-                if v not in ['jre_manifest.json', 'version_manifest_v2.json']
-            ]
-            logger.info(f"已安装 {len(installed)} 个版本")
-            return installed
+            # 获取当前目录列表用于缓存校验
+            current_folders = set()
+            for v in os.listdir(str(versions_dir)):
+                vp = versions_dir / v
+                if vp.is_dir() and v not in ('jre_manifest.json', 'version_manifest_v2.json'):
+                    current_folders.add(v)
+
+            # 缓存校验：检查缓存是否与当前目录一致
+            if self._instance_cache_valid and set(self._instance_info_cache.keys()) == current_folders:
+                return sorted(self._instance_info_cache.values(), key=lambda x: x.folder_name)
+
+            # 重建缓存
+            self._instance_info_cache = {}
+            for folder_name in current_folders:
+                info = self._read_instance_info(folder_name)
+                if info is None:
+                    info = InstanceInfo(folder_name=folder_name, state="error", reliable=False)
+                self._instance_info_cache[folder_name] = info
+
+            self._instance_cache_valid = True
+            result = sorted(self._instance_info_cache.values(), key=lambda x: x.folder_name)
+            logger.info(f"已安装 {len(result)} 个版本（从 JSON 解析）")
+            return result
 
         except Exception as e:
             logger.error(f"获取已安装版本失败: {str(e)}")
+            self._instance_cache_valid = False
             return []
+
+    def get_installed_version_ids(self) -> List[str]:
+        """获取已安装的版本 ID 列表（向后兼容旧接口）
+
+        Returns:
+            版本 ID（文件夹名）字符串列表
+        """
+        instances = self.get_installed_versions()
+        return [i.folder_name for i in instances]
+
+    def _read_instance_info(self, folder_name: str) -> Optional[InstanceInfo]:
+        """读取单个实例的 JSON 并解析为 InstanceInfo
+
+        Args:
+            folder_name: 实例文件夹名
+
+        Returns:
+            InstanceInfo 或 None（读取失败）
+        """
+        versions_dir = self.config.get_versions_dir()
+        json_path = versions_dir / folder_name / f"{folder_name}.json"
+        if not json_path.exists():
+            # 尝试查找目录下唯一的 JSON 文件
+            version_dir = versions_dir / folder_name
+            if version_dir.exists():
+                try:
+                    json_files = list(version_dir.glob("*.json"))
+                    if len(json_files) == 1:
+                        json_path = json_files[0]
+                    else:
+                        return None
+                except Exception:
+                    return None
+            else:
+                return None
+
+        try:
+            json_text = json_path.read_text(encoding="utf-8")
+            return parse_instance_from_json(
+                json_text,
+                folder_name,
+                self.minecraft_dir,
+            )
+        except Exception as e:
+            logger.debug(f"解析实例 JSON 失败 ({folder_name}): {e}")
+            return None
+
+    def get_instance_info(self, version_id: str) -> Optional[InstanceInfo]:
+        """获取单个版本的实例信息（优先从缓存读取）
+
+        Args:
+            version_id: 版本 ID（文件夹名）
+
+        Returns:
+            InstanceInfo 或 None
+        """
+        if version_id in self._instance_info_cache:
+            return self._instance_info_cache[version_id]
+        info = self._read_instance_info(version_id)
+        if info is not None:
+            self._instance_info_cache[version_id] = info
+        return info
+
+    def invalidate_instance_cache(self):
+        """使实例信息缓存失效，下次调用 get_installed_versions() 会重新解析"""
+        self._instance_cache_valid = False
+        self._instance_info_cache = {}
+        logger.debug("实例信息缓存已失效")
 
     def install_version(self, version_id: str, mod_loader: str = "无") -> Tuple[bool, str]:
         """
@@ -484,6 +594,7 @@ class MinecraftLauncher:
                 slog.info("version_installed", version=version_id, loader=mod_loader,
                           installed_version_id=installed_version_id, loader_version=loader_version)
                 self._emit_plugin_hook("version.post_install", version_id=installed_version_id, success=True)
+                self.invalidate_instance_cache()
                 return True, installed_version_id
             else:
                 # 仅安装原版 Minecraft
@@ -497,6 +608,7 @@ class MinecraftLauncher:
                 slog.info("version_installed", version=version_id, loader="vanilla",
                           installed_version_id=version_id)
                 self._emit_plugin_hook("version.post_install", version_id=version_id, success=True)
+                self.invalidate_instance_cache()
                 return True, version_id
 
         except Exception as e:
@@ -594,8 +706,12 @@ class MinecraftLauncher:
                     self._set_status("正在自动下载 Fabric API...")
                     logger.info("Fabric API 未找到，正在自动下载...")
                     try:
-                        from modrinth import install_mod_with_deps, parse_game_version_from_version
-                        mc_version = parse_game_version_from_version(target_version)
+                        from modrinth import install_mod_with_deps
+                        mc_version = self._extract_mc_version(target_version)
+                        if mc_version == target_version:
+                            # 回退到名称匹配
+                            from modrinth import parse_game_version_from_version
+                            mc_version = parse_game_version_from_version(target_version)
                         ok, msg, names = install_mod_with_deps(
                             project_id="P7dR8mSH",
                             game_version=mc_version or target_version,
@@ -762,11 +878,14 @@ class MinecraftLauncher:
             logger.error(f"启动游戏失败: {str(e)}")
             return False, None
 
-    @staticmethod
-    def _has_mod_loader(version_id: str) -> bool:
-        """判断版本是否安装了模组加载器（需要版本隔离）"""
-        v = version_id.lower()
-        return any(loader in v for loader in ("forge", "fabric", "neoforge"))
+    def _has_mod_loader(self, version_id: str) -> bool:
+        """判断版本是否安装了模组加载器（需要版本隔离）
+
+        优先读取版本 JSON 文件判断，回退到版本 ID 字符串匹配。
+
+        参考 PCL-CE: McInstance.Modable 属性。
+        """
+        return has_mod_loader_from_json(version_id, self.minecraft_dir)
 
     def _optimize_jvm_args(self, command: List[str]) -> List[str]:
         """
@@ -911,6 +1030,7 @@ class MinecraftLauncher:
                 logger.info(f"已删除版本JSON: {version_json}")
 
             logger.info(f"版本 {version_id} 删除成功")
+            self.invalidate_instance_cache()
             return True, version_id
 
         except Exception as e:
@@ -956,6 +1076,9 @@ class MinecraftLauncher:
             "check_environment": self.check_and_setup_environment,
             "get_available_versions": self.get_available_versions,
             "get_installed_versions": self.get_installed_versions,
+            "get_installed_version_ids": self.get_installed_version_ids,
+            "get_instance_info": self.get_instance_info,
+            "invalidate_instance_cache": self.invalidate_instance_cache,
             "install_version": self.install_version,
             "remove_version": self.remove_version,
             "launch_game": self.launch_game,

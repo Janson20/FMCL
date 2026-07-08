@@ -7,6 +7,13 @@
 ## 🎮 版本管理
 - 浏览并安装所有 Minecraft 版本（正式版 + 测试版）
 - 已安装版本列表，支持一键选择和启动
+- **JSON 实例解析**：通过读取 `versions/{版本名}/{版本名}.json` 文件直接解析 MC 版本号和模组加载器信息，不再依赖文件夹名正则匹配
+  - 支持多策略回退版本号提取（`clientVersion` → `patches` → `--fml.mcVersion` → `inheritsFrom` → downloads/libraries）
+  - 支持 HMCL 格式 JSON（`patches` 数组合并）
+  - 支持 `inheritsFrom` 继承链递归解析
+  - 在 JSON 全文本中检测加载器关键词（`net.fabricmc:fabric-loader` / `minecraftforge` / `net.neoforge` 等）
+  - 自动提取加载器版本号
+- 版本列表中显示加载器类型和版本号（如 `[Fabric 0.15.11]`）
 - 版本删除，释放磁盘空间
 - 分页浏览可用版本列表（每页 20 个）
 - 每个版本条目提供 ⚙ 版本设置、🧩 安装模组、X 删除三个快捷按钮

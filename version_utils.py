@@ -9,8 +9,51 @@
   - PCL-CE/Plain Craft Launcher 2/Modules/Minecraft/ModMinecraft.cs (版本解析逻辑)
 """
 
+import json
+import os
 import re
-from typing import Optional, Tuple, List
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional, Tuple, List, Dict
+
+# ══════════════════════════════════════════════════════════════════════
+# 实例信息数据结构（参考 PCL-CE: McInstanceInfo）
+# ══════════════════════════════════════════════════════════════════════
+
+
+@dataclass
+class InstanceInfo:
+    """Minecraft 实例信息
+
+    从版本 JSON 文件解析得到的结构化实例数据，替代了原有的
+    基于文件夹名的正则匹配方式。
+
+    参考 PCL-CE: McInstanceInfo 类和 McInstanceState 枚举。
+
+    Attributes:
+        folder_name: 实例文件夹名（即版本 ID，如 "1.20.4" 或 "1.20.4-forge-49.0.26"）
+        vanilla_name: Minecraft 游戏版本号（如 "1.20.4", "26.1"），Unknown 表示无法识别
+        loader_type: 模组加载器类型（如 "forge", "fabric", "neoforge"），None 表示原版
+        loader_version: 模组加载器版本号（如 "49.0.26"），None 表示无加载器
+        state: 实例状态，对应 McInstanceState 枚举值
+        reliable: 版本号是否可靠（非猜测获得）
+    """
+    folder_name: str = ""
+    vanilla_name: str = "Unknown"
+    loader_type: Optional[str] = None
+    loader_version: Optional[str] = None
+    state: str = "original"
+    reliable: bool = True
+
+    @property
+    def has_loader(self) -> bool:
+        """是否安装了模组加载器（参考 PCL-CE: McInstance.Modable 属性）"""
+        return self.loader_type is not None
+
+    @property
+    def modable(self) -> bool:
+        """是否可以安装模组（同 has_loader，保留为别名）"""
+        return self.has_loader
 
 # ══════════════════════════════════════════════════════════════════════
 # Minecraft 版本正则表达式
@@ -819,3 +862,435 @@ def parse_mc_version_from_json_full(json_text: str, inherit_name: Optional[str] 
         return mc_v
 
     return "Unknown"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 从版本 JSON 文本解析加载器信息（参考 PCL-CE: ModMinecraft.Load）
+# ══════════════════════════════════════════════════════════════════════
+
+# JSON 文本中检测加载器的关键词映射
+# 检测顺序：更具体的先检测（如 neoforge 在 forge 之前）
+_JSON_LOADER_DETECTION = [
+    ("labymod_data", "labymod"),
+    ("net.neoforge", "neoforge"),
+    ("minecraftforge", "forge"),
+    ("net.fabricmc:fabric-loader", "fabric"),
+    ("net.legacyfabric:intermediary", "legacyfabric"),
+    ("org.quiltmc:quilt-loader", "quilt"),
+    ("com.cleanroommc:cleanroom:", "cleanroom"),
+    ("optifine", "optifine"),
+    ("liteloader", "liteloader"),
+]
+
+# 加载器类型 → 版本号正则提取
+_JSON_LOADER_VERSION_EXTRACTORS = {
+    "forge": [
+        re.compile(r"forge:[0-9.]+(?:_pre[0-9]*)?-([0-9.]+)", re.IGNORECASE),
+        re.compile(r"net\.minecraftforge:(?:forge|fmlloader):[0-9.]+-([0-9a-zA-Z._+-]+)", re.IGNORECASE),
+    ],
+    "neoforge": [
+        re.compile(r'orgeVersion",[^"]*?"([^"]+)"', re.IGNORECASE),
+    ],
+    "fabric": [
+        re.compile(r"net\.fabricmc:fabric-loader:([0-9.]+(?:\+build\.[0-9]+)?)", re.IGNORECASE),
+    ],
+    "legacyfabric": [
+        re.compile(r"net\.fabricmc:fabric-loader:([0-9.]+(?:\+build\.[0-9]+)?)", re.IGNORECASE),
+    ],
+    "quilt": [
+        re.compile(r"org\.quiltmc:quilt-loader:([0-9.]+(?:\+build\.[0-9]+)?(?:-beta\.[0-9]+(?:[0-9])?)?)", re.IGNORECASE),
+    ],
+    "cleanroom": [
+        re.compile(r"com\.cleanroommc:cleanroom:([0-9.]+(?:\+build\.[0-9]+)?(?:-alpha)?)", re.IGNORECASE),
+    ],
+    "optifine": [
+        re.compile(r'HD_U_([^"":/\s]+)', re.IGNORECASE),
+    ],
+    "labymod": [
+        re.compile(r"-Dnet\.labymod\.running-version=(1\.[0-9+.]+)", re.IGNORECASE),
+    ],
+}
+
+
+def parse_mod_loader_from_json(json_text: str) -> Optional[str]:
+    """从版本 JSON 文本中检测模组加载器类型
+
+    参考 PCL-CE: McInstance.Load() 中的加载器检测逻辑。
+    通过搜索 JSON 全文本中的特定关键词来确定加载器类型。
+
+    检测顺序（参考 PCL-CE）:
+    - labymod_data → labymod
+    - net.neoforge → neoforge
+    - minecraftforge (不含 net.neoforge) → forge
+    - net.fabricmc:fabric-loader → fabric
+    - net.legacyfabric:intermediary → legacyfabric
+    - org.quiltmc:quilt-loader → quilt
+    - com.cleanroommc:cleanroom: → cleanroom
+    - optifine → optifine
+    - liteloader → liteloader
+
+    Args:
+        json_text: 版本 JSON 文本
+
+    Returns:
+        加载器类型字符串，未找到返回 None
+    """
+    if not json_text:
+        return None
+
+    # Forge 有特殊互斥规则：minecraftforge 存在但 net.neoforge 也必须不存在
+    for keyword, loader_type in _JSON_LOADER_DETECTION:
+        if keyword == "minecraftforge" and "net.neoforge" in json_text.lower():
+            continue
+        if keyword in json_text.lower():
+            return loader_type
+
+    return None
+
+
+def parse_loader_version_from_json(json_text: str, loader_type: str) -> Optional[str]:
+    """从版本 JSON 文本中提取模组加载器版本号
+
+    参考 PCL-CE: ModMinecraft.Load() 中各加载器的版本提取正则。
+
+    Args:
+        json_text: 版本 JSON 文本
+        loader_type: 加载器类型（如 "forge", "fabric", "neoforge"）
+
+    Returns:
+        加载器版本号字符串，未找到返回 None
+    """
+    extractors = _JSON_LOADER_VERSION_EXTRACTORS.get(loader_type)
+    if not extractors:
+        return None
+
+    for regex in extractors:
+        m = regex.search(json_text)
+        if m:
+            ver = m.group(1).replace("+build", "")
+            return ver
+
+    return None
+
+
+def parse_instance_from_json(
+    json_text: str,
+    folder_name: str,
+    minecraft_dir: Optional[str] = None,
+) -> InstanceInfo:
+    """从版本 JSON 文本中解析完整的实例信息
+
+    参考 PCL-CE: McInstance.Info (getter) 和 McInstance.Load() 的完整流程。
+
+    解析流程:
+    1. 处理 HMCL 格式 JSON（patches 数组合并）
+    2. 处理 inheritsFrom 继承（递归合并父 JSON）
+    3. 多策略回退提取 MC 版本号
+    4. 搜索 JSON 全文本检测加载器
+    5. 提取加载器版本号
+
+    Args:
+        json_text: 版本 JSON 文本
+        folder_name: 实例文件夹名（版本 ID）
+        minecraft_dir: .minecraft 目录路径（用于继承链解析）
+
+    Returns:
+        InstanceInfo 实例
+    """
+    info = InstanceInfo(folder_name=folder_name)
+
+    try:
+        json_obj = json.loads(json_text)
+    except json.JSONDecodeError:
+        info.state = "error"
+        info.reliable = False
+        return info
+
+    # ── 处理 HMCL 格式 JSON（patches 数组合并）──
+    # 参考 PCL-CE: JsonObject.getter 中的 HMCL 合并逻辑
+    if "patches" in json_obj and "time" not in json_obj:
+        try:
+            merged = _merge_hmcl_patches(json_obj)
+            if merged is not None:
+                json_obj = merged
+                json_text = json.dumps(merged)
+        except Exception:
+            pass
+
+    # ── 处理 inheritsFrom 继承链 ──
+    # 参考 PCL-CE: JsonObject.getter 中的继承实例合并
+    if "inheritsFrom" in json_obj and minecraft_dir:
+        try:
+            merged, _ = _resolve_inherits_chain(
+                json_obj, folder_name, minecraft_dir, max_depth=10
+            )
+            if merged is not None:
+                json_obj = merged
+                json_text = json.dumps(merged)
+        except Exception:
+            pass
+
+    # ── 提取 MC 版本号（多策略回退）──
+    info.vanilla_name = parse_mc_version_from_json_full(
+        json_text,
+        inherit_name=json_obj.get("inheritsFrom", "").strip('"'),
+        folder_name=folder_name,
+    )
+
+    # 修正: 20.X / 21.X → 1.20.X / 1.21.X（PCL 兼容处理）
+    if info.vanilla_name not in ("Unknown", "Old", "pending"):
+        if re.match(r"^2[01]\.", info.vanilla_name):
+            info.vanilla_name = "1." + info.vanilla_name
+        info.vanilla_name = info.vanilla_name.replace("_unobfuscated", "").replace(" Unobfuscated", "").strip()
+
+    # ── 检测实例状态 ──
+    # 参考 PCL-CE: McInstance.Load() 中的分类逻辑
+    release_time = json_obj.get("releaseTime", "")
+    if release_time:
+        try:
+            from datetime import datetime
+            rt = datetime.fromisoformat(release_time.replace("Z", "+00:00"))
+            if rt.year >= 2000 and rt.year < 2013:
+                info.state = "old"
+        except (ValueError, OverflowError):
+            pass
+
+    if json_obj.get("type") == "pending":
+        info.state = "pending"
+    elif json_obj.get("type") == "fool":
+        info.state = "fool"
+    elif info.vanilla_name == "Old":
+        info.state = "old"
+
+    # ── 检测加载器类型 ──
+    info.loader_type = parse_mod_loader_from_json(json_text)
+
+    # ── 检测快照状态 ──
+    if info.state == "original" and info.loader_type is None:
+        vn = info.vanilla_name
+        if "-snapshot" in vn or "-pre" in vn or "-rc" in vn or re.match(r"^\d+w\d+", vn):
+            info.state = "snapshot"
+
+    # ── 根据加载器设置状态 ──
+    if info.loader_type == "forge":
+        info.state = "forge"
+    elif info.loader_type == "neoforge":
+        info.state = "neoforge"
+    elif info.loader_type == "fabric":
+        info.state = "fabric"
+    elif info.loader_type == "legacyfabric":
+        info.state = "legacyfabric"
+    elif info.loader_type == "quilt":
+        info.state = "quilt"
+    elif info.loader_type == "cleanroom":
+        info.state = "cleanroom"
+    elif info.loader_type == "optifine":
+        info.state = "optifine"
+    elif info.loader_type == "labymod":
+        info.state = "labymod"
+    elif info.loader_type == "liteloader":
+        info.state = "liteloader"
+
+    # ── 提取加载器版本号 ──
+    if info.loader_type:
+        info.loader_version = parse_loader_version_from_json(json_text, info.loader_type)
+
+    return info
+
+
+def _merge_hmcl_patches(json_obj: dict) -> Optional[dict]:
+    """合并 HMCL 格式 JSON 中的 patches 数组
+
+    参考 PCL-CE: JsonObject.getter 中的 HMCL 合并逻辑:
+    - 按 priority 排序 patches
+    - 逐步合并到主对象
+    - 修改 id 和移除 inheritsFrom
+
+    Args:
+        json_obj: 包含 patches 的 JSON 对象
+
+    Returns:
+        合并后的 JSON 对象，失败返回 None
+    """
+    patches = json_obj.get("patches")
+    if not isinstance(patches, list) or not patches:
+        return None
+
+    try:
+        sorted_patches = sorted(
+            patches,
+            key=lambda p: int(str(p.get("priority", "0"))),
+        )
+    except (ValueError, TypeError):
+        sorted_patches = list(patches)
+
+    current = None
+    for sub in sorted_patches:
+        if not isinstance(sub, dict):
+            continue
+        sid = sub.get("id")
+        if sid:
+            if current is not None:
+                current = _deep_merge_json(current, sub)
+            else:
+                current = dict(sub)
+
+    if current is not None:
+        current["id"] = json_obj.get("id", current.get("id", ""))
+        current.pop("inheritsFrom", None)
+
+    return current
+
+
+def _resolve_inherits_chain(
+    json_obj: dict,
+    folder_name: str,
+    minecraft_dir: str,
+    max_depth: int = 10,
+) -> tuple:
+    """解析 inheritsFrom 继承链，递归合并父实例的 JSON
+
+    参考 PCL-CE: JsonObject.getter 中的继承实例合并逻辑。
+
+    Args:
+        json_obj: 当前 JSON 对象
+        folder_name: 当前实例文件夹名
+        minecraft_dir: .minecraft 目录路径
+        max_depth: 最大继承深度（防止循环引用）
+
+    Returns:
+        (合并后的 JSON 对象, 父实例名) 元组，失败返回 (None, None)
+    """
+    inherit_name = json_obj.get("inheritsFrom")
+    if not inherit_name or not isinstance(inherit_name, str) or not inherit_name.strip():
+        return json_obj, None
+
+    inherit_name = inherit_name.strip()
+    if max_depth <= 0 or inherit_name == folder_name:
+        return json_obj, inherit_name
+
+    # 读取父实例 JSON
+    parent_dir = Path(minecraft_dir) / "versions" / inherit_name
+    parent_json_path = parent_dir / f"{inherit_name}.json"
+    if not parent_json_path.exists():
+        # 尝试查找目录下唯一的 JSON 文件
+        try:
+            json_files = list(parent_dir.glob("*.json"))
+            if len(json_files) == 1:
+                parent_json_path = json_files[0]
+            else:
+                return json_obj, inherit_name
+        except Exception:
+            return json_obj, inherit_name
+
+    try:
+        parent_text = parent_json_path.read_text(encoding="utf-8")
+        parent_obj = json.loads(parent_text)
+    except Exception:
+        return json_obj, inherit_name
+
+    # 递归解析父实例的继承链
+    merged_parent, _ = _resolve_inherits_chain(
+        parent_obj, inherit_name, minecraft_dir, max_depth - 1
+    )
+    if merged_parent is None:
+        merged_parent = parent_obj
+
+    # 合并：父实例优先，子实例覆盖
+    result = _deep_merge_json(merged_parent, json_obj)
+    return result, inherit_name
+
+
+def _deep_merge_json(base: dict, overlay: dict) -> dict:
+    """深度合并两个 JSON 对象
+
+    overlay 中的键会覆盖 base 中的同名键。
+    对于列表类型，overlay 追加到 base 末尾。
+
+    Args:
+        base: 基础 JSON 对象
+        overlay: 覆盖/追加的 JSON 对象
+
+    Returns:
+        合并后的新字典
+    """
+    result = dict(base)
+    for key, value in overlay.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge_json(result[key], value)
+        elif key in result and isinstance(result[key], list) and isinstance(value, list):
+            result[key] = result[key] + value
+        else:
+            result[key] = value
+    return result
+
+
+def has_mod_loader_from_json(version_id: str, minecraft_dir: str) -> bool:
+    """通过读取版本 JSON 文件判断是否安装了模组加载器
+
+    读取 versions/{version_id}/{version_id}.json 并搜索加载器关键词。
+
+    Args:
+        version_id: 版本 ID
+        minecraft_dir: .minecraft 目录路径
+
+    Returns:
+        是否安装了模组加载器
+    """
+    info = _try_read_instance_json(version_id, minecraft_dir)
+    if info is None:
+        # 回退到名称匹配
+        return parse_mod_loader_from_version(version_id) is not None
+    return info.has_loader
+
+
+def _try_read_instance_json(version_id: str, minecraft_dir: str) -> Optional[InstanceInfo]:
+    """尝试读取并解析实例 JSON 文件
+
+    Args:
+        version_id: 版本 ID（文件夹名）
+        minecraft_dir: .minecraft 目录路径
+
+    Returns:
+        InstanceInfo 或 None（读取/解析失败）
+    """
+    if not minecraft_dir or not version_id:
+        return None
+
+    json_path = Path(minecraft_dir) / "versions" / version_id / f"{version_id}.json"
+    if not json_path.exists():
+        # 尝试查找目录下唯一的 JSON 文件
+        version_dir = Path(minecraft_dir) / "versions" / version_id
+        if version_dir.exists():
+            try:
+                json_files = list(version_dir.glob("*.json"))
+                if len(json_files) == 1:
+                    json_path = json_files[0]
+                else:
+                    return None
+            except Exception:
+                return None
+        else:
+            return None
+
+    try:
+        json_text = json_path.read_text(encoding="utf-8")
+        return parse_instance_from_json(json_text, version_id, minecraft_dir)
+    except Exception:
+        return None
+
+
+def parse_mc_version_from_dir(version_id: str, minecraft_dir: str) -> str:
+    """通过读取版本 JSON 提取 Minecraft 版本号
+
+    Args:
+        version_id: 版本 ID（文件夹名）
+        minecraft_dir: .minecraft 目录路径
+
+    Returns:
+        Minecraft 版本号，无法识别返回 version_id 本身
+    """
+    info = _try_read_instance_json(version_id, minecraft_dir)
+    if info is None or info.vanilla_name == "Unknown":
+        return parse_mc_version_from_id(version_id) or version_id
+    return info.vanilla_name

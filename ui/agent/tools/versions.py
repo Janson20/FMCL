@@ -130,7 +130,21 @@ def _get_installed_versions(params: Dict[str, str], callbacks: Dict[str, Callabl
 
     result = f"本地已安装 {len(versions)} 个版本:\n"
     for v in versions:
-        result += f"  - {v}\n"
+        if hasattr(v, 'folder_name'):
+            # InstanceInfo 对象
+            name = v.folder_name
+            tags = []
+            if v.loader_type:
+                tags.append(v.loader_type)
+                if v.loader_version:
+                    tags[-1] += f" {v.loader_version}"
+            if v.vanilla_name and v.vanilla_name != "Unknown":
+                tags.append(f"MC {v.vanilla_name}")
+            tag_str = f" ({', '.join(tags)})" if tags else ""
+            result += f"  - {name}{tag_str}\n"
+        else:
+            # 向后兼容：字符串
+            result += f"  - {v}\n"
     return result
 
 

@@ -12,7 +12,7 @@ from logzero import logger
 
 from structured_logger import slog
 from validation import validate_version_id, validate_server_ip, validate_server_port, validate_memory
-from version_utils import parse_mc_version_from_id
+from version_utils import parse_mc_version_from_id, parse_mc_version_from_dir
 
 
 class ServerMixin:
@@ -220,14 +220,15 @@ class ServerMixin:
         logger.error(f"无法为 {version_id} 自动安装 Java runtime")
         return "java"
 
-    @staticmethod
-    def _extract_mc_version(version_id: str) -> str:
-        """从版本 ID 提取 Minecraft 游戏版本号，委托到 version_utils
+    def _extract_mc_version(self, version_id: str) -> str:
+        """从版本 ID 提取 Minecraft 游戏版本号
+
+        优先读取版本 JSON 文件解析，回退到版本 ID 字符串匹配。
 
         参考 PCL-CE: McInstanceInfo 的版本识别逻辑。
         支持 Forge/Fabric/Quilt/NeoForge 及新旧 MC 版本格式。
         """
-        return parse_mc_version_from_id(version_id) or version_id
+        return parse_mc_version_from_dir(version_id, self.minecraft_dir)
 
     def install_server(self, version_id: str) -> Tuple[bool, str]:
         """

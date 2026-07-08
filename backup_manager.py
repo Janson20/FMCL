@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Any, Tuple
 from uuid import uuid4
-from version_utils import has_mod_loader
+from version_utils import has_mod_loader, has_mod_loader_from_json
 
 # zipfile.ZIP_DEFLATE = 8，直接使用整数值避免某些环境导入异常
 _ZIP_DEFLATE = getattr(zipfile, 'ZIP_DEFLATE', 8)
@@ -149,13 +149,15 @@ class BackupManager:
 
     # ─── 存档目录定位 ───────────────────────────────────────
 
-    @staticmethod
-    def _is_isolated_version(version_id: str) -> bool:
-        """判断版本是否为模组加载器版本（需要版本隔离），委托到 version_utils
+    def _is_isolated_version(self, version_id: str) -> bool:
+        """判断版本是否为模组加载器版本（需要版本隔离）
+
+        优先读取版本 JSON 文件判断，回退到版本 ID 字符串匹配。
 
         参考 PCL-CE: McInstance.Modable 属性。
         """
-        return has_mod_loader(version_id)
+        mc_dir = str(self.config.minecraft_dir)
+        return has_mod_loader_from_json(version_id, mc_dir)
 
     def _find_world_dir(self, world_name: str) -> Optional[Path]:
         """
