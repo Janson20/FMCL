@@ -873,13 +873,10 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
             with zf.open("install_profile.json", "r") as f:
                 install_profile = _json.loads(f.read())
 
-            minecraft_version = install_profile.get("minecraft") or install_profile.get("install", {}).get("minecraft", version)
-            forge_version = f"{minecraft_version}-{loader_version}"
-
-            # 安装 libraries
+            # 安装 installer libraries
             if "libraries" in install_profile:
                 from minecraft_launcher_lib.install import install_libraries
-                install_libraries(minecraft_version, install_profile["libraries"], str(minecraft_dir), {})
+                install_libraries(version, install_profile["libraries"], str(minecraft_dir), {})
 
             # 提取 version.json
             client_json = None
@@ -900,29 +897,67 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
             with open(json_path, "w", encoding="utf-8") as f:
                 _json.dump(client_json, f, ensure_ascii=False, indent=4)
 
-            # 提取 forge universal jar
-            # Cleanroom 的 maven 路径: com.cleanroommc:cleanroom 而不是 net.minecraftforge:forge
-            cleanroom_lib_path = os.path.join(
-                minecraft_dir, "libraries", "com", "cleanroommc", "cleanroom", forge_version
-            )
-            os.makedirs(cleanroom_lib_path, exist_ok=True)
-
             # 安装运行时库文件（version.json 中的 libraries）
             try:
                 from minecraft_launcher_lib.install import install_libraries
                 runtime_libs = client_json.get("libraries", [])
                 if runtime_libs:
+                    # Cleanroom 运行时库可能缺少 url 字段
+                    for lib in runtime_libs:
+                        if isinstance(lib, dict) and "url" not in lib:
+                            lib["url"] = "https://maven.fabricmc.net/"
                     install_libraries(version, runtime_libs, minecraft_dir, {})
                     logger.info("Cleanroom 运行时库文件下载完成")
             except Exception as e:
                 logger.warning(f"Cleanroom 运行时库文件下载失败（不影响启动）: {e}")
 
-            # 尝试多种可能的 universal jar 路径
+            # 从 version.json 中提取 Cleanroom 库的准确版本（不用拼凑 forge_version）
+            # version.json 中的格式: com.cleanroommc:cleanroom:0.2.1-alpha
+            cleanroom_version = loader_version
+            for lib in client_json.get("libraries", []):
+                name = lib.get("name", "")
+                if name.startswith("com.cleanroommc:cleanroom:"):
+                    parts = name.split(":")
+                    if len(parts) >= 3:
+                        cleanroom_version = parts[2]
+                    break
+
+            # 确保 Foundation 库存在于 version.json 的 libraries 中
+            # Cleanroom 0.2.x 使用独立的 top.outlands:foundation 作为主类入口
+            # （top.outlands.foundation.boot.Foundation），它不在 version.json
+            # 的 libraries 列表中，需要手动添加才能被 classpath 包含。
+            has_foundation = any(
+                lib.get("name", "").startswith("top.outlands:foundation:")
+                for lib in client_json.get("libraries", [])
+            )
+            if not has_foundation:
+                foundation_libs_dir = Path(minecraft_dir) / "libraries" / "top" / "outlands" / "foundation"
+                if foundation_libs_dir.exists():
+                    found_versions = sorted([d.name for d in foundation_libs_dir.iterdir() if d.is_dir()], reverse=True)
+                    if found_versions:
+                        fv = found_versions[0]
+                        client_json.setdefault("libraries", []).append({
+                            "name": f"top.outlands:foundation:{fv}",
+                            "url": "https://maven.fabricmc.net/"
+                        })
+                        logger.info(f"已添加 Foundation 库到 version.json: top.outlands:foundation:{fv}")
+                        # 重写 version.json 以包含 Foundation
+                        with open(json_path, "w", encoding="utf-8") as f:
+                            _json.dump(client_json, f, ensure_ascii=False, indent=4)
+
+            # 提取 Cleanroom universal jar
+            cleanroom_lib_path = os.path.join(
+                minecraft_dir, "libraries", "com", "cleanroommc", "cleanroom", cleanroom_version
+            )
+            os.makedirs(cleanroom_lib_path, exist_ok=True)
+
+            # 尝试多种可能的 universal jar 路径（使用准确的 cleanroom_version）
             possible_paths = [
-                f"maven/com/cleanroommc/cleanroom/{forge_version}/cleanroom-{forge_version}-universal.jar",
-                f"maven/net/minecraftforge/forge/{forge_version}/forge-{forge_version}-universal.jar",
-                f"forge-{forge_version}-universal.jar",
-                f"cleanroom-{forge_version}-universal.jar",
+                f"maven/com/cleanroommc/cleanroom/{cleanroom_version}/cleanroom-{cleanroom_version}-universal.jar",
+                f"maven/com/cleanroommc/cleanroom/{cleanroom_version}/cleanroom-{cleanroom_version}.jar",
+                f"maven/net/minecraftforge/forge/{cleanroom_version}/forge-{cleanroom_version}-universal.jar",
+                f"cleanroom-{cleanroom_version}-universal.jar",
+                f"cleanroom-{cleanroom_version}.jar",
             ]
             extracted = False
             for path in possible_paths:
@@ -930,7 +965,7 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
                     with zf.open(path) as src:
                         dest_file = os.path.join(
                             cleanroom_lib_path,
-                            f"cleanroom-{forge_version}.jar"
+                            f"cleanroom-{cleanroom_version}.jar"
                         )
                         with open(dest_file, "wb") as dst:
                             shutil.copyfileobj(src, dst)
@@ -941,6 +976,16 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
 
             if not extracted:
                 logger.warning("未在 Cleanroom 安装器中找到 universal jar，但不影响安装")
+
+        # 提取 LWJGL3 原生库到独立 natives 目录
+        # Cleanroom 使用 LWJGL3（而非原版的 LWJGL2），需要从其 native JAR 中提取 DLL
+        try:
+            from minecraft_launcher_lib.natives import extract_natives
+            cleanroom_natives_dir = os.path.join(minecraft_dir, "versions", installed_version_id, "natives")
+            extract_natives(installed_version_id, minecraft_dir, cleanroom_natives_dir)
+            logger.info(f"Cleanroom LWJGL3 原生库已提取到: {cleanroom_natives_dir}")
+        except Exception as e:
+            logger.warning(f"Cleanroom 原生库提取失败（不影响启动）: {e}")
 
         # 复制父版本 JAR 确保 classpath 完整
         _ensure_version_jar_after_install(installed_version_id, version, minecraft_dir)
