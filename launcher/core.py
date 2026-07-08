@@ -24,6 +24,7 @@ from version_utils import (
     parse_instance_from_json,
     InstanceInfo,
     has_mod_loader_from_json,
+    parse_mod_loader_from_version,
 )
 from ui.theme_engine import init_theme_engine, get_theme_engine, Theme
 
@@ -894,39 +895,47 @@ class MinecraftLauncher:
             else:
                 version_game_dir = None
 
-            # Fabric 游戏：检查 mods/ 中是否有 Fabric API，没有则自动下载
-            if "fabric" in target_version.lower():
+            # 模组加载器 API 自动下载
+            # Fabric → Fabric API, Quilt → QSL, LegacyFabric → Legacy Fabric API
+            _loader_type = self._detect_mod_loader_type(target_version)
+            _auto_download_configs = {
+                "fabric": ("Fabric API", "P7dR8mSH", "fabric"),
+                "quilt": ("QSL (Quilt Standard Libraries)", "qvPxCk3h", "quilt"),
+                "legacyfabric": ("Legacy Fabric API", "9CJED7xi", "legacyfabric"),
+            }
+            if _loader_type in _auto_download_configs:
+                _display_name, _project_id, _mod_loader = _auto_download_configs[_loader_type]
+                _api_prefix = _loader_type.replace("legacyfabric", "legacy-fabric")
                 game_dir = options.get("gameDirectory", self.minecraft_dir)
                 mods_dir = Path(game_dir) / "mods"
-                has_fabric_api = False
+                has_api = False
                 if mods_dir.exists():
                     for f in mods_dir.iterdir():
-                        if f.name.lower().startswith("fabric-api"):
-                            has_fabric_api = True
+                        if f.name.lower().startswith(_api_prefix):
+                            has_api = True
                             break
-                if not has_fabric_api:
-                    self._set_status("正在自动下载 Fabric API...")
-                    logger.info("Fabric API 未找到，正在自动下载...")
+                if not has_api:
+                    self._set_status(f"正在自动下载 {_display_name}...")
+                    logger.info(f"{_display_name} 未找到，正在自动下载...")
                     try:
                         from modrinth import install_mod_with_deps
                         mc_version = self._extract_mc_version(target_version)
                         if mc_version == target_version:
-                            # 回退到名称匹配
                             from modrinth import parse_game_version_from_version
                             mc_version = parse_game_version_from_version(target_version)
                         ok, msg, names = install_mod_with_deps(
-                            project_id="P7dR8mSH",
+                            project_id=_project_id,
                             game_version=mc_version or target_version,
-                            mod_loader="fabric",
+                            mod_loader=_mod_loader,
                             mods_dir=str(mods_dir),
                             status_callback=self._set_status,
                         )
                         if ok:
-                            logger.info(f"Fabric API 自动安装成功: {', '.join(names)}")
+                            logger.info(f"{_display_name} 自动安装成功: {', '.join(names)}")
                         else:
-                            logger.warning(f"Fabric API 自动安装失败（不影响启动）: {msg}")
+                            logger.warning(f"{_display_name} 自动安装失败（不影响启动）: {msg}")
                     except Exception as e:
-                        logger.warning(f"Fabric API 自动安装异常（不影响启动）: {e}")
+                        logger.warning(f"{_display_name} 自动安装异常（不影响启动）: {e}")
 
             # 设置玩家凭据（优先使用账号系统）
             account_options = {}
@@ -991,6 +1000,11 @@ class MinecraftLauncher:
                     options
                 )
 
+            # Cleanroom classpath 过滤：移除与 Cleanroom 冲突的旧版库
+            # 参考 HMCL DefaultLauncher: Cleanroom 需要排除包含 "2.9.4-nightly-20150209" 的库
+            if minecraft_command and self._detect_mod_loader_type(target_version) == "cleanroom":
+                minecraft_command = self._filter_cleanroom_classpath(minecraft_command)
+
             # 使用 java_scanner 解析最佳 Java 可执行文件
             if minecraft_command:
                 resolved_java = self._resolve_java_executable(
@@ -1019,14 +1033,7 @@ class MinecraftLauncher:
             _java_cmd = minecraft_command[0] if minecraft_command else ""
             _jvm_args = [a for a in minecraft_command[1:] if a.startswith("-")]
             _game_args = [a for a in minecraft_command[1:] if not a.startswith("-")]
-            _loader = ""
-            _tl = target_version.lower()
-            if "forge" in _tl:
-                _loader = "forge"
-            elif "fabric" in _tl:
-                _loader = "fabric"
-            elif "neoforge" in _tl:
-                _loader = "neoforge"
+            _loader = self._detect_mod_loader_type(target_version)
             slog.info("game_launch_command_generated", version=target_version, loader=_loader,
                       java_cmd=_java_cmd, jvm_args=_jvm_args[:10], game_args_count=len(_game_args))
 
@@ -1089,19 +1096,39 @@ class MinecraftLauncher:
         """
         return has_mod_loader_from_json(version_id, self.minecraft_dir)
 
+    def _detect_mod_loader_type(self, version_id: str) -> str:
+        """检测模组加载器具体类型
+
+        先尝试从版本 ID 字符串匹配加载器类型，适用于 launch_game 中的
+        日志记录、参数调整等场景。
+
+        Returns:
+            加载器类型字符串: "forge", "fabric", "neoforge", "quilt",
+                              "liteloader", "legacyfabric", "cleanroom",
+                              "optifine", "labymod" 或 ""
+        """
+        return parse_mod_loader_from_version(version_id) or ""
+
     def _optimize_jvm_args(self, command: List[str], version_id: str = "") -> List[str]:
         """
         优化 JVM 启动参数
 
         - 默认: 使用 G1GC 垃圾回收器，减少游戏卡顿
         - Cleanroom: 使用 ZGC + CompactObjectHeaders (Java 25+)
+        - Forge/NeoForge/Cleanroom: 添加 FML 兼容性参数
         - 固定堆内存大小，避免动态扩展/收缩的开销
+
+        参考 HMCL DefaultLauncher.generateCommandLine() 中的 JVM 参数策略。
         """
         optimized = []
         has_xms = False
         has_xmx = False
         has_gc = False
-        is_cleanroom = "cleanroom" in version_id.lower()
+        has_fml_ignore_cert = False
+        has_fml_ignore_patch = False
+
+        loader_type = self._detect_mod_loader_type(version_id)
+        is_fml_loader = loader_type in ("forge", "neoforge", "cleanroom")
 
         for arg in command:
             if arg.startswith("-Xms"):
@@ -1112,6 +1139,12 @@ class MinecraftLauncher:
                 optimized.append(arg)
             elif arg.startswith("-XX:+Use") and "GC" in arg:
                 has_gc = True
+                optimized.append(arg)
+            elif arg == "-Dfml.ignoreInvalidMinecraftCertificates=true":
+                has_fml_ignore_cert = True
+                optimized.append(arg)
+            elif arg == "-Dfml.ignorePatchDiscrepancies=true":
+                has_fml_ignore_patch = True
                 optimized.append(arg)
             else:
                 optimized.append(arg)
@@ -1124,6 +1157,15 @@ class MinecraftLauncher:
                 break
 
         jvm_opts = []
+        is_cleanroom = (loader_type == "cleanroom")
+
+        # ── FML 兼容性参数（Forge/NeoForge/Cleanroom） ──
+        # 参考 HMCL DefaultLauncher: 无条件添加以下 FML 参数以兼容旧版 Forge 模块验证
+        if is_fml_loader:
+            if not has_fml_ignore_cert:
+                jvm_opts.append("-Dfml.ignoreInvalidMinecraftCertificates=true")
+            if not has_fml_ignore_patch:
+                jvm_opts.append("-Dfml.ignorePatchDiscrepancies=true")
 
         if is_cleanroom:
             # Cleanroom 专用 JVM 优化（参考 Cleanroom Loader 官方文档）
@@ -1211,6 +1253,31 @@ class MinecraftLauncher:
             logger.debug("已执行 GC 释放内存")
         except Exception as e:
             logger.debug(f"GC 释放失败: {e}")
+
+    @staticmethod
+    def _filter_cleanroom_classpath(command: List[str]) -> List[str]:
+        """过滤 Cleanroom 的 classpath，移除与 Cleanroom 冲突的旧版库
+
+        HMCL DefaultLauncher 中 Cleanroom 需要排除包含 "2.9.4-nightly-20150209" 的
+        asm 库，该库与 Cleanroom 自带的 asm 版本冲突。
+
+        Args:
+            command: 启动命令列表
+
+        Returns:
+            过滤后的启动命令列表
+        """
+        path_sep = ";" if sys.platform == "win32" else ":"
+        for i, arg in enumerate(command):
+            if arg in ("-cp", "-classpath") and i + 1 < len(command):
+                entries = command[i + 1].split(path_sep)
+                filtered = [e for e in entries if "2.9.4-nightly-20150209" not in e]
+                if len(filtered) != len(entries):
+                    removed = len(entries) - len(filtered)
+                    command[i + 1] = path_sep.join(filtered)
+                    logger.info(f"Cleanroom classpath 过滤: 移除了 {removed} 个冲突库")
+                break
+        return command
 
     def remove_version(self, version_id: str) -> Tuple[bool, str]:
         """
