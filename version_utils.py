@@ -436,6 +436,31 @@ _LOADER_DETECTION_ORDER = [
 ]
 
 
+# 特殊模组加载器兼容映射：将无法被 Modrinth/CurseForge API
+# 识别的加载器映射为兼容等效类型，用于搜索与更新检测。
+MOD_LOADER_API_COMPAT_MAP: Dict[str, str] = {
+    "legacyfabric": "fabric",
+    "cleanroom": "forge",
+}
+
+
+def resolve_search_loader(loader: Optional[str]) -> Optional[str]:
+    """将模组加载器映射为 API 可识别的类型
+
+    Modrinth 和 CurseForge 等 API 不识别 legacyfabric、cleanroom
+    等加载器，需要映射为兼容的等效类型进行搜索。
+
+    Args:
+        loader: 原始加载器类型
+
+    Returns:
+        映射后的加载器类型，未找到映射则返回原值
+    """
+    if loader is None:
+        return None
+    return MOD_LOADER_API_COMPAT_MAP.get(loader, loader)
+
+
 def parse_mod_loader_from_version(version_id: str) -> Optional[str]:
     """从版本 ID 中解析模组加载器类型
 

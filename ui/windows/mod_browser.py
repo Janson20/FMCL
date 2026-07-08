@@ -29,6 +29,23 @@ class ModBrowserWindow(ctk.CTkToplevel):
     TAB_RESOURCE_PACKS = "resourcepacks"
     TAB_SHADERS = "shaders"
 
+    # 特殊模组加载器兼容映射：将无法被 API 识别的加载器映射为兼容等效类型
+    MOD_LOADER_COMPAT_MAP: Dict[str, str] = {
+        "legacyfabric": "fabric",
+        "cleanroom": "forge",
+    }
+
+    @property
+    def _search_loader(self) -> Optional[str]:
+        """获取用于 API 搜索/安装的加载器类型
+
+        对特殊加载器进行兼容映射，因为 CurseForge 和 Modrinth API
+        不识别 legacyfabric、cleanroom 等加载器类型。
+        """
+        if self._mod_loader is None:
+            return None
+        return self.MOD_LOADER_COMPAT_MAP.get(self._mod_loader, self._mod_loader)
+
     def __init__(self, parent, version_id: str, callbacks: Dict[str, Callable]):
         super().__init__(parent)
         self.version_id = version_id
@@ -296,7 +313,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 result = unified_search_mods(
                     query=state["current_query"],
                     game_version=self._game_version,
-                    mod_loader=self._mod_loader,
+                    mod_loader=self._search_loader,
                     offset=state["current_offset"],
                     limit=self.PAGE_SIZE,
                 )
@@ -373,7 +390,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 token=token,
                 search_type=tab_key,
                 game_version=self._game_version,
-                mod_loader=self._mod_loader if tab_key == self.TAB_MODS else None,
+                mod_loader=self._search_loader if tab_key == self.TAB_MODS else None,
                 max_per_keyword=30,
             )
 
@@ -631,7 +648,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
     def _install_mod(self, project_id: str, title: str, source: str = "modrinth"):
         try:
-            if not self._game_version or not self._mod_loader:
+            if not self._game_version or not self._search_loader:
                 self.after(0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_unknown_loader")))
                 return
 
@@ -642,7 +659,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 success, result = cf_install(
                     int(project_id),
                     game_version=self._game_version,
-                    mod_loader=self._mod_loader,
+                    mod_loader=self._search_loader,
                     mods_dir=mods_dir,
                 )
                 installed_names = [title] if success else []
@@ -651,7 +668,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 success, result, installed_names = install_mod_with_deps(
                     project_id,
                     game_version=self._game_version,
-                    mod_loader=self._mod_loader,
+                    mod_loader=self._search_loader,
                     mods_dir=mods_dir,
                     status_callback=lambda msg: self.after(0, lambda: self._set_tab_status(self.TAB_MODS, msg)),
                 )

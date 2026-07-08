@@ -1354,9 +1354,10 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             return
 
         from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
+        from version_utils import resolve_search_loader
 
         game_version = parse_game_version_from_version(self.version_id)
-        mod_loader = parse_mod_loader_from_version(self.version_id)
+        mod_loader = resolve_search_loader(parse_mod_loader_from_version(self.version_id))
 
         if not game_version:
             self._set_status(_("mod_update_unknown_version"))
@@ -1704,11 +1705,12 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
         from modrinth import download_mod
+        from version_utils import resolve_search_loader
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import threading as _threading
 
         game_version = parse_game_version_from_version(self.version_id)
-        mod_loader = parse_mod_loader_from_version(self.version_id)
+        mod_loader = resolve_search_loader(parse_mod_loader_from_version(self.version_id))
 
         if not game_version or not mod_loader:
             self._set_status(_("mod_update_failed", error=_("mod_browser_unknown_loader")))
