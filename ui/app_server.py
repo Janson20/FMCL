@@ -16,6 +16,7 @@ from ui.i18n import _
 from ui.windows.modpack_server import ModpackServerWindow
 from ui.windows.server_mod_browser import ServerModBrowserWindow
 from ui.windows.server_resource_manager import ServerResourceManagerWindow
+from version_utils import has_mod_loader
 
 
 class ServerTabMixin(object):
@@ -514,7 +515,7 @@ class ServerTabMixin(object):
             return
 
         for ver in versions:
-            has_loader = self._has_mod_loader(ver)
+            has_loader = has_mod_loader(ver)
             btn_frame = ctk.CTkFrame(
                 self.server_list_frame,
                 fg_color=COLORS["bg_medium"],

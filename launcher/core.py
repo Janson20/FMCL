@@ -781,8 +781,8 @@ class MinecraftLauncher:
             # 检查版本是否已安装
             installed_versions = self.get_installed_versions()
 
-            # 用 set 实现 O(1) 查找
-            installed_set = set(installed_versions)
+            # 用 set 实现 O(1) 查找（提取 folder_name）
+            installed_set = {v.folder_name for v in installed_versions}
 
             # 精确匹配
             if version_id in installed_set:
@@ -794,16 +794,17 @@ class MinecraftLauncher:
                 # 前缀匹配 (如 Forge/NeoForge: 26.1-forge-xxx)
                 # 后缀匹配 (如 Fabric/Quilt: fabric-loader-0.16.0-26.1)
                 # 使用 "-" 做边界避免新格式下 "26.1" 错误匹配 "26.1.1"
+                all_names = [v.folder_name for v in installed_versions]
                 matches = [
-                    v for v in installed_versions
-                    if v == version_id or v.startswith(version_id + "-") or v.endswith("-" + version_id)
+                    name for name in all_names
+                    if name == version_id or name.startswith(version_id + "-") or name.endswith("-" + version_id)
                 ]
                 if len(matches) == 1:
                     target_version = matches[0]
                     logger.info(f"模糊匹配: {version_id} -> {target_version}")
                 elif len(matches) > 1:
                     # 多个匹配，优先选择带 loader 的版本
-                    loader_matches = [v for v in matches if "-" in v and v != version_id]
+                    loader_matches = [name for name in matches if "-" in name and name != version_id]
                     if loader_matches:
                         target_version = loader_matches[0]
                         logger.info(f"多个匹配，选择: {target_version}")
