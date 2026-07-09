@@ -10,20 +10,21 @@
 """
 
 import os
+import platform
 import re
 import subprocess
-import platform
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Dict, List, Optional
 
 from logzero import logger
-from version_utils import is_mc_snapshot_version, is_new_version_format
 
+from version_utils import is_mc_snapshot_version, is_new_version_format
 
 # ──────────────────────────────────────────────
 # Data model
 # ──────────────────────────────────────────────
+
 
 @dataclass
 class JavaRuntime:
@@ -51,7 +52,7 @@ class JavaRuntime:
 
 # 版本解析正则，使用 version_utils 中的集中化定义
 # 导入用于向后兼容（内部仍可通过名称引用，实际调用使用 version_utils 函数）
-_OLD_SNAPSHOT_RE = re.compile(r'^(\d+)w\d+\w?$')  # 保留用于版本数字提取
+_OLD_SNAPSHOT_RE = re.compile(r"^(\d+)w\d+\w?$")  # 保留用于版本数字提取
 
 
 def _parse_mc_version(mc_version: str) -> tuple:
@@ -71,16 +72,16 @@ def _parse_mc_version(mc_version: str) -> tuple:
         if m:
             return (int(m.group(1)), 999, 999)
         # 新快照格式: YY.D-snapshot-N
-        m = re.match(r'^(\d+)\.(\d+)-snapshot-\d+$', version)
+        m = re.match(r"^(\d+)\.(\d+)-snapshot-\d+$", version)
         if m:
             return (int(m.group(1)), int(m.group(2)), 998)
 
     # 去除后缀（pre/rc 等）
-    version = re.sub(r'[-–—].*$', '', version).strip()
+    version = re.sub(r"[-–—].*$", "", version).strip()
     parts = version.split(".")
     nums = []
     for p in parts:
-        m = re.match(r'(\d+)', p)
+        m = re.match(r"(\d+)", p)
         nums.append(int(m.group(1)) if m else 0)
     while len(nums) < 3:
         nums.append(0)
@@ -90,7 +91,7 @@ def _parse_mc_version(mc_version: str) -> tuple:
 def _min_java_for_mc(mc_version: str) -> int:
     ver = _parse_mc_version(mc_version)
     yy, minor, patch = ver
-    is_snapshot = (patch >= 998)
+    is_snapshot = patch >= 998
 
     if yy >= 25:
         return max(25, yy - 1)
@@ -146,14 +147,10 @@ def _parse_java_version(version_output: str) -> Optional[tuple]:
 # Platform-agnostic Java info extractor
 # ──────────────────────────────────────────────
 
+
 def _get_java_info(path: str, source: str) -> Optional[JavaRuntime]:
     try:
-        result = subprocess.run(
-            [path, "-version"],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
+        result = subprocess.run([path, "-version"], capture_output=True, text=True, timeout=10)
         output = result.stderr or result.stdout
         version_info = _parse_java_version(output)
         if not version_info:
@@ -164,11 +161,10 @@ def _get_java_info(path: str, source: str) -> Optional[JavaRuntime]:
         home = os.path.dirname(os.path.dirname(path))
         try:
             home_result = subprocess.run(
-                [path, "-XshowSettings:properties", "-version"],
-                capture_output=True, text=True, timeout=5
+                [path, "-XshowSettings:properties", "-version"], capture_output=True, text=True, timeout=5
             )
-            props = (home_result.stderr or home_result.stdout)
-            jh_match = re.search(r'java\.home\s*=\s*(\S+)', props)
+            props = home_result.stderr or home_result.stdout
+            jh_match = re.search(r"java\.home\s*=\s*(\S+)", props)
             if jh_match:
                 home = jh_match.group(1)
         except Exception:
@@ -241,6 +237,7 @@ def _detect_arch(path: str, version_output: str) -> str:
 
 
 # ─── Windows ─────────────────────────────────
+
 
 def _scan_windows() -> List[JavaRuntime]:
     found = []
@@ -322,8 +319,16 @@ def _scan_windows() -> List[JavaRuntime]:
     for base in common_dirs:
         if not base:
             continue
-        for vendor in ["Java", "Eclipse Adoptium", "Eclipse Foundation", "GraalVM",
-                        "Amazon Corretto", "Microsoft", "LibericaJDK", "Zulu"]:
+        for vendor in [
+            "Java",
+            "Eclipse Adoptium",
+            "Eclipse Foundation",
+            "GraalVM",
+            "Amazon Corretto",
+            "Microsoft",
+            "LibericaJDK",
+            "Zulu",
+        ]:
             vendor_dir = os.path.join(base, vendor)
             if not os.path.isdir(vendor_dir):
                 continue
@@ -343,15 +348,13 @@ def _scan_windows() -> List[JavaRuntime]:
 
 # ─── macOS ───────────────────────────────────
 
+
 def _scan_macos() -> List[JavaRuntime]:
     found = []
     seen_homes = set()
 
     try:
-        result = subprocess.run(
-            ["/usr/libexec/java_home", "-V"],
-            capture_output=True, text=True, timeout=10
-        )
+        result = subprocess.run(["/usr/libexec/java_home", "-V"], capture_output=True, text=True, timeout=10)
         output = result.stderr or result.stdout
         for line in output.split("\n"):
             line = line.strip()
@@ -416,15 +419,13 @@ def _scan_macos() -> List[JavaRuntime]:
 
 # ─── Linux ───────────────────────────────────
 
+
 def _scan_linux() -> List[JavaRuntime]:
     found = []
     seen_homes = set()
 
     try:
-        result = subprocess.run(
-            ["update-alternatives", "--list", "java"],
-            capture_output=True, text=True, timeout=5
-        )
+        result = subprocess.run(["update-alternatives", "--list", "java"], capture_output=True, text=True, timeout=5)
         for line in result.stdout.strip().split("\n"):
             java_exe = line.strip()
             if java_exe and os.path.exists(java_exe):
@@ -449,10 +450,7 @@ def _scan_linux() -> List[JavaRuntime]:
                     seen_homes.add(info.home)
                     found.append(info)
 
-    for sdkman_base in [
-        os.path.expanduser("~/.sdkman/candidates/java"),
-        "/root/.sdkman/candidates/java",
-    ]:
+    for sdkman_base in [os.path.expanduser("~/.sdkman/candidates/java"), "/root/.sdkman/candidates/java"]:
         if not os.path.isdir(sdkman_base):
             continue
         for entry in os.listdir(sdkman_base):
@@ -468,11 +466,7 @@ def _scan_linux() -> List[JavaRuntime]:
                     seen_homes.add(info.home)
                     found.append(info)
 
-    extra_paths = [
-        "/app/jdk",
-        "/snap/openjdk/current",
-        os.path.expanduser("~/.local/share/java"),
-    ]
+    extra_paths = ["/app/jdk", "/snap/openjdk/current", os.path.expanduser("~/.local/share/java")]
     for base in extra_paths:
         if base == "/nix/store":
             if os.path.isdir(base):
@@ -513,6 +507,7 @@ def _scan_linux() -> List[JavaRuntime]:
 
 # ─── Shared: PATH scanner ────────────────────
 
+
 def _find_on_path() -> Optional[str]:
     system = platform.system()
     java_name = "java.exe" if system == "Windows" else "java"
@@ -531,6 +526,7 @@ def _find_on_path() -> Optional[str]:
 
 # ─── JAVA_HOME environment variable ─────────
 
+
 def _scan_java_home() -> List[JavaRuntime]:
     java_home = os.environ.get("JAVA_HOME")
     if not java_home:
@@ -547,6 +543,7 @@ def _scan_java_home() -> List[JavaRuntime]:
 
 
 # ─── Minecraft runtime directory scanner ─────
+
 
 def _scan_minecraft_runtime(minecraft_dir: str) -> List[JavaRuntime]:
     found = []
@@ -576,6 +573,7 @@ def _scan_minecraft_runtime(minecraft_dir: str) -> List[JavaRuntime]:
 # ──────────────────────────────────────────────
 # Main scanner entry point
 # ──────────────────────────────────────────────
+
 
 def scan_all(minecraft_dir: Optional[str] = None) -> List[JavaRuntime]:
     system = platform.system()
@@ -607,6 +605,7 @@ def scan_all(minecraft_dir: Optional[str] = None) -> List[JavaRuntime]:
 # ──────────────────────────────────────────────
 # MC version matching
 # ──────────────────────────────────────────────
+
 
 def recommend_for_mc(javas: List[JavaRuntime], mc_version: str) -> Optional[JavaRuntime]:
     min_java = _min_java_for_mc(mc_version)

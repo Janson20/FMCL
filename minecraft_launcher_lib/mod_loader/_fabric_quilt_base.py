@@ -6,10 +6,11 @@ from ._base import ModLoaderBase
 
 
 class FabricQuiltBase(ModLoaderBase):
-    """"
+    """ "
     Fabric and Quilt works in many things the same.
     This class provides those shared functions
     """
+
     def __init__(self) -> None:
         self._maven_url = ""
         self._game_url = ""

@@ -4,14 +4,15 @@
 使用 html.parser 做 HTML→文本转换，简单可靠无依赖。
 """
 
-import urllib.request
-import urllib.error
 import re
+import urllib.error
+import urllib.request
 from html.parser import HTMLParser
-from typing import Dict, Optional, Callable
+from typing import Callable, Dict, Optional
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, CATEGORY_WEB
+from ui.agent.tools.base import CATEGORY_WEB, ToolInfo
 
 DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 FMCL/2.0"
 MAX_RESPONSE_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -26,7 +27,26 @@ class HTMLToText(HTMLParser):
         super().__init__()
         self._text: list = []
         self._skip_tags = {"script", "style", "noscript", "iframe", "svg", "head"}
-        self._block_tags = {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "br", "hr", "tr", "section", "article", "header", "footer", "nav", "main"}
+        self._block_tags = {
+            "p",
+            "div",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "li",
+            "br",
+            "hr",
+            "tr",
+            "section",
+            "article",
+            "header",
+            "footer",
+            "nav",
+            "main",
+        }
         self._list_tags = {"ul", "ol", "dl"}
         self._current_tag = ""
 
@@ -65,44 +85,44 @@ def _html_to_markdown(html: str) -> str:
     处理常见元素：标题、链接、加粗、列表项、图片等。
     """
     # 移除脚本和样式
-    html = re.sub(r'<(script|style|noscript)[^>]*>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
-    html = re.sub(r'<(iframe|svg)[^>]*>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<(script|style|noscript)[^>]*>.*?</\1>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<(iframe|svg)[^>]*>.*?</\1>", "", html, flags=re.DOTALL | re.IGNORECASE)
 
     # 标题
     for level in range(6, 0, -1):
-        pattern = re.compile(rf'<h{level}[^>]*>(.*?)</h{level}>', re.DOTALL | re.IGNORECASE)
+        pattern = re.compile(rf"<h{level}[^>]*>(.*?)</h{level}>", re.DOTALL | re.IGNORECASE)
         html = pattern.sub(lambda m: f"\n\n{'#' * level} {_strip_tags(m.group(1)).strip()}\n\n", html)
 
     # 段落
-    html = re.sub(r'<p[^>]*>(.*?)</p>', r'\n\n\1\n\n', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<p[^>]*>(.*?)</p>", r"\n\n\1\n\n", html, flags=re.DOTALL | re.IGNORECASE)
     # 换行
-    html = re.sub(r'<br\s*/?>', '\n', html, flags=re.IGNORECASE)
+    html = re.sub(r"<br\s*/?>", "\n", html, flags=re.IGNORECASE)
 
     # 加粗和斜体
-    html = re.sub(r'<(strong|b)[^>]*>(.*?)</\1>', r'**\2**', html, flags=re.DOTALL | re.IGNORECASE)
-    html = re.sub(r'<(em|i)[^>]*>(.*?)</\1>', r'*\2*', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<(strong|b)[^>]*>(.*?)</\1>", r"**\2**", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<(em|i)[^>]*>(.*?)</\1>", r"*\2*", html, flags=re.DOTALL | re.IGNORECASE)
 
     # 链接
-    html = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'[\2](\1)', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r"[\2](\1)", html, flags=re.DOTALL | re.IGNORECASE)
 
     # 列表项
-    html = re.sub(r'<li[^>]*>(.*?)</li>', r'- \1\n', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<li[^>]*>(.*?)</li>", r"- \1\n", html, flags=re.DOTALL | re.IGNORECASE)
 
     # 图片
-    html = re.sub(r'<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"[^>]*/?>', r'![\2](\1)', html, flags=re.IGNORECASE)
-    html = re.sub(r'<img[^>]*src="([^"]*)"[^>]*/?>', r'![](\\1)', html, flags=re.IGNORECASE)
+    html = re.sub(r'<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"[^>]*/?>', r"![\2](\1)", html, flags=re.IGNORECASE)
+    html = re.sub(r'<img[^>]*src="([^"]*)"[^>]*/?>', r"![](\\1)", html, flags=re.IGNORECASE)
 
     # 剩余标签去除
     html = _strip_tags(html)
 
     # 清理多余空白
-    html = re.sub(r'\n{3,}', '\n\n', html)
+    html = re.sub(r"\n{3,}", "\n\n", html)
     return html.strip()
 
 
 def _strip_tags(html: str) -> str:
     """去除所有 HTML 标签"""
-    return re.sub(r'<[^>]+>', '', html)
+    return re.sub(r"<[^>]+>", "", html)
 
 
 def _build_web_fetch_tool() -> ToolInfo:
@@ -113,10 +133,7 @@ def _build_web_fetch_tool() -> ToolInfo:
         parameters={
             "type": "object",
             "properties": {
-                "url": {
-                    "type": "string",
-                    "description": "要获取的 HTTP 或 HTTPS URL",
-                },
+                "url": {"type": "string", "description": "要获取的 HTTP 或 HTTPS URL"},
                 "format": {
                     "type": "string",
                     "enum": ["text", "markdown", "html"],

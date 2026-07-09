@@ -3,9 +3,10 @@
 基于 bangbang93 的 BMCLAPI 镜像服务，提供国内加速下载支持。
 镜像规则参考: https://bmclapi2.bangbang93.com
 """
+
 import os
-from typing import Dict, List, Optional, Any
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import requests
 from logzero import logger
@@ -32,56 +33,26 @@ MIRROR_URLS = {
     "version_manifest": "https://bmclapi2.bangbang93.com/mc/game/version_manifest.json",
     "version_manifest_v2": "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json",
     # URL 前缀替换规则: (官方前缀, 镜像前缀)
-    "launchermeta_mojang": (
-        "https://launchermeta.mojang.com/",
-        "https://bmclapi2.bangbang93.com/",
-    ),
-    "launcher_mojang": (
-        "https://launcher.mojang.com/",
-        "https://bmclapi2.bangbang93.com/",
-    ),
+    "launchermeta_mojang": ("https://launchermeta.mojang.com/", "https://bmclapi2.bangbang93.com/"),
+    "launcher_mojang": ("https://launcher.mojang.com/", "https://bmclapi2.bangbang93.com/"),
     # 资源下载
-    "assets": (
-        "http://resources.download.minecraft.net",
-        "https://bmclapi2.bangbang93.com/assets",
-    ),
+    "assets": ("http://resources.download.minecraft.net", "https://bmclapi2.bangbang93.com/assets"),
     # 库文件
-    "libraries": (
-        "https://libraries.minecraft.net/",
-        "https://bmclapi2.bangbang93.com/maven/",
-    ),
+    "libraries": ("https://libraries.minecraft.net/", "https://bmclapi2.bangbang93.com/maven/"),
     # Java 运行时
     "java_runtime": (
         "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json",
         "https://bmclapi2.bangbang93.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json",
     ),
     # Forge
-    "forge_maven": (
-        "https://files.minecraftforge.net/maven",
-        "https://bmclapi2.bangbang93.com/maven",
-    ),
-    "forge_maven_direct": (
-        "https://maven.minecraftforge.net",
-        "https://bmclapi2.bangbang93.com/maven",
-    ),
+    "forge_maven": ("https://files.minecraftforge.net/maven", "https://bmclapi2.bangbang93.com/maven"),
+    "forge_maven_direct": ("https://maven.minecraftforge.net", "https://bmclapi2.bangbang93.com/maven"),
     # Fabric
-    "fabric_meta": (
-        "https://meta.fabricmc.net",
-        "https://bmclapi2.bangbang93.com/fabric-meta",
-    ),
-    "fabric_maven": (
-        "https://maven.fabricmc.net",
-        "https://bmclapi2.bangbang93.com/maven",
-    ),
+    "fabric_meta": ("https://meta.fabricmc.net", "https://bmclapi2.bangbang93.com/fabric-meta"),
+    "fabric_maven": ("https://maven.fabricmc.net", "https://bmclapi2.bangbang93.com/maven"),
     # LegacyFabric
-    "legacyfabric_meta": (
-        "https://meta.legacyfabric.net",
-        "https://bmclapi2.bangbang93.com/fabric-meta",
-    ),
-    "legacyfabric_maven": (
-        "https://maven.legacyfabric.net",
-        "https://bmclapi2.bangbang93.com/maven",
-    ),
+    "legacyfabric_meta": ("https://meta.legacyfabric.net", "https://bmclapi2.bangbang93.com/fabric-meta"),
+    "legacyfabric_maven": ("https://maven.legacyfabric.net", "https://bmclapi2.bangbang93.com/maven"),
     # NeoForge
     "neoforge_forge": (
         "https://maven.neoforged.net/releases/net/neoforged/forge",
@@ -97,20 +68,11 @@ MIRROR_URLS = {
         "https://bmclapi.bangbang93.com/maven/com/mumfrey/liteloader/versions.json",
     ),
     # 额外 maven 仓库
-    "liteloader_maven": (
-        "http://dl.liteloader.com/versions",
-        "https://bmclapi2.bangbang93.com/maven",
-    ),
+    "liteloader_maven": ("http://dl.liteloader.com/versions", "https://bmclapi2.bangbang93.com/maven"),
     # OptiFine
-    "optifine_list": (
-        "https://optifine.cn/downloads",
-        "https://bmclapi2.bangbang93.com/optifine",
-    ),
+    "optifine_list": ("https://optifine.cn/downloads", "https://bmclapi2.bangbang93.com/optifine"),
     # Cleanroom
-    "cleanroom_meta": (
-        "https://hmcl.glavo.site/metadata/cleanroom",
-        "https://bmclapi2.bangbang93.com/optifine",
-    ),
+    "cleanroom_meta": ("https://hmcl.glavo.site/metadata/cleanroom", "https://bmclapi2.bangbang93.com/optifine"),
     # authlib-injector
     "authlib_injector": (
         "https://authlib-injector.yushi.moe",
@@ -178,7 +140,7 @@ class MirrorSource:
 
         # 按前缀长度降序排列，优先匹配更精确的规则
         # 缓存排序结果避免重复排序
-        _sorted_rules = getattr(self.__class__, '_sorted_rules', None)
+        _sorted_rules = getattr(self.__class__, "_sorted_rules", None)
         if _sorted_rules is None:
             _sorted_rules = sorted(URL_REPLACE_RULES, key=lambda r: len(r[0]), reverse=True)
             self.__class__._sorted_rules = _sorted_rules
@@ -224,8 +186,11 @@ class MirrorSource:
         Returns:
             版本清单数据
         """
-        url = MIRROR_URLS["version_manifest"] if self.enabled else \
-            "https://launchermeta.mojang.com/mc/game/version_manifest.json"
+        url = (
+            MIRROR_URLS["version_manifest"]
+            if self.enabled
+            else "https://launchermeta.mojang.com/mc/game/version_manifest.json"
+        )
 
         logger.info(f"正在获取版本清单: {url}")
         response = self._session.get(url, timeout=15)
@@ -239,8 +204,11 @@ class MirrorSource:
         Returns:
             v2版本清单数据
         """
-        url = MIRROR_URLS["version_manifest_v2"] if self.enabled else \
-            "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
+        url = (
+            MIRROR_URLS["version_manifest_v2"]
+            if self.enabled
+            else "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
+        )
 
         logger.info(f"正在获取v2版本清单: {url}")
         response = self._session.get(url, timeout=15)
@@ -347,8 +315,7 @@ class MirrorSource:
             Fabric Loader版本列表
         """
         try:
-            base = "https://bmclapi2.bangbang93.com/fabric-meta" if self.enabled else \
-                "https://meta.fabricmc.net"
+            base = "https://bmclapi2.bangbang93.com/fabric-meta" if self.enabled else "https://meta.fabricmc.net"
             url = f"{base}/v2/versions/loader/{game_version}"
             resp = self._session.get(url, timeout=15)
             resp.raise_for_status()
@@ -380,16 +347,16 @@ class MirrorSource:
             try:
                 from minecraft_launcher_lib import mojang_api
 
-                if hasattr(mojang_api, 'MOJANG_API_URL'):
+                if hasattr(mojang_api, "MOJANG_API_URL"):
                     mojang_api.MOJANG_API_URL = "https://bmclapi2.bangbang93.com"
                     logger.info(f"已替换 MOJANG_API_URL")
-                if hasattr(mojang_api, 'VERSION_MANIFEST_URL'):
+                if hasattr(mojang_api, "VERSION_MANIFEST_URL"):
                     mojang_api.VERSION_MANIFEST_URL = MIRROR_URLS["version_manifest"]
                     logger.info(f"已替换 VERSION_MANIFEST_URL")
-                if hasattr(mojang_api, 'VERSION_MANIFEST_V2_URL'):
+                if hasattr(mojang_api, "VERSION_MANIFEST_V2_URL"):
                     mojang_api.VERSION_MANIFEST_V2_URL = MIRROR_URLS["version_manifest_v2"]
                     logger.info(f"已替换 VERSION_MANIFEST_V2_URL")
-                if hasattr(mojang_api, 'JAVA_RUNTIME_URL'):
+                if hasattr(mojang_api, "JAVA_RUNTIME_URL"):
                     mojang_api.JAVA_RUNTIME_URL = MIRROR_URLS["java_runtime"][1]
                     logger.info(f"已替换 JAVA_RUNTIME_URL")
             except ImportError:
@@ -433,6 +400,7 @@ class MirrorSource:
 
             # 全局 patch install_minecraft_version 中 requests.get 的 version_manifest URL
             from minecraft_launcher_lib import install as _install
+
             _original_install_minecraft_version = _install.install_minecraft_version
 
             def _patched_install_minecraft_version(version, minecraft_directory, callback=None):
@@ -488,6 +456,7 @@ class MirrorSource:
                 # 获取 Fabric 单例实例并替换实例变量
                 try:
                     from minecraft_launcher_lib.mod_loader import get_mod_loader
+
                     fabric_instance = get_mod_loader("fabric")
                     fabric_instance._maven_url = "https://bmclapi2.bangbang93.com/maven/net/fabricmc/fabric-installer"
                     fabric_instance._game_url = "https://bmclapi2.bangbang93.com/fabric-meta/v2/versions/game"
@@ -547,8 +516,11 @@ class MirrorSource:
             连接是否成功
         """
         try:
-            url = MIRROR_URLS["version_manifest"] if self.enabled else \
-                "https://launchermeta.mojang.com/mc/game/version_manifest.json"
+            url = (
+                MIRROR_URLS["version_manifest"]
+                if self.enabled
+                else "https://launchermeta.mojang.com/mc/game/version_manifest.json"
+            )
             resp = self._session.get(url, timeout=10)
             resp.raise_for_status()
             data = resp.json()

@@ -1,10 +1,11 @@
 """Tool 执行引擎 - 调度工具调用并返回结果"""
 
 import json
+import os
 import subprocess
 import threading
-import os
-from typing import Dict, Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional
+
 from logzero import logger
 
 
@@ -12,7 +13,7 @@ def _extract_version_ids(installed) -> list:
     """从 installed 列表中提取版本 ID 字符串（兼容 List[InstanceInfo] 和 List[str]）"""
     result = []
     for v in installed:
-        if hasattr(v, 'folder_name'):
+        if hasattr(v, "folder_name"):
             result.append(v.folder_name)
         else:
             result.append(v)
@@ -254,14 +255,7 @@ def execute_dangerous_command(path: str, command: str) -> str:
 
 def _run_command(path: str, command: str) -> str:
     try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            cwd=path,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
+        result = subprocess.run(command, shell=True, cwd=path, capture_output=True, text=True, timeout=300)
         output = ""
         if result.stdout:
             output += result.stdout
@@ -306,7 +300,7 @@ def _get_installed_versions(callbacks: Dict[str, Callable]) -> str:
 
     result = f"本地已安装 {len(versions)} 个版本:\n"
     for v in versions:
-        if hasattr(v, 'folder_name'):
+        if hasattr(v, "folder_name"):
             # InstanceInfo 对象
             name = v.folder_name
             tags = []
@@ -372,12 +366,14 @@ def _launch_game(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     if success:
         proc = callbacks.get("get_game_process", lambda: None)()
         if proc and proc.stdout:
+
             def _drain_pipe():
                 try:
                     for line in proc.stdout:
                         pass
                 except Exception:
                     pass
+
             threading.Thread(target=_drain_pipe, daemon=True, name="AgentStdoutDrain").start()
             logger.info("[Agent] 已启动后台线程 drain stdout 管道，防止 IO 阻塞")
         return f"🚀 游戏已启动！版本: {target}"
@@ -394,12 +390,7 @@ def _search_mods(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
         game_version = params.get("game_version", "").strip() or None
         mod_loader = params.get("mod_loader", "").strip() or None
 
-        result = modrinth_search(
-            query=query,
-            game_version=game_version,
-            mod_loader=mod_loader,
-            limit=10,
-        )
+        result = modrinth_search(query=query, game_version=game_version, mod_loader=mod_loader, limit=10)
 
         hits = result.get("hits", [])
         if not hits:
@@ -432,7 +423,8 @@ def _search_mods(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
 def _install_mod(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     """安装模组"""
     try:
-        from modrinth import install_mod_with_deps, search_mods as modrinth_search
+        from modrinth import install_mod_with_deps
+        from modrinth import search_mods as modrinth_search
 
         version_id = params.get("version_id", "").strip()
         mod_loader = params.get("mod_loader", "").strip().lower()
@@ -449,7 +441,7 @@ def _install_mod(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
 
         # installed 可能是 List[InstanceInfo] 或 List[str]
         def _get_v_id(v):
-            return v.folder_name if hasattr(v, 'folder_name') else v
+            return v.folder_name if hasattr(v, "folder_name") else v
 
         target_full_version = None
         for v in installed:
@@ -473,6 +465,7 @@ def _install_mod(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
         mc_dir = callbacks["get_minecraft_dir"]()
         import os
         from pathlib import Path
+
         game_dir = Path(mc_dir)
 
         if "-" in target_full_version:
@@ -483,12 +476,7 @@ def _install_mod(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
         os.makedirs(mods_dir, exist_ok=True)
 
         if not mod_project_id:
-            search_result = modrinth_search(
-                query=mod_name,
-                game_version=version_id,
-                mod_loader=mod_loader,
-                limit=5,
-            )
+            search_result = modrinth_search(query=mod_name, game_version=version_id, mod_loader=mod_loader, limit=5)
             hits = search_result.get("hits", [])
             if not hits:
                 return f"未找到模组 '{mod_name}'"
@@ -569,12 +557,14 @@ def _start_server(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str
 
     if success:
         if process and process.stdout:
+
             def _drain_pipe():
                 try:
                     for line in process.stdout:
                         pass
                 except Exception:
                     pass
+
             threading.Thread(target=_drain_pipe, daemon=True, name="AgentServerStdoutDrain").start()
             logger.info("[Agent] 已启动后台线程 drain 服务器 stdout 管道，防止 IO 阻塞")
         return f"🚀 服务器 {version_id} 已启动！内存: {max_memory}，端口: 25565"
@@ -613,6 +603,7 @@ def _install_modpack(params: Dict[str, str], callbacks: Dict[str, Callable]) -> 
         return "错误: 缺少 mrpack_path 参数（.mrpack 文件的绝对路径）"
 
     import os
+
     if not os.path.isfile(mrpack_path):
         return f"错误: 文件不存在: {mrpack_path}"
 
@@ -646,6 +637,7 @@ def _install_modpack_server(params: Dict[str, str], callbacks: Dict[str, Callabl
         return "错误: 缺少 mrpack_path 参数（.mrpack 文件的绝对路径）"
 
     import os
+
     if not os.path.isfile(mrpack_path):
         return f"错误: 文件不存在: {mrpack_path}"
 
@@ -672,16 +664,13 @@ def _install_modpack_server(params: Dict[str, str], callbacks: Dict[str, Callabl
 def _search_modpack(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     """在 Modrinth 搜索整合包"""
     try:
-        from modrinth import search_modpacks as modrinth_search, compress_game_versions
+        from modrinth import compress_game_versions
+        from modrinth import search_modpacks as modrinth_search
 
         query = params.get("query", "").strip()
         game_version = params.get("game_version", "").strip() or None
 
-        result = modrinth_search(
-            query=query,
-            game_version=game_version,
-            limit=10,
-        )
+        result = modrinth_search(query=query, game_version=game_version, limit=10)
 
         hits = result.get("hits", [])
         if not hits:
@@ -724,13 +713,11 @@ def _download_modpack(params: Dict[str, str], callbacks: Dict[str, Callable]) ->
         if not project_id:
             return "错误: 缺少 project_id 参数"
 
-        success, result = download_modpack_file(
-            project_id,
-            game_version=game_version,
-        )
+        success, result = download_modpack_file(project_id, game_version=game_version)
 
         if success:
             import os
+
             filename = os.path.basename(result)
             return f"✅ 整合包下载成功！\n文件名: {filename}\n路径: {result}"
         else:
@@ -749,11 +736,7 @@ def _search_resource_packs(params: Dict[str, str], callbacks: Dict[str, Callable
         query = params.get("query", "").strip()
         game_version = params.get("game_version", "").strip() or None
 
-        result = modrinth_search(
-            query=query,
-            game_version=game_version,
-            limit=10,
-        )
+        result = modrinth_search(query=query, game_version=game_version, limit=10)
 
         hits = result.get("hits", [])
         if not hits:
@@ -785,7 +768,8 @@ def _search_resource_packs(params: Dict[str, str], callbacks: Dict[str, Callable
 def _install_resource_pack(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     """安装资源包到指定版本"""
     try:
-        from modrinth import install_resource_pack, search_resource_packs as modrinth_search
+        from modrinth import install_resource_pack
+        from modrinth import search_resource_packs as modrinth_search
 
         version_id = params.get("version_id", "").strip()
         pack_name = params.get("pack_name", "").strip()
@@ -800,11 +784,14 @@ def _install_resource_pack(params: Dict[str, str], callbacks: Dict[str, Callable
         installed = callbacks["get_installed_versions"]()
         installed_ids = _extract_version_ids(installed)
         if version_id not in installed_ids:
-            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
+            return (
+                f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
+            )
 
         mc_dir = callbacks["get_minecraft_dir"]()
         import os
         from pathlib import Path
+
         game_dir = Path(mc_dir)
 
         if "-" in version_id:
@@ -815,10 +802,7 @@ def _install_resource_pack(params: Dict[str, str], callbacks: Dict[str, Callable
         os.makedirs(rp_dir, exist_ok=True)
 
         if not project_id:
-            search_result = modrinth_search(
-                query=pack_name,
-                limit=5,
-            )
+            search_result = modrinth_search(query=pack_name, limit=5)
             hits = search_result.get("hits", [])
             if not hits:
                 return f"未找到资源包 '{pack_name}'"
@@ -851,11 +835,7 @@ def _search_shaders(params: Dict[str, str], callbacks: Dict[str, Callable]) -> s
         query = params.get("query", "").strip()
         game_version = params.get("game_version", "").strip() or None
 
-        result = modrinth_search(
-            query=query,
-            game_version=game_version,
-            limit=10,
-        )
+        result = modrinth_search(query=query, game_version=game_version, limit=10)
 
         hits = result.get("hits", [])
         if not hits:
@@ -887,7 +867,8 @@ def _search_shaders(params: Dict[str, str], callbacks: Dict[str, Callable]) -> s
 def _install_shader(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     """安装光影到指定版本"""
     try:
-        from modrinth import install_shader, search_shaders as modrinth_search
+        from modrinth import install_shader
+        from modrinth import search_shaders as modrinth_search
 
         version_id = params.get("version_id", "").strip()
         shader_name = params.get("shader_name", "").strip()
@@ -902,11 +883,14 @@ def _install_shader(params: Dict[str, str], callbacks: Dict[str, Callable]) -> s
         installed = callbacks["get_installed_versions"]()
         installed_ids = _extract_version_ids(installed)
         if version_id not in installed_ids:
-            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
+            return (
+                f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
+            )
 
         mc_dir = callbacks["get_minecraft_dir"]()
         import os
         from pathlib import Path
+
         game_dir = Path(mc_dir)
 
         if "-" in version_id:
@@ -917,10 +901,7 @@ def _install_shader(params: Dict[str, str], callbacks: Dict[str, Callable]) -> s
         os.makedirs(sd_dir, exist_ok=True)
 
         if not project_id:
-            search_result = modrinth_search(
-                query=shader_name,
-                limit=5,
-            )
+            search_result = modrinth_search(query=shader_name, limit=5)
             hits = search_result.get("hits", [])
             if not hits:
                 return f"未找到光影 '{shader_name}'"

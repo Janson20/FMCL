@@ -1,13 +1,12 @@
 """网易云音乐 音源插件"""
+
 import json
 import logging
 import random
 from typing import List, Optional
 
 from ui.music_source.base import BaseMusicSource, MusicInfo
-from ui.music_source.utils import (
-    decode_name, format_singer, wy_eapi, wy_weapi,
-)
+from ui.music_source.utils import decode_name, format_singer, wy_eapi, wy_weapi
 
 logger = logging.getLogger("music_source.wy")
 
@@ -21,15 +20,14 @@ class NetEaseMusicSource(BaseMusicSource):
 
     def __init__(self):
         super().__init__()
-        self._session.headers.update({
-            "Referer": "https://music.163.com",
-            "Origin": "https://music.163.com",
-        })
+        self._session.headers.update({"Referer": "https://music.163.com", "Origin": "https://music.163.com"})
         # 设置 cookie (防止CSRF)
         self._session.cookies.set("os", "pc", domain=".music.163.com")
         self._session.cookies.set("appver", "2.10.6", domain=".music.163.com")
         self._session.cookies.set("channel", "netease", domain=".music.163.com")
-        self._session.cookies.set("_ntes_nuid", "".join(random.choices("0123456789abcdef", k=32)), domain=".music.163.com")
+        self._session.cookies.set(
+            "_ntes_nuid", "".join(random.choices("0123456789abcdef", k=32)), domain=".music.163.com"
+        )
         self._session.cookies.set("MUSIC_U", "", domain=".music.163.com")
         self._session.cookies.set("__remember_me", "true", domain=".music.163.com")
 
@@ -59,7 +57,7 @@ class NetEaseMusicSource(BaseMusicSource):
 
     def _parse_search_result(self, raw_list) -> List[MusicInfo]:
         results = []
-        for item in (raw_list or []):
+        for item in raw_list or []:
             try:
                 base = item.get("baseInfo", {})
                 simple = base.get("simpleSongData", {})
@@ -132,10 +130,7 @@ class NetEaseMusicSource(BaseMusicSource):
 
         # 使用 eapi 接口获取播放URL
         url = "/api/song/enhance/player/url"
-        data = {
-            "ids": f"[{song_id}]",
-            "br": int(br),
-        }
+        data = {"ids": f"[{song_id}]", "br": int(br)}
         try:
             resp = self._eapi_post(url, data)
             urls = resp.get("data", [])
@@ -148,11 +143,7 @@ class NetEaseMusicSource(BaseMusicSource):
         # 回退到 weapi
         try:
             weapi_url = "/song/enhance/player/url/v1"
-            weapi_data = {
-                "ids": f"[{song_id}]",
-                "level": quality,
-                "encodeType": "aac",
-            }
+            weapi_data = {"ids": f"[{song_id}]", "level": quality, "encodeType": "aac"}
             resp2 = self._weapi_post(weapi_url, weapi_data)
             urls2 = resp2.get("data", [])
             if urls2 and urls2[0].get("url"):
@@ -166,12 +157,7 @@ class NetEaseMusicSource(BaseMusicSource):
 
     def get_lyric(self, info: MusicInfo) -> Optional[str]:
         url = "/api/song/lyric"
-        data = {
-            "id": info.songmid,
-            "lv": -1,
-            "tv": -1,
-            "rv": -1,
-        }
+        data = {"id": info.songmid, "lv": -1, "tv": -1, "rv": -1}
         try:
             resp = self._eapi_post(url, data)
             if resp.get("code") == 200:
@@ -211,19 +197,11 @@ class NetEaseMusicSource(BaseMusicSource):
     def _eapi_post(self, path: str, data: dict) -> dict:
         """发送 eapi 加密请求"""
         signed = wy_eapi(path, data)
-        resp = self._session.post(
-            f"{WY_EAPI_BASE}{path}",
-            data=signed,
-            timeout=15,
-        )
+        resp = self._session.post(f"{WY_EAPI_BASE}{path}", data=signed, timeout=15)
         return resp.json()
 
     def _weapi_post(self, path: str, data: dict) -> dict:
         """发送 weapi 加密请求"""
         signed = wy_weapi(data)
-        resp = self._session.post(
-            f"{WY_API_BASE}{path}",
-            data=signed,
-            timeout=15,
-        )
+        resp = self._session.post(f"{WY_API_BASE}{path}", data=signed, timeout=15)
         return resp.json()

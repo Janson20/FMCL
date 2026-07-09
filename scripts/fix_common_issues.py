@@ -2,6 +2,7 @@
 """
 快速修复脚本 - 解决常见构建和运行问题
 """
+
 import os
 import subprocess
 import sys
@@ -33,7 +34,7 @@ def fix_permissions():
     print("\n📁 修复文件权限...")
 
     # Linux/macOS
-    if sys.platform != 'win32':
+    if sys.platform != "win32":
         run_command("chmod +x scripts/*.py", "设置脚本执行权限")
         if Path("dist/FMCL").exists():
             run_command("chmod +x dist/FMCL", "设置可执行文件权限")
@@ -41,7 +42,7 @@ def fix_permissions():
     # 修复.minecraft目录权限
     minecraft_dir = Path(".minecraft")
     if minecraft_dir.exists():
-        if sys.platform != 'win32':
+        if sys.platform != "win32":
             run_command("chmod -R 755 .minecraft", "修复.minecraft目录权限")
 
 
@@ -49,8 +50,8 @@ def clean_build():
     """清理构建文件"""
     print("\n🧹 清理构建文件...")
 
-    dirs_to_clean = ['build', 'dist', '__pycache__', '.pytest_cache', '.mypy_cache']
-    files_to_clean = ['*.spec', '*.pyc', '*.log']
+    dirs_to_clean = ["build", "dist", "__pycache__", ".pytest_cache", ".mypy_cache"]
+    files_to_clean = ["*.spec", "*.pyc", "*.log"]
 
     for dir_name in dirs_to_clean:
         dir_path = Path(dir_name)
@@ -78,7 +79,7 @@ def reinstall_dependencies():
 
 def fix_macos_issues():
     """修复macOS特定问题"""
-    if sys.platform != 'darwin':
+    if sys.platform != "darwin":
         return
 
     print("\n🍎 修复macOS问题...")
@@ -93,7 +94,7 @@ def fix_macos_issues():
 
 def fix_linux_issues():
     """修复Linux特定问题"""
-    if sys.platform != 'linux':
+    if sys.platform != "linux":
         return
 
     print("\n🐧 修复Linux问题...")
@@ -105,13 +106,12 @@ def fix_linux_issues():
             "build-essential zlib1g-dev libncurses5-dev libgdbm-dev "
             "libnss3-dev libssl-dev libreadline-dev libffi-dev "
             "libsqlite3-dev libbz2-dev liblzma-dev tk-dev uuid-dev",
-            "安装系统依赖 (Debian/Ubuntu)"
+            "安装系统依赖 (Debian/Ubuntu)",
         )
     elif Path("/usr/bin/dnf").exists():
         run_command(
-            "sudo dnf groupinstall -y 'Development Tools' && "
-            "sudo dnf install -y python3-devel tk-devel",
-            "安装系统依赖 (Fedora/RHEL)"
+            "sudo dnf groupinstall -y 'Development Tools' && " "sudo dnf install -y python3-devel tk-devel",
+            "安装系统依赖 (Fedora/RHEL)",
         )
 
 
@@ -130,6 +130,7 @@ def check_java():
     print("\n📋 扫描系统已安装的 Java 运行时...")
     try:
         from launcher.java_scanner import scan_all
+
         javas = scan_all()
         if javas:
             print(f"  发现 {len(javas)} 个 Java 运行时:")
@@ -161,22 +162,22 @@ def main():
     while True:
         choice = input("\n请选择操作 (0-7): ").strip()
 
-        if choice == '0':
+        if choice == "0":
             print("\n👋 退出")
             break
-        elif choice == '1':
+        elif choice == "1":
             fix_permissions()
-        elif choice == '2':
+        elif choice == "2":
             clean_build()
-        elif choice == '3':
+        elif choice == "3":
             reinstall_dependencies()
-        elif choice == '4':
+        elif choice == "4":
             fix_macos_issues()
-        elif choice == '5':
+        elif choice == "5":
             fix_linux_issues()
-        elif choice == '6':
+        elif choice == "6":
             check_java()
-        elif choice == '7':
+        elif choice == "7":
             print("\n🔧 执行所有修复...")
             fix_permissions()
             clean_build()
@@ -187,7 +188,7 @@ def main():
         else:
             print("❌ 无效选择，请重试")
 
-        if choice in ['1', '2', '3', '4', '5', '6', '7']:
+        if choice in ["1", "2", "3", "4", "5", "6", "7"]:
             print("\n✅ 操作完成")
 
     print("\n" + "=" * 60)

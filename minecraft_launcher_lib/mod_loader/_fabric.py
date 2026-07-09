@@ -1,16 +1,18 @@
 # This file is part of minecraft-launcher-lib (https://codeberg.org/JakobDev/minecraft-launcher-lib)
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
-from .._helper import download_file, empty, SUBPROCESS_STARTUP_INFO
-from ._fabric_quilt_base import FabricQuiltBase
-from ..types import CallbackDict
+import os
 import subprocess
 import tempfile
-import os
+
+from .._helper import SUBPROCESS_STARTUP_INFO, download_file, empty
+from ..types import CallbackDict
+from ._fabric_quilt_base import FabricQuiltBase
 
 
 class Fabric(FabricQuiltBase):
     "Implements the mod loader class for Fabric"
+
     def __init__(self) -> None:
         super().__init__()
 
@@ -27,7 +29,9 @@ class Fabric(FabricQuiltBase):
         "Implements get_name() for Fabric"
         return "Fabric"
 
-    def install(self, minecraft_version: str, minecraft_directory: str, callback: CallbackDict, java: str, loader_version: str) -> None:
+    def install(
+        self, minecraft_version: str, minecraft_directory: str, callback: CallbackDict, java: str, loader_version: str
+    ) -> None:
         "Implements install() for Fabric"
         installer_download_url = self.get_installer_url(minecraft_version, loader_version)
 
@@ -39,5 +43,18 @@ class Fabric(FabricQuiltBase):
 
             # Run the installer see https://fabricmc.net/wiki/install#cli_installation
             callback.get("setStatus", empty)("Running installer")
-            command = [java, "-jar", installer_path, "client", "-dir", minecraft_directory, "-mcversion", minecraft_version, "-loader", loader_version, "-noprofile", "-snapshot"]
+            command = [
+                java,
+                "-jar",
+                installer_path,
+                "client",
+                "-dir",
+                minecraft_directory,
+                "-mcversion",
+                minecraft_version,
+                "-loader",
+                loader_version,
+                "-noprofile",
+                "-snapshot",
+            ]
             subprocess.run(command, cwd=tempdir, check=True, startupinfo=SUBPROCESS_STARTUP_INFO)

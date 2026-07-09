@@ -1,4 +1,5 @@
 """Minecraft启动器包"""
+
 import os
 import threading
 from typing import Optional, Tuple
@@ -6,13 +7,13 @@ from typing import Optional, Tuple
 from logzero import logger
 
 from launcher.core import MinecraftLauncher as MinecraftLauncherCore
-from launcher.server import ServerMixin
-from launcher.mrpack import MrpackMixin
-from launcher.multimc import MultiMCMixin
+from launcher.modpack_compress import CompressPackMixin
 from launcher.modpack_curseforge import CurseForgePackMixin
 from launcher.modpack_hmcl import HMCLPackMixin
 from launcher.modpack_mcbbs import MCBBSPackMixin
-from launcher.modpack_compress import CompressPackMixin
+from launcher.mrpack import MrpackMixin
+from launcher.multimc import MultiMCMixin
+from launcher.server import ServerMixin
 from launcher.verify import concurrent_file_verify
 
 
@@ -31,11 +32,7 @@ class MinecraftLauncher(
     # ─── 统一整合包安装入口 ──────────────────────────────────
 
     def install_modpack(
-        self,
-        pack_path: str,
-        *,
-        optional_file_ids: Optional[list] = None,
-        instance_name: Optional[str] = None,
+        self, pack_path: str, *, optional_file_ids: Optional[list] = None, instance_name: Optional[str] = None
     ) -> Tuple[bool, str]:
         """
         统一整合包安装入口 — 自动检测格式并分发到对应安装器
@@ -57,7 +54,7 @@ class MinecraftLauncher(
         Returns:
             (是否成功, 版本ID 或 错误信息)
         """
-        from launcher.modpack_types import detect_modpack_archive, ModpackType
+        from launcher.modpack_types import ModpackType, detect_modpack_archive
 
         try:
             detection = detect_modpack_archive(pack_path)
@@ -109,14 +106,10 @@ class MinecraftLauncher(
     ) -> Tuple[bool, str]:
         return self.install_curseforge_pack(path, optional_file_ids=optional_ids, instance_name=name)
 
-    def _install_hmcl_wrapper(
-        self, path: str, optional_ids: Optional[list], name: Optional[str]
-    ) -> Tuple[bool, str]:
+    def _install_hmcl_wrapper(self, path: str, optional_ids: Optional[list], name: Optional[str]) -> Tuple[bool, str]:
         return self.install_hmcl_pack(path, instance_name=name)
 
-    def _install_mcbbs_wrapper(
-        self, path: str, optional_ids: Optional[list], name: Optional[str]
-    ) -> Tuple[bool, str]:
+    def _install_mcbbs_wrapper(self, path: str, optional_ids: Optional[list], name: Optional[str]) -> Tuple[bool, str]:
         return self.install_mcbbs_pack(path, instance_name=name)
 
     def _install_launcher_pack_wrapper(

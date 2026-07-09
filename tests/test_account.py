@@ -11,11 +11,11 @@ import pytest
 from launcher.account import (
     Account,
     AccountType,
+    AuthlibInjectorManager,
     GlobalAccountSystem,
     create_offline_account,
-    init_account_system,
     get_account_system,
-    AuthlibInjectorManager,
+    init_account_system,
 )
 
 
@@ -64,27 +64,18 @@ class TestAccount:
         assert restored.uuid == acc.uuid
 
     def test_account_from_dict_no_token(self):
-        d = {
-            "id": "test-id",
-            "name": "OfflineUser",
-            "account_type": "offline",
-            "uuid": "offline-uuid",
-        }
+        d = {"id": "test-id", "name": "OfflineUser", "account_type": "offline", "uuid": "offline-uuid"}
         acc = Account.from_dict(d)
         assert acc.name == "OfflineUser"
         assert acc.account_type == AccountType.OFFLINE
         assert acc.access_token is None
 
     def test_account_display_name(self):
-        acc = Account(
-            id="test", name="Steve", account_type=AccountType.MICROSOFT
-        )
+        acc = Account(id="test", name="Steve", account_type=AccountType.MICROSOFT)
         assert "Steve" in acc.display_name
 
     def test_is_token_expired_no_token(self):
-        acc = Account(
-            id="test", name="Steve", account_type=AccountType.MICROSOFT
-        )
+        acc = Account(id="test", name="Steve", account_type=AccountType.MICROSOFT)
         assert acc.is_token_expired()
 
 

@@ -2,14 +2,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
 "natives contains a function for extracting natives libraries to a specific folder"
-from ._internal_types.shared_types import ClientJson, ClientJsonLibrary
-from ._helper import parse_rule_list, inherit_json, get_library_path
-from .exceptions import VersionNotFound
-from typing import Literal
-import platform
-import zipfile
+
 import json
 import os
+import platform
+import zipfile
+from typing import Literal
+
+from ._helper import get_library_path, inherit_json, parse_rule_list
+from ._internal_types.shared_types import ClientJson, ClientJsonLibrary
+from .exceptions import VersionNotFound
 
 __all__ = ["extract_natives"]
 
@@ -24,12 +26,12 @@ def get_natives(data: ClientJsonLibrary) -> str:
         arch_type = "64"
 
     if "natives" in data:
-        if platform.system() == 'Windows':
+        if platform.system() == "Windows":
             if "windows" in data["natives"]:
                 return data["natives"]["windows"].replace("${arch}", arch_type)
             else:
                 return ""
-        elif platform.system() == 'Darwin':
+        elif platform.system() == "Darwin":
             if "osx" in data["natives"]:
                 return data["natives"]["osx"].replace("${arch}", arch_type)
             else:

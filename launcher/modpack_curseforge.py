@@ -13,9 +13,9 @@ import re
 import shutil
 import threading
 import zipfile
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests as req
 from logzero import logger
@@ -42,7 +42,7 @@ class CurseForgePackMixin:
         if not os.path.isfile(zip_path):
             raise ValueError(f"文件不存在: {zip_path}")
 
-        from launcher.modpack_types import detect_modpack_archive, ModpackType
+        from launcher.modpack_types import ModpackType, detect_modpack_archive
 
         detection = detect_modpack_archive(zip_path)
         if detection.pack_type != ModpackType.CURSEFORGE:
@@ -59,16 +59,16 @@ class CurseForgePackMixin:
             lid = (loader_entry.get("id", "") or "").lower()
             if lid.startswith("forge-"):
                 loader_type = "forge"
-                loader_version = lid[len("forge-"):]
+                loader_version = lid[len("forge-") :]
             elif lid.startswith("neoforge-"):
                 loader_type = "neoforge"
-                loader_version = lid[len("neoforge-"):]
+                loader_version = lid[len("neoforge-") :]
             elif lid.startswith("fabric-"):
                 loader_type = "fabric"
-                loader_version = lid[len("fabric-"):]
+                loader_version = lid[len("fabric-") :]
             elif lid.startswith("quilt-"):
                 loader_type = "quilt"
-                loader_version = lid[len("quilt-"):]
+                loader_version = lid[len("quilt-") :]
 
         files = raw.get("files", [])
         required_count = sum(1 for f in files if f.get("required", True))
@@ -90,10 +90,7 @@ class CurseForgePackMixin:
     # ─── 安装 ──────────────────────────────────────────────────
 
     def install_curseforge_pack(
-        self,
-        zip_path: str,
-        optional_file_ids: Optional[List[int]] = None,
-        instance_name: Optional[str] = None,
+        self, zip_path: str, optional_file_ids: Optional[List[int]] = None, instance_name: Optional[str] = None
     ) -> Tuple[bool, str]:
         """
         安装 CurseForge 整合包
@@ -113,7 +110,7 @@ class CurseForgePackMixin:
         Returns:
             (是否成功, 版本ID 或 错误信息)
         """
-        from launcher.modpack_types import detect_modpack_archive, ModpackType
+        from launcher.modpack_types import ModpackType, detect_modpack_archive
 
         if not os.path.isfile(zip_path):
             return False, f"文件不存在: {zip_path}"
@@ -153,11 +150,7 @@ class CurseForgePackMixin:
                 if pid is None or fid is None:
                     continue
                 if required or fid in selected:
-                    files_to_download.append({
-                        "projectID": pid,
-                        "fileID": fid,
-                        "required": required,
-                    })
+                    files_to_download.append({"projectID": pid, "fileID": fid, "required": required})
 
             version_dir = os.path.join(mc_dir, "versions", instance_name)
             os.makedirs(version_dir, exist_ok=True)
@@ -196,13 +189,15 @@ class CurseForgePackMixin:
                 filename = info.get("fileName", f"{pid}-{fid}")
                 save_path = os.path.join(target_dir, filename)
 
-                download_tasks.append({
-                    "projectID": pid,
-                    "fileID": fid,
-                    "save_path": save_path,
-                    "filename": filename,
-                    "display_name": info.get("displayName", filename),
-                })
+                download_tasks.append(
+                    {
+                        "projectID": pid,
+                        "fileID": fid,
+                        "save_path": save_path,
+                        "filename": filename,
+                        "display_name": info.get("displayName", filename),
+                    }
+                )
 
             # ── 并行下载 ──
             total = len(download_tasks)
@@ -217,10 +212,9 @@ class CurseForgePackMixin:
                 nonlocal completed
                 try:
                     from curseforge import download_file as cf_download
+
                     ok, msg = cf_download(
-                        task["projectID"], task["fileID"],
-                        os.path.dirname(task["save_path"]),
-                        filename=task["filename"],
+                        task["projectID"], task["fileID"], os.path.dirname(task["save_path"]), filename=task["filename"]
                     )
                     if not ok:
                         logger.warning(f"下载失败: {task['display_name']}: {msg}")
@@ -253,9 +247,7 @@ class CurseForgePackMixin:
             try:
                 cb = self._get_callback()
                 if not self._is_mc_installed(mc_version):
-                    self._mcllib.install.install_minecraft_version(
-                        mc_version, mc_dir, callback=cb
-                    )
+                    self._mcllib.install.install_minecraft_version(mc_version, mc_dir, callback=cb)
                 logger.info(f"Minecraft {mc_version} 安装完成")
             except Exception as e:
                 logger.error(f"Minecraft 安装失败: {e}")
@@ -281,7 +273,7 @@ class CurseForgePackMixin:
         except Exception as e:
             logger.error(f"CurseForge 整合包安装失败: {e}")
             try:
-                if 'version_dir' in locals() and os.path.isdir(version_dir):
+                if "version_dir" in locals() and os.path.isdir(version_dir):
                     shutil.rmtree(version_dir)
             except Exception:
                 pass
@@ -297,13 +289,13 @@ class CurseForgePackMixin:
             lid = (entry.get("id", "") or "").lower()
             if loader_type is None:
                 if lid.startswith("forge-"):
-                    loader_type, loader_version = "forge", lid[len("forge-"):]
+                    loader_type, loader_version = "forge", lid[len("forge-") :]
                 elif lid.startswith("neoforge-"):
-                    loader_type, loader_version = "neoforge", lid[len("neoforge-"):]
+                    loader_type, loader_version = "neoforge", lid[len("neoforge-") :]
                 elif lid.startswith("fabric-"):
-                    loader_type, loader_version = "fabric", lid[len("fabric-"):]
+                    loader_type, loader_version = "fabric", lid[len("fabric-") :]
                 elif lid.startswith("quilt-"):
-                    loader_type, loader_version = "quilt", lid[len("quilt-"):]
+                    loader_type, loader_version = "quilt", lid[len("quilt-") :]
         return loader_type, loader_version
 
     def _cf_batch_get_file_info(self, files: List[Dict]) -> Dict[int, Dict]:
@@ -317,12 +309,9 @@ class CurseForgePackMixin:
 
         try:
             from curseforge import CURSEFORGE_API_BASE, _get_session
+
             session = _get_session()
-            resp = session.post(
-                f"{CURSEFORGE_API_BASE}/mods/files",
-                json={"fileIds": file_ids},
-                timeout=30,
-            )
+            resp = session.post(f"{CURSEFORGE_API_BASE}/mods/files", json={"fileIds": file_ids}, timeout=30)
             resp.raise_for_status()
             data = resp.json().get("data", [])
             return {item.get("id"): item for item in data if isinstance(item, dict)}
@@ -330,9 +319,7 @@ class CurseForgePackMixin:
             logger.warning(f"批量获取 CurseForge 文件信息失败: {e}")
             return {}
 
-    def _extract_cf_overrides(
-        self, zip_path: str, base: str, manifest: Dict, target_dir: str
-    ):
+    def _extract_cf_overrides(self, zip_path: str, base: str, manifest: Dict, target_dir: str):
         """解压 CurseForge overrides 到目标目录"""
         override_home = manifest.get("overrides", "overrides")
         if override_home in (".", "./", ""):
@@ -348,7 +335,7 @@ class CurseForgePackMixin:
                 if info.file_size == 0:
                     continue
 
-                rel_path = name[len(override_prefix):]
+                rel_path = name[len(override_prefix) :]
                 if not rel_path:
                     continue
 
@@ -366,16 +353,10 @@ class CurseForgePackMixin:
                     logger.warning(f"解压文件失败 {name}: {e}")
 
     def _install_cf_mod_loader(
-        self, loader_type: str, loader_version: str,
-        mc_version: str, mc_dir: str, callback: Dict,
+        self, loader_type: str, loader_version: str, mc_version: str, mc_dir: str, callback: Dict
     ):
         """安装 CurseForge 整合包的 Mod Loader"""
-        loader_map = {
-            "forge": "forge",
-            "neoforge": "neoforge",
-            "fabric": "fabric",
-            "quilt": "quilt",
-        }
+        loader_map = {"forge": "forge", "neoforge": "neoforge", "fabric": "fabric", "quilt": "quilt"}
         key = loader_map.get(loader_type.lower())
         if not key:
             logger.warning(f"不支持的 mod loader: {loader_type}")
@@ -391,14 +372,11 @@ class CurseForgePackMixin:
 
     def _is_mc_installed(self, mc_version: str) -> bool:
         """检查 Minecraft 原版是否已安装"""
-        version_json = os.path.join(
-            self.minecraft_dir, "versions", mc_version, f"{mc_version}.json"
-        )
+        version_json = os.path.join(self.minecraft_dir, "versions", mc_version, f"{mc_version}.json")
         return os.path.isfile(version_json)
 
     def _get_cf_launch_version(
-        self, instance_name: str, mc_version: str,
-        loader_type: Optional[str], loader_version: Optional[str],
+        self, instance_name: str, mc_version: str, loader_type: Optional[str], loader_version: Optional[str]
     ) -> str:
         """生成启动版本 ID"""
         parts = [instance_name]

@@ -1,10 +1,11 @@
 """ModernApp 存档备份 Mixin - 备份管理标签页"""
+
 import os
 import sys
 import threading
 import tkinter.filedialog as filedialog
 import tkinter.messagebox as messagebox
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional
 
 import customtkinter as ctk
 from logzero import logger
@@ -62,14 +63,10 @@ class BackupTabMixin(object):
         ).pack(side=ctk.RIGHT)
 
         # 分割线
-        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=12, pady=(8, 5)
-        )
+        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=12, pady=(8, 5))
 
         # 存档列表（可滚动）
-        list_frame = ctk.CTkScrollableFrame(
-            panel, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
-        )
+        list_frame = ctk.CTkScrollableFrame(panel, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"])
         list_frame.pack(fill=ctk.BOTH, expand=True, padx=8, pady=(0, 10))
 
         self.backup_world_list_frame = list_frame
@@ -77,9 +74,7 @@ class BackupTabMixin(object):
         self._selected_backup_world: Optional[str] = None
 
         # 自动备份设置
-        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=12, pady=(5, 5)
-        )
+        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=12, pady=(5, 5))
 
         ctk.CTkLabel(
             panel,
@@ -88,7 +83,7 @@ class BackupTabMixin(object):
             text_color=COLORS["text_primary"],
         ).pack(padx=12, anchor=ctk.W, pady=(0, 5))
 
-        self.backup_auto_launch_var = ctk.BooleanVar(value=getattr(self._get_config(), 'backup_auto_launch', False))
+        self.backup_auto_launch_var = ctk.BooleanVar(value=getattr(self._get_config(), "backup_auto_launch", False))
         ctk.CTkCheckBox(
             panel,
             text=_("backup_auto_launch_label"),
@@ -112,7 +107,7 @@ class BackupTabMixin(object):
             command=self._on_auto_backup_setting_change,
         ).pack(padx=12, anchor=ctk.W, pady=(0, 12))
 
-        if not hasattr(self, '_theme_refs'):
+        if not hasattr(self, "_theme_refs"):
             self._theme_refs = []
         self._theme_refs.append((self._backup_world_panel, {"fg_color": "card_bg"}))
         self._theme_refs.append((self.backup_world_list_frame, {"scrollbar_button_color": "bg_light"}))
@@ -169,9 +164,7 @@ class BackupTabMixin(object):
         ).pack(side=ctk.RIGHT)
 
         # 分割线
-        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(8, 5)
-        )
+        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=15, pady=(8, 5))
 
         # 备份操作区（备注输入 + 手动备份按钮）
         action_frame = ctk.CTkFrame(panel, fg_color="transparent", height=42)
@@ -223,9 +216,7 @@ class BackupTabMixin(object):
             ).pack(side=ctk.LEFT, expand=True, fill=ctk.X, padx=5, pady=4)
 
         # 备份列表（可滚动）
-        list_frame = ctk.CTkScrollableFrame(
-            panel, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
-        )
+        list_frame = ctk.CTkScrollableFrame(panel, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"])
         list_frame.pack(fill=ctk.BOTH, expand=True, padx=15, pady=(0, 10))
 
         self.backup_list_frame = list_frame
@@ -258,6 +249,7 @@ class BackupTabMixin(object):
         """加载存档列表（后台线程）"""
         try:
             from backup_manager import BackupManager
+
             bm = BackupManager(self._get_config())
             worlds = bm._find_all_world_dirs()
             self._task_queue.put(("backup_worlds_loaded", worlds))
@@ -269,14 +261,18 @@ class BackupTabMixin(object):
         """获取 Config 实例"""
         try:
             from config import config
+
             return config
         except Exception:
             # 尝试从 callbacks 获取
             if self.callbacks and "get_minecraft_dir" in self.callbacks:
+
                 class _Cfg:
                     pass
+
                 _cfg = _Cfg()
                 from pathlib import Path
+
                 mc_dir = Path(self.callbacks["get_minecraft_dir"]())
                 _cfg.minecraft_dir = mc_dir
                 _cfg.base_dir = mc_dir.parent
@@ -341,6 +337,7 @@ class BackupTabMixin(object):
         """加载备份列表（后台线程）"""
         try:
             from backup_manager import BackupManager
+
             bm = BackupManager(self._get_config())
             backups = bm.get_backups(world_name)
             self._task_queue.put(("backup_list_loaded", (world_name, backups)))
@@ -371,12 +368,7 @@ class BackupTabMixin(object):
 
     def _create_backup_row(self, entry):
         """创建备份行"""
-        row = ctk.CTkFrame(
-            self.backup_list_frame,
-            fg_color=COLORS["bg_medium"],
-            corner_radius=6,
-            height=36,
-        )
+        row = ctk.CTkFrame(self.backup_list_frame, fg_color=COLORS["bg_medium"], corner_radius=6, height=36)
         row.pack(fill=ctk.X, pady=2)
         row.pack_propagate(False)
 
@@ -388,10 +380,7 @@ class BackupTabMixin(object):
             time_str = entry.timestamp[:16] if entry.timestamp else _("backup_unknown_time")
 
         ctk.CTkLabel(
-            row,
-            text=time_str,
-            font=ctk.CTkFont(family="Consolas", size=11),
-            text_color=COLORS["text_primary"],
+            row, text=time_str, font=ctk.CTkFont(family="Consolas", size=11), text_color=COLORS["text_primary"]
         ).pack(side=ctk.LEFT, expand=True, fill=ctk.X, padx=5, pady=6)
 
         # 大小
@@ -484,6 +473,7 @@ class BackupTabMixin(object):
         """执行备份（后台线程）"""
         try:
             from backup_manager import BackupManager
+
             bm = BackupManager(self._get_config())
 
             def _progress(current, total, status):
@@ -515,6 +505,7 @@ class BackupTabMixin(object):
         """执行恢复（后台线程）"""
         try:
             from backup_manager import BackupManager
+
             bm = BackupManager(self._get_config())
 
             def _progress(current, total, status):
@@ -546,6 +537,7 @@ class BackupTabMixin(object):
         """执行删除（后台线程）"""
         try:
             from backup_manager import BackupManager
+
             bm = BackupManager(self._get_config())
             success, msg = bm.delete_backup(entry_id, world_name)
             self._task_queue.put(("delete_backup_done", (world_name, success, msg)))
@@ -573,6 +565,7 @@ class BackupTabMixin(object):
         """执行导出（后台线程）"""
         try:
             from backup_manager import BackupManager
+
             bm = BackupManager(self._get_config())
             success, msg = bm.export_backup(entry_id, world_name, dest_path)
             self._task_queue.put(("export_backup_done", (success, msg)))
@@ -583,30 +576,35 @@ class BackupTabMixin(object):
         """打开备份文件夹"""
         try:
             from backup_manager import BackupManager
+
             bm = BackupManager(self._get_config())
             path = str(bm.backup_root)
             if not os.path.exists(path):
                 os.makedirs(path, exist_ok=True)
-            if sys.platform == 'win32':
+            if sys.platform == "win32":
                 os.startfile(path)
-            elif sys.platform == 'darwin':
+            elif sys.platform == "darwin":
                 import subprocess
-                subprocess.Popen(['open', path])
+
+                subprocess.Popen(["open", path])
             else:
                 import subprocess
-                subprocess.Popen(['xdg-open', path])
+
+                subprocess.Popen(["xdg-open", path])
         except Exception as e:
             self.set_status(_("backup_folder_open_failed", error=str(e)), "error")
 
     def _open_backup_settings(self):
         """打开备份设置弹窗"""
         from ui.windows.backup_settings import BackupSettingsWindow
+
         BackupSettingsWindow(self, self._get_config())
 
     def _on_auto_backup_setting_change(self):
         """自动备份设置变更回调"""
         try:
             from config import config
+
             config.backup_auto_launch = self.backup_auto_launch_var.get()
             config.backup_auto_exit = self.backup_auto_exit_var.get()
             config.save_config()
@@ -616,16 +614,16 @@ class BackupTabMixin(object):
             pass
 
     def _refresh_backup_colors(self):
-        for item in getattr(self, 'backup_world_buttons', []):
+        for item in getattr(self, "backup_world_buttons", []):
             btn = item.get("button")
             if btn and btn.winfo_exists():
                 try:
-                    btn.configure(hover_color=COLORS["bg_light"],
-                                  text_color=COLORS["text_primary"],
-                                  fg_color="transparent")
+                    btn.configure(
+                        hover_color=COLORS["bg_light"], text_color=COLORS["text_primary"], fg_color="transparent"
+                    )
                 except Exception:
                     pass
-        for entry in getattr(self, '_backup_entries', []):
+        for entry in getattr(self, "_backup_entries", []):
             row = entry.get("row")
             if row and row.winfo_exists():
                 try:
@@ -639,6 +637,7 @@ class BackupTabMixin(object):
         """游戏启动前自动备份"""
         try:
             from config import config
+
             if not getattr(config, "backup_auto_launch", False):
                 return
         except Exception:
@@ -650,6 +649,7 @@ class BackupTabMixin(object):
         """游戏退出后自动备份"""
         try:
             from config import config
+
             if not getattr(config, "backup_auto_exit", False):
                 return
         except Exception:
@@ -662,6 +662,7 @@ class BackupTabMixin(object):
         try:
             from backup_manager import BackupManager
             from config import config
+
             bm = BackupManager(config)
             worlds = bm._find_all_world_dirs()
 

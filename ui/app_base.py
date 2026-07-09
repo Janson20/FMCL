@@ -1,12 +1,13 @@
 """ModernApp 基础 Mixin - 初始化、UI 构建、侧边栏、日志"""
-import os
+
 import io
-import sys
-import re
 import logging
+import os
 import platform
+import re
+import sys
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 
@@ -53,9 +54,9 @@ class ModernAppBase(ctk.CTk):
         self.after(100, self._deferred_init)
 
         # 延迟初始化性能监控
-        if hasattr(self, '_init_monitor'):
+        if hasattr(self, "_init_monitor"):
             self._init_monitor()
-        if hasattr(self, '_register_monitor_hotkeys'):
+        if hasattr(self, "_register_monitor_hotkeys"):
             self.after(800, self._register_monitor_hotkeys)
 
     def _deferred_init(self):
@@ -71,32 +72,34 @@ class ModernAppBase(ctk.CTk):
             pm = self.callbacks.get("get_plugin_manager", lambda: None)()
             if pm:
                 from plugin_manager.base import HookPoint
+
                 pm.emit(HookPoint.APP_SHUTDOWN)
         except Exception:
             pass
 
         try:
             from ui.dialogs import cleanup_toast_queue
+
             cleanup_toast_queue()
         except Exception:
             pass
-        if hasattr(self, '_unregister_hotkeys'):
+        if hasattr(self, "_unregister_hotkeys"):
             try:
                 self._unregister_hotkeys()
             except Exception:
                 pass
-        if hasattr(self, '_unregister_monitor_hotkeys'):
+        if hasattr(self, "_unregister_monitor_hotkeys"):
             try:
                 self._unregister_monitor_hotkeys()
             except Exception:
                 pass
-        if hasattr(self, '_monitor_window') and self._monitor_window is not None:
+        if hasattr(self, "_monitor_window") and self._monitor_window is not None:
             try:
                 self._monitor_window.stop()
                 self._monitor_window.destroy()
             except Exception:
                 pass
-        if hasattr(self, '_music_stop'):
+        if hasattr(self, "_music_stop"):
             try:
                 self._music_stop(instant=True)
             except Exception:
@@ -228,9 +231,7 @@ class ModernAppBase(ctk.CTk):
         self.mirror_var = ctk.BooleanVar(value=self.callbacks.get("get_mirror_enabled", lambda: True)())
 
         # 收集主题依赖的组件，供 _reapply_theme 使用
-        self._theme_refs: list = [
-            (self, {"fg_color": "bg_dark"}),
-        ]
+        self._theme_refs: list = [(self, {"fg_color": "bg_dark"})]
 
         # 注册更多 UI 组件以支持主题更新
         self._theme_refs.append((self.title_label, {"text_color": "text_primary"}))
@@ -247,7 +248,7 @@ class ModernAppBase(ctk.CTk):
         import queue
 
         # 初始化任务队列（在这里初始化确保所有 mixin 共享同一个）
-        if not hasattr(self, '_task_queue') or self._task_queue is None:
+        if not hasattr(self, "_task_queue") or self._task_queue is None:
             self._task_queue = queue.Queue()
 
         # 创建标签页容器
@@ -353,176 +354,176 @@ class ModernAppBase(ctk.CTk):
                 "name": "Minecraft官网",
                 "description": "Minecraft官方游戏网站，提供游戏下载、更新和官方信息，支持多平台版本获取与账号管理。",
                 "tags": ["官方", "游戏下载", "更新"],
-                "link": "https://www.minecraft.net/zh-hans"
+                "link": "https://www.minecraft.net/zh-hans",
             },
             {
                 "name": "Minecraft中文官网",
                 "description": "Minecraft中国版官方游戏平台，提供网易代理版本的下载、更新和本地化服务。",
                 "tags": ["官方", "游戏下载", "中国版"],
-                "link": "http://mc.163.com"
+                "link": "http://mc.163.com",
             },
             {
                 "name": "Minecraft中文Wiki",
                 "description": "最全面的Minecraft中文百科全书，提供游戏机制、合成表、生物群系等详细信息，运行12年以上且社区活跃。",
                 "tags": ["百科", "知识库", "中文"],
-                "link": "https://zh.minecraft.wiki"
+                "link": "https://zh.minecraft.wiki",
             },
             {
                 "name": "MineBBS",
                 "description": "中国最大的Minecraft资源交流论坛，提供模组、地图、材质包、皮肤等全品类资源，支持Java版与基岩版。",
                 "tags": ["论坛", "社区", "资源下载"],
-                "link": "https://www.minebbs.com"
+                "link": "https://www.minebbs.com",
             },
             {
                 "name": "Minecraft苦力怕论坛",
                 "description": "国内活跃的Minecraft中文社区，提供资源下载、技术交流和创作分享，拥有大量基岩版资源。",
                 "tags": ["论坛", "社区", "中文"],
-                "link": "https://klpbbs.com"
+                "link": "https://klpbbs.com",
             },
             {
                 "name": "CurseForge",
                 "description": "全球最大的Minecraft模组下载平台，拥有超过25万个模组资源，支持版本筛选和PCL2/HMCL启动器集成。",
                 "tags": ["模组", "资源下载", "插件"],
-                "link": "https://www.curseforge.com/minecraft"
+                "link": "https://www.curseforge.com/minecraft",
             },
             {
                 "name": "Modrinth",
                 "description": "新兴Minecraft模组资源平台，界面友好、访问速度快，提供模组、资源包和整合包下载，支持中文资源。",
                 "tags": ["模组", "资源下载", "整合包"],
-                "link": "https://modrinth.com"
+                "link": "https://modrinth.com",
             },
             {
                 "name": "PlanetMinecraft",
                 "description": "专注于Minecraft地图、皮肤和资源包的下载网站，提供详细分类和预览功能，适合寻找特定内容。",
                 "tags": ["地图", "皮肤", "资源下载"],
-                "link": "https://www.planetminecraft.com"
+                "link": "https://www.planetminecraft.com",
             },
             {
                 "name": "MinecraftSkins.net",
                 "description": "全球玩家创作的Minecraft皮肤资源库，提供3D预览、按标签搜索和UUID匹配功能，每日更新新皮肤。",
                 "tags": ["皮肤", "资源下载"],
-                "link": "https://www.minecraftskins.net"
+                "link": "https://www.minecraftskins.net",
             },
             {
                 "name": "NameMC",
                 "description": "Minecraft正版玩家信息查询平台，可查看玩家历史皮肤、UUID信息，支持3D皮肤效果预览。",
                 "tags": ["皮肤", "查询"],
-                "link": "https://namemc.com"
+                "link": "https://namemc.com",
             },
             {
                 "name": "ChunkBase",
                 "description": "专业的Minecraft种子查询工具，可分析区块、查找结构、定位生物群系，是建筑和探险的实用助手。",
                 "tags": ["工具", "种子查询", "区块分析"],
-                "link": "https://www.chunkbase.com"
+                "link": "https://www.chunkbase.com",
             },
             {
                 "name": "Minecraft教育版官网",
                 "description": "Minecraft教育版官方平台，提供教学资源、课程模板和教育工具，专为教师和学生设计。",
                 "tags": ["官方", "教育", "资源"],
-                "link": "https://education.minecraft.net"
+                "link": "https://education.minecraft.net",
             },
             {
                 "name": "Minecraft Heads",
                 "description": "提供Minecraft装饰性头颅资源，支持自定义设计和下载，可用于游戏内装饰和建筑。",
                 "tags": ["装饰", "资源", "头颅"],
-                "link": "https://www.minecraft-heads.com"
+                "link": "https://www.minecraft-heads.com",
             },
             {
                 "name": "Amulet地图编辑器",
                 "description": "开源的Minecraft世界编辑工具，支持Java 1.12+和Bedrock 1.7+版本，提供三维可视化编辑和精确坐标控制。",
                 "tags": ["工具", "地图编辑", "世界转换"],
-                "link": "https://gitcode.com/gh_mirrors/am/Amulet-Map-Editor"
+                "link": "https://gitcode.com/gh_mirrors/am/Amulet-Map-Editor",
             },
             {
                 "name": "MCskin",
                 "description": "Minecraft皮肤制作与编辑网站，提供皮肤抓取、自定义人物动作、调整光照和颜色背景功能，支持透明底下载。",
                 "tags": ["皮肤", "编辑工具", "自定义"],
-                "link": "https://mcskins.top"
+                "link": "https://mcskins.top",
             },
             {
                 "name": "Minecraft Shaders",
                 "description": "专注于Minecraft光影包（Shaders）的下载网站，提供各类光影效果的预览和下载，帮助你轻松提升游戏画面表现。",
                 "tags": ["光影", "画面", "渲染"],
-                "link": "https://minecraftshader.com"
+                "link": "https://minecraftshader.com",
             },
             {
                 "name": "Resource Packs",
                 "description": "老牌材质包（Resource Packs）下载站，分类详细，提供高清修复、奇幻风格、像素风等多种类型的材质包下载。",
                 "tags": ["材质包", "高清修复", "纹理"],
-                "link": "https://resourcepack.net"
+                "link": "https://resourcepack.net",
             },
             {
                 "name": "MCPEDL",
                 "description": "全球知名的基岩版（Bedrock Edition）资源站，提供海量的 addons、地图、皮肤和模组，是手机版玩家的首选资源库。",
                 "tags": ["基岩版", "手机版", "Addons"],
-                "link": "https://mcpedl.com"
+                "link": "https://mcpedl.com",
             },
             {
                 "name": "Minecraft Maps",
                 "description": "专业的Minecraft地图下载网站，收录了冒险地图、解谜地图、PVP地图和生存挑战等多种玩家自制地图。",
                 "tags": ["地图", "冒险", "下载"],
-                "link": "http://www.minecraftmaps.com"
+                "link": "http://www.minecraftmaps.com",
             },
             {
                 "name": "The Skindex",
                 "description": "老牌皮肤网站，拥有庞大的皮肤库和简单易用的在线皮肤编辑器，支持直接预览和下载。",
                 "tags": ["皮肤", "编辑器", "社区"],
-                "link": "https://www.minecraftskins.com"
+                "link": "https://www.minecraftskins.com",
             },
             {
                 "name": "Minecraft Servers",
                 "description": "全球Minecraft服务器列表，玩家可以根据标签（如生存、空岛、小游戏）查找和投票支持喜欢的服务器。",
                 "tags": ["服务器", "多人联机", "列表"],
-                "link": "https://minecraftservers.org"
+                "link": "https://minecraftservers.org",
             },
             {
                 "name": "我的世界服务器列表 (mclists)",
                 "description": "国内知名的服务器宣传与列表平台，方便国内玩家查找稳定的中文服务器，涵盖各种玩法类型。",
                 "tags": ["服务器", "国内", "中文服"],
-                "link": "https://www.mclists.cn"
+                "link": "https://www.mclists.cn",
             },
             {
                 "name": "Minecraft Tools",
                 "description": "综合性工具箱网站，提供合成表查询、效果查询、附魔计算器、生物生成条件查询等实用功能。",
                 "tags": ["工具", "合成表", "计算器"],
-                "link": "https://minecraft.tools"
+                "link": "https://minecraft.tools",
             },
             {
                 "name": "Nova Skins",
                 "description": "功能强大的皮肤编辑与壁纸生成工具，支持皮肤动图制作、披风编辑以及复杂的滤镜效果处理。",
                 "tags": ["皮肤编辑", "壁纸生成", "工具"],
-                "link": "https://novaskin.me"
+                "link": "https://novaskin.me",
             },
             {
                 "name": "mclo.gs",
                 "description": "服务器腐竹和玩家必备工具，用于上传和分析游戏崩溃日志（Logs），能快速定位错误原因并提供解决方案建议。",
                 "tags": ["日志分析", "除错", "服务器管理"],
-                "link": "https://mclo.gs"
+                "link": "https://mclo.gs",
             },
             {
                 "name": "Chunker",
                 "description": "在线存档转换工具，支持将Java版存档转换为基岩版（反之亦然），方便跨平台玩家迁移世界数据。",
                 "tags": ["存档转换", "跨平台", "工具"],
-                "link": "https://chunker.app"
+                "link": "https://chunker.app",
             },
             {
                 "name": "Minecraft Forge",
                 "description": "Minecraft Java版最古老的模组加载器官网，提供最新版本的Forge下载，是运行大量经典模组的必要环境。",
                 "tags": ["Forge", "模组加载器", "API"],
-                "link": "https://www.minecraftforge.net"
+                "link": "https://www.minecraftforge.net",
             },
             {
                 "name": "Fabric",
                 "description": "轻量级、高性能的模组加载器，启动速度快，社区活跃，适合喜欢最新版本和轻量级模组的玩家。",
                 "tags": ["Fabric", "模组加载器", "高性能"],
-                "link": "https://fabricmc.net"
+                "link": "https://fabricmc.net",
             },
             {
                 "name": "ArmorTrims",
                 "description": "1.20+版本盔甲纹饰预览工具，可以直观地查看不同锻造模板和材料组合后的盔甲外观效果。",
                 "tags": ["盔甲纹饰", "预览", "1.20+"],
-                "link": "https://www.armortrims.com"
-            }
+                "link": "https://www.armortrims.com",
+            },
         ]
 
         # 主容器
@@ -549,9 +550,7 @@ class ModernAppBase(ctk.CTk):
 
         # 网站列表容器（可滚动）
         self._links_scroll_frame = ctk.CTkScrollableFrame(
-            main_container,
-            fg_color="transparent",
-            scrollbar_button_color=COLORS["bg_light"],
+            main_container, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
         self._links_scroll_frame.pack(fill=ctk.BOTH, expand=True)
 
@@ -567,11 +566,7 @@ class ModernAppBase(ctk.CTk):
     def _create_site_card(self, parent, site):
         """创建网站卡片"""
         card = ctk.CTkFrame(
-            parent,
-            fg_color=COLORS["card_bg"],
-            corner_radius=12,
-            border_width=1,
-            border_color=COLORS["card_border"],
+            parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"]
         )
         card.pack(fill=ctk.X, pady=5)
 
@@ -646,6 +641,7 @@ class ModernAppBase(ctk.CTk):
         # 打开链接按钮
         def create_open_link_callback(url):
             import webbrowser
+
             return lambda: webbrowser.open(url)
 
         open_btn = ctk.CTkButton(
@@ -667,11 +663,12 @@ class ModernAppBase(ctk.CTk):
                 try:
                     self.clipboard_clear()
                     self.clipboard_append(url)
-                    if hasattr(self, 'set_status'):
+                    if hasattr(self, "set_status"):
                         self.set_status(_("link_copied", name=name), "success")
                 except Exception as e:
-                    if hasattr(self, 'set_status'):
+                    if hasattr(self, "set_status"):
                         self.set_status(_("copy_failed", error=str(e)), "error")
+
             return copy_func
 
         copy_btn = ctk.CTkButton(
@@ -833,16 +830,22 @@ class ModernAppBase(ctk.CTk):
         self._theme_refs.append((self._sidebar_account_sep, {"fg_color": "card_border"}))
         self._theme_refs.append((self._sidebar_account_name, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._sidebar_account_type, {"text_color": "text_secondary"}))
-        self._theme_refs.append((self._sidebar_account_manage_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+        self._theme_refs.append(
+            (self._sidebar_account_manage_btn, {"fg_color": "bg_light", "hover_color": "card_border"})
+        )
         self._theme_refs.append((self._sidebar_skin_label, {"text_color": "text_primary"}))
         self._theme_refs.append((self._sidebar_skin_sep, {"fg_color": "card_border"}))
         self._theme_refs.append((self.skin_preview_frame, {"fg_color": "bg_medium"}))
         self._theme_refs.append((self.skin_preview_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._sidebar_select_skin_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
-        self._theme_refs.append((self._skin_remove_btn, {"fg_color": "bg_medium", "hover_color": "accent", "text_color": "text_secondary"}))
+        self._theme_refs.append(
+            (self._skin_remove_btn, {"fg_color": "bg_medium", "hover_color": "accent", "text_color": "text_secondary"})
+        )
         self._theme_refs.append((self._sidebar_log_label, {"text_color": "text_primary"}))
         self._theme_refs.append((self._sidebar_log_sep, {"fg_color": "card_border"}))
-        self._theme_refs.append((self.log_text, {"fg_color": "bg_medium", "border_color": "card_border", "text_color": "text_secondary"}))
+        self._theme_refs.append(
+            (self.log_text, {"fg_color": "bg_medium", "border_color": "card_border", "text_color": "text_secondary"})
+        )
         self._theme_refs.append((self._sidebar_clear_log_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
 
         # 设置日志捕获
@@ -856,6 +859,7 @@ class ModernAppBase(ctk.CTk):
         self._log_buffer = io.StringIO()
         try:
             import logzero
+
             # 添加一个自定义 handler 将日志写入 buffer
             self._log_writer = logging.StreamHandler(self._log_buffer)
             self._log_writer.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S"))
@@ -867,6 +871,7 @@ class ModernAppBase(ctk.CTk):
 
     def _append_log(self, message: str):
         """追加日志到 UI 日志框（线程安全）"""
+
         def _do_append():
             self.log_text.insert(ctk.END, message + "\n")
             self.log_text.see(ctk.END)
@@ -876,6 +881,7 @@ class ModernAppBase(ctk.CTk):
                     self._agent_log_text.see(ctk.END)
                 except Exception:
                     pass
+
         if self.winfo_exists():
             self.after(0, _do_append)
 
@@ -896,6 +902,7 @@ class ModernAppBase(ctk.CTk):
     def _update_sidebar_account(self):
         try:
             from launcher.account import get_account_system
+
             account_system = get_account_system()
             if not account_system:
                 return
@@ -906,12 +913,8 @@ class ModernAppBase(ctk.CTk):
                     "offline": _("account_type_offline"),
                     "yggdrasil": _("account_type_yggdrasil"),
                 }
-                self._sidebar_account_name.configure(
-                    text=acc.name, text_color=COLORS["text_primary"]
-                )
-                self._sidebar_account_type.configure(
-                    text=type_labels.get(acc.account_type.value, ""),
-                )
+                self._sidebar_account_name.configure(text=acc.name, text_color=COLORS["text_primary"])
+                self._sidebar_account_type.configure(text=type_labels.get(acc.account_type.value, ""))
             else:
                 self._sidebar_account_name.configure(
                     text=_("account_sidebar_none"), text_color=COLORS["text_secondary"]
@@ -923,33 +926,31 @@ class ModernAppBase(ctk.CTk):
     def _on_open_account_manager_sidebar(self):
         try:
             from launcher.account import get_account_system
+
             account_system = get_account_system()
             if not account_system:
                 return
             from ui.windows.account_manager import AccountManagerWindow
-            AccountManagerWindow(
-                self,
-                account_system,
-                on_account_changed=lambda: self._update_sidebar_account(),
-            )
+
+            AccountManagerWindow(self, account_system, on_account_changed=lambda: self._update_sidebar_account())
         except Exception as e:
             from logzero import logger
-            logger.error(f"\u6253\u5F00\u8D26\u53F7\u7BA1\u7406\u5931\u8D25: {e}")
+
+            logger.error(f"\u6253\u5f00\u8d26\u53f7\u7ba1\u7406\u5931\u8d25: {e}")
 
     def _on_select_skin(self):
         """选择皮肤文件"""
         from tkinter import filedialog
+
         filetypes = [("皮肤文件", "*.png"), ("所有文件", "*.*")]
-        filepath = filedialog.askopenfilename(
-            title=_("select_skin_title"),
-            filetypes=filetypes,
-        )
+        filepath = filedialog.askopenfilename(title=_("select_skin_title"), filetypes=filetypes)
         if not filepath:
             return
 
         # 验证皮肤文件尺寸
         try:
             from PIL import Image
+
             with Image.open(filepath) as img:
                 w, h = img.size
                 if (w, h) not in [(64, 64), (64, 32), (128, 128), (128, 64)]:
@@ -973,6 +974,7 @@ class ModernAppBase(ctk.CTk):
             skin_dir = mc_dir / "skins"
             skin_dir.mkdir(parents=True, exist_ok=True)
             import shutil
+
             shutil.copy2(filepath, str(skin_dir / Path(filepath).name))
             self.set_status(_("skin_installed", filename=Path(filepath).name), "success")
             self._trigger_ach("personalize_skin")
@@ -1085,7 +1087,9 @@ class ModernAppBase(ctk.CTk):
         self._theme_refs.append((self._installed_panel, {"fg_color": "card_bg"}))
         self._theme_refs.append((self._installed_title_label, {"text_color": "text_primary"}))
         self._theme_refs.append((self.version_count_label, {"text_color": "text_secondary"}))
-        self._theme_refs.append((self._installed_settings_btn, {"hover_color": "bg_light", "text_color": "text_secondary"}))
+        self._theme_refs.append(
+            (self._installed_settings_btn, {"hover_color": "bg_light", "text_color": "text_secondary"})
+        )
         self._theme_refs.append((self._installed_sep, {"fg_color": "card_border"}))
         self._theme_refs.append((self.launch_btn, {"fg_color": "accent", "hover_color": "accent_hover"}))
         self._theme_refs.append((self.kill_btn, {"fg_color": "error", "text_color": "text_primary"}))
@@ -1313,11 +1317,24 @@ class ModernAppBase(ctk.CTk):
         self._theme_refs.append((self._release_tab, {"hover_color": "accent_hover", "border_color": "text_secondary"}))
         self._theme_refs.append((self._snapshot_tab, {"hover_color": "accent_hover", "border_color": "text_secondary"}))
         self._theme_refs.append((self._page_info_label, {"text_color": "text_secondary"}))
-        self._theme_refs.append((self._prev_page_btn, {"fg_color": "bg_medium", "hover_color": "bg_light", "text_color": "text_primary"}))
-        self._theme_refs.append((self._next_page_btn, {"fg_color": "bg_medium", "hover_color": "bg_light", "text_color": "text_primary"}))
-        self._theme_refs.append((self.modloader_menu, {"fg_color": "bg_medium", "button_color": "bg_light",
-                "button_hover_color": "card_border", "dropdown_fg_color": "bg_medium",
-                "dropdown_hover_color": "bg_light"}))
+        self._theme_refs.append(
+            (self._prev_page_btn, {"fg_color": "bg_medium", "hover_color": "bg_light", "text_color": "text_primary"})
+        )
+        self._theme_refs.append(
+            (self._next_page_btn, {"fg_color": "bg_medium", "hover_color": "bg_light", "text_color": "text_primary"})
+        )
+        self._theme_refs.append(
+            (
+                self.modloader_menu,
+                {
+                    "fg_color": "bg_medium",
+                    "button_color": "bg_light",
+                    "button_hover_color": "card_border",
+                    "dropdown_fg_color": "bg_medium",
+                    "dropdown_hover_color": "bg_light",
+                },
+            )
+        )
         self._theme_refs.append((self.modloader_hint, {"text_color": "warning"}))
         self._theme_refs.append((self.available_list_frame, {"scrollbar_button_color": "bg_light"}))
 
@@ -1350,13 +1367,18 @@ class ModernAppBase(ctk.CTk):
         )
         self._music_footer_label.pack(side=ctk.RIGHT, padx=(0, 5))
 
-        ft_btn_cfg = {"width": 26, "height": 24, "font": ctk.CTkFont(size=11),
-                       "fg_color": COLORS["bg_light"], "hover_color": COLORS["accent"]}
+        ft_btn_cfg = {
+            "width": 26,
+            "height": 24,
+            "font": ctk.CTkFont(size=11),
+            "fg_color": COLORS["bg_light"],
+            "hover_color": COLORS["accent"],
+        }
 
         self._music_footer_next = ctk.CTkButton(
             self._music_footer_frame,
             text="⏭",
-            command=self._on_footer_music_next if hasattr(self, '_on_footer_music_next') else None,
+            command=self._on_footer_music_next if hasattr(self, "_on_footer_music_next") else None,
             **ft_btn_cfg,
         )
         self._music_footer_next.pack(side=ctk.RIGHT, padx=1)
@@ -1364,7 +1386,7 @@ class ModernAppBase(ctk.CTk):
         self._music_footer_play = ctk.CTkButton(
             self._music_footer_frame,
             text="▶",
-            command=self._on_footer_music_toggle if hasattr(self, '_on_footer_music_toggle') else None,
+            command=self._on_footer_music_toggle if hasattr(self, "_on_footer_music_toggle") else None,
             **ft_btn_cfg,
         )
         self._music_footer_play.pack(side=ctk.RIGHT, padx=1)
@@ -1372,22 +1394,23 @@ class ModernAppBase(ctk.CTk):
         self._music_footer_prev = ctk.CTkButton(
             self._music_footer_frame,
             text="⏮",
-            command=self._on_footer_music_prev if hasattr(self, '_on_footer_music_prev') else None,
+            command=self._on_footer_music_prev if hasattr(self, "_on_footer_music_prev") else None,
             **ft_btn_cfg,
         )
         self._music_footer_prev.pack(side=ctk.RIGHT, padx=1)
 
-        for _w in [self._music_footer_frame, self._music_footer_label,
-                    self._music_footer_prev, self._music_footer_play, self._music_footer_next]:
+        for _w in [
+            self._music_footer_frame,
+            self._music_footer_label,
+            self._music_footer_prev,
+            self._music_footer_play,
+            self._music_footer_next,
+        ]:
             _w.pack_forget()
 
         # 进度条
         self.progress_bar = ctk.CTkProgressBar(
-            self._footer_frame,
-            width=200,
-            height=8,
-            fg_color=COLORS["bg_medium"],
-            progress_color=COLORS["accent"],
+            self._footer_frame, width=200, height=8, fg_color=COLORS["bg_medium"], progress_color=COLORS["accent"]
         )
         self.progress_bar.pack(side=ctk.RIGHT, padx=15)
         self.progress_bar.set(0)
@@ -1430,15 +1453,15 @@ class ModernAppBase(ctk.CTk):
                 pass
 
         self._refresh_version_list_colors()
-        if hasattr(self, '_refresh_server_colors'):
+        if hasattr(self, "_refresh_server_colors"):
             self._refresh_server_colors()
-        if hasattr(self, '_refresh_backup_colors'):
+        if hasattr(self, "_refresh_backup_colors"):
             self._refresh_backup_colors()
-        if hasattr(self, '_refresh_agent_colors'):
+        if hasattr(self, "_refresh_agent_colors"):
             self._refresh_agent_colors()
-        if hasattr(self, '_refresh_links_colors'):
+        if hasattr(self, "_refresh_links_colors"):
             self._refresh_links_colors()
-        if hasattr(self, '_refresh_ach_colors'):
+        if hasattr(self, "_refresh_ach_colors"):
             self._refresh_ach_colors()
 
     def _refresh_links_colors(self):
@@ -1452,7 +1475,7 @@ class ModernAppBase(ctk.CTk):
             "version_settings": {"hover_color": COLORS["bg_light"], "text_color": COLORS["text_secondary"]},
             "version_select": {"hover_color": COLORS["bg_light"], "text_color": COLORS["text_primary"]},
         }
-        for item in getattr(self, 'version_buttons', []):
+        for item in getattr(self, "version_buttons", []):
             frame = item.get("frame")
             if frame:
                 try:
@@ -1462,15 +1485,17 @@ class ModernAppBase(ctk.CTk):
                 try:
                     for child in frame.winfo_children():
                         if isinstance(child, ctk.CTkButton):
-                            role = getattr(child, '_role', '')
-                            style = role_styles.get(role, {"hover_color": COLORS["bg_light"], "text_color": COLORS["text_primary"]})
+                            role = getattr(child, "_role", "")
+                            style = role_styles.get(
+                                role, {"hover_color": COLORS["bg_light"], "text_color": COLORS["text_primary"]}
+                            )
                             try:
                                 child.configure(fg_color="transparent", **style)
                             except Exception:
                                 pass
                 except Exception:
                     pass
-        if hasattr(self, 'selected_version') and self.selected_version:
+        if hasattr(self, "selected_version") and self.selected_version:
             for item in self.version_buttons:
                 if item.get("version") == self.selected_version:
                     try:
@@ -1478,7 +1503,7 @@ class ModernAppBase(ctk.CTk):
                     except Exception:
                         pass
                     break
-        if hasattr(self, 'available_list_frame'):
+        if hasattr(self, "available_list_frame"):
             try:
                 for child in self.available_list_frame.winfo_children():
                     if isinstance(child, ctk.CTkFrame):
@@ -1499,6 +1524,7 @@ class ModernAppBase(ctk.CTk):
         """触发成就进度更新（线程安全）"""
         try:
             from achievement_engine import get_achievement_engine
+
             engine = get_achievement_engine()
             if engine:
                 engine.update_progress(achievement_id, value=value, trigger_type=trigger_type)
@@ -1509,6 +1535,7 @@ class ModernAppBase(ctk.CTk):
         """检查条件型成就"""
         try:
             from achievement_engine import get_achievement_engine
+
             engine = get_achievement_engine()
             if engine:
                 engine.check_and_unlock(achievement_id, condition)

@@ -1,7 +1,7 @@
 # This file is part of minecraft-launcher-lib (https://codeberg.org/JakobDev/minecraft-launcher-lib)
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
-from typing import TypedDict, Literal
+from typing import Literal, TypedDict
 
 
 class MrpackFileHashes(TypedDict):
@@ -22,13 +22,11 @@ class MrpackFile(TypedDict, total=False):
     fileSize: int
 
 
-MrpackDependencies = TypedDict("MrpackDependencies", {
-    "minecraft": str,
-    "forge": str,
-    "neoforge": str,
-    "fabric-loader": str,
-    "quilt-loader": str
-}, total=False)
+MrpackDependencies = TypedDict(
+    "MrpackDependencies",
+    {"minecraft": str, "forge": str, "neoforge": str, "fabric-loader": str, "quilt-loader": str},
+    total=False,
+)
 
 
 class MrpackIndex(TypedDict, total=False):

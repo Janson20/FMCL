@@ -1,7 +1,7 @@
 """插件市场浏览窗口 - 在线搜索和安装第三方插件"""
 
 import threading
-from typing import Dict, List, Optional, Callable
+from typing import Callable, Dict, List, Optional
 
 import customtkinter as ctk
 from logzero import logger
@@ -10,11 +10,7 @@ from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
 from ui.windows.plugin_permission_dialog import PluginPermissionDialog
 
-RISK_COLORS_MAP = {
-    "high": "#e74c3c",
-    "medium": "#f39c12",
-    "low": "#2ecc71",
-}
+RISK_COLORS_MAP = {"high": "#e74c3c", "medium": "#f39c12", "low": "#2ecc71"}
 
 
 class PluginBrowserWindow(ctk.CTkToplevel):
@@ -146,9 +142,7 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         self._status_label.pack(anchor=ctk.W, padx=16, pady=(0, 2))
 
         # ── 滚动列表 ──
-        self._list_frame = ctk.CTkScrollableFrame(
-            self, fg_color="transparent",
-        )
+        self._list_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self._list_frame.pack(fill=ctk.BOTH, expand=True, padx=16, pady=(0, 4))
 
         # ── 底部分页 ──
@@ -168,10 +162,7 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         self._prev_btn.pack(side=ctk.LEFT)
 
         self._page_label = ctk.CTkLabel(
-            pager,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
+            pager, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"]
         )
         self._page_label.pack(side=ctk.LEFT, padx=12)
 
@@ -215,26 +206,19 @@ class PluginBrowserWindow(ctk.CTkToplevel):
 
     def _check_updates_async(self):
         """异步检查插件更新"""
+
         def _check():
             versions = self._pm.get_installed_versions_map()
             self._update_info = self._market.check_updates(versions)
-            self.after(0, lambda: (
-                self._render_page(),
-                self._update_status_summary(),
-            ))
+            self.after(0, lambda: (self._render_page(), self._update_status_summary()))
 
         threading.Thread(target=_check, daemon=True).start()
 
     def _update_status_summary(self):
         """在状态栏显示更新摘要"""
-        update_count = sum(
-            1 for info in self._update_info.values() if info["has_update"]
-        )
+        update_count = sum(1 for info in self._update_info.values() if info["has_update"])
         if update_count > 0:
-            self._set_status(
-                _("plugin_market_updates_available", count=update_count),
-                "warning",
-            )
+            self._set_status(_("plugin_market_updates_available", count=update_count), "warning")
 
     def _update_tag_bar(self):
         """更新标签筛选栏"""
@@ -258,7 +242,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             fg_color=COLORS["accent"] if self._active_tag is None else COLORS["bg_medium"],
             hover_color=COLORS["accent_hover"],
-            width=50, height=24,
+            width=50,
+            height=24,
             command=lambda: self._on_tag_click(None),
         )
         all_btn.pack(side=ctk.LEFT, padx=1)
@@ -272,7 +257,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
                 font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                 fg_color=COLORS["accent"] if self._active_tag == tag_key else COLORS["bg_medium"],
                 hover_color=COLORS["accent_hover"],
-                width=60, height=24,
+                width=60,
+                height=24,
                 command=lambda t=tag_key: self._on_tag_click(t),
             )
             btn.pack(side=ctk.LEFT, padx=1)
@@ -286,10 +272,7 @@ class PluginBrowserWindow(ctk.CTkToplevel):
 
     def _update_tag_bar_colors(self):
         for key, btn in self._tag_buttons.items():
-            active = (
-                (key == "_all" and self._active_tag is None)
-                or (key == self._active_tag)
-            )
+            active = (key == "_all" and self._active_tag is None) or (key == self._active_tag)
             btn.configure(fg_color=COLORS["accent"] if active else COLORS["bg_medium"])
 
     def _on_search(self):
@@ -335,12 +318,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         # 分页
         total_pages = (total + self.PAGE_SIZE - 1) // self.PAGE_SIZE
         self._page_label.configure(text=f"{self._current_page + 1} / {total_pages}")
-        self._prev_btn.configure(
-            state="normal" if self._current_page > 0 else "disabled"
-        )
-        self._next_btn.configure(
-            state="normal" if end < total else "disabled"
-        )
+        self._prev_btn.configure(state="normal" if self._current_page > 0 else "disabled")
+        self._next_btn.configure(state="normal" if end < total else "disabled")
         self._set_status(_("plugin_market_total", total=total))
 
     def _create_plugin_card(self, plugin: dict):
@@ -386,9 +365,7 @@ class PluginBrowserWindow(ctk.CTkToplevel):
 
         # 更新提示
         if has_update:
-            update_tag = ctk.CTkFrame(
-                top_row, fg_color=COLORS["warning"], corner_radius=4,
-            )
+            update_tag = ctk.CTkFrame(top_row, fg_color=COLORS["warning"], corner_radius=4)
             update_tag.pack(side=ctk.RIGHT, padx=2)
             ctk.CTkLabel(
                 update_tag,
@@ -399,18 +376,12 @@ class PluginBrowserWindow(ctk.CTkToplevel):
 
         # 已安装标记
         if installed:
-            state_labels = {
-                "enabled": _("installed"),
-                "disabled": _("disabled"),
-            }
+            state_labels = {"enabled": _("installed"), "disabled": _("disabled")}
             installed_label = state_labels.get(installed_state, _("installed"))
             tag_frame = ctk.CTkFrame(top_row, fg_color=COLORS["success"], corner_radius=4)
             tag_frame.pack(side=ctk.RIGHT, padx=2)
             ctk.CTkLabel(
-                tag_frame,
-                text=installed_label,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                text_color="#ffffff",
+                tag_frame, text=installed_label, font=ctk.CTkFont(family=FONT_FAMILY, size=10), text_color="#ffffff"
             ).pack(padx=6, pady=2)
 
         # 版本 + 作者
@@ -424,18 +395,12 @@ class PluginBrowserWindow(ctk.CTkToplevel):
             ver_text = f"v{version}"
             ver_color = COLORS["accent"]
 
-        ctk.CTkLabel(
-            meta_row,
-            text=ver_text,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=ver_color,
-        ).pack(side=ctk.LEFT)
+        ctk.CTkLabel(meta_row, text=ver_text, font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=ver_color).pack(
+            side=ctk.LEFT
+        )
 
         ctk.CTkLabel(
-            meta_row,
-            text=author,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
+            meta_row, text=author, font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"]
         ).pack(side=ctk.RIGHT)
 
         # 描述
@@ -460,19 +425,16 @@ class PluginBrowserWindow(ctk.CTkToplevel):
                 font=ctk.CTkFont(family=FONT_FAMILY, size=9),
                 fg_color=COLORS["bg_light"],
                 hover_color=COLORS["card_border"],
-                width=50, height=20,
+                width=50,
+                height=20,
                 command=lambda t=tag: self._on_tag_single_click(t),
             )
             tag_btn.pack(side=ctk.LEFT, padx=1)
 
         if permissions:
-            high_count = sum(
-                1 for p in permissions
-                if p in ("network.socket", "core.launch_hook", "core.process")
-            )
+            high_count = sum(1 for p in permissions if p in ("network.socket", "core.launch_hook", "core.process"))
             medium_count = sum(
-                1 for p in permissions
-                if p in ("filesystem.write", "core.download", "core.version", "data.settings")
+                1 for p in permissions if p in ("filesystem.write", "core.download", "core.version", "data.settings")
             )
             low_count = len(permissions) - high_count - medium_count
             perm_parts = []
@@ -513,7 +475,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                 fg_color=COLORS["warning"],
                 hover_color="#e67e22",
-                width=80, height=26,
+                width=80,
+                height=26,
                 state="disabled" if is_updating else "normal",
                 command=lambda p=plugin: self._update_plugin(p),
             )
@@ -527,7 +490,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                     fg_color=COLORS["success"],
                     hover_color="#27ae60",
-                    width=80, height=26,
+                    width=80,
+                    height=26,
                     state="disabled",
                 ).pack(side=ctk.LEFT)
             else:
@@ -537,7 +501,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                     fg_color=COLORS["success"],
                     hover_color="#27ae60",
-                    width=80, height=26,
+                    width=80,
+                    height=26,
                     command=lambda p=pid: self._enable_plugin(p),
                 ).pack(side=ctk.LEFT)
         else:
@@ -547,7 +512,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                 fg_color=COLORS["accent"],
                 hover_color=COLORS["accent_hover"],
-                width=80, height=26,
+                width=80,
+                height=26,
                 state="disabled" if is_installing else "normal",
                 command=lambda p=plugin: self._install_plugin(p),
             )
@@ -563,9 +529,7 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         # 权限检查
         permissions = plugin_info.get("permissions", [])
         if permissions:
-            dialog = PluginPermissionDialog(
-                self, plugin_name=name, permissions=permissions,
-            )
+            dialog = PluginPermissionDialog(self, plugin_name=name, permissions=permissions)
             if not dialog.get_result():
                 self._set_status(_("plugin_permission_denied"))
                 return
@@ -575,17 +539,15 @@ class PluginBrowserWindow(ctk.CTkToplevel):
 
         def _download_and_install():
             try:
-                self.after(0, lambda: self._set_status(
-                    _("plugin_market_downloading", name=name), "loading",
-                ))
+                self.after(0, lambda: self._set_status(_("plugin_market_downloading", name=name), "loading"))
 
                 fmpl_path, error = self._market.download_plugin(
                     pid,
                     progress_callback=lambda stage, cur, tot: self.after(
-                        0, lambda s=stage, c=cur, t=tot: self._set_status(
-                            _("plugin_market_downloading_progress", name=name, cur=c, total=t),
-                            "loading",
-                        )
+                        0,
+                        lambda s=stage, c=cur, t=tot: self._set_status(
+                            _("plugin_market_downloading_progress", name=name, cur=c, total=t), "loading"
+                        ),
                     ),
                 )
 
@@ -641,10 +603,10 @@ class PluginBrowserWindow(ctk.CTkToplevel):
                 ok, msg = self._pm.update_plugin_from_market(
                     pid,
                     progress_callback=lambda stage, cur, tot: self.after(
-                        0, lambda s=stage, c=cur, t=tot: self._set_status(
-                            _("plugin_market_downloading_progress", name=name, cur=c, total=t),
-                            "loading",
-                        )
+                        0,
+                        lambda s=stage, c=cur, t=tot: self._set_status(
+                            _("plugin_market_downloading_progress", name=name, cur=c, total=t), "loading"
+                        ),
                     ),
                 )
                 if ok:
@@ -681,9 +643,7 @@ class PluginBrowserWindow(ctk.CTkToplevel):
             perm_state = self._pm.get_permission_state(pid)
             if perm_state and perm_state.get_ungranted_permissions():
                 dialog = PluginPermissionDialog(
-                    self,
-                    plugin_name=manifest_data.get("name", pid),
-                    permissions=permissions,
+                    self, plugin_name=manifest_data.get("name", pid), permissions=permissions
                 )
                 if dialog.get_result():
                     self._pm.grant_all_permissions(pid)
@@ -717,7 +677,7 @@ class PluginBrowserWindow(ctk.CTkToplevel):
             self._render_page()
 
     def _set_status(self, text: str, level: str = "info"):
-        if hasattr(self, '_status_label') and self._status_label.winfo_exists():
+        if hasattr(self, "_status_label") and self._status_label.winfo_exists():
             color = COLORS.get("text_secondary", "#a0a0b0")
             if level == "error":
                 color = COLORS.get("error", "#e74c3c")

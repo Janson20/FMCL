@@ -1,4 +1,5 @@
 """Minecraft启动器 - 服务器管理模块"""
+
 import json
 import os
 import re
@@ -6,13 +7,13 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Callable, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from logzero import logger
 
 from structured_logger import slog
-from validation import validate_version_id, validate_server_ip, validate_server_port, validate_memory
-from version_utils import parse_mc_version_from_id, parse_mc_version_from_dir
+from validation import validate_memory, validate_server_ip, validate_server_port, validate_version_id
+from version_utils import parse_mc_version_from_dir, parse_mc_version_from_id
 
 
 class ServerMixin:
@@ -61,9 +62,9 @@ class ServerMixin:
             if not server_dir.exists():
                 return []
             installed = [
-                v for v in os.listdir(str(server_dir))
-                if v not in ['jre_manifest.json', 'version_manifest_v2.json', 'versions']
-                and (server_dir / v).is_dir()
+                v
+                for v in os.listdir(str(server_dir))
+                if v not in ["jre_manifest.json", "version_manifest_v2.json", "versions"] and (server_dir / v).is_dir()
             ]
             logger.info(f"已安装 {len(installed)} 个服务器版本")
             return sorted(installed)
@@ -73,10 +74,12 @@ class ServerMixin:
 
     def _get_cached_java_runtimes(self) -> List:
         import time
+
         now = time.time()
         if self._java_scan_cache is not None and (now - self._java_scan_cache_time) < 30:
             return self._java_scan_cache
         from launcher.java_scanner import scan_all
+
         self._java_scan_cache = scan_all(self.minecraft_dir)
         self._java_scan_cache_time = now
         return self._java_scan_cache
@@ -98,8 +101,8 @@ class ServerMixin:
         Returns:
             Java 可执行文件路径，找不到则返回 "java"
         """
-        java_mode = getattr(self.config, 'java_mode', 'auto')
-        custom_path = getattr(self.config, 'java_custom_path', None)
+        java_mode = getattr(self.config, "java_mode", "auto")
+        custom_path = getattr(self.config, "java_custom_path", None)
 
         # 0. 自定义路径优先
         if java_mode == "custom" and custom_path and os.path.isfile(custom_path):
@@ -132,7 +135,9 @@ class ServerMixin:
             try:
                 installed_runtimes = self._mcllib.runtime.get_installed_jvm_runtimes(self.minecraft_dir)
                 if installed_runtimes:
-                    latest = sorted(installed_runtimes, key=lambda r: r.get("version", {}).get("name", ""), reverse=True)
+                    latest = sorted(
+                        installed_runtimes, key=lambda r: r.get("version", {}).get("name", ""), reverse=True
+                    )
                     component = latest[0].get("name", "")
                     if component:
                         java_path = self._mcllib.runtime.get_executable_path(component, self.minecraft_dir)
@@ -145,6 +150,7 @@ class ServerMixin:
         # 3. 使用 java_scanner 扫描系统 Java，推荐最佳匹配
         try:
             from launcher.java_scanner import recommend_for_mc
+
             javas = self._get_cached_java_runtimes()
             if javas:
                 best = recommend_for_mc(javas, version_id)
@@ -163,12 +169,13 @@ class ServerMixin:
 
     def scan_system_java(self) -> List[Dict]:
         from launcher.java_scanner import get_java_summary
+
         javas = self._get_cached_java_runtimes()
         return get_java_summary(javas)
 
     def get_java_suggestion(self, version_id: str) -> Optional[Dict]:
-        from launcher.java_scanner import recommend_for_mc, _min_java_for_mc
         from launcher.java_install import get_java_install_guidance
+        from launcher.java_scanner import _min_java_for_mc, recommend_for_mc
 
         javas = self._get_cached_java_runtimes()
         best = recommend_for_mc(javas, version_id)
@@ -191,14 +198,14 @@ class ServerMixin:
         }
 
     def get_java_mode(self) -> str:
-        return getattr(self.config, 'java_mode', 'auto')
+        return getattr(self.config, "java_mode", "auto")
 
     def set_java_mode(self, mode: str) -> None:
         self.config.java_mode = mode
         self.config.save_config()
 
     def get_java_custom_path(self) -> Optional[str]:
-        return getattr(self.config, 'java_custom_path', None)
+        return getattr(self.config, "java_custom_path", None)
 
     def set_java_custom_path(self, path: Optional[str]) -> None:
         self.config.java_custom_path = path
@@ -214,11 +221,7 @@ class ServerMixin:
         if not version_json_path.exists():
             logger.info(f"版本 {mc_base} 未安装，正在安装以获取 Java runtime...")
             self._set_status(f"正在安装 {mc_base}（自动获取 Java runtime）...")
-            self._mcllib.install.install_minecraft_version(
-                mc_base,
-                self.minecraft_dir,
-                callback=self._get_callback()
-            )
+            self._mcllib.install.install_minecraft_version(mc_base, self.minecraft_dir, callback=self._get_callback())
 
         java_path = self._find_runtime_java(version_id)
         if java_path != "java" and os.path.isfile(java_path):
@@ -270,9 +273,7 @@ class ServerMixin:
             logger.info(f"正在安装客户端版本 {version_id}（自动下载 Java runtime）...")
             self._set_status(f"正在准备环境: 安装 {version_id} ...")
             self._mcllib.install.install_minecraft_version(
-                version_id,
-                self.minecraft_dir,
-                callback=self._get_callback()
+                version_id, self.minecraft_dir, callback=self._get_callback()
             )
 
             java_path = self._ensure_java_runtime(version_id)
@@ -383,7 +384,7 @@ class ServerMixin:
                     "spawn-protection=16\n"
                     "resource-pack-sha1=\n"
                     "max-world-size=29999984\n",
-                    encoding="utf-8"
+                    encoding="utf-8",
                 )
 
             logger.info(f"服务器 {version_id} 安装完成: {server_dir}")
@@ -402,23 +403,17 @@ class ServerMixin:
         Args:
             port: 要检查的端口号
         """
-        if sys.platform != 'win32':
+        if sys.platform != "win32":
             return
         try:
-            result = subprocess.run(
-                ['netstat', '-ano'],
-                capture_output=True, text=True, timeout=10
-            )
+            result = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=10)
             for line in result.stdout.splitlines():
-                if f':{port}' in line and 'LISTENING' in line:
+                if f":{port}" in line and "LISTENING" in line:
                     parts = line.strip().split()
                     pid = parts[-1]
                     if pid.isdigit() and int(pid) > 0:
                         logger.info(f"端口 {port} 被进程 {pid} 占用，正在终止...")
-                        subprocess.run(
-                            ['taskkill', '/F', '/PID', pid],
-                            capture_output=True, timeout=10
-                        )
+                        subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True, timeout=10)
                         logger.info(f"已终止进程 {pid}")
                         break
         except Exception as e:
@@ -460,7 +455,9 @@ class ServerMixin:
             _mods_dir = server_dir / "mods"
             _mods_count = 0
             if _mods_dir.exists():
-                _mods_count = len([f for f in _mods_dir.iterdir() if f.suffix == ".jar" and not f.name.endswith(".disabled")])
+                _mods_count = len(
+                    [f for f in _mods_dir.iterdir() if f.suffix == ".jar" and not f.name.endswith(".disabled")]
+                )
 
             # 确保 EULA 已同意
             eula_file = server_dir / "eula.txt"
@@ -483,6 +480,7 @@ class ServerMixin:
                     logger.info("Fabric API 未找到，正在自动下载...")
                     try:
                         from modrinth import install_mod_with_deps, parse_game_version_from_version
+
                         mc_version = parse_game_version_from_version(version_id)
                         ok, msg, names = install_mod_with_deps(
                             project_id="P7dR8mSH",
@@ -513,7 +511,7 @@ class ServerMixin:
             self._kill_process_on_port(25565)
 
             # NeoForge / Forge 服务器：优先使用 run.bat 或 run.sh 启动
-            run_script = server_dir / ("run.bat" if sys.platform == 'win32' else "run.sh")
+            run_script = server_dir / ("run.bat" if sys.platform == "win32" else "run.sh")
             if run_script.exists():
                 java_path = self._ensure_java_runtime(version_id)
                 env = os.environ.copy()
@@ -534,16 +532,22 @@ class ServerMixin:
                     cwd=str(server_dir),
                     env=env,
                 )
-                if sys.platform == 'win32':
-                    popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+                if sys.platform == "win32":
+                    popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
                 self._emit_plugin_hook("server.pre_start", server_name=version_id)
                 process = subprocess.Popen(cmd, **popen_kwargs)
                 self._server_process = process
                 self._emit_plugin_hook("server.post_start", server_name=version_id, pid=process.pid)
                 logger.info(f"服务器 {version_id} 已启动 (PID: {process.pid})")
-                slog.info("server_start_attempt", server_version=version_id, server_type=_server_type,
-                          java_path=str(run_script), eula_accepted=True, mods_count=_mods_count,
-                          config_valid=True)
+                slog.info(
+                    "server_start_attempt",
+                    server_version=version_id,
+                    server_type=_server_type,
+                    java_path=str(run_script),
+                    eula_accepted=True,
+                    mods_count=_mods_count,
+                    config_valid=True,
+                )
                 return True, process
 
             # 回退：查找服务器 jar 并直接启动（原版 / Fabric / 无启动脚本的 Forge）
@@ -560,29 +564,31 @@ class ServerMixin:
             logger.info(f"正在启动服务器 {version_id}: {' '.join(cmd)}")
 
             popen_kwargs = dict(
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.PIPE,
-                bufsize=1,
-                cwd=str(server_dir),
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE, bufsize=1, cwd=str(server_dir)
             )
-            if sys.platform == 'win32':
-                popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+            if sys.platform == "win32":
+                popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
             self._emit_plugin_hook("server.pre_start", server_name=version_id)
             process = subprocess.Popen(cmd, **popen_kwargs)
             self._server_process = process
             self._emit_plugin_hook("server.post_start", server_name=version_id, pid=process.pid)
             logger.info(f"服务器 {version_id} 已启动 (PID: {process.pid})")
-            slog.info("server_start_attempt", server_version=version_id, server_type=_server_type,
-                      java_path=java_path, eula_accepted=True, mods_count=_mods_count,
-                      config_valid=True, jvm_args=[f"-Xmx{max_memory}", f"-Xms{max_memory}"])
+            slog.info(
+                "server_start_attempt",
+                server_version=version_id,
+                server_type=_server_type,
+                java_path=java_path,
+                eula_accepted=True,
+                mods_count=_mods_count,
+                config_valid=True,
+                jvm_args=[f"-Xmx{max_memory}", f"-Xms{max_memory}"],
+            )
             return True, process
 
         except Exception as e:
             logger.error(f"启动服务器失败: {str(e)}")
-            slog.error("server_start_failed", server_version=version_id, server_type=_server_type,
-                       error=str(e)[:200])
+            slog.error("server_start_failed", server_version=version_id, server_type=_server_type, error=str(e)[:200])
             return False, None
 
     def stop_server(self) -> bool:
@@ -735,7 +741,12 @@ class ServerMixin:
             return server_jars[0]
 
         # 最后尝试任何 *.jar
-        all_jars = [j for j in server_dir.glob("*.jar") if j.name not in ("fabric-installer.jar", "quilt-installer.jar", "forge-installer.jar", "neoforge-installer.jar")]
+        all_jars = [
+            j
+            for j in server_dir.glob("*.jar")
+            if j.name
+            not in ("fabric-installer.jar", "quilt-installer.jar", "forge-installer.jar", "neoforge-installer.jar")
+        ]
         if all_jars:
             logger.info(f"使用目录中的 jar: {all_jars[0]}")
             return all_jars[0]

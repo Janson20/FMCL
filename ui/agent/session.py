@@ -6,10 +6,11 @@
 
 import json
 import os
-import uuid
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+
 from logzero import logger
 
 from ui.agent.models import ModelInfo
@@ -196,15 +197,17 @@ class AgentSession:
                     try:
                         with open(filepath, "r", encoding="utf-8") as f:
                             data = json.load(f)
-                        sessions.append({
-                            "id": data.get("id", filename[:-5]),
-                            "title": data.get("title", "无标题"),
-                            "provider_id": data.get("provider_id", ""),
-                            "model_id": data.get("model_id", ""),
-                            "message_count": len(data.get("messages", [])),
-                            "updated_at": data.get("updated_at", 0),
-                            "created_at": data.get("created_at", 0),
-                        })
+                        sessions.append(
+                            {
+                                "id": data.get("id", filename[:-5]),
+                                "title": data.get("title", "无标题"),
+                                "provider_id": data.get("provider_id", ""),
+                                "model_id": data.get("model_id", ""),
+                                "message_count": len(data.get("messages", [])),
+                                "updated_at": data.get("updated_at", 0),
+                                "created_at": data.get("created_at", 0),
+                            }
+                        )
                     except Exception:
                         continue
             # 按更新时间倒序
@@ -215,13 +218,11 @@ class AgentSession:
             return []
 
     @classmethod
-    def create_new(cls, provider_id: str = "jingdu", model_id: str = "deepseek-v4-flash", system_prompt: str = "") -> "AgentSession":
+    def create_new(
+        cls, provider_id: str = "jingdu", model_id: str = "deepseek-v4-flash", system_prompt: str = ""
+    ) -> "AgentSession":
         """创建新会话"""
-        session = cls(
-            id=str(uuid.uuid4()),
-            provider_id=provider_id,
-            model_id=model_id,
-        )
+        session = cls(id=str(uuid.uuid4()), provider_id=provider_id, model_id=model_id)
         if system_prompt:
             session.add_message({"role": "system", "content": system_prompt})
         return session

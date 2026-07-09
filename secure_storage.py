@@ -9,6 +9,7 @@
 - 可选密码派生：通过环境变量 FMCL_ENC_KEY_PASSWORD 设置密码
 - 后向兼容：保留硬件指纹密钥作为解密回退
 """
+
 import base64
 import hashlib
 import os
@@ -17,7 +18,6 @@ from pathlib import Path
 from typing import Optional
 
 from logzero import logger
-
 
 _KEY_FILE_NAME = ".fmcl_key"
 _key_dir: Optional[Path] = None
@@ -98,13 +98,16 @@ def _load_or_create_key() -> Optional[bytes]:
             logger.warning(f"密钥文件格式无效，将重新生成: {key_file}")
         except Exception as e:
             logger.warning(f"读取密钥文件失败，将重新生成: {e}")
-            _notify_error("密钥文件读取失败",
+            _notify_error(
+                "密钥文件读取失败",
                 f"密钥文件 (.fmcl_key) 可能已损坏，将生成新密钥。\n"
-                f"注意：之前加密的 Token 将无法解密，需要重新登录。")
+                f"注意：之前加密的 Token 将无法解密，需要重新登录。",
+            )
 
     # 3. 生成新密钥并保存
     try:
         from cryptography.fernet import Fernet
+
         new_key = Fernet.generate_key()
         key_file.parent.mkdir(parents=True, exist_ok=True)
         key_file.write_bytes(new_key)
@@ -112,9 +115,7 @@ def _load_or_create_key() -> Optional[bytes]:
         return new_key
     except Exception as e:
         logger.error(f"生成密钥失败: {e}")
-        _notify_error("密钥生成失败",
-            f"无法生成加密密钥。Token 将以 base64 编码存储（安全性降低）。\n"
-            f"错误: {e}")
+        _notify_error("密钥生成失败", f"无法生成加密密钥。Token 将以 base64 编码存储（安全性降低）。\n" f"错误: {e}")
         return None
 
 
@@ -152,6 +153,7 @@ def _get_legacy_machine_key() -> bytes:
         pass
     try:
         import uuid
+
         components.append(str(uuid.getnode()))
     except Exception:
         pass
@@ -164,6 +166,7 @@ def _get_cipher():
     """获取 Fernet 密文对象（优先使用密钥文件）"""
     try:
         from cryptography.fernet import Fernet
+
         key = _load_or_create_key()
         if key:
             return Fernet(key)
@@ -191,9 +194,7 @@ def encrypt_token(plaintext: str) -> Optional[str]:
         return base64.b64encode(plaintext.encode("utf-8")).decode("utf-8")
     except Exception as e:
         logger.error(f"加密 Token 失败: {e}")
-        _notify_error("Token 加密失败",
-            f"无法加密 Token，配置保存时将写空值。\n"
-            f"错误: {e}")
+        _notify_error("Token 加密失败", f"无法加密 Token，配置保存时将写空值。\n" f"错误: {e}")
         return None
 
 

@@ -25,12 +25,11 @@ import hashlib
 import json
 import os
 import zipfile
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from logzero import logger
-
 
 # ════════════════════════════════════════════════════════════════
 # 组件 UID 注册表
@@ -47,9 +46,7 @@ COMPONENT_TO_LOADER: Dict[str, str] = {
 }
 
 # Loader 类型 → 组件 UID（反向映射）
-LOADER_TO_COMPONENT: Dict[str, str] = {
-    v: k for k, v in COMPONENT_TO_LOADER.items()
-}
+LOADER_TO_COMPONENT: Dict[str, str] = {v: k for k, v in COMPONENT_TO_LOADER.items()}
 
 # 非 Loader 但重要的组件 UID 集合
 IMPORTANT_UIDS: set = {
@@ -68,10 +65,7 @@ IMPORTANT_UIDS: set = {
 META_BASE_URL: str = "https://meta.multimc.org/v1"
 
 # 特殊组件默认版本（从 HMCL 移植）
-SPECIAL_DEFAULT_VERSIONS: Dict[str, str] = {
-    "org.lwjgl": "2.9.1",
-    "org.lwjgl3": "3.1.2",
-}
+SPECIAL_DEFAULT_VERSIONS: Dict[str, str] = {"org.lwjgl": "2.9.1", "org.lwjgl3": "3.1.2"}
 
 
 def get_meta_url(component_uid: str, version: Optional[str], mc_version: str) -> str:
@@ -134,13 +128,13 @@ def detect_multimc_format(zip_path: str) -> Tuple[bool, Optional[str]]:
             # 优先查找 instance.cfg（标准 MultiMC 格式）
             for name in names:
                 if name == "instance.cfg" or name.endswith("/instance.cfg"):
-                    prefix = name[:-len("instance.cfg")]
+                    prefix = name[: -len("instance.cfg")]
                     return True, prefix
 
             # 其次查找 mmc-pack.json（Prism Launcher 变体）
             for name in names:
                 if name == "mmc-pack.json" or name.endswith("/mmc-pack.json"):
-                    prefix = name[:-len("mmc-pack.json")]
+                    prefix = name[: -len("mmc-pack.json")]
                     return True, prefix
 
     except (zipfile.BadZipFile, OSError) as e:
@@ -166,14 +160,14 @@ def find_root_entry(zip_path: str) -> str:
             if name == "instance.cfg" or name.endswith("/instance.cfg"):
                 if name == "instance.cfg":
                     return ""
-                return name[:-len("instance.cfg")]
+                return name[: -len("instance.cfg")]
 
         # 其次 mmc-pack.json
         for name in names:
             if name == "mmc-pack.json" or name.endswith("/mmc-pack.json"):
                 if name == "mmc-pack.json":
                     return ""
-                return name[:-len("mmc-pack.json")]
+                return name[: -len("mmc-pack.json")]
 
     raise ValueError("不是有效的 MultiMC/Prism 整合包：未找到 instance.cfg 或 mmc-pack.json")
 
@@ -186,36 +180,33 @@ def find_root_entry(zip_path: str) -> str:
 @dataclass
 class MultiMCManifestRequire:
     """组件依赖声明"""
-    uid: str                                    # 依赖组件 UID
-    equals_version: Optional[str] = None        # 精确版本要求
-    suggests: Optional[str] = None              # 建议版本
+
+    uid: str  # 依赖组件 UID
+    equals_version: Optional[str] = None  # 精确版本要求
+    suggests: Optional[str] = None  # 建议版本
 
     @staticmethod
     def from_dict(data: dict) -> "MultiMCManifestRequire":
         return MultiMCManifestRequire(
-            uid=data.get("uid", ""),
-            equals_version=data.get("equals"),
-            suggests=data.get("suggests"),
+            uid=data.get("uid", ""), equals_version=data.get("equals"), suggests=data.get("suggests")
         )
 
 
 @dataclass
 class MultiMCManifestComponent:
     """mmc-pack.json 中的单个组件"""
-    uid: str                                    # 组件唯一标识
-    version: str                                # 组件版本
-    important: bool = True                      # 是否重要组件
-    dependency_only: bool = False               # 是否仅为依赖
-    cached_name: Optional[str] = None           # 缓存名称
+
+    uid: str  # 组件唯一标识
+    version: str  # 组件版本
+    important: bool = True  # 是否重要组件
+    dependency_only: bool = False  # 是否仅为依赖
+    cached_name: Optional[str] = None  # 缓存名称
     cached_requires: List[MultiMCManifestRequire] = field(default_factory=list)
-    cached_version: Optional[str] = None        # 缓存版本
+    cached_version: Optional[str] = None  # 缓存版本
 
     @staticmethod
     def from_dict(data: dict) -> "MultiMCManifestComponent":
-        cached_requires = [
-            MultiMCManifestRequire.from_dict(r)
-            for r in data.get("cachedRequires", []) or []
-        ]
+        cached_requires = [MultiMCManifestRequire.from_dict(r) for r in data.get("cachedRequires", []) or []]
         return MultiMCManifestComponent(
             uid=data.get("uid", ""),
             version=data.get("version", ""),
@@ -230,7 +221,8 @@ class MultiMCManifestComponent:
 @dataclass
 class MultiMCManifest:
     """mmc-pack.json 的完整数据模型"""
-    format_version: int                         # 格式版本（当前为 1）
+
+    format_version: int  # 格式版本（当前为 1）
     components: List[MultiMCManifestComponent]  # 组件列表
 
     def get_minecraft_version(self) -> Optional[str]:
@@ -262,14 +254,8 @@ class MultiMCManifest:
 
     @staticmethod
     def from_dict(data: dict) -> "MultiMCManifest":
-        components = [
-            MultiMCManifestComponent.from_dict(c)
-            for c in data.get("components", []) or []
-        ]
-        return MultiMCManifest(
-            format_version=data.get("formatVersion", 1),
-            components=components,
-        )
+        components = [MultiMCManifestComponent.from_dict(c) for c in data.get("components", []) or []]
+        return MultiMCManifest(format_version=data.get("formatVersion", 1), components=components)
 
     @staticmethod
     def from_json(text: str) -> "MultiMCManifest":
@@ -316,32 +302,33 @@ class MultiMCInstanceConfig:
     [General] - 名称、图标、类型、描述
     [MCLaunch] - 内存、Java、JVM 参数、窗口
     """
-    name: str                                   # 实例名称
-    icon_key: Optional[str] = None              # 图标文件名（不含扩展名）
-    notes: str = ""                             # 实例描述
-    instance_type: Optional[str] = None         # 实例类型
+
+    name: str  # 实例名称
+    icon_key: Optional[str] = None  # 图标文件名（不含扩展名）
+    notes: str = ""  # 实例描述
+    instance_type: Optional[str] = None  # 实例类型
 
     # ── Java 配置 ──
-    java_path: Optional[str] = None             # Java 可执行文件路径
-    jvm_args: Optional[str] = None              # 自定义 JVM 参数
-    max_memory: Optional[int] = None            # 最大内存 (MB)
-    min_memory: Optional[int] = None            # 最小内存 (MB)
-    perm_gen: Optional[int] = None              # PermGen 大小 (MB)
+    java_path: Optional[str] = None  # Java 可执行文件路径
+    jvm_args: Optional[str] = None  # 自定义 JVM 参数
+    max_memory: Optional[int] = None  # 最大内存 (MB)
+    min_memory: Optional[int] = None  # 最小内存 (MB)
+    perm_gen: Optional[int] = None  # PermGen 大小 (MB)
 
     # ── 窗口配置 ──
-    fullscreen: bool = False                    # 全屏模式
-    width: Optional[int] = None                 # 窗口宽度
-    height: Optional[int] = None                # 窗口高度
+    fullscreen: bool = False  # 全屏模式
+    width: Optional[int] = None  # 窗口宽度
+    height: Optional[int] = None  # 窗口高度
 
     # ── 控制台配置 ──
-    show_console: bool = False                  # 显示控制台
-    show_console_on_error: bool = False         # 出错时显示控制台
-    auto_close_console: bool = False            # 自动关闭控制台
+    show_console: bool = False  # 显示控制台
+    show_console_on_error: bool = False  # 出错时显示控制台
+    auto_close_console: bool = False  # 自动关闭控制台
 
     # ── 命令配置 ──
-    wrapper_command: Optional[str] = None       # JVM 包装命令
-    pre_launch_command: Optional[str] = None    # 启动前命令
-    post_exit_command: Optional[str] = None     # 退出后命令
+    wrapper_command: Optional[str] = None  # JVM 包装命令
+    pre_launch_command: Optional[str] = None  # 启动前命令
+    post_exit_command: Optional[str] = None  # 退出后命令
 
     # ── 覆盖标志 ──
     override_memory: bool = False
@@ -357,10 +344,9 @@ class MultiMCInstanceConfig:
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> "MultiMCInstanceConfig":
-        return MultiMCInstanceConfig(**{
-            k: v for k, v in data.items()
-            if k in MultiMCInstanceConfig.__dataclass_fields__
-        })
+        return MultiMCInstanceConfig(
+            **{k: v for k, v in data.items() if k in MultiMCInstanceConfig.__dataclass_fields__}
+        )
 
     def to_properties(self) -> str:
         """导出为 instance.cfg 格式的 Properties 文本"""
@@ -408,11 +394,7 @@ class MultiMCInstanceConfig:
         return "\n".join(lines) + "\n"
 
 
-def read_instance_cfg(
-    zip_path: str,
-    root_entry: str = "",
-    default_name: Optional[str] = None,
-) -> MultiMCInstanceConfig:
+def read_instance_cfg(zip_path: str, root_entry: str = "", default_name: Optional[str] = None) -> MultiMCInstanceConfig:
     """从 MultiMC/Prism zip 中读取实例配置。
 
     优先读取 instance.cfg（标准 MultiMC），若不存在则从 mmc-pack.json
@@ -447,10 +429,7 @@ def read_instance_cfg(
                     # 有些包把整合包名称存在 Minecraft 组件的 cachedName 中
                     pass
             return MultiMCInstanceConfig(
-                name=name,
-                notes=f"Prism Launcher 格式整合包\nMinecraft {mc_version}",
-                icon_key=None,
-                instance_type=None,
+                name=name, notes=f"Prism Launcher 格式整合包\nMinecraft {mc_version}", icon_key=None, instance_type=None
             )
 
 
@@ -493,7 +472,7 @@ def _parse_instance_cfg_text(text: str, default_name: str) -> MultiMCInstanceCon
         if value is None:
             return None
         l = len(value)
-        if l >= 2 and value[0] == '"' and value[-1] == ':':
+        if l >= 2 and value[0] == '"' and value[-1] == ":":
             return value[:-1]
         return value
 
@@ -539,22 +518,23 @@ class MultiMCInstancePatch:
     上维护一个 JSON 文件，描述该组件提供的 libraries、JVM args、mainClass 等。
     安装时需要将这些 patches 合并为标准的 version.json。
     """
-    format_version: int                         # 格式版本（必须为 1）
-    uid: str                                    # 组件 UID
-    version: str                                # 组件版本
-    name: Optional[str] = None                  # 可读名称
+
+    format_version: int  # 格式版本（必须为 1）
+    uid: str  # 组件 UID
+    version: str  # 组件版本
+    name: Optional[str] = None  # 可读名称
 
     # ── Minecraft 参数 ──
-    main_class: Optional[str] = None            # 主类
-    minecraft_arguments: Optional[str] = None   # 游戏参数
-    asset_index: Optional[Dict] = None          # 资源索引信息 {id, url, sha1, ...}
+    main_class: Optional[str] = None  # 主类
+    minecraft_arguments: Optional[str] = None  # 游戏参数
+    asset_index: Optional[Dict] = None  # 资源索引信息 {id, url, sha1, ...}
     compatible_java_majors: List[int] = field(default_factory=list)
 
     # ── JVM 配置 ──
     jvm_args: List[str] = field(default_factory=list)
 
     # ── 库和文件 ──
-    main_jar: Optional[Dict] = None             # 主 JAR 的 Library 描述
+    main_jar: Optional[Dict] = None  # 主 JAR 的 Library 描述
     libraries: List[Dict] = field(default_factory=list)
     maven_files: List[Dict] = field(default_factory=list)
     jar_mods: List[Dict] = field(default_factory=list)
@@ -583,10 +563,7 @@ class MultiMCInstancePatch:
         # 解析 jar mods 文件名
         jar_mods_raw = data.get("jarMods", []) or []
 
-        requires = [
-            MultiMCManifestRequire.from_dict(r)
-            for r in data.get("requires", []) or []
-        ]
+        requires = [MultiMCManifestRequire.from_dict(r) for r in data.get("requires", []) or []]
 
         return MultiMCInstancePatch(
             format_version=data.get("formatVersion", 1),
@@ -656,17 +633,14 @@ class MultiMCInstancePatch:
 @dataclass
 class FileInfo:
     """文件信息（用于增量更新比对）"""
-    path: str                                   # 相对路径
-    hash: str                                   # SHA-1 哈希
-    download_url: Optional[str] = None          # 下载 URL
+
+    path: str  # 相对路径
+    hash: str  # SHA-1 哈希
+    download_url: Optional[str] = None  # 下载 URL
 
     @staticmethod
     def from_dict(data: dict) -> "FileInfo":
-        return FileInfo(
-            path=data["path"],
-            hash=data["hash"],
-            download_url=data.get("downloadURL"),
-        )
+        return FileInfo(path=data["path"], hash=data["hash"], download_url=data.get("downloadURL"))
 
     def to_dict(self) -> dict:
         d = {"path": self.path, "hash": self.hash}
@@ -685,18 +659,16 @@ class ModpackConfiguration:
     - 版本名称
     - 覆盖文件列表及 SHA-1 哈希
     """
-    manifest: Dict[str, Any]                    # MultiMCInstanceConfig 序列化
-    type: str = "MultiMC"                       # 整合包类型标识
-    name: str = ""                              # 版本名称
-    version: str = ""                           # 整合包版本号
+
+    manifest: Dict[str, Any]  # MultiMCInstanceConfig 序列化
+    type: str = "MultiMC"  # 整合包类型标识
+    name: str = ""  # 版本名称
+    version: str = ""  # 整合包版本号
     overrides: List[FileInfo] = field(default_factory=list)
 
     @staticmethod
     def from_dict(data: dict) -> "ModpackConfiguration":
-        overrides = [
-            FileInfo.from_dict(f)
-            for f in data.get("overrides", []) or []
-        ]
+        overrides = [FileInfo.from_dict(f) for f in data.get("overrides", []) or []]
         return ModpackConfiguration(
             manifest=data.get("manifest", {}),
             type=data.get("type", "MultiMC"),
@@ -744,10 +716,7 @@ def compute_file_sha1(filepath: str) -> str:
     return h.hexdigest()
 
 
-def compute_overrides_hashes(
-    base_dir: str,
-    file_list: List[str],
-) -> List[FileInfo]:
+def compute_overrides_hashes(base_dir: str, file_list: List[str]) -> List[FileInfo]:
     """计算覆盖文件的 SHA-1 哈希列表。
 
     Args:

@@ -5,18 +5,20 @@
 
 效果链顺序: 均衡器 → 混响 → 变调 → 变速
 """
+
+import logging
 import os
 import tempfile
-import logging
-from dataclasses import dataclass, field
-from typing import Optional, List, Tuple
 import threading
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger("music_effects")
 
 _numpy_available = False
 try:
     import numpy as np
+
     _numpy_available = True
 except ImportError:
     pass
@@ -24,6 +26,7 @@ except ImportError:
 _scipy_available = False
 try:
     from scipy import signal as scipy_signal
+
     _scipy_available = True
 except ImportError:
     pass
@@ -32,6 +35,7 @@ _pydub_available = False
 try:
     from pydub import AudioSegment
     from pydub.effects import speed_change
+
     _pydub_available = True
 except ImportError:
     pass
@@ -56,33 +60,37 @@ SPEED_MAX = 2.0
 @dataclass
 class EffectSettings:
     """音效设置数据结构"""
+
     # EQ
     eq_enabled: bool = False
     eq_gains: List[float] = field(default_factory=lambda: [0.0] * 10)
 
     # 混响相关
     reverb_enabled: bool = False
-    reverb_delay_ms: float = 60.0      # 延迟 (10-200ms)
-    reverb_decay: float = 0.4          # 衰减 (0.1-0.9)
-    reverb_wet_level: float = 0.3      # 湿信号比例 (0.0-1.0)
+    reverb_delay_ms: float = 60.0  # 延迟 (10-200ms)
+    reverb_decay: float = 0.4  # 衰减 (0.1-0.9)
+    reverb_wet_level: float = 0.3  # 湿信号比例 (0.0-1.0)
 
     # 变调
     pitch_enabled: bool = False
-    pitch_semitones: float = 0.0       # 半音偏移 (-12~+12)
+    pitch_semitones: float = 0.0  # 半音偏移 (-12~+12)
 
     # 变速
     speed_enabled: bool = False
-    speed_rate: float = 1.0            # 播放速率 (0.5~2.0)
+    speed_rate: float = 1.0  # 播放速率 (0.5~2.0)
 
     # 声像
     pan_enabled: bool = False
-    pan_value: float = 0.0             # -1.0(左) ~ 1.0(右)
+    pan_value: float = 0.0  # -1.0(左) ~ 1.0(右)
 
     @property
     def has_any_enabled(self) -> bool:
         return (
-            self.eq_enabled and any(abs(g) > 0.01 for g in self.eq_gains)
-        ) or self.reverb_enabled or self.pitch_enabled or self.speed_enabled
+            (self.eq_enabled and any(abs(g) > 0.01 for g in self.eq_gains))
+            or self.reverb_enabled
+            or self.pitch_enabled
+            or self.speed_enabled
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -236,10 +244,7 @@ class AudioEffectProcessor:
 
             # 重建 AudioSegment
             new_audio = AudioSegment(
-                data=filtered.tobytes(),
-                sample_width=2,
-                frame_rate=sample_rate,
-                channels=audio.channels,
+                data=filtered.tobytes(), sample_width=2, frame_rate=sample_rate, channels=audio.channels
             )
             return new_audio
         except Exception as e:
@@ -271,10 +276,7 @@ class AudioEffectProcessor:
 
             mixed = np.clip(mixed, -32768, 32767).astype(np.int16)
             return AudioSegment(
-                data=mixed.tobytes(),
-                sample_width=2,
-                frame_rate=audio.frame_rate,
-                channels=audio.channels,
+                data=mixed.tobytes(), sample_width=2, frame_rate=audio.frame_rate, channels=audio.channels
             )
         except Exception as e:
             logger.debug(f"混响处理失败: {e}")
@@ -285,9 +287,7 @@ class AudioEffectProcessor:
     def _apply_pitch(self, audio: "AudioSegment") -> "AudioSegment":
         try:
             new_rate = int(audio.frame_rate * (2.0 ** (self.settings.pitch_semitones / 12.0)))
-            return audio._spawn(audio.raw_data, overrides={
-                "frame_rate": new_rate
-            }).set_frame_rate(audio.frame_rate)
+            return audio._spawn(audio.raw_data, overrides={"frame_rate": new_rate}).set_frame_rate(audio.frame_rate)
         except Exception:
             return audio
 

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Optional, Set
 
 
 class PluginPermission(str, Enum):
@@ -10,34 +10,36 @@ class PluginPermission(str, Enum):
 
     每个权限对应插件可以执行的操作。权限字符串同时也是 i18n 键名。
     """
+
     # ── 文件系统 ──
-    FILESYSTEM_READ = "filesystem.read"       # 读取文件（排除启动器核心目录）
-    FILESYSTEM_WRITE = "filesystem.write"     # 写入文件（仅 .minecraft + 插件数据目录）
+    FILESYSTEM_READ = "filesystem.read"  # 读取文件（排除启动器核心目录）
+    FILESYSTEM_WRITE = "filesystem.write"  # 写入文件（仅 .minecraft + 插件数据目录）
 
     # ── 网络 ──
-    NETWORK_HTTP = "network.http"             # HTTP(S) 请求（通过启动器代理 UA）
-    NETWORK_SOCKET = "network.socket"         # 原始 Socket 连接
+    NETWORK_HTTP = "network.http"  # HTTP(S) 请求（通过启动器代理 UA）
+    NETWORK_SOCKET = "network.socket"  # 原始 Socket 连接
 
     # ── UI ──
-    UI_EXTEND = "ui.extend"                   # 注册标签页/侧边栏/设置面板
-    UI_NOTIFICATION = "ui.notification"       # 弹窗/Toast 通知
+    UI_EXTEND = "ui.extend"  # 注册标签页/侧边栏/设置面板
+    UI_NOTIFICATION = "ui.notification"  # 弹窗/Toast 通知
 
     # ── 核心 ──
-    CORE_DOWNLOAD = "core.download"           # 注册自定义下载源
-    CORE_VERSION = "core.version"             # 注册自定义版本源
-    CORE_LAUNCH_HOOK = "core.launch_hook"     # 游戏启动前/后钩子（可修改启动参数）
-    CORE_PROCESS = "core.process"             # 执行外部进程
+    CORE_DOWNLOAD = "core.download"  # 注册自定义下载源
+    CORE_VERSION = "core.version"  # 注册自定义版本源
+    CORE_LAUNCH_HOOK = "core.launch_hook"  # 游戏启动前/后钩子（可修改启动参数）
+    CORE_PROCESS = "core.process"  # 执行外部进程
 
     # ── 数据 ──
-    DATA_STORE = "data.store"                 # 持久化存储（插件数据目录读写）
-    DATA_SETTINGS = "data.settings"           # 读取/修改启动器设置
+    DATA_STORE = "data.store"  # 持久化存储（插件数据目录读写）
+    DATA_SETTINGS = "data.settings"  # 读取/修改启动器设置
 
 
 class PermissionRiskLevel(Enum):
     """权限风险等级"""
-    LOW = "low"         # 安装时一次性确认
-    MEDIUM = "medium"   # 安装时确认 + 设置中可撤销
-    HIGH = "high"       # 每次触发时弹窗确认，可选「始终允许」
+
+    LOW = "low"  # 安装时一次性确认
+    MEDIUM = "medium"  # 安装时确认 + 设置中可撤销
+    HIGH = "high"  # 每次触发时弹窗确认，可选「始终允许」
 
 
 # 权限到风险等级的映射
@@ -80,15 +82,17 @@ _PERMISSION_DISPLAY_KEYS: Dict[PluginPermission, str] = {
 @dataclass
 class PermissionGrant:
     """单个权限的授权状态"""
+
     permission: PluginPermission
     risk_level: PermissionRiskLevel
     granted: bool = False
-    always_allowed: bool = False      # 仅对高风险权限有效
+    always_allowed: bool = False  # 仅对高风险权限有效
 
 
 @dataclass
 class PluginPermissionState:
     """插件的全部权限授权状态"""
+
     plugin_id: str
     grants: Dict[PluginPermission, PermissionGrant] = field(default_factory=dict)
 
@@ -96,20 +100,14 @@ class PluginPermissionState:
         if not self.grants:
             for perm in PluginPermission:
                 risk = _PERMISSION_RISK_MAP.get(perm, PermissionRiskLevel.LOW)
-                self.grants[perm] = PermissionGrant(
-                    permission=perm,
-                    risk_level=risk,
-                    granted=False,
-                )
+                self.grants[perm] = PermissionGrant(permission=perm, risk_level=risk, granted=False)
 
     def is_granted(self, permission: PluginPermission) -> bool:
         """检查指定权限是否已授权"""
         g = self.grants.get(permission)
         return g is not None and g.granted
 
-    def check_or_request(
-        self, permission: PluginPermission,
-    ) -> str:
+    def check_or_request(self, permission: PluginPermission) -> str:
         """检查权限，返回状态字符串: 'granted' | 'need_confirm' | 'denied'"""
         g = self.grants.get(permission)
         if g is None:
@@ -141,10 +139,7 @@ class PluginPermissionState:
         """序列化为持久化格式"""
         result: Dict[str, dict] = {}
         for perm, grant in self.grants.items():
-            result[perm.value] = {
-                "granted": grant.granted,
-                "always_allowed": grant.always_allowed,
-            }
+            result[perm.value] = {"granted": grant.granted, "always_allowed": grant.always_allowed}
         return result
 
     @classmethod
@@ -163,9 +158,7 @@ class PluginPermissionState:
         return state
 
 
-def classify_permissions(
-    permissions: List[str],
-) -> Dict[PermissionRiskLevel, List[PluginPermission]]:
+def classify_permissions(permissions: List[str]) -> Dict[PermissionRiskLevel, List[PluginPermission]]:
     """将权限字符串列表按风险等级分类"""
     result: Dict[PermissionRiskLevel, List[PluginPermission]] = {
         PermissionRiskLevel.LOW: [],

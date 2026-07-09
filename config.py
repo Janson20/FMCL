@@ -1,13 +1,14 @@
 """配置文件管理模块"""
+
 import os
 import platform
 from pathlib import Path
-from typing import Optional, Any, Dict
+from typing import Any, Dict, Optional
 
 import logzero
 from logzero import logger
 
-from secure_storage import encrypt_token, decrypt_token, set_key_dir
+from secure_storage import decrypt_token, encrypt_token, set_key_dir
 
 # 高性能 JSON 解析：orjson 比 stdlib json 快 3-10 倍
 try:
@@ -67,20 +68,15 @@ def _get_platform_paths():
         # 基础目录: ~/.fmcl (用于其他运行时文件)
         base_dir = home / ".fmcl"
 
-        return {
-            'base_dir': base_dir,
-            'minecraft_dir': minecraft_dir,
-            'log_file': log_file,
-            'config_file': config_file,
-        }
+        return {"base_dir": base_dir, "minecraft_dir": minecraft_dir, "log_file": log_file, "config_file": config_file}
     else:
         # Windows/macOS: 使用当前工作目录
         base_dir = Path.cwd()
         return {
-            'base_dir': base_dir,
-            'minecraft_dir': base_dir / ".minecraft",
-            'log_file': base_dir / "latest.log",
-            'config_file': base_dir / "config.json",
+            "base_dir": base_dir,
+            "minecraft_dir": base_dir / ".minecraft",
+            "log_file": base_dir / "latest.log",
+            "config_file": base_dir / "config.json",
         }
 
 
@@ -114,10 +110,10 @@ class Config:
             self.log_file = self.base_dir / "latest.log"
             self.config_file = self.base_dir / "config.json"
         else:
-            self.base_dir = platform_paths['base_dir']
-            self.minecraft_dir = platform_paths['minecraft_dir']
-            self.log_file = platform_paths['log_file']
-            self.config_file = platform_paths['config_file']
+            self.base_dir = platform_paths["base_dir"]
+            self.minecraft_dir = platform_paths["minecraft_dir"]
+            self.log_file = platform_paths["log_file"]
+            self.config_file = platform_paths["config_file"]
 
         # 设置密钥存储目录
         set_key_dir(self.base_dir)
@@ -297,7 +293,9 @@ class Config:
             if "music_state" in data:
                 self.music_state = data["music_state"]
 
-            logger.info(f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}, 语言={self.language}")
+            logger.info(
+                f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}, 语言={self.language}"
+            )
 
         except Exception as e:
             logger.error(f"加载配置文件失败: {e}")
@@ -306,6 +304,7 @@ class Config:
     def save_config(self) -> None:
         """保存配置到文件（使用原子写入防止文件损坏）"""
         import tempfile
+
         try:
             data = {
                 "mirror_enabled": self.mirror_enabled,
@@ -337,9 +336,9 @@ class Config:
             }
             content = _json_dumps(data, indent=2, ensure_ascii=False)
             # 原子写入：先写临时文件，再重命名，防止写入过程中崩溃导致配置文件损坏
-            fd, tmp_path = tempfile.mkstemp(dir=str(self.config_file.parent), suffix='.tmp')
+            fd, tmp_path = tempfile.mkstemp(dir=str(self.config_file.parent), suffix=".tmp")
             try:
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(content)
                 os.replace(tmp_path, str(self.config_file))
             except Exception:
@@ -377,9 +376,11 @@ class Config:
             except PermissionError:
                 logger.warning(f"无权限创建配置目录: {config_dir}")
                 logger.warning(f"请运行: sudo mkdir -p {config_dir} && sudo chown $USER:$USER {config_dir}")
-                Config._notify_error("权限不足",
+                Config._notify_error(
+                    "权限不足",
                     f"无权限创建配置目录: {config_dir}\n"
-                    f"请运行: sudo mkdir -p {config_dir} && sudo chown $USER:$USER {config_dir}")
+                    f"请运行: sudo mkdir -p {config_dir} && sudo chown $USER:$USER {config_dir}",
+                )
             except Exception as e:
                 logger.error(f"创建配置目录失败: {e}")
                 Config._notify_error("目录创建失败", f"无法创建配置目录: {e}")
@@ -391,9 +392,11 @@ class Config:
             except PermissionError:
                 logger.warning(f"无权限创建日志目录: {log_dir}")
                 logger.warning(f"请运行: sudo mkdir -p {log_dir} && sudo chown $USER:$USER {log_dir}")
-                Config._notify_error("权限不足",
+                Config._notify_error(
+                    "权限不足",
                     f"无权限创建日志目录: {log_dir}\n"
-                    f"请运行: sudo mkdir -p {log_dir} && sudo chown $USER:$USER {log_dir}")
+                    f"请运行: sudo mkdir -p {log_dir} && sudo chown $USER:$USER {log_dir}",
+                )
             except Exception as e:
                 logger.error(f"创建日志目录失败: {e}")
                 Config._notify_error("目录创建失败", f"无法创建日志目录: {e}")
@@ -421,6 +424,7 @@ class Config:
             config_data: 配置字典（ModpackConfiguration.to_dict() 的输出）
         """
         import json
+
         config_path = self.get_mmc_config_path(version_id)
         try:
             config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -442,6 +446,7 @@ class Config:
             配置字典或 None
         """
         import json
+
         config_path = self.get_mmc_config_path(version_id)
         if not config_path.is_file():
             return None
@@ -454,7 +459,7 @@ class Config:
 
     def migrate_accounts(self) -> bool:
         """旧配置自动迁移：将旧 player_name 迁移为离线账号"""
-        from launcher.account import init_account_system, get_account_system, create_offline_account, AccountType
+        from launcher.account import AccountType, create_offline_account, get_account_system, init_account_system
 
         account_system = init_account_system(self.base_dir)
 
@@ -469,7 +474,7 @@ class Config:
 
         old_name = self.player_name
         if old_name and old_name != "Steve":
-            logger.info(f"\u6B63\u5728\u5C06\u65E7\u914D\u7F6E\u8FC1\u79FB\u4E3A\u8D26\u53F7: {old_name}")
+            logger.info(f"\u6b63\u5728\u5c06\u65e7\u914d\u7f6e\u8fc1\u79fb\u4e3a\u8d26\u53f7: {old_name}")
             account = create_offline_account(old_name)
             account_system.add_account(account)
             account_system.set_current_account(account.id)
@@ -480,7 +485,7 @@ class Config:
 
         self._account_migration_done = True
         self.save_config()
-        logger.info("\u65E7\u914D\u7F6E\u8FC1\u79FB\u5B8C\u6210")
+        logger.info("\u65e7\u914d\u7f6e\u8fc1\u79fb\u5b8c\u6210")
         return True
 
     def __repr__(self) -> str:

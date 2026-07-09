@@ -2,15 +2,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
 "vanilla_launcher contains some functions for interacting with the Vanilla Minecraft Launcher"
-from ._internal_types.vanilla_launcher_types import VanillaLauncherProfilesJson, VanillaLauncherProfilesJsonProfile
-from .types import VanillaLauncherProfile, MinecraftOptions
-from .exceptions import InvalidVanillaLauncherProfile
-from .utils import get_latest_version
-from ._helper import assert_func
+
 import datetime
 import json
-import uuid
 import os
+import uuid
+
+from ._helper import assert_func
+from ._internal_types.vanilla_launcher_types import VanillaLauncherProfilesJson, VanillaLauncherProfilesJsonProfile
+from .exceptions import InvalidVanillaLauncherProfile
+from .types import MinecraftOptions, VanillaLauncherProfile
+from .utils import get_latest_version
 
 __all__ = [
     "load_vanilla_launcher_profiles",
@@ -112,7 +114,7 @@ def load_vanilla_launcher_profiles(minecraft_directory: str | os.PathLike) -> li
         if "resolution" in value:
             vanilla_profile["customResolution"] = {
                 "height": value["resolution"]["height"],
-                "width": value["resolution"]["width"]
+                "width": value["resolution"]["width"],
             }
         else:
             vanilla_profile["customResolution"] = None
@@ -198,7 +200,9 @@ def get_vanilla_launcher_profile_version(vanilla_profile: VanillaLauncherProfile
         return vanilla_profile["version"]  # type: ignore
 
 
-def add_vanilla_launcher_profile(minecraft_directory: str | os.PathLike, vanilla_profile: VanillaLauncherProfile) -> None:
+def add_vanilla_launcher_profile(
+    minecraft_directory: str | os.PathLike, vanilla_profile: VanillaLauncherProfile
+) -> None:
     """
     Adds a new Profile to the Vanilla Launcher
 
@@ -245,10 +249,7 @@ def add_vanilla_launcher_profile(minecraft_directory: str | os.PathLike, vanilla
         new_profile["javaArgs"] = " ".join(java_arguments)
 
     if (custom_resolution := vanilla_profile.get("customResolution")) is not None:
-        new_profile["resolution"] = {
-            "height": custom_resolution["height"],
-            "width": custom_resolution["width"]
-        }
+        new_profile["resolution"] = {"height": custom_resolution["height"], "width": custom_resolution["width"]}
 
     new_profile["created"] = datetime.datetime.now().isoformat()
     new_profile["lastUsed"] = datetime.datetime.now().isoformat()

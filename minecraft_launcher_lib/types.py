@@ -6,8 +6,9 @@ This module contains all Types for minecraft-launcher-lib. It may help your IDE.
 If you are not interested in static typing just ignore it.
 For more information about TypedDict see `PEP 589 <https://peps.python.org/pep-0589/>`_.
 """
-from typing import Literal, TypedDict, Callable
+
 import datetime
+from typing import Callable, Literal, TypedDict
 
 
 class MinecraftOptions(TypedDict, total=False):
@@ -56,6 +57,7 @@ class MinecraftVersionInfo(TypedDict):
 
 # fabric
 
+
 class FabricMinecraftVersion(TypedDict):
     version: str
     stable: bool
@@ -71,6 +73,7 @@ class FabricLoader(TypedDict):
 
 # quilt
 
+
 class QuiltMinecraftVersion(TypedDict):
     version: str
     stable: bool
@@ -85,6 +88,7 @@ class QuiltLoader(TypedDict):
 
 # java_utils
 
+
 class JavaInformation(TypedDict):
     path: str
     name: str
@@ -96,6 +100,7 @@ class JavaInformation(TypedDict):
 
 
 # vanilla_launcher
+
 
 class VanillaLauncherProfileResolution(TypedDict):
     height: int
@@ -114,6 +119,7 @@ class VanillaLauncherProfile(TypedDict, total=False):
 
 # mrpack
 
+
 class MrpackInformation(TypedDict):
     name: str
     summary: str
@@ -129,6 +135,7 @@ class MrpackInstallOptions(TypedDict, total=False):
 
 
 # runtime
+
 
 class JvmRuntimeInformation(TypedDict):
     name: str

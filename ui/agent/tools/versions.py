@@ -1,10 +1,11 @@
 """版本管理工具 - 获取/安装/删除/启动 Minecraft 版本"""
 
 import threading
-from typing import Dict, Callable
+from typing import Callable, Dict
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, CATEGORY_VERSION
+from ui.agent.tools.base import CATEGORY_VERSION, ToolInfo
 
 
 def _build_version_tools() -> list:
@@ -35,10 +36,7 @@ def _build_version_tools() -> list:
             parameters={
                 "type": "object",
                 "properties": {
-                    "version_id": {
-                        "type": "string",
-                        "description": "Minecraft 版本号，如 1.20.1、1.20.4、26.1",
-                    },
+                    "version_id": {"type": "string", "description": "Minecraft 版本号，如 1.20.1、1.20.4、26.1"},
                     "mod_loader": {
                         "type": "string",
                         "enum": ["无", "Forge", "Fabric", "NeoForge"],
@@ -61,7 +59,7 @@ def _build_version_tools() -> list:
                     "version_id": {
                         "type": "string",
                         "description": "要启动的版本ID，如 1.20.1、1.20.1-forge-49.0.26 等",
-                    },
+                    }
                 },
                 "required": ["version_id"],
             },
@@ -79,7 +77,7 @@ def _build_version_tools() -> list:
                     "version_id": {
                         "type": "string",
                         "description": "要删除的版本ID，如 1.20.1、1.20.1-forge-49.0.26 等",
-                    },
+                    }
                 },
                 "required": ["version_id"],
             },
@@ -130,7 +128,7 @@ def _get_installed_versions(params: Dict[str, str], callbacks: Dict[str, Callabl
 
     result = f"本地已安装 {len(versions)} 个版本:\n"
     for v in versions:
-        if hasattr(v, 'folder_name'):
+        if hasattr(v, "folder_name"):
             # InstanceInfo 对象
             name = v.folder_name
             tags = []
@@ -193,12 +191,14 @@ def _launch_game(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     if success:
         proc = callbacks.get("get_game_process", lambda: None)()
         if proc and proc.stdout:
+
             def _drain_pipe():
                 try:
                     for _ in proc.stdout:
                         pass
                 except Exception:
                     pass
+
             threading.Thread(target=_drain_pipe, daemon=True, name="AgentStdoutDrain").start()
         return f"🚀 游戏已启动！版本: {target}"
     else:

@@ -1,4 +1,5 @@
 """UI 常量定义 - 颜色主题、字体检测、全局配置"""
+
 import logging
 import os
 import platform
@@ -48,10 +49,7 @@ def _detect_font_family() -> str:
 
     try:
         # 检测 emoji 字体
-        emoji_result = subprocess.run(
-            ["fc-list", ":lang=emoji", "family"],
-            capture_output=True, text=True, timeout=5,
-        )
+        emoji_result = subprocess.run(["fc-list", ":lang=emoji", "family"], capture_output=True, text=True, timeout=5)
         if emoji_result.returncode == 0 and emoji_result.stdout.strip():
             for line in emoji_result.stdout.strip().split("\n"):
                 for f in line.split(","):
@@ -60,10 +58,7 @@ def _detect_font_family() -> str:
                         emoji_fonts.add(f)
 
         # 检测中文字体
-        chinese_result = subprocess.run(
-            ["fc-list", ":lang=zh", "family"],
-            capture_output=True, text=True, timeout=5,
-        )
+        chinese_result = subprocess.run(["fc-list", ":lang=zh", "family"], capture_output=True, text=True, timeout=5)
         if chinese_result.returncode == 0 and chinese_result.stdout.strip():
             for line in chinese_result.stdout.strip().split("\n"):
                 for f in line.split(","):
@@ -85,8 +80,10 @@ def _detect_font_family() -> str:
 
     # 中文字体
     chinese_priority = [
-        "Noto Sans CJK SC", "Noto Sans SC",
-        "WenQuanYi Micro Hei", "WenQuanYi Zen Hei",
+        "Noto Sans CJK SC",
+        "Noto Sans SC",
+        "WenQuanYi Micro Hei",
+        "WenQuanYi Zen Hei",
         "Droid Sans Fallback",
     ]
     selected_chinese = None
@@ -103,8 +100,7 @@ def _detect_font_family() -> str:
         # 再检测一次
         try:
             emoji_result = subprocess.run(
-                ["fc-list", ":lang=emoji", "family"],
-                capture_output=True, text=True, timeout=5,
+                ["fc-list", ":lang=emoji", "family"], capture_output=True, text=True, timeout=5
             )
             if emoji_result.returncode == 0 and emoji_result.stdout.strip():
                 for line in emoji_result.stdout.strip().split("\n"):
@@ -127,8 +123,7 @@ def _detect_font_family() -> str:
         # 安装后再检测一次
         try:
             chinese_result = subprocess.run(
-                ["fc-list", ":lang=zh", "family"],
-                capture_output=True, text=True, timeout=5,
+                ["fc-list", ":lang=zh", "family"], capture_output=True, text=True, timeout=5
             )
             if chinese_result.returncode == 0 and chinese_result.stdout.strip():
                 for line in chinese_result.stdout.strip().split("\n"):
@@ -239,10 +234,11 @@ def _get_fmcl_version():
     """从 updater.py 获取 FMCL 版本号"""
     try:
         from updater import get_current_version
+
         return get_current_version()
     except Exception:
         pass
-    return 'unknown'
+    return "unknown"
 
 
 def _get_user_agent() -> str:

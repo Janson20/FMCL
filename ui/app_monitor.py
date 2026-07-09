@@ -1,12 +1,13 @@
 """性能监控悬浮窗 - 快捷键 Ctrl+Shift+M 切换显示/隐藏"""
-import sys
+
+import json
 import logging
+import os
+import re
+import subprocess
+import sys
 import threading
 import time
-import os
-import json
-import subprocess
-import re
 
 import customtkinter as ctk
 
@@ -82,6 +83,7 @@ def _format_net_speed(bytes_per_sec: float) -> str:
 
 # ─── 多厂商 GPU 检测与采样 ────────────────────────────────────
 
+
 class _GPUDetector:
     """统一 GPU 检测器：按优先级尝试 NVIDIA → AMD → Intel 后端"""
 
@@ -129,8 +131,7 @@ class _GPUDetector:
     def _try_nvidia_smi(self) -> bool:
         try:
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                capture_output=True, text=True, timeout=5,
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0 and result.stdout.strip():
                 self._gpu_cache["name"] = result.stdout.strip().split("\n")[0].strip()
@@ -145,8 +146,7 @@ class _GPUDetector:
             return False
         try:
             result = subprocess.run(
-                ["rocm-smi", "--showproductname", "--csv"],
-                capture_output=True, text=True, timeout=5,
+                ["rocm-smi", "--showproductname", "--csv"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0 and "GPU" in result.stdout:
                 # 提取 GPU 名称
@@ -163,10 +163,7 @@ class _GPUDetector:
 
     def _try_amd_smi(self) -> bool:
         try:
-            result = subprocess.run(
-                ["amd-smi", "static", "--json"],
-                capture_output=True, text=True, timeout=5,
-            )
+            result = subprocess.run(["amd-smi", "static", "--json"], capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 try:
                     data = json.loads(result.stdout)
@@ -248,9 +245,14 @@ class _GPUDetector:
         gpu = dict(self._gpu_cache)
         try:
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=5,
+                [
+                    "nvidia-smi",
+                    "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode == 0:
                 vals = [v.strip() for v in result.stdout.strip().split(",")]
@@ -271,7 +273,9 @@ class _GPUDetector:
         try:
             result = subprocess.run(
                 ["rocm-smi", "--showuse", "--showmemuse", "--showtemp", "--csv"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode == 0:
                 lines = [l for l in result.stdout.strip().split("\n") if l and not l.startswith("#")]
@@ -295,10 +299,7 @@ class _GPUDetector:
     def _sample_amd_smi(self) -> dict:
         gpu = dict(self._gpu_cache)
         try:
-            result = subprocess.run(
-                ["amd-smi", "metric", "--csv"],
-                capture_output=True, text=True, timeout=5,
-            )
+            result = subprocess.run(["amd-smi", "metric", "--csv"], capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 lines = [l for l in result.stdout.strip().split("\n") if l]
                 if len(lines) > 1:
@@ -320,6 +321,7 @@ class _GPUDetector:
 
 
 # ─── 性能监控窗口 ────────────────────────────────────────────
+
 
 class PerformanceMonitorWindow(ctk.CTkToplevel):
     """性能监控悬浮窗 - 无边框、置顶、可拖拽"""
@@ -414,30 +416,37 @@ class PerformanceMonitorWindow(ctk.CTkToplevel):
         cpu_row.pack(fill=ctk.X, pady=(0, 4))
 
         self._cpu_header = ctk.CTkLabel(
-            cpu_row, text=_("monitor_cpu"),
+            cpu_row,
+            text=_("monitor_cpu"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-            text_color=COLORS["accent"], width=34, anchor=ctk.W,
+            text_color=COLORS["accent"],
+            width=34,
+            anchor=ctk.W,
         )
         self._cpu_header.pack(side=ctk.LEFT, padx=(0, 4))
 
         self._cpu_progress = ctk.CTkProgressBar(
-            cpu_row, width=100, height=8,
-            fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+            cpu_row, width=100, height=8, fg_color=COLORS["bg_light"], progress_color=COLORS["accent"]
         )
         self._cpu_progress.pack(side=ctk.LEFT, padx=(0, 6))
         self._cpu_progress.set(0)
 
         self._cpu_label = ctk.CTkLabel(
-            cpu_row, text="0%",
+            cpu_row,
+            text="0%",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_primary"], width=46, anchor=ctk.E,
+            text_color=COLORS["text_primary"],
+            width=46,
+            anchor=ctk.E,
         )
         self._cpu_label.pack(side=ctk.LEFT, padx=(0, 6))
 
         self._cpu_freq_label = ctk.CTkLabel(
-            cpu_row, text="",
+            cpu_row,
+            text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=COLORS["text_secondary"], anchor=ctk.W,
+            text_color=COLORS["text_secondary"],
+            anchor=ctk.W,
         )
         self._cpu_freq_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
 
@@ -446,30 +455,37 @@ class PerformanceMonitorWindow(ctk.CTkToplevel):
         mem_row.pack(fill=ctk.X, pady=(0, 4))
 
         self._mem_header = ctk.CTkLabel(
-            mem_row, text=_("monitor_memory"),
+            mem_row,
+            text=_("monitor_memory"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-            text_color=COLORS["warning"], width=34, anchor=ctk.W,
+            text_color=COLORS["warning"],
+            width=34,
+            anchor=ctk.W,
         )
         self._mem_header.pack(side=ctk.LEFT, padx=(0, 4))
 
         self._mem_progress = ctk.CTkProgressBar(
-            mem_row, width=100, height=8,
-            fg_color=COLORS["bg_light"], progress_color=COLORS["warning"],
+            mem_row, width=100, height=8, fg_color=COLORS["bg_light"], progress_color=COLORS["warning"]
         )
         self._mem_progress.pack(side=ctk.LEFT, padx=(0, 6))
         self._mem_progress.set(0)
 
         self._mem_label = ctk.CTkLabel(
-            mem_row, text="0%",
+            mem_row,
+            text="0%",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_primary"], width=46, anchor=ctk.E,
+            text_color=COLORS["text_primary"],
+            width=46,
+            anchor=ctk.E,
         )
         self._mem_label.pack(side=ctk.LEFT, padx=(0, 6))
 
         self._mem_detail_label = ctk.CTkLabel(
-            mem_row, text="",
+            mem_row,
+            text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=COLORS["text_secondary"], anchor=ctk.W,
+            text_color=COLORS["text_secondary"],
+            anchor=ctk.W,
         )
         self._mem_detail_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
 
@@ -478,24 +494,27 @@ class PerformanceMonitorWindow(ctk.CTkToplevel):
         gpu_row.pack(fill=ctk.X, pady=(0, 4))
 
         self._gpu_header = ctk.CTkLabel(
-            gpu_row, text=_("monitor_gpu"),
+            gpu_row,
+            text=_("monitor_gpu"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-            text_color=COLORS["success"], width=34, anchor=ctk.W,
+            text_color=COLORS["success"],
+            width=34,
+            anchor=ctk.W,
         )
         self._gpu_header.pack(side=ctk.LEFT, padx=(0, 4))
 
         self._gpu_detail_label = ctk.CTkLabel(
-            gpu_row, text="",
+            gpu_row,
+            text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=COLORS["text_secondary"], anchor=ctk.W,
+            text_color=COLORS["text_secondary"],
+            anchor=ctk.W,
         )
         self._gpu_detail_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
 
         # ── 快捷键提示 ──
         self._hint_label = ctk.CTkLabel(
-            content, text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=COLORS["accent"], anchor=ctk.W,
+            content, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=10), text_color=COLORS["accent"], anchor=ctk.W
         )
         self._hint_label.pack(fill=ctk.X, pady=(2, 0))
         self._hint_label.pack_forget()
@@ -660,9 +679,7 @@ class PerformanceMonitorWindow(ctk.CTkToplevel):
             mem_pct = data.get("mem_percent", 0)
             self._mem_progress.set(mem_pct / 100.0)
             self._mem_label.configure(text=f"{mem_pct:.1f}%")
-            self._mem_detail_label.configure(
-                text=f"{data.get('mem_used', 'N/A')} / {data.get('mem_total', 'N/A')}"
-            )
+            self._mem_detail_label.configure(text=f"{data.get('mem_used', 'N/A')} / {data.get('mem_total', 'N/A')}")
 
             # GPU - 单行紧凑显示
             gpu_items = []
@@ -674,9 +691,7 @@ class PerformanceMonitorWindow(ctk.CTkToplevel):
                 gpu_items.append(data["gpu_mem"])
             if data.get("gpu_temp"):
                 gpu_items.append(data["gpu_temp"])
-            self._gpu_detail_label.configure(
-                text=" | ".join(gpu_items) if gpu_items else _("monitor_gpu_na")
-            )
+            self._gpu_detail_label.configure(text=" | ".join(gpu_items) if gpu_items else _("monitor_gpu_na"))
 
         except Exception:
             pass
@@ -688,7 +703,7 @@ class PerformanceMonitorWindow(ctk.CTkToplevel):
                 if not widget.winfo_exists():
                     continue
                 for attr, color_key in color_map.items():
-                    current_cfg = widget.cget(attr) if hasattr(widget, 'cget') else None
+                    current_cfg = widget.cget(attr) if hasattr(widget, "cget") else None
                     if current_cfg is None:
                         continue
                     # 只更新颜色属性
@@ -709,12 +724,13 @@ class PerformanceMonitorWindow(ctk.CTkToplevel):
 
 # ─── MonitorMixin ───────────────────────────────────────────
 
+
 class MonitorMixin:
     """性能监控悬浮窗 Mixin - 通过 Ctrl+Shift+M 快捷键切换"""
 
     def _init_monitor(self):
         """初始化监控模块（延迟调用）"""
-        self._monitor_window: 'PerformanceMonitorWindow | None' = None
+        self._monitor_window: "PerformanceMonitorWindow | None" = None
         self._monitor_hotkeys_registered: bool = False
         self._monitor_warmup_hook = None
 
@@ -763,7 +779,7 @@ class MonitorMixin:
 
     def _toggle_monitor_ui(self, show_hint: bool = False):
         """在主线程中切换监控窗口"""
-        if not hasattr(self, '_monitor_window') or self._monitor_window is None:
+        if not hasattr(self, "_monitor_window") or self._monitor_window is None:
             self._show_monitor(show_hint=show_hint)
         elif self._monitor_window.winfo_exists():
             self._hide_monitor()

@@ -1,7 +1,8 @@
 """Modrinth 整合包浏览窗口 - 搜索、浏览并下载整合包"""
+
 import os
 import threading
-from typing import List, Dict, Optional, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 from logzero import logger
@@ -105,9 +106,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         list_container.pack(fill=ctk.BOTH, expand=True, pady=(0, 8))
 
         self._list_frame = ctk.CTkScrollableFrame(
-            list_container,
-            fg_color="transparent",
-            scrollbar_button_color=COLORS["bg_light"],
+            list_container, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
         self._list_frame.pack(fill=ctk.BOTH, expand=True, padx=5, pady=5)
 
@@ -160,10 +159,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         self._next_btn.pack(side=ctk.LEFT)
 
         self._result_count_label = ctk.CTkLabel(
-            page_frame,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
+            page_frame, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"]
         )
         self._result_count_label.pack(side=ctk.RIGHT)
 
@@ -186,11 +182,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         from modrinth import search_modpacks
 
         try:
-            result = search_modpacks(
-                query=self._current_query,
-                offset=self._current_offset,
-                limit=self.PAGE_SIZE,
-            )
+            result = search_modpacks(query=self._current_query, offset=self._current_offset, limit=self.PAGE_SIZE)
 
             hits = result.get("hits", [])
             self._total_hits = result.get("total_hits", 0)
@@ -203,6 +195,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
     def _on_ai_search(self):
         from tkinter import messagebox
+
         query = self._search_entry.get().strip()
         if not query:
             self._current_query = ""
@@ -211,13 +204,10 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
             return
 
         from config import config
+
         token = config.jdz_token
         if not token:
-            messagebox.showwarning(
-                _("warning"),
-                _("ai_search_login_required"),
-                parent=self,
-            )
+            messagebox.showwarning(_("warning"), _("ai_search_login_required"), parent=self)
             return
 
         self._current_query = query
@@ -234,12 +224,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         from modrinth import ai_merged_search
 
         try:
-            result = ai_merged_search(
-                query=query,
-                token=token,
-                search_type="modpacks",
-                max_per_keyword=30,
-            )
+            result = ai_merged_search(query=query, token=token, search_type="modpacks", max_per_keyword=30)
 
             all_hits = result.get("hits", [])
             keywords = result.get("keywords", [])
@@ -248,7 +233,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
             self._total_hits = len(all_hits)
             self._current_offset = 0
 
-            page = all_hits[:self.PAGE_SIZE]
+            page = all_hits[: self.PAGE_SIZE]
             kw_text = ", ".join(keywords) if keywords else query
             self.after(0, self._render_results, page)
             self.after(0, self._set_status, _("ai_search_done", keywords=kw_text, total=len(all_hits)))
@@ -289,7 +274,9 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         start = self._current_offset + 1
         end = min(self._current_offset + self.PAGE_SIZE, self._total_hits)
-        self._result_count_label.configure(text=_("mp_browser_results_count", start=start, end=end, total=self._total_hits))
+        self._result_count_label.configure(
+            text=_("mp_browser_results_count", start=start, end=end, total=self._total_hits)
+        )
         self._set_status(_("mp_browser_total_found", total=self._total_hits))
 
     def _render_error(self, error_msg: str):
@@ -306,11 +293,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         self._set_status(_("mp_browser_search_error_status", error=error_msg))
 
     def _create_modpack_item(self, modpack: Dict):
-        row = ctk.CTkFrame(
-            self._list_frame,
-            fg_color=COLORS["bg_medium"],
-            corner_radius=8,
-        )
+        row = ctk.CTkFrame(self._list_frame, fg_color=COLORS["bg_medium"], corner_radius=8)
         row.pack(fill=ctk.X, pady=3, padx=2)
 
         top_row = ctk.CTkFrame(row, fg_color="transparent", height=36)
@@ -364,6 +347,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         versions_display = modpack.get("versions", [])
         if versions_display:
             from modrinth import compress_game_versions
+
             compressed = compress_game_versions(versions_display)
             if compressed:
                 ctk.CTkLabel(
@@ -414,7 +398,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         if self._ai_cached_hits is None:
             return
         offset = self._current_offset
-        page = self._ai_cached_hits[offset:offset + self.PAGE_SIZE]
+        page = self._ai_cached_hits[offset : offset + self.PAGE_SIZE]
         self._render_results(page)
         self._update_pagination()
 
@@ -461,10 +445,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         group_order = sorted(grouped.keys(), key=_mc_sort_key, reverse=True)
 
         for mc_label in group_order:
-            grouped[mc_label].sort(
-                key=lambda v: v.get("date_published", ""),
-                reverse=True,
-            )
+            grouped[mc_label].sort(key=lambda v: v.get("date_published", ""), reverse=True)
 
         result: List[Dict] = []
         for mc_label in group_order:
@@ -473,13 +454,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         return result
 
-    def _show_version_picker(
-        self,
-        project_id: str,
-        title: str,
-        all_sorted: List[Dict],
-        total_count: int,
-    ):
+    def _show_version_picker(self, project_id: str, title: str, all_sorted: List[Dict], total_count: int):
         picker = ctk.CTkToplevel(self)
         picker.title(_("mp_browser_version_picker_title", title=title))
         picker.geometry("620x540")
@@ -501,11 +476,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         y = py + (ph - h) // 2
         picker.geometry(f"{w}x{h}+{x}+{y}")
 
-        picker_state = {
-            "all_sorted": all_sorted,
-            "rendered_count": 0,
-            "total_count": total_count,
-        }
+        picker_state = {"all_sorted": all_sorted, "rendered_count": 0, "total_count": total_count}
 
         main_frame = ctk.CTkFrame(picker, fg_color="transparent")
         main_frame.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
@@ -529,9 +500,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         list_container.pack(fill=ctk.BOTH, expand=True, pady=(0, 10))
 
         scroll_frame = ctk.CTkScrollableFrame(
-            list_container,
-            fg_color="transparent",
-            scrollbar_button_color=COLORS["bg_light"],
+            list_container, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
         scroll_frame.pack(fill=ctk.BOTH, expand=True, padx=5, pady=5)
 
@@ -607,11 +576,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
             date_published = item.get("date_published", "")[:10]
             game_versions_str = ", ".join(item.get("game_versions", []))
 
-            version_row = ctk.CTkFrame(
-                scroll_frame,
-                fg_color=COLORS["bg_medium"],
-                corner_radius=6,
-            )
+            version_row = ctk.CTkFrame(scroll_frame, fg_color=COLORS["bg_medium"], corner_radius=6)
             version_row.pack(fill=ctk.X, pady=2, padx=5)
 
             info_col = ctk.CTkFrame(version_row, fg_color="transparent")
@@ -652,22 +617,15 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         remaining = len(all_sorted) - end
         if remaining <= 0:
-            state["load_more_btn"].configure(
-                text=_("mp_browser_all_loaded", total=len(all_sorted)),
-                state=ctk.DISABLED,
-            )
+            state["load_more_btn"].configure(text=_("mp_browser_all_loaded", total=len(all_sorted)), state=ctk.DISABLED)
         else:
             total = len(all_sorted)
-            state["load_more_btn"].configure(
-                text=_("mp_browser_load_more_2", shown=end, total=total),
-            )
-        state["info_label"].configure(
-            text=_("mp_browser_version_picker_msg", total=state['total_count'], shown=end)
-        )
+            state["load_more_btn"].configure(text=_("mp_browser_load_more_2", shown=end, total=total))
+        state["info_label"].configure(text=_("mp_browser_version_picker_msg", total=state["total_count"], shown=end))
 
     def _on_version_selected(self, project_id: str, title: str, version_data: Dict, picker):
         picker.destroy()
-        self._set_status(_("mp_browser_downloading", title=title, version=version_data.get('version_number', '')))
+        self._set_status(_("mp_browser_downloading", title=title, version=version_data.get("version_number", "")))
         self._run_in_thread(self._download_version, project_id, title, version_data)
 
     def _download_version(self, project_id: str, title: str, version_data: Dict):
@@ -681,11 +639,7 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         _status(_("mp_browser_downloading", title=title, version=version_number))
 
         try:
-            success, result = download_modpack_file(
-                project_id,
-                version_data=version_data,
-                status_callback=_status,
-            )
+            success, result = download_modpack_file(project_id, version_data=version_data, status_callback=_status)
         except Exception as e:
             logger.error(f"整合包下载异常: {e}")
             self.after(0, self._set_status, _("mp_browser_download_error", error=str(e)))

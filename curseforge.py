@@ -19,8 +19,8 @@ API 文档: https://docs.curseforge.com/
 import hashlib
 import os
 import time
-from typing import List, Dict, Optional, Set, Tuple
 from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 import requests
 from logzero import logger
@@ -47,13 +47,7 @@ CURSEFORGE_API_KEY = os.environ.get("CURSEFORGE_API_KEY", "")
 # ══════════════════════════════════════════════════════════════════════
 
 # 模组加载器类型 → CurseForge API 值 (参考 PCL-CE: CompLoaderType)
-LOADER_TYPE_MAP: Dict[int, str] = {
-    0: None,       # Any
-    1: "forge",
-    4: "fabric",
-    5: "quilt",
-    6: "neoforge",
-}
+LOADER_TYPE_MAP: Dict[int, str] = {0: None, 1: "forge", 4: "fabric", 5: "quilt", 6: "neoforge"}  # Any
 LOADER_NAME_TO_ID: Dict[str, int] = {v: k for k, v in LOADER_TYPE_MAP.items() if v}
 
 # classId 映射 (参考 PCL-CE: CompType → classId)
@@ -67,18 +61,14 @@ CLASS_ID_MAP: Dict[str, int] = {
 }
 
 # 文件状态 (参考 PCL-CE: CompFileStatus)
-FILE_STATUS_MAP: Dict[int, str] = {
-    1: "release",
-    2: "beta",
-    3: "alpha",
-}
+FILE_STATUS_MAP: Dict[int, str] = {1: "release", 2: "beta", 3: "alpha"}
 
 # 搜索排序 (参考 PCL-CE: CompSortType)
 SORT_FIELD_MAP: Dict[str, int] = {
-    "popularity": 2,    # Popularity (对应 Downloads=3)
-    "downloads": 6,     # TotalDownloads
-    "name": 4,          # Name
-    "updated": 1,       # LastUpdated
+    "popularity": 2,  # Popularity (对应 Downloads=3)
+    "downloads": 6,  # TotalDownloads
+    "name": 4,  # Name
+    "updated": 1,  # LastUpdated
 }
 
 # 重试配置
@@ -100,11 +90,7 @@ def _get_session() -> requests.Session:
             status_forcelist=RETRY_STATUS_FORCELIST,
             allowed_methods=["GET", "POST"],
         )
-        adapter = HTTPAdapter(
-            max_retries=retry,
-            pool_connections=20,
-            pool_maxsize=20,
-        )
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
         _shared_session = requests.Session()
         _shared_session.mount("https://", adapter)
         _shared_session.mount("http://", adapter)
@@ -128,11 +114,8 @@ def is_configured() -> bool:
 # 底层 HTTP 请求
 # ══════════════════════════════════════════════════════════════════════
 
-def _download_file(
-    download_url: str,
-    file_path: Path,
-    timeout: int = 120,
-) -> bool:
+
+def _download_file(download_url: str, file_path: Path, timeout: int = 120) -> bool:
     """下载文件到指定路径（支持断点续传）"""
     headers = {}
     existing_size = 0
@@ -176,10 +159,9 @@ def _download_file(
 # 搜索
 # ══════════════════════════════════════════════════════════════════════
 
+
 def _build_search_facets(
-    game_version: Optional[str] = None,
-    mod_loader: Optional[str] = None,
-    class_id: Optional[int] = None,
+    game_version: Optional[str] = None, mod_loader: Optional[str] = None, class_id: Optional[int] = None
 ) -> Dict[str, str]:
     """构建 CurseForge 搜索参数"""
     params: Dict[str, str] = {}
@@ -233,11 +215,7 @@ def search_mods(
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{CURSEFORGE_API_BASE}/mods/search",
-            params=params,
-            timeout=15,
-        )
+        resp = session.get(f"{CURSEFORGE_API_BASE}/mods/search", params=params, timeout=15)
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.RequestException as e:
@@ -245,21 +223,13 @@ def search_mods(
         return {"data": [], "pagination": {"totalCount": 0, "index": offset, "pageSize": limit}}
 
 
-def search_modpacks(
-    query: str = "",
-    game_version: Optional[str] = None,
-    offset: int = 0,
-    limit: int = 20,
-) -> Dict:
+def search_modpacks(query: str = "", game_version: Optional[str] = None, offset: int = 0, limit: int = 20) -> Dict:
     """搜索 CurseForge 整合包 (classId=4471)"""
     return search_mods(query, game_version, None, offset, limit, "popularity")
 
 
 def search_resource_packs(
-    query: str = "",
-    game_version: Optional[str] = None,
-    offset: int = 0,
-    limit: int = 20,
+    query: str = "", game_version: Optional[str] = None, offset: int = 0, limit: int = 20
 ) -> Dict:
     """搜索 CurseForge 资源包 (classId=12)"""
     params = _build_search_facets(game_version, None, CLASS_ID_MAP["resourcepack"])
@@ -271,11 +241,7 @@ def search_resource_packs(
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{CURSEFORGE_API_BASE}/mods/search",
-            params=params,
-            timeout=15,
-        )
+        resp = session.get(f"{CURSEFORGE_API_BASE}/mods/search", params=params, timeout=15)
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.RequestException as e:
@@ -283,12 +249,7 @@ def search_resource_packs(
         return {"data": [], "pagination": {"totalCount": 0}}
 
 
-def search_shaders(
-    query: str = "",
-    game_version: Optional[str] = None,
-    offset: int = 0,
-    limit: int = 20,
-) -> Dict:
+def search_shaders(query: str = "", game_version: Optional[str] = None, offset: int = 0, limit: int = 20) -> Dict:
     """搜索 CurseForge 光影 (classId=6552)"""
     params = _build_search_facets(game_version, None, CLASS_ID_MAP["shader"])
     params["searchFilter"] = query.strip()
@@ -299,11 +260,7 @@ def search_shaders(
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{CURSEFORGE_API_BASE}/mods/search",
-            params=params,
-            timeout=15,
-        )
+        resp = session.get(f"{CURSEFORGE_API_BASE}/mods/search", params=params, timeout=15)
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.RequestException as e:
@@ -314,6 +271,7 @@ def search_shaders(
 # ══════════════════════════════════════════════════════════════════════
 # 项目信息
 # ══════════════════════════════════════════════════════════════════════
+
 
 def get_project_info(project_id: int) -> Optional[Dict]:
     """
@@ -330,10 +288,7 @@ def get_project_info(project_id: int) -> Optional[Dict]:
     """
     try:
         session = _get_session()
-        resp = session.get(
-            f"{CURSEFORGE_API_BASE}/mods/{project_id}",
-            timeout=15,
-        )
+        resp = session.get(f"{CURSEFORGE_API_BASE}/mods/{project_id}", timeout=15)
         resp.raise_for_status()
         result = resp.json()
         return result.get("data", result)
@@ -349,11 +304,7 @@ def get_projects_batch(project_ids: List[int]) -> List[Dict]:
 
     try:
         session = _get_session()
-        resp = session.post(
-            f"{CURSEFORGE_API_BASE}/mods",
-            json={"modIds": project_ids},
-            timeout=15,
-        )
+        resp = session.post(f"{CURSEFORGE_API_BASE}/mods", json={"modIds": project_ids}, timeout=15)
         resp.raise_for_status()
         result = resp.json()
         return result.get("data", [])
@@ -366,16 +317,17 @@ def get_projects_batch(project_ids: List[int]) -> List[Dict]:
 # 版本与文件
 # ══════════════════════════════════════════════════════════════════════
 
+
 def _parse_loader_types(mod: Dict) -> List[str]:
     """从 CurseForge mod 数据中提取支持的加载器类型列表"""
     loaders = set()
-    for file_data in (mod.get("latestFiles") or []):
-        for loader_id in (file_data.get("modLoaderTypes") or []):
+    for file_data in mod.get("latestFiles") or []:
+        for loader_id in file_data.get("modLoaderTypes") or []:
             name = LOADER_TYPE_MAP.get(loader_id)
             if name:
                 loaders.add(name)
     # 也检查 latestFilesIndexes 中没有加载器信息的文件，尝试从分类推断
-    for cat in (mod.get("categories") or []):
+    for cat in mod.get("categories") or []:
         cat_name = (cat.get("name") or "").lower()
         if "forge" in cat_name and "neo" not in cat_name:
             loaders.add("forge")
@@ -394,11 +346,11 @@ def _parse_game_versions(mod: Dict) -> List[str]:
     参考 PCL-CE: 通过 latestFiles.gameVersions 和 latestFilesIndexes.gameVersion 收集
     """
     versions = set()
-    for file_data in (mod.get("latestFiles") or []):
-        for v in (file_data.get("gameVersions") or []):
+    for file_data in mod.get("latestFiles") or []:
+        for v in file_data.get("gameVersions") or []:
             if _is_mc_version(v):
                 versions.add(v)
-    for idx in (mod.get("latestFilesIndexes") or []):
+    for idx in mod.get("latestFilesIndexes") or []:
         v = idx.get("gameVersion", "")
         if _is_mc_version(v):
             versions.add(v)
@@ -407,22 +359,21 @@ def _parse_game_versions(mod: Dict) -> List[str]:
 
 def _is_mc_version(v: str) -> bool:
     """检查字符串是否是 Minecraft 版本号"""
-    from version_utils import is_legacy_version_format, is_new_version_format, is_mc_snapshot_version
+    from version_utils import is_legacy_version_format, is_mc_snapshot_version, is_new_version_format
+
     return bool(is_legacy_version_format(v) or is_new_version_format(v) or is_mc_snapshot_version(v))
 
 
 def _version_sort_key(v: str) -> tuple:
     """版本号排序键"""
     from version_utils import version_to_drop
+
     drop = version_to_drop(v, allow_snapshot=True)
     return (drop, v)
 
 
 def get_project_files(
-    project_id: int,
-    game_version: Optional[str] = None,
-    mod_loader: Optional[str] = None,
-    limit: int = 50,
+    project_id: int, game_version: Optional[str] = None, mod_loader: Optional[str] = None, limit: int = 50
 ) -> List[Dict]:
     """
     获取 CurseForge 项目文件列表
@@ -448,7 +399,7 @@ def get_project_files(
     seen_ids = set()
 
     # latestFiles 包含文件名、downloadUrl、modLoaderTypes 等完整信息
-    for f in (info.get("latestFiles") or []):
+    for f in info.get("latestFiles") or []:
         file_id = f.get("id")
         if file_id in seen_ids:
             continue
@@ -466,21 +417,23 @@ def get_project_files(
             if file_versions and game_version not in file_versions:
                 continue
 
-        files.append({
-            "id": file_id,
-            "project_id": project_id,
-            "display_name": f.get("displayName", ""),
-            "file_name": f.get("fileName", ""),
-            "download_url": f.get("downloadUrl", ""),
-            "version": f.get("displayName", ""),
-            "release_type": FILE_STATUS_MAP.get(f.get("releaseType", 1), "release"),
-            "file_date": f.get("fileDate", ""),
-            "game_versions": f.get("gameVersions", []),
-            "loaders": [LOADER_TYPE_MAP.get(lt, str(lt)) for lt in (f.get("modLoaderTypes") or [])],
-            "download_count": f.get("downloadCount", 0),
-            "hashes": {h.get("algo", 1): h.get("value", "") for h in (f.get("hashes") or [])},
-            "source": "curseforge",
-        })
+        files.append(
+            {
+                "id": file_id,
+                "project_id": project_id,
+                "display_name": f.get("displayName", ""),
+                "file_name": f.get("fileName", ""),
+                "download_url": f.get("downloadUrl", ""),
+                "version": f.get("displayName", ""),
+                "release_type": FILE_STATUS_MAP.get(f.get("releaseType", 1), "release"),
+                "file_date": f.get("fileDate", ""),
+                "game_versions": f.get("gameVersions", []),
+                "loaders": [LOADER_TYPE_MAP.get(lt, str(lt)) for lt in (f.get("modLoaderTypes") or [])],
+                "download_count": f.get("downloadCount", 0),
+                "hashes": {h.get("algo", 1): h.get("value", "") for h in (f.get("hashes") or [])},
+                "source": "curseforge",
+            }
+        )
 
         if len(files) >= limit:
             break
@@ -489,10 +442,7 @@ def get_project_files(
 
 
 def get_latest_version(
-    project_id: int,
-    game_version: Optional[str] = None,
-    mod_loader: Optional[str] = None,
-    version_type: str = "release",
+    project_id: int, game_version: Optional[str] = None, mod_loader: Optional[str] = None, version_type: str = "release"
 ) -> Optional[Dict]:
     """
     获取 CurseForge 项目的最佳兼容文件（PCL-CE 风格）
@@ -528,10 +478,7 @@ def get_latest_version(
     return files[0] if files else None
 
 
-def get_file_download_url(
-    project_id: int,
-    file_id: int,
-) -> Optional[str]:
+def get_file_download_url(project_id: int, file_id: int) -> Optional[str]:
     """
     获取 CurseForge 文件的下载 URL
 
@@ -547,10 +494,7 @@ def get_file_download_url(
     """
     try:
         session = _get_session()
-        resp = session.post(
-            f"{CURSEFORGE_API_BASE}/mods/{project_id}/files/{file_id}/download-url",
-            timeout=15,
-        )
+        resp = session.post(f"{CURSEFORGE_API_BASE}/mods/{project_id}/files/{file_id}/download-url", timeout=15)
         resp.raise_for_status()
         data = resp.json()
         return data.get("data", "")
@@ -562,6 +506,7 @@ def get_file_download_url(
 # ══════════════════════════════════════════════════════════════════════
 # 下载与安装
 # ══════════════════════════════════════════════════════════════════════
+
 
 def download_file(
     project_id: int,
@@ -667,6 +612,7 @@ def install_mod(
 # 版本比较（委托到 version_utils）
 # ══════════════════════════════════════════════════════════════════════
 
+
 def compare_versions_curse(current: str, latest: str) -> Optional[int]:
     """比较两个 CurseForge 模组版本号，委托到 version_utils"""
     if not current or not latest:
@@ -687,11 +633,9 @@ def compare_versions_curse(current: str, latest: str) -> Optional[int]:
 # 更新检测辅助
 # ══════════════════════════════════════════════════════════════════════
 
+
 def get_latest_version_for_update(
-    project_id: int,
-    game_version: Optional[str] = None,
-    mod_loader: Optional[str] = None,
-    version_type: str = "release",
+    project_id: int, game_version: Optional[str] = None, mod_loader: Optional[str] = None, version_type: str = "release"
 ) -> Optional[Dict]:
     """
     获取用于更新检测的版本信息（PCL-CE 风格多策略回退）
@@ -734,6 +678,7 @@ def get_latest_version_for_update(
 # 项目搜索（通过 slug / modid）
 # ══════════════════════════════════════════════════════════════════════
 
+
 def search_project_by_slug(slug: str, class_id: Optional[int] = None) -> Optional[Dict]:
     """
     通过 slug 搜索 CurseForge 项目
@@ -747,20 +692,13 @@ def search_project_by_slug(slug: str, class_id: Optional[int] = None) -> Optiona
     Returns:
         项目信息字典，或 None
     """
-    params: Dict[str, str] = {
-        "gameId": str(CURSEFORGE_GAME_ID),
-        "slug": slug,
-    }
+    params: Dict[str, str] = {"gameId": str(CURSEFORGE_GAME_ID), "slug": slug}
     if class_id:
         params["classId"] = str(class_id)
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{CURSEFORGE_API_BASE}/mods/search",
-            params=params,
-            timeout=15,
-        )
+        resp = session.get(f"{CURSEFORGE_API_BASE}/mods/search", params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         results = data.get("data", [])
@@ -773,6 +711,7 @@ def search_project_by_slug(slug: str, class_id: Optional[int] = None) -> Optiona
 # ══════════════════════════════════════════════════════════════════════
 # 搜索结果标准化（用于双源合并）
 # ══════════════════════════════════════════════════════════════════════
+
 
 def normalize_search_result(cf_result: Dict) -> Dict:
     """
@@ -814,6 +753,7 @@ def normalize_search_result(cf_result: Dict) -> Dict:
 # 双源合并搜索（Modrinth + CurseForge）
 # ══════════════════════════════════════════════════════════════════════
 
+
 def normalize_modrinth_result(mr_hit: Dict) -> Dict:
     """将 Modrinth 搜索结果归一化为统一格式"""
     return {
@@ -832,9 +772,7 @@ def normalize_modrinth_result(mr_hit: Dict) -> Dict:
 
 
 def merge_and_rank(
-    modrinth_results: List[Dict],
-    curseforge_results: List[Dict],
-    dedup_threshold: float = 0.8,
+    modrinth_results: List[Dict], curseforge_results: List[Dict], dedup_threshold: float = 0.8
 ) -> List[Dict]:
     """
     合并两个源的结果，同名资源优先取下载量高的平台，然后按下载量降序排列
@@ -869,8 +807,7 @@ def merge_and_rank(
     # 按下载量降序
     ranked = sorted(merged.values(), key=lambda x: x["downloads"], reverse=True)
     logger.info(
-        f"双源合并: Modrinth={len(modrinth_results)}, CurseForge={len(curseforge_results)}, "
-        f"去重后={len(ranked)}"
+        f"双源合并: Modrinth={len(modrinth_results)}, CurseForge={len(curseforge_results)}, " f"去重后={len(ranked)}"
     )
     return ranked
 
@@ -883,15 +820,12 @@ def _dedup_key(item: Dict) -> str:
     title = (item.get("title") or "").lower().strip()
     # 去除非字母数字字符
     import re
+
     return re.sub(r"[^a-z0-9]", "", title)
 
 
 def _fetch_modrinth_batch(
-    search_fn,
-    query: str,
-    game_version: Optional[str],
-    mod_loader: Optional[str] = None,
-    target_count: int = 200,
+    search_fn, query: str, game_version: Optional[str], mod_loader: Optional[str] = None, target_count: int = 200
 ) -> tuple:
     """
     从 Modrinth 批量拉取搜索结果（支持多页）
@@ -910,7 +844,7 @@ def _fetch_modrinth_batch(
         (all_hits: list, total_hits: int)  — total_hits 为 API 返回的真实总数
     """
     page_size = 100  # Modrinth 单页上限
-    max_pages = 5    # 最多拉 5 页（500 条）
+    max_pages = 5  # 最多拉 5 页（500 条）
 
     def _call_search(offset_val):
         if mod_loader is not None:
@@ -943,11 +877,7 @@ def _fetch_modrinth_batch(
 
 
 def _fetch_curseforge_batch(
-    search_fn,
-    query: str,
-    game_version: Optional[str],
-    mod_loader: Optional[str] = None,
-    target_count: int = 100,
+    search_fn, query: str, game_version: Optional[str], mod_loader: Optional[str] = None, target_count: int = 100
 ) -> list:
     """
     从 CurseForge 批量拉取搜索结果（支持多页）
@@ -1020,17 +950,13 @@ def unified_search_mods(
     from modrinth import search_mods as mr_search
 
     # 1. Modrinth 批量拉取（最多 200 条，支持多页）
-    mr_hits, mr_total = _fetch_modrinth_batch(
-        mr_search, query, game_version, mod_loader, target_count=200,
-    )
+    mr_hits, mr_total = _fetch_modrinth_batch(mr_search, query, game_version, mod_loader, target_count=200)
     mr_normalized = [normalize_modrinth_result(h) for h in mr_hits]
 
     # 2. CurseForge 批量拉取（最多 100 条，支持多页）
     cf_normalized = []
     if include_curseforge and is_configured():
-        cf_data = _fetch_curseforge_batch(
-            search_mods, query, game_version, mod_loader, target_count=100,
-        )
+        cf_data = _fetch_curseforge_batch(search_mods, query, game_version, mod_loader, target_count=100)
         for cf_item in cf_data:
             cf_normalized.append(normalize_search_result(cf_item))
 
@@ -1040,17 +966,14 @@ def unified_search_mods(
     # 4. 使用 Modrinth 的真实 total_hits 作为总数参考
     #    （因为 Modrinth 通常是数据量更大的源）
     total = mr_total if mr_total > 0 else len(merged)
-    page = merged[offset:offset + limit]
+    page = merged[offset : offset + limit]
 
     return {
         "hits": page,
         "total_hits": total,
         "offset": offset,
         "limit": limit,
-        "sources": {
-            "modrinth": len(mr_normalized),
-            "curseforge": len(cf_normalized),
-        },
+        "sources": {"modrinth": len(mr_normalized), "curseforge": len(cf_normalized)},
     }
 
 
@@ -1064,22 +987,18 @@ def unified_search_resource_packs(
     """双源合并搜索资源包"""
     from modrinth import search_resource_packs as mr_search
 
-    mr_hits, mr_total = _fetch_modrinth_batch(
-        mr_search, query, game_version, None, target_count=200,
-    )
+    mr_hits, mr_total = _fetch_modrinth_batch(mr_search, query, game_version, None, target_count=200)
     mr_normalized = [normalize_modrinth_result(h) for h in mr_hits]
 
     cf_normalized = []
     if include_curseforge and is_configured():
-        cf_data = _fetch_curseforge_batch(
-            search_resource_packs, query, game_version, None, target_count=100,
-        )
+        cf_data = _fetch_curseforge_batch(search_resource_packs, query, game_version, None, target_count=100)
         for cf_item in cf_data:
             cf_normalized.append(normalize_search_result(cf_item))
 
     merged = merge_and_rank(mr_normalized, cf_normalized)
     total = mr_total if mr_total > 0 else len(merged)
-    page = merged[offset:offset + limit]
+    page = merged[offset : offset + limit]
 
     return {
         "hits": page,
@@ -1100,22 +1019,18 @@ def unified_search_shaders(
     """双源合并搜索光影"""
     from modrinth import search_shaders as mr_search
 
-    mr_hits, mr_total = _fetch_modrinth_batch(
-        mr_search, query, game_version, None, target_count=200,
-    )
+    mr_hits, mr_total = _fetch_modrinth_batch(mr_search, query, game_version, None, target_count=200)
     mr_normalized = [normalize_modrinth_result(h) for h in mr_hits]
 
     cf_normalized = []
     if include_curseforge and is_configured():
-        cf_data = _fetch_curseforge_batch(
-            search_shaders, query, game_version, None, target_count=100,
-        )
+        cf_data = _fetch_curseforge_batch(search_shaders, query, game_version, None, target_count=100)
         for cf_item in cf_data:
             cf_normalized.append(normalize_search_result(cf_item))
 
     merged = merge_and_rank(mr_normalized, cf_normalized)
     total = mr_total if mr_total > 0 else len(merged)
-    page = merged[offset:offset + limit]
+    page = merged[offset : offset + limit]
 
     return {
         "hits": page,
@@ -1130,12 +1045,9 @@ def unified_search_shaders(
 # 双源更新检测
 # ══════════════════════════════════════════════════════════════════════
 
+
 def check_update_dual_source(
-    modid: str,
-    mod_name: str,
-    current_version: str,
-    game_version: str,
-    mod_loader: str,
+    modid: str, mod_name: str, current_version: str, game_version: str, mod_loader: str
 ) -> Optional[Dict]:
     """
     双源检查模组更新（Modrinth + CurseForge）
@@ -1157,18 +1069,14 @@ def check_update_dual_source(
         }
         或 None（无需更新或无法检测）
     """
-    from modrinth import get_latest_version_by_slug as mr_latest
     from modrinth import compare_mod_versions
+    from modrinth import get_latest_version_by_slug as mr_latest
 
     best_result = None
     best_version = current_version
 
     # 1. Modrinth 查询
-    mr = mr_latest(
-        slug=modid,
-        game_version=game_version,
-        mod_loader=mod_loader,
-    )
+    mr = mr_latest(slug=modid, game_version=game_version, mod_loader=mod_loader)
     if mr:
         mr_proj_id, version_info = mr
         latest_ver = version_info.get("version_number", "")
@@ -1200,11 +1108,7 @@ def check_update_dual_source(
             if cf_project:
                 cf_id = cf_project.get("id")
                 if cf_id:
-                    cf_version = get_latest_version_for_update(
-                        cf_id,
-                        game_version=game_version,
-                        mod_loader=mod_loader,
-                    )
+                    cf_version = get_latest_version_for_update(cf_id, game_version=game_version, mod_loader=mod_loader)
                     if cf_version:
                         cf_ver = cf_version.get("version", "") or cf_version.get("display_name", "")
                         if cf_ver and compare_mod_versions(current_version, cf_ver) is not None:

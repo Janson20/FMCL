@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Set, Tuple, Optional
+from typing import Dict, List, Optional, Set, Tuple
 
 from logzero import logger
 
@@ -10,13 +10,15 @@ from logzero import logger
 @dataclass
 class VersionConstraint:
     """单个版本约束，如 '>=1.0.0' 或 '<2.0.0'"""
-    op: str          # >=, <=, >, <, ==, !=
-    version: str     # 1.0.0
+
+    op: str  # >=, <=, >, <, ==, !=
+    version: str  # 1.0.0
 
 
 @dataclass
 class PluginDependency:
     """解析后的依赖项"""
+
     plugin_id: str
     constraints: List[VersionConstraint]
 
@@ -73,9 +75,9 @@ def _compare_semver(v1: str, v2: str) -> int:
     if not a_pre and not b_pre:
         return 0
     if not a_pre and b_pre:
-        return 1    # 1.0.0 > 1.0.0-beta
+        return 1  # 1.0.0 > 1.0.0-beta
     if a_pre and not b_pre:
-        return -1   # 1.0.0-beta < 1.0.0
+        return -1  # 1.0.0-beta < 1.0.0
 
     # 两个都有 pre-release
     max_len = max(len(a_pre), len(b_pre))
@@ -89,7 +91,7 @@ def _compare_semver(v1: str, v2: str) -> int:
             if diff != 0:
                 return diff
         elif part_a.isdigit():
-            return -1   # 数字优先
+            return -1  # 数字优先
         elif part_b.isdigit():
             return 1
         else:
@@ -105,12 +107,9 @@ def _parse_constraint(constraint_str: str) -> List[VersionConstraint]:
     """解析约束字符串，如 '>=1.0,<2.0' 或 '==1.5.0'"""
     constraints = []
     # 匹配操作符 + 版本号
-    pattern = re.compile(r'(>=|<=|!=|==|>|<)\s*([\w.\-+]+)')
+    pattern = re.compile(r"(>=|<=|!=|==|>|<)\s*([\w.\-+]+)")
     for match in pattern.finditer(constraint_str):
-        constraints.append(VersionConstraint(
-            op=match.group(1),
-            version=match.group(2),
-        ))
+        constraints.append(VersionConstraint(op=match.group(1), version=match.group(2)))
     if not constraints:
         # 尝试作为简单版本号处理 (隐含 ==)
         clean = constraint_str.strip()
@@ -144,10 +143,7 @@ def parse_dependencies(raw_deps: Dict[str, str]) -> List[PluginDependency]:
     for plugin_id, constraint_str in raw_deps.items():
         constraints = _parse_constraint(constraint_str)
         if constraints:
-            result.append(PluginDependency(
-                plugin_id=plugin_id,
-                constraints=constraints,
-            ))
+            result.append(PluginDependency(plugin_id=plugin_id, constraints=constraints))
     return result
 
 
@@ -163,10 +159,7 @@ class DependencyResolver:
     def __init__(self):
         pass
 
-    def resolve_load_order(
-        self,
-        plugins: Dict[str, Tuple[str, Dict[str, str]]],
-    ) -> Tuple[List[str], List[str]]:
+    def resolve_load_order(self, plugins: Dict[str, Tuple[str, Dict[str, str]]]) -> Tuple[List[str], List[str]]:
         """解析加载顺序
 
         Args:
@@ -214,11 +207,7 @@ class DependencyResolver:
 
         return sorted_order, errors
 
-    def check_version_compatibility(
-        self,
-        deps: Dict[str, str],
-        installed: Dict[str, str],
-    ) -> Tuple[bool, List[str]]:
+    def check_version_compatibility(self, deps: Dict[str, str], installed: Dict[str, str]) -> Tuple[bool, List[str]]:
         """检查版本兼容性
 
         Args:
@@ -237,20 +226,12 @@ class DependencyResolver:
                 errors.append(f"缺少依赖: {dep.plugin_id}")
                 continue
             if not _check_constraint(dep.constraints, installed_ver):
-                constraint_str = ", ".join(
-                    f"{c.op}{c.version}" for c in dep.constraints
-                )
-                errors.append(
-                    f"{dep.plugin_id} 版本 {installed_ver} 不满足约束 {constraint_str}"
-                )
+                constraint_str = ", ".join(f"{c.op}{c.version}" for c in dep.constraints)
+                errors.append(f"{dep.plugin_id} 版本 {installed_ver} 不满足约束 {constraint_str}")
 
         return len(errors) == 0, errors
 
-    def check_conflicts(
-        self,
-        conflicts: Dict[str, str],
-        installed: Dict[str, str],
-    ) -> Tuple[bool, List[str]]:
+    def check_conflicts(self, conflicts: Dict[str, str], installed: Dict[str, str]) -> Tuple[bool, List[str]]:
         """检查冲突
 
         Args:

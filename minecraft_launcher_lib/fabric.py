@@ -8,15 +8,17 @@
 
 fabric contains functions for dealing with the `Fabric modloader <https://fabricmc.net/>`_.
 """
-from ._helper import download_file, get_requests_response_cache, parse_maven_metadata, empty
-from .exceptions import VersionNotFound, UnsupportedVersion, ExternalProgramError
-from .types import FabricMinecraftVersion, FabricLoader, CallbackDict
-from .install import install_minecraft_version
-from .utils import is_version_valid
+
+import os
 import subprocess
 import tempfile
 import warnings
-import os
+
+from ._helper import download_file, empty, get_requests_response_cache, parse_maven_metadata
+from .exceptions import ExternalProgramError, UnsupportedVersion, VersionNotFound
+from .install import install_minecraft_version
+from .types import CallbackDict, FabricLoader, FabricMinecraftVersion
+from .utils import is_version_valid
 
 
 def get_all_minecraft_versions() -> list[FabricMinecraftVersion]:
@@ -155,7 +157,13 @@ def get_latest_installer_version() -> str:
     return parse_maven_metadata(FABRIC_INSTALLER_MAVEN_URL)["latest"]
 
 
-def install_fabric(minecraft_version: str, minecraft_directory: str | os.PathLike, loader_version: str | None = None, callback: CallbackDict | None = None, java: str | os.PathLike | None = None) -> None:
+def install_fabric(
+    minecraft_version: str,
+    minecraft_directory: str | os.PathLike,
+    loader_version: str | None = None,
+    callback: CallbackDict | None = None,
+    java: str | os.PathLike | None = None,
+) -> None:
     """
     Installs the Fabric modloader.
 
@@ -208,7 +216,20 @@ def install_fabric(minecraft_version: str, minecraft_directory: str | os.PathLik
 
         # Run the installer see https://fabricmc.net/wiki/install#cli_installation
         callback.get("setStatus", empty)("Running fabric installer")
-        command = ["java" if java is None else str(java), "-jar", installer_path, "client", "-dir", path, "-mcversion", minecraft_version, "-loader", loader_version, "-noprofile", "-snapshot"]
+        command = [
+            "java" if java is None else str(java),
+            "-jar",
+            installer_path,
+            "client",
+            "-dir",
+            path,
+            "-mcversion",
+            minecraft_version,
+            "-loader",
+            loader_version,
+            "-noprofile",
+            "-snapshot",
+        ]
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode != 0:
             raise ExternalProgramError(command, result.stdout, result.stderr)

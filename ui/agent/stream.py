@@ -7,28 +7,31 @@
 import json
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Generator, Optional, List, Dict, Any
+from typing import Any, Dict, Generator, List, Optional
+
 from logzero import logger
 
 
 class SSEEventType(Enum):
     """流式事件类型"""
-    TEXT_DELTA = auto()         # 文本增量
-    THINKING_DELTA = auto()     # 思考过程增量 (DeepSeek R1)
-    THINKING_DONE = auto()      # 思考结束
-    TOOL_CALL_START = auto()    # 工具调用开始 (带 tool_call_id)
-    TOOL_CALL_NAME = auto()     # 工具名称确定
-    TOOL_CALL_ARGS = auto()     # 工具参数增量
-    TOOL_CALL_END = auto()      # 工具调用结束
-    USAGE = auto()              # Token 用量统计
-    ERROR = auto()              # 错误
-    DONE = auto()               # 流结束
-    ABORT = auto()              # 被取消
+
+    TEXT_DELTA = auto()  # 文本增量
+    THINKING_DELTA = auto()  # 思考过程增量 (DeepSeek R1)
+    THINKING_DONE = auto()  # 思考结束
+    TOOL_CALL_START = auto()  # 工具调用开始 (带 tool_call_id)
+    TOOL_CALL_NAME = auto()  # 工具名称确定
+    TOOL_CALL_ARGS = auto()  # 工具参数增量
+    TOOL_CALL_END = auto()  # 工具调用结束
+    USAGE = auto()  # Token 用量统计
+    ERROR = auto()  # 错误
+    DONE = auto()  # 流结束
+    ABORT = auto()  # 被取消
 
 
 @dataclass
 class SSEEvent:
     """统一的流式事件数据类"""
+
     type: SSEEventType
     text: str = ""
     tool_call_id: str = ""
@@ -89,10 +92,7 @@ class SSEParser:
         if not choices:
             # 可能是 usage 信息
             if "usage" in chunk:
-                return SSEEvent(
-                    type=SSEEventType.USAGE,
-                    usage=chunk["usage"],
-                )
+                return SSEEvent(type=SSEEventType.USAGE, usage=chunk["usage"])
             return None
 
         choice = choices[0]
@@ -102,10 +102,7 @@ class SSEParser:
         # 思考内容 (DeepSeek R1 reasoning_content)
         reasoning = delta.get("reasoning_content", "")
         if reasoning:
-            return SSEEvent(
-                type=SSEEventType.THINKING_DELTA,
-                text=reasoning,
-            )
+            return SSEEvent(type=SSEEventType.THINKING_DELTA, text=reasoning)
 
         # 思考结束后标记
         if finish_reason == "stop" and self._thinking_accumulated:
@@ -121,11 +118,7 @@ class SSEParser:
         content = delta.get("content", "")
         if content:
             if finish_reason:
-                return SSEEvent(
-                    type=SSEEventType.TEXT_DELTA,
-                    text=content,
-                    finish_reason=finish_reason,
-                )
+                return SSEEvent(type=SSEEventType.TEXT_DELTA, text=content, finish_reason=finish_reason)
             return SSEEvent(type=SSEEventType.TEXT_DELTA, text=content)
 
         # 仅有 finish_reason 无内容
@@ -144,34 +137,19 @@ class SSEParser:
             arguments = func.get("arguments", "")
 
             if index not in self._current_tool_calls:
-                self._current_tool_calls[index] = {
-                    "id": tc_id or "",
-                    "name": name or "",
-                    "arguments": "",
-                }
+                self._current_tool_calls[index] = {"id": tc_id or "", "name": name or "", "arguments": ""}
                 if tc_id:
-                    return SSEEvent(
-                        type=SSEEventType.TOOL_CALL_START,
-                        tool_call_id=tc_id,
-                    )
+                    return SSEEvent(type=SSEEventType.TOOL_CALL_START, tool_call_id=tc_id)
 
             current = self._current_tool_calls[index]
             if tc_id and current["id"] != tc_id:
                 current["id"] = tc_id
             if name and current["name"] != name:
                 current["name"] = name
-                return SSEEvent(
-                    type=SSEEventType.TOOL_CALL_NAME,
-                    tool_call_id=current["id"],
-                    tool_name=name,
-                )
+                return SSEEvent(type=SSEEventType.TOOL_CALL_NAME, tool_call_id=current["id"], tool_name=name)
             if arguments:
                 current["arguments"] += arguments
-                return SSEEvent(
-                    type=SSEEventType.TOOL_CALL_ARGS,
-                    tool_call_id=current["id"],
-                    tool_args=arguments,
-                )
+                return SSEEvent(type=SSEEventType.TOOL_CALL_ARGS, tool_call_id=current["id"], tool_args=arguments)
 
         return None
 
@@ -185,14 +163,13 @@ class SSEParser:
                     args = json.loads(tc["arguments"]) if tc["arguments"] else {}
                 except json.JSONDecodeError:
                     args = {}
-                result.append({
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": json.dumps(args, ensure_ascii=False),
-                    },
-                })
+                result.append(
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {"name": tc["name"], "arguments": json.dumps(args, ensure_ascii=False)},
+                    }
+                )
         self._current_tool_calls.clear()
         return result
 
@@ -204,6 +181,7 @@ class SSEParser:
 
 
 # ---------- 高级流式接口 ----------
+
 
 def parse_event_stream(
     response,

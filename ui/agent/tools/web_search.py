@@ -6,12 +6,13 @@
 """
 
 import json
-import urllib.request
 import urllib.parse
-from typing import Dict, List, Optional, Callable
+import urllib.request
+from typing import Callable, Dict, List, Optional
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, CATEGORY_WEB
+from ui.agent.tools.base import CATEGORY_WEB, ToolInfo
 
 # 默认 User-Agent
 DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 FMCL/2.0"
@@ -25,10 +26,7 @@ def _build_web_search_tool() -> ToolInfo:
         parameters={
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "搜索关键词",
-                },
+                "query": {"type": "string", "description": "搜索关键词"},
                 "num": {
                     "type": "integer",
                     "description": "搜索结果数量（默认 5，最大 20）",
@@ -124,19 +122,15 @@ def _parse_duckduckgo_html(html: str, max_results: int) -> List[dict]:
     matches = result_pattern.findall(html)
     for url, title, snippet in matches[:max_results]:
         # 清理 HTML 标签
-        title = re.sub(r'<[^>]+>', '', title).strip()
-        snippet = re.sub(r'<[^>]+>', '', snippet).strip()
+        title = re.sub(r"<[^>]+>", "", title).strip()
+        snippet = re.sub(r"<[^>]+>", "", snippet).strip()
         # 清理 URL
         url = urllib.parse.unquote(url) if url else ""
         if url.startswith("//"):
             url = "https:" + url
 
         if title and url:
-            results.append({
-                "title": title,
-                "url": url,
-                "snippet": snippet or "(无简介)",
-            })
+            results.append({"title": title, "url": url, "snippet": snippet or "(无简介)"})
 
     return results
 
@@ -149,12 +143,7 @@ def _search_bing(query: str, num: int, api_key: str) -> str:
         full_url = f"{url}?{params}"
 
         req = urllib.request.Request(
-            full_url,
-            headers={
-                "Ocp-Apim-Subscription-Key": api_key,
-                "User-Agent": DEFAULT_UA,
-            },
-            method="GET",
+            full_url, headers={"Ocp-Apim-Subscription-Key": api_key, "User-Agent": DEFAULT_UA}, method="GET"
         )
 
         with urllib.request.urlopen(req, timeout=15) as resp:

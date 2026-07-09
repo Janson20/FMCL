@@ -1,8 +1,9 @@
 """整合包安装窗口 - 支持 Modrinth / MultiMC / CurseForge / HMCL / MCBBS / 通用压缩包"""
+
 import os
 import threading
 import tkinter.messagebox as messagebox
-from typing import List, Dict, Optional, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 
@@ -14,6 +15,7 @@ from ui.i18n import _
 def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
     try:
         from achievement_engine import get_achievement_engine
+
         engine = get_achievement_engine()
         if engine:
             engine.update_progress(achievement_id, value=value, trigger_type=trigger_type)
@@ -121,23 +123,30 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         self._info_frame = ctk.CTkFrame(main_frame, fg_color=COLORS["card_bg"], corner_radius=10)
 
         self._info_name_label = ctk.CTkLabel(
-            self._info_frame, text="",
+            self._info_frame,
+            text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
-            text_color=COLORS["text_primary"], anchor=ctk.W,
+            text_color=COLORS["text_primary"],
+            anchor=ctk.W,
         )
         self._info_name_label.pack(padx=15, pady=(12, 2), fill=ctk.X)
 
         self._info_summary_label = ctk.CTkLabel(
-            self._info_frame, text="",
+            self._info_frame,
+            text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_secondary"], anchor=ctk.W, wraplength=480,
+            text_color=COLORS["text_secondary"],
+            anchor=ctk.W,
+            wraplength=480,
         )
         self._info_summary_label.pack(padx=15, pady=(0, 2), fill=ctk.X)
 
         self._info_version_label = ctk.CTkLabel(
-            self._info_frame, text="",
+            self._info_frame,
+            text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["success"], anchor=ctk.W,
+            text_color=COLORS["success"],
+            anchor=ctk.W,
         )
         self._info_version_label.pack(padx=15, pady=(0, 5), fill=ctk.X)
 
@@ -149,35 +158,40 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         self._progress_frame = ctk.CTkFrame(main_frame, fg_color=COLORS["card_bg"], corner_radius=10)
 
         ctk.CTkLabel(
-            self._progress_frame, text=_("mp_install_progress_title"),
+            self._progress_frame,
+            text=_("mp_install_progress_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(12, 8), anchor=ctk.W)
 
         self._mp_progress_label = ctk.CTkLabel(
-            self._progress_frame, text=_("mp_prog_mrpack_init"),
+            self._progress_frame,
+            text=_("mp_prog_mrpack_init"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_secondary"], anchor=ctk.W,
+            text_color=COLORS["text_secondary"],
+            anchor=ctk.W,
         )
         self._mp_progress_label.pack(padx=15, pady=(0, 2), fill=ctk.X)
 
         self._mc_progress_label = ctk.CTkLabel(
-            self._progress_frame, text=_("mp_prog_vanilla_init"),
+            self._progress_frame,
+            text=_("mp_prog_vanilla_init"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_secondary"], anchor=ctk.W,
+            text_color=COLORS["text_secondary"],
+            anchor=ctk.W,
         )
         self._mc_progress_label.pack(padx=15, pady=(0, 8), fill=ctk.X)
 
         self._progress_status = ctk.CTkLabel(
-            self._progress_frame, text=_("mp_installing"),
+            self._progress_frame,
+            text=_("mp_installing"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["text_primary"],
         )
         self._progress_status.pack(padx=15, pady=(0, 5), fill=ctk.X)
 
         self._progress_bar = ctk.CTkProgressBar(
-            self._progress_frame, height=12,
-            fg_color=COLORS["bg_medium"], progress_color=COLORS["accent"],
+            self._progress_frame, height=12, fg_color=COLORS["bg_medium"], progress_color=COLORS["accent"]
         )
         self._progress_bar.pack(fill=ctk.X, padx=15, pady=(0, 12))
         self._progress_bar.set(0)
@@ -187,19 +201,25 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         self._bottom_frame.pack(fill=ctk.X, pady=(12, 0))
 
         self._install_btn = ctk.CTkButton(
-            self._bottom_frame, text=_("modpack_start_install"),
-            height=40, font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            self._bottom_frame,
+            text=_("modpack_start_install"),
+            height=40,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
             state=ctk.DISABLED,
             command=self._on_install,
         )
         self._install_btn.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
 
         self._close_btn = ctk.CTkButton(
-            self._bottom_frame, text=_("close"),
-            height=40, width=80,
+            self._bottom_frame,
+            text=_("close"),
+            height=40,
+            width=80,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
             command=self.destroy,
         )
         self._close_btn.pack(side=ctk.RIGHT, padx=(10, 0))
@@ -209,6 +229,7 @@ class ModpackInstallWindow(ctk.CTkToplevel):
     def _select_file(self):
         """选择整合包文件"""
         from tkinter import filedialog
+
         path = filedialog.askopenfilename(
             parent=self,
             title=_("mp_select_dialog_title"),
@@ -222,10 +243,7 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         if not path:
             return
         self._mrpack_path = path
-        self._file_label.configure(
-            text=os.path.basename(path),
-            text_color=COLORS["text_primary"],
-        )
+        self._file_label.configure(text=os.path.basename(path), text_color=COLORS["text_primary"])
         # 后台加载整合包信息
         self._install_btn.configure(state=ctk.DISABLED, text=_("mp_reading_info"))
         self._run_in_thread(self._load_mrpack_info)
@@ -233,22 +251,21 @@ class ModpackInstallWindow(ctk.CTkToplevel):
     def _open_modrinth_browser(self):
         """打开 Modrinth 整合包浏览窗口"""
         from ui.windows.modpack_browser import ModpackBrowserWindow
+
         ModpackBrowserWindow(self, on_modpack_selected=self._on_modrinth_downloaded)
 
     def _on_modrinth_downloaded(self, mrpack_path: str):
         """Modrinth 整合包下载完成后的回调"""
         self._mrpack_path = mrpack_path
-        self._file_label.configure(
-            text=os.path.basename(mrpack_path),
-            text_color=COLORS["text_primary"],
-        )
+        self._file_label.configure(text=os.path.basename(mrpack_path), text_color=COLORS["text_primary"])
         self._install_btn.configure(state=ctk.DISABLED, text=_("mp_reading_info"))
         self._run_in_thread(self._load_mrpack_info)
 
     def _load_mrpack_info(self):
         """读取整合包信息（后台线程）- 自动检测所有支持的格式"""
         from logzero import logger as _logger
-        from launcher.modpack_types import detect_modpack_archive, ModpackType
+
+        from launcher.modpack_types import ModpackType, detect_modpack_archive
 
         try:
             path = self._mrpack_path
@@ -343,8 +360,12 @@ class ModpackInstallWindow(ctk.CTkToplevel):
 
         # 格式标签
         format_labels = {
-            "mrpack": "Modrinth", "multimc": "MultiMC", "curseforge": "CurseForge",
-            "hmcl": "HMCL", "mcbbs": "MCBBS", "compress": _("mp_format_compress"),
+            "mrpack": "Modrinth",
+            "multimc": "MultiMC",
+            "curseforge": "CurseForge",
+            "hmcl": "HMCL",
+            "mcbbs": "MCBBS",
+            "compress": _("mp_format_compress"),
             "launcher_pack": _("mp_format_launcher_pack"),
         }
         format_display = format_labels.get(pack_format, pack_format)
@@ -371,9 +392,11 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         components = info.get("components", [])
         if components:
             ctk.CTkLabel(
-                self._optional_frame, text=_("mp_optional_components"),
+                self._optional_frame,
+                text=_("mp_optional_components"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLORS["text_secondary"], anchor=ctk.W,
+                text_color=COLORS["text_secondary"],
+                anchor=ctk.W,
             ).pack(fill=ctk.X, pady=(0, 3))
             for comp in components:
                 if isinstance(comp, dict):
@@ -381,26 +404,33 @@ class ModpackInstallWindow(ctk.CTkToplevel):
                 else:
                     comp_text = str(comp)
                 ctk.CTkLabel(
-                    self._optional_frame, text=f"  - {comp_text}",
+                    self._optional_frame,
+                    text=f"  - {comp_text}",
                     font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-                    text_color=COLORS["text_primary"], anchor=ctk.W,
+                    text_color=COLORS["text_primary"],
+                    anchor=ctk.W,
                 ).pack(anchor=ctk.W, pady=1)
 
     def _show_mrpack_optional_files(self, info: Dict):
         optional_files = info.get("optionalFiles", [])
         if optional_files:
             ctk.CTkLabel(
-                self._optional_frame, text=_("mp_optional_components"),
+                self._optional_frame,
+                text=_("mp_optional_components"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLORS["text_secondary"], anchor=ctk.W,
+                text_color=COLORS["text_secondary"],
+                anchor=ctk.W,
             ).pack(fill=ctk.X, pady=(0, 3))
             for opt_name in optional_files:
                 var = ctk.BooleanVar(value=False)
                 self._optional_var_map[opt_name] = var
                 ctk.CTkCheckBox(
-                    self._optional_frame, text=opt_name, variable=var,
+                    self._optional_frame,
+                    text=opt_name,
+                    variable=var,
                     font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-                    fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                    fg_color=COLORS["accent"],
+                    hover_color=COLORS["accent_hover"],
                     text_color=COLORS["text_primary"],
                 ).pack(anchor=ctk.W, pady=1)
 
@@ -413,7 +443,8 @@ class ModpackInstallWindow(ctk.CTkToplevel):
                 self._optional_frame,
                 text=_("mp_cf_files_info", required=required_count, optional=optional_count),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-                text_color=COLORS["text_secondary"], anchor=ctk.W,
+                text_color=COLORS["text_secondary"],
+                anchor=ctk.W,
             ).pack(fill=ctk.X, pady=(0, 3))
 
     def _show_generic_components(self, info: Dict):
@@ -422,15 +453,20 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         description = info.get("description", "")
         if description:
             ctk.CTkLabel(
-                self._optional_frame, text=description,
+                self._optional_frame,
+                text=description,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-                text_color=COLORS["text_secondary"], anchor=ctk.W, wraplength=480,
+                text_color=COLORS["text_secondary"],
+                anchor=ctk.W,
+                wraplength=480,
             ).pack(fill=ctk.X, pady=(0, 3))
         if components:
             ctk.CTkLabel(
-                self._optional_frame, text=_("mp_optional_components"),
+                self._optional_frame,
+                text=_("mp_optional_components"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLORS["text_secondary"], anchor=ctk.W,
+                text_color=COLORS["text_secondary"],
+                anchor=ctk.W,
             ).pack(fill=ctk.X, pady=(3, 3))
             for comp in components:
                 if isinstance(comp, dict):
@@ -438,9 +474,11 @@ class ModpackInstallWindow(ctk.CTkToplevel):
                 else:
                     comp_text = str(comp)
                 ctk.CTkLabel(
-                    self._optional_frame, text=f"  - {comp_text}",
+                    self._optional_frame,
+                    text=f"  - {comp_text}",
                     font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-                    text_color=COLORS["text_primary"], anchor=ctk.W,
+                    text_color=COLORS["text_primary"],
+                    anchor=ctk.W,
                 ).pack(anchor=ctk.W, pady=1)
 
     def _show_error(self, msg: str):
@@ -491,21 +529,17 @@ class ModpackInstallWindow(ctk.CTkToplevel):
                     overall = mp.get("overall", 0)
 
                     if phase == "detected":
-                        self._progress_status.configure(
-                            text=_("mp_format_detected", name=mp.get("format_name", "?"))
-                        )
+                        self._progress_status.configure(text=_("mp_format_detected", name=mp.get("format_name", "?")))
                     elif phase == "parallel":
                         mp_data = mp.get("mrpack", {})
                         mc_data = mp.get("vanilla", {})
                         mp_pct = (mp_data.get("current", 0) / max(mp_data.get("max", 1), 1)) * 100
                         mc_pct = (mc_data.get("current", 0) / max(mc_data.get("max", 1), 1)) * 100
                         self._mp_progress_label.configure(
-                            text=_("mp_prog_mrpack_label", pct=f"{mp_pct:.0f}",
-                                   label=mp_data.get('label', ''))
+                            text=_("mp_prog_mrpack_label", pct=f"{mp_pct:.0f}", label=mp_data.get("label", ""))
                         )
                         self._mc_progress_label.configure(
-                            text=_("mp_prog_vanilla_label", pct=f"{mc_pct:.0f}",
-                                   label=mc_data.get('label', ''))
+                            text=_("mp_prog_vanilla_label", pct=f"{mc_pct:.0f}", label=mc_data.get("label", ""))
                         )
                     else:
                         self._progress_status.configure(
@@ -530,20 +564,17 @@ class ModpackInstallWindow(ctk.CTkToplevel):
             if "install_modpack" in self.callbacks:
                 # 新版统一入口
                 success, result = self.callbacks["install_modpack"](
-                    self._mrpack_path,
-                    optional_file_ids=optional_files if optional_files else None,
+                    self._mrpack_path, optional_file_ids=optional_files if optional_files else None
                 )
             else:
                 # 回退：旧版格式分发
                 pack_format = self._mrpack_info.get("format", "mrpack") if self._mrpack_info else "mrpack"
                 if pack_format == "multimc" and "install_multimc_pack" in self.callbacks:
                     success, result = self.callbacks["install_multimc_pack"](
-                        self._mrpack_path, optional_files=optional_files,
+                        self._mrpack_path, optional_files=optional_files
                     )
                 else:
-                    success, result = self.callbacks["install_mrpack"](
-                        self._mrpack_path, optional_files=optional_files,
-                    )
+                    success, result = self.callbacks["install_mrpack"](self._mrpack_path, optional_files=optional_files)
             self.after(0, lambda s=success, r=result: self._on_install_done(s, r))
         except Exception as e:
             err_msg = str(e)
@@ -564,19 +595,13 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         if success:
             self._progress_status.configure(text=_("mp_install_done"), text_color=COLORS["success"])
             self._install_btn.configure(
-                text=_("mp_install_done_btn", result=result),
-                fg_color=COLORS["success"],
-                state=ctk.DISABLED,
+                text=_("mp_install_done_btn", result=result), fg_color=COLORS["success"], state=ctk.DISABLED
             )
             show_notification("📦", _("notify_modpack_installed"), result, notify_type="success")
             _trigger_ach("modder_lazy")
             # 刷新主窗口版本列表
             self.after(0, self.master._refresh_versions)
-            messagebox.showinfo(
-                _("mp_install_done_title"),
-                _("mp_install_done_msg", result=result),
-                parent=self,
-            )
+            messagebox.showinfo(_("mp_install_done_title"), _("mp_install_done_msg", result=result), parent=self)
             self.destroy()
         else:
             self._progress_status.configure(text=_("mp_install_failed_status"), text_color=COLORS["error"])

@@ -9,9 +9,10 @@ Anthropic 的 API 格式与 OpenAI 不同，需做格式转换：
 """
 
 import json
-import urllib.request
 import urllib.error
-from typing import Dict, List, Optional, Generator
+import urllib.request
+from typing import Dict, Generator, List, Optional
+
 from logzero import logger
 
 ANTHROPIC_DEFAULT_API_URL = "https://api.anthropic.com/v1/messages"
@@ -31,11 +32,7 @@ class AnthropicProvider:
     default_api_url = ANTHROPIC_DEFAULT_API_URL
 
     def __init__(
-        self,
-        api_key: str,
-        api_url: str = "",
-        timeout: int = 120,
-        extra_headers: Optional[Dict[str, str]] = None,
+        self, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None
     ):
         self.api_key = api_key
         self.api_url = api_url or ANTHROPIC_DEFAULT_API_URL
@@ -81,26 +78,30 @@ class AnthropicProvider:
                         parts.append({"type": "text", "text": content})
                     for tc in tool_calls:
                         func = tc.get("function", {})
-                        parts.append({
-                            "type": "tool_use",
-                            "id": tc.get("id", ""),
-                            "name": func.get("name", ""),
-                            "input": json.loads(func.get("arguments", "{}")) if isinstance(func.get("arguments"), str) else func.get("arguments", {}),
-                        })
+                        parts.append(
+                            {
+                                "type": "tool_use",
+                                "id": tc.get("id", ""),
+                                "name": func.get("name", ""),
+                                "input": (
+                                    json.loads(func.get("arguments", "{}"))
+                                    if isinstance(func.get("arguments"), str)
+                                    else func.get("arguments", {})
+                                ),
+                            }
+                        )
                     anthropic_msgs.append({"role": "assistant", "content": parts})
                 else:
                     anthropic_msgs.append({"role": "assistant", "content": content or ""})
             elif role == "tool":
                 # tool 结果 → tool_result
                 tool_call_id = msg.get("tool_call_id", "")
-                anthropic_msgs.append({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": tool_call_id,
-                        "content": content,
-                    }],
-                })
+                anthropic_msgs.append(
+                    {
+                        "role": "user",
+                        "content": [{"type": "tool_result", "tool_use_id": tool_call_id, "content": content}],
+                    }
+                )
 
         return system_text or None, anthropic_msgs
 
@@ -110,11 +111,13 @@ class AnthropicProvider:
         for t in tools:
             if t.get("type") == "function":
                 func = t["function"]
-                anthropic_tools.append({
-                    "name": func["name"],
-                    "description": func.get("description", ""),
-                    "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
-                })
+                anthropic_tools.append(
+                    {
+                        "name": func["name"],
+                        "description": func.get("description", ""),
+                        "input_schema": func.get("parameters", {"type": "object", "properties": {}}),
+                    }
+                )
         return anthropic_tools
 
     def _convert_response(self, response: Dict) -> Dict:
@@ -127,20 +130,18 @@ class AnthropicProvider:
             if block.get("type") == "text":
                 text_content += block.get("text", "")
             elif block.get("type") == "tool_use":
-                tool_calls.append({
-                    "id": block.get("id", ""),
-                    "type": "function",
-                    "function": {
-                        "name": block.get("name", ""),
-                        "arguments": json.dumps(block.get("input", {}), ensure_ascii=False),
-                    },
-                })
+                tool_calls.append(
+                    {
+                        "id": block.get("id", ""),
+                        "type": "function",
+                        "function": {
+                            "name": block.get("name", ""),
+                            "arguments": json.dumps(block.get("input", {}), ensure_ascii=False),
+                        },
+                    }
+                )
 
-        return {
-            "role": "assistant",
-            "content": text_content,
-            "tool_calls": tool_calls if tool_calls else None,
-        }
+        return {"role": "assistant", "content": text_content, "tool_calls": tool_calls if tool_calls else None}
 
     def _convert_sse_event(self, event: Dict) -> Optional[Dict]:
         """将 Anthropic SSE 事件转为统一的流式事件格式"""
@@ -158,10 +159,7 @@ class AnthropicProvider:
         elif event_type == "content_block_start":
             block = event.get("content_block", {})
             if block.get("type") == "tool_use":
-                return {
-                    "type": "tool_call_start",
-                    "tool_call_id": block.get("id", ""),
-                }
+                return {"type": "tool_call_start", "tool_call_id": block.get("id", "")}
         elif event_type == "content_block_stop":
             return None  # 中间状态，不转发
         elif event_type == "message_delta":
@@ -203,12 +201,7 @@ class AnthropicProvider:
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                self.api_url,
-                data=req_data,
-                headers=self._build_headers(),
-                method="POST",
-            )
+            req = urllib.request.Request(self.api_url, data=req_data, headers=self._build_headers(), method="POST")
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
 
@@ -251,12 +244,7 @@ class AnthropicProvider:
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                self.api_url,
-                data=req_data,
-                headers=self._build_headers(),
-                method="POST",
-            )
+            req = urllib.request.Request(self.api_url, data=req_data, headers=self._build_headers(), method="POST")
 
             accumulated_text = ""
             current_tool_call = None

@@ -1,17 +1,13 @@
 """国际化(i18n)模块 - 提供多语言支持"""
+
 import json
-import os
 import locale
+import os
 from pathlib import Path
 from typing import Dict, Optional
 
 # 可用语言列表
-AVAILABLE_LANGUAGES = {
-    "zh_CN": "简体中文",
-    "en_US": "English",
-    "ja_JP": "日本語",
-    "zh_TW": "繁體中文",
-}
+AVAILABLE_LANGUAGES = {"zh_CN": "简体中文", "en_US": "English", "ja_JP": "日本語", "zh_TW": "繁體中文"}
 
 # 默认语言
 DEFAULT_LANGUAGE = "zh_CN"
@@ -29,10 +25,12 @@ def _get_locales_dir() -> Path:
 
     # 如果运行在 PyInstaller 打包环境下，使用 _MEIPASS
     import sys
-    if getattr(sys, 'frozen', False) or hasattr(sys, "_MEIPASS"):
+
+    if getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS"):
         locales_dir = Path(sys._MEIPASS) / "ui" / "locales"
         if not locales_dir.exists():
             import logging
+
             logging.warning(f"PyInstaller locales dir not found: {locales_dir}, fallback to {base_dir / 'locales'}")
             locales_dir = base_dir / "locales"
 
@@ -70,7 +68,7 @@ def _detect_system_language() -> str:
                 system_locale = system_locale[0]
         if system_locale:
             # 标准化：某些平台的语言代码可能包含编码后缀（如 "zh_CN.UTF-8"）
-            system_locale = system_locale.split('.')[0]
+            system_locale = system_locale.split(".")[0]
             # 标准化语言代码
             lang_map = {
                 "zh_CN": "zh_CN",

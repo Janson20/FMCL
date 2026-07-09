@@ -5,13 +5,14 @@
     - 背景色块(控制栏+歌词行)通过调整 fg_color 的透明度来模拟整体半透明效果
     - 所有文字始终完全不透明
 """
+
 import tkinter as tk
+from typing import List, Optional
+
 import customtkinter as ctk
-from typing import Optional, List
 
 from ui.constants import COLORS, FONT_FAMILY
 from ui.music_lyrics import LyricLine
-
 
 _BG_COLOR = COLORS["bg_dark"]  # "#1a1a2e"
 
@@ -73,43 +74,61 @@ class DesktopLyricWindow:
         control_bar.pack_propagate(False)
 
         self._lock_btn = ctk.CTkButton(
-            control_bar, text="🔓", width=22, height=20,
-            font=ctk.CTkFont(size=10), fg_color="transparent",
+            control_bar,
+            text="🔓",
+            width=22,
+            height=20,
+            font=ctk.CTkFont(size=10),
+            fg_color="transparent",
             hover_color=COLORS["bg_light"],
             command=self._toggle_lock,
         )
         self._lock_btn.pack(side=tk.LEFT, padx=(4, 0))
 
         ctk.CTkButton(
-            control_bar, text="+", width=22, height=20,
-            font=ctk.CTkFont(size=12), fg_color="transparent",
+            control_bar,
+            text="+",
+            width=22,
+            height=20,
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent",
             hover_color=COLORS["bg_light"],
             command=self._increase_opacity,
         ).pack(side=tk.LEFT)
         ctk.CTkButton(
-            control_bar, text="-", width=22, height=20,
-            font=ctk.CTkFont(size=12), fg_color="transparent",
+            control_bar,
+            text="-",
+            width=22,
+            height=20,
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent",
             hover_color=COLORS["bg_light"],
             command=self._decrease_opacity,
         ).pack(side=tk.LEFT)
 
         title_label = ctk.CTkLabel(
-            control_bar, text="桌面歌词",
+            control_bar,
+            text="桌面歌词",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLORS["text_secondary"],
         )
         title_label.pack(side=tk.LEFT, padx=10)
 
         ctk.CTkButton(
-            control_bar, text="✕", width=22, height=20,
-            font=ctk.CTkFont(size=11), fg_color="transparent",
+            control_bar,
+            text="✕",
+            width=22,
+            height=20,
+            font=ctk.CTkFont(size=11),
+            fg_color="transparent",
             hover_color=COLORS["accent"],
             command=self.hide_lyric,
         ).pack(side=tk.RIGHT, padx=4)
 
         # ── 歌词行 ──
         self._prev_line_label = ctk.CTkLabel(
-            main, text="",
+            main,
+            text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_secondary"],
             wraplength=580,
@@ -117,7 +136,8 @@ class DesktopLyricWindow:
         self._prev_line_label.pack(fill=tk.X, pady=(6, 0), padx=10)
 
         self._current_line_label = ctk.CTkLabel(
-            main, text="FMCL 音乐播放器",
+            main,
+            text="FMCL 音乐播放器",
             font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
             text_color=COLORS["accent"],
             wraplength=580,
@@ -125,7 +145,8 @@ class DesktopLyricWindow:
         self._current_line_label.pack(fill=tk.X, pady=(0, 6), padx=10)
 
         self._next_line_label = ctk.CTkLabel(
-            main, text="",
+            main,
+            text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
             text_color=COLORS["text_secondary"],
             wraplength=580,
@@ -228,11 +249,7 @@ class DesktopLyricWindow:
         prev_text = self._lyric_lines[current_idx - 1].text if current_idx > 0 else ""
         self._prev_line_label.configure(text=prev_text)
 
-        nxt_text = (
-            self._lyric_lines[current_idx + 1].text
-            if current_idx + 1 < len(self._lyric_lines)
-            else ""
-        )
+        nxt_text = self._lyric_lines[current_idx + 1].text if current_idx + 1 < len(self._lyric_lines) else ""
         self._next_line_label.configure(text=nxt_text)
 
     def _find_current_line(self, elapsed_ms: int) -> int:

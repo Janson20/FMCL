@@ -10,7 +10,7 @@
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Dict, List, Any, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from logzero import logger
 
@@ -19,9 +19,10 @@ from plugin_manager.base import HookPoint
 
 class HookStrategy(str, Enum):
     """钩子触发策略"""
-    ALL = "all"                  # 按优先级依次调用所有处理器，不关心返回值
-    COLLECT = "collect"          # 按优先级依次调用，收集所有返回值
-    FIRST = "first"              # 按优先级依次调用，返回第一个非 None 值
+
+    ALL = "all"  # 按优先级依次调用所有处理器，不关心返回值
+    COLLECT = "collect"  # 按优先级依次调用，收集所有返回值
+    FIRST = "first"  # 按优先级依次调用，返回第一个非 None 值
     SHORT_CIRCUIT = "short_circuit"  # 按优先级依次调用，某个处理器返回 True 则停止
 
 
@@ -31,10 +32,10 @@ _HOOK_DEFAULT_STRATEGY: Dict[HookPoint, HookStrategy] = {
     HookPoint.APP_STARTUP: HookStrategy.ALL,
     HookPoint.APP_SHUTDOWN: HookStrategy.ALL,
     # 游戏生命周期
-    HookPoint.GAME_PRE_LAUNCH: HookStrategy.COLLECT,    # 收集多个插件的启动参数修改
+    HookPoint.GAME_PRE_LAUNCH: HookStrategy.COLLECT,  # 收集多个插件的启动参数修改
     HookPoint.GAME_POST_LAUNCH: HookStrategy.ALL,
     HookPoint.GAME_STOPPED: HookStrategy.ALL,
-    HookPoint.GAME_CRASHED: HookStrategy.COLLECT,       # 收集多个插件的崩溃分析结果
+    HookPoint.GAME_CRASHED: HookStrategy.COLLECT,  # 收集多个插件的崩溃分析结果
     # 版本生命周期
     HookPoint.VERSION_PRE_INSTALL: HookStrategy.FIRST,  # 首个插件可阻止安装
     HookPoint.VERSION_POST_INSTALL: HookStrategy.ALL,
@@ -44,8 +45,8 @@ _HOOK_DEFAULT_STRATEGY: Dict[HookPoint, HookStrategy] = {
     HookPoint.SERVER_POST_START: HookStrategy.ALL,
     HookPoint.SERVER_STOPPED: HookStrategy.ALL,
     # UI 扩展
-    HookPoint.UI_TAB_REGISTER: HookStrategy.COLLECT,       # 收集所有插件的标签页
-    HookPoint.UI_SIDEBAR_REGISTER: HookStrategy.COLLECT,   # 收集侧边栏项目
+    HookPoint.UI_TAB_REGISTER: HookStrategy.COLLECT,  # 收集所有插件的标签页
+    HookPoint.UI_SIDEBAR_REGISTER: HookStrategy.COLLECT,  # 收集侧边栏项目
     HookPoint.UI_SETTINGS_REGISTER: HookStrategy.COLLECT,  # 收集设置条目
     # 下载生命周期
     HookPoint.DOWNLOAD_PRE_DOWNLOAD: HookStrategy.COLLECT,
@@ -56,6 +57,7 @@ _HOOK_DEFAULT_STRATEGY: Dict[HookPoint, HookStrategy] = {
 @dataclass(order=True)
 class HookHandler:
     """钩子处理器"""
+
     priority: int
     plugin_id: str = field(compare=False)
     callback: Callable = field(compare=False)
@@ -82,18 +84,10 @@ class HookBus:
     """
 
     def __init__(self):
-        self._handlers: Dict[HookPoint, List[HookHandler]] = {
-            hp: [] for hp in HookPoint
-        }
+        self._handlers: Dict[HookPoint, List[HookHandler]] = {hp: [] for hp in HookPoint}
         self._lock = threading.RLock()
 
-    def register(
-        self,
-        hook_point: HookPoint,
-        callback: Callable,
-        plugin_id: str,
-        priority: int = 100,
-    ) -> bool:
+    def register(self, hook_point: HookPoint, callback: Callable, plugin_id: str, priority: int = 100) -> bool:
         """注册钩子处理器
 
         Args:
@@ -105,20 +99,13 @@ class HookBus:
         Returns:
             是否注册成功
         """
-        handler = HookHandler(
-            priority=priority,
-            plugin_id=plugin_id,
-            callback=callback,
-            hook_point=hook_point,
-        )
+        handler = HookHandler(priority=priority, plugin_id=plugin_id, callback=callback, hook_point=hook_point)
         with self._lock:
             # 防止重复注册
             existing = self._handlers.get(hook_point, [])
             for h in existing:
                 if h.plugin_id == plugin_id and h.callback is callback:
-                    logger.warning(
-                        f"HookBus: 插件 '{plugin_id}' 重复注册钩子 {hook_point.value}，已忽略"
-                    )
+                    logger.warning(f"HookBus: 插件 '{plugin_id}' 重复注册钩子 {hook_point.value}，已忽略")
                     return False
             existing.append(handler)
             existing.sort()  # 按 priority 排序
@@ -134,9 +121,7 @@ class HookBus:
         count = 0
         with self._lock:
             handlers = self._handlers.get(hook_point, [])
-            self._handlers[hook_point] = [
-                h for h in handlers if h.plugin_id != plugin_id
-            ]
+            self._handlers[hook_point] = [h for h in handlers if h.plugin_id != plugin_id]
             count = len(handlers) - len(self._handlers[hook_point])
         if count > 0:
             logger.debug(f"HookBus: [{plugin_id}] 注销钩子 {hook_point.value} ({count} 个)")
@@ -218,10 +203,7 @@ class HookBus:
             try:
                 handler.callback(**kwargs)
             except Exception as e:
-                logger.error(
-                    f"HookBus: 插件 '{handler.plugin_id}' "
-                    f"钩子 {handler.hook_point.value} 执行异常: {e}"
-                )
+                logger.error(f"HookBus: 插件 '{handler.plugin_id}' " f"钩子 {handler.hook_point.value} 执行异常: {e}")
 
     def _execute_collect(self, handlers: List[HookHandler], kwargs: dict) -> list:
         """依次执行，收集所有返回值（附带 plugin_id）
@@ -236,10 +218,7 @@ class HookBus:
                 if result is not None:
                     results.append((handler.plugin_id, result))
             except Exception as e:
-                logger.error(
-                    f"HookBus: 插件 '{handler.plugin_id}' "
-                    f"钩子 {handler.hook_point.value} 收集异常: {e}"
-                )
+                logger.error(f"HookBus: 插件 '{handler.plugin_id}' " f"钩子 {handler.hook_point.value} 收集异常: {e}")
         return results
 
     def _execute_first(self, handlers: List[HookHandler], kwargs: dict) -> Any:
@@ -250,10 +229,7 @@ class HookBus:
                 if result is not None:
                     return result
             except Exception as e:
-                logger.error(
-                    f"HookBus: 插件 '{handler.plugin_id}' "
-                    f"钩子 {handler.hook_point.value} 异常: {e}"
-                )
+                logger.error(f"HookBus: 插件 '{handler.plugin_id}' " f"钩子 {handler.hook_point.value} 异常: {e}")
         return None
 
     def _execute_short_circuit(self, handlers: List[HookHandler], kwargs: dict) -> bool:
@@ -263,8 +239,5 @@ class HookBus:
                 if handler.callback(**kwargs):
                     return True
             except Exception as e:
-                logger.error(
-                    f"HookBus: 插件 '{handler.plugin_id}' "
-                    f"钩子 {handler.hook_point.value} 短路异常: {e}"
-                )
+                logger.error(f"HookBus: 插件 '{handler.plugin_id}' " f"钩子 {handler.hook_point.value} 短路异常: {e}")
         return False

@@ -1,11 +1,12 @@
 """酷我音乐 音源插件"""
+
 import json
 import logging
 import re
 from typing import List, Optional
 
 from ui.music_source.base import BaseMusicSource, MusicInfo, QualityLevel
-from ui.music_source.utils import decode_name, format_singer, create_session
+from ui.music_source.utils import create_session, decode_name, format_singer
 
 logger = logging.getLogger("music_source.kw")
 
@@ -90,12 +91,7 @@ class KuWoMusicSource(BaseMusicSource):
         _types = {}
         for match in _MINFO_RE.finditer(n_minfo):
             level, bitrate, fmt, size = match.groups()
-            type_map = {
-                "4000": "flac24bit",
-                "2000": "flac",
-                "320": "320k",
-                "128": "128k",
-            }
+            type_map = {"4000": "flac24bit", "2000": "flac", "320": "320k", "128": "128k"}
             q = type_map.get(bitrate)
             if q:
                 types.append({"type": q, "size": size})
@@ -131,10 +127,7 @@ class KuWoMusicSource(BaseMusicSource):
     def get_lyric(self, info: MusicInfo) -> Optional[str]:
         try:
             resp = self.http_get(
-                KW_LYRIC_URL,
-                params={"musicId": info.songmid},
-                headers={"Referer": "http://m.kuwo.cn/"},
-                timeout=10,
+                KW_LYRIC_URL, params={"musicId": info.songmid}, headers={"Referer": "http://m.kuwo.cn/"}, timeout=10
             )
             data = resp.json()
             lrc_list = (data.get("data") or {}).get("lrclist") or []
@@ -162,10 +155,7 @@ class KuWoMusicSource(BaseMusicSource):
     # ── 获取封面 ─────────────────────────────────────
 
     def get_pic_url(self, info: MusicInfo) -> Optional[str]:
-        params = {
-            "flag": "6",
-            "rid": f"MUSIC_{info.songmid}",
-        }
+        params = {"flag": "6", "rid": f"MUSIC_{info.songmid}"}
         try:
             resp = self.http_get(KW_PIC_URL, params=params, timeout=10)
             return resp.text.strip()

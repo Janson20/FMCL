@@ -9,12 +9,13 @@ mod_loader.install() 会在原版未安装时自动安装原版。
   - Fabric:   fabric-loader-{loader_version}-{mc_version}  (如 "fabric-loader-0.15.11-1.20.4" 或 "fabric-loader-0.16.0-26.1.1")
   - NeoForge: {mc_version}-neoforge-{neoforge_version}  (如 "1.20.4-neoforge-20.4.234" 或 "26.1-neoforge-1.0.0")
 """
+
 import asyncio
 import os
 import threading
 import time
-from typing import Optional, Callable, Dict, Tuple, List
 from pathlib import Path
+from typing import Callable, Dict, List, Optional, Tuple
 
 import requests
 from logzero import logger
@@ -72,21 +73,15 @@ class MultiThreadDownloader:
         self.lock = threading.Lock()
 
     def _download_part(
-        self,
-        url: str,
-        start_byte: int,
-        end_byte: int,
-        part_number: int,
-        filename: Path,
-        progress_bar
+        self, url: str, start_byte: int, end_byte: int, part_number: int, filename: Path, progress_bar
     ) -> None:
-        headers = {'Range': f'bytes={start_byte}-{end_byte}'}
+        headers = {"Range": f"bytes={start_byte}-{end_byte}"}
         try:
             response = requests.get(url, headers=headers, stream=True, timeout=30)
             response.raise_for_status()
 
             part_filename = f"{filename}.part{part_number}"
-            with open(part_filename, 'wb') as f:
+            with open(part_filename, "wb") as f:
                 for chunk in response.iter_content(chunk_size=self.chunk_size):
                     if chunk:
                         f.write(chunk)
@@ -99,11 +94,11 @@ class MultiThreadDownloader:
 
     def _merge_files(self, filename: Path) -> None:
         try:
-            with open(filename, 'wb') as outfile:
+            with open(filename, "wb") as outfile:
                 for i in range(self.num_threads):
                     part_filename = f"{filename}.part{i}"
                     if os.path.exists(part_filename):
-                        with open(part_filename, 'rb') as infile:
+                        with open(part_filename, "rb") as infile:
                             outfile.write(infile.read())
                         os.remove(part_filename)
             logger.info(f"文件合并成功: {filename}")
@@ -116,11 +111,11 @@ class MultiThreadDownloader:
             response = requests.head(url, timeout=10)
             response.raise_for_status()
 
-            self.total_size = int(response.headers.get('Content-Length', 0))
+            self.total_size = int(response.headers.get("Content-Length", 0))
             if self.total_size == 0:
                 raise ValueError("无法获取文件大小")
 
-            filename = Path(url.split('/')[-1])
+            filename = Path(url.split("/")[-1])
             if output_dir:
                 filename = Path(output_dir) / filename
 
@@ -128,12 +123,8 @@ class MultiThreadDownloader:
             threads = []
 
             from tqdm import tqdm
-            progress_bar = tqdm(
-                total=self.total_size,
-                unit='B',
-                unit_scale=True,
-                desc=filename.name
-            )
+
+            progress_bar = tqdm(total=self.total_size, unit="B", unit_scale=True, desc=filename.name)
 
             self.downloaded_bytes = 0
             self.start_time = time.time()
@@ -142,8 +133,7 @@ class MultiThreadDownloader:
                 start_byte = i * part_size
                 end_byte = start_byte + part_size - 1 if i < self.num_threads - 1 else self.total_size - 1
                 thread = threading.Thread(
-                    target=self._download_part,
-                    args=(url, start_byte, end_byte, i, filename, progress_bar)
+                    target=self._download_part, args=(url, start_byte, end_byte, i, filename, progress_bar)
                 )
                 threads.append(thread)
                 thread.start()
@@ -161,6 +151,7 @@ class MultiThreadDownloader:
 
 
 # ─── 异步并发下载器 ─────────────────────────────────────────────
+
 
 class AsyncBatchDownloader:
     """
@@ -189,9 +180,7 @@ class AsyncBatchDownloader:
         self.chunk_size = chunk_size
 
     def run(
-        self,
-        tasks: List[Tuple[str, str]],
-        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        self, tasks: List[Tuple[str, str]], progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> Dict[str, bool]:
         """
         同步接口：在后台运行异步下载
@@ -229,16 +218,12 @@ class AsyncBatchDownloader:
                     raise error[0]
                 return result[0]
             else:
-                return loop.run_until_complete(
-                    self._async_download_all(tasks, progress_callback)
-                )
+                return loop.run_until_complete(self._async_download_all(tasks, progress_callback))
         except RuntimeError:
             return asyncio.run(self._async_download_all(tasks, progress_callback))
 
     async def _async_download_all(
-        self,
-        tasks: List[Tuple[str, str]],
-        progress_callback: Optional[Callable[[int, int, str], None]],
+        self, tasks: List[Tuple[str, str]], progress_callback: Optional[Callable[[int, int, str], None]]
     ) -> Dict[str, bool]:
         """异步下载所有文件"""
         import aiohttp
@@ -291,9 +276,7 @@ class AsyncBatchDownloader:
         return results
 
     def _sync_fallback(
-        self,
-        tasks: List[Tuple[str, str]],
-        progress_callback: Optional[Callable[[int, int, str], None]],
+        self, tasks: List[Tuple[str, str]], progress_callback: Optional[Callable[[int, int, str], None]]
     ) -> Dict[str, bool]:
         """无 aiohttp 时的同步回退"""
         results: Dict[str, bool] = {}
@@ -405,8 +388,13 @@ def install_mod_loader(
         )
 
         logger.info(f"{loader} 安装成功: 版本ID={installed_version_id}, Loader版本={loader_version}")
-        slog.info("mod_loader_installed", loader=loader_id, version=version,
-                  installed_version_id=installed_version_id, loader_version=loader_version)
+        slog.info(
+            "mod_loader_installed",
+            loader=loader_id,
+            version=version,
+            installed_version_id=installed_version_id,
+            loader_version=loader_version,
+        )
         return installed_version_id, loader_version
 
     except Exception as e:
@@ -429,10 +417,10 @@ def _get_liteloader_versions(version: str) -> Optional[Dict]:
     返回包含 version, tweakClass, libraries 的字典，或 None。
     """
     import json as _json
+
     try:
         url = _LITELOADER_MIRROR_URL if _is_mirror_enabled() else _LITELOADER_VERSIONS_URL
-        resp = requests.get(url, timeout=30,
-                          headers={"User-Agent": USER_AGENT})
+        resp = requests.get(url, timeout=30, headers={"User-Agent": USER_AGENT})
         if resp.status_code != 200:
             logger.warning(f"获取 LiteLoader 版本列表失败: HTTP {resp.status_code}")
             return None
@@ -537,6 +525,7 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
         (installed_version_id, loader_version)
     """
     import json as _json
+
     import minecraft_launcher_lib
 
     remote_data = _get_liteloader_versions(version)
@@ -558,9 +547,7 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
 
     # 确保原版已安装
     try:
-        minecraft_launcher_lib.install.install_minecraft_version(
-            version, minecraft_dir
-        )
+        minecraft_launcher_lib.install.install_minecraft_version(version, minecraft_dir)
     except Exception as e:
         logger.warning(f"安装 LiteLoader 原版 Minecraft {version} 时出现异常（将继续安装）: {e}")
 
@@ -574,8 +561,7 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
 
     # 构建 libraries：remote 提供的 + LiteLoader 本体
     libraries = list(remote_libraries)  # launchwrapper, asm-all 等
-    libraries.append({"name": f"com.mumfrey:liteloader:{loader_version}",
-                       "url": "http://dl.liteloader.com/versions/"})
+    libraries.append({"name": f"com.mumfrey:liteloader:{loader_version}", "url": "http://dl.liteloader.com/versions/"})
 
     # LiteLoader API 返回的库可能没有 url 字段，导致 install_libraries 从默认的
     # https://libraries.minecraft.net 下载失败（该仓库没有 LiteLoader 依赖的 asm 版本）。
@@ -610,6 +596,7 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
     # 下载所有需要的库文件（launchwrapper、liteloader 等）
     try:
         from minecraft_launcher_lib.install import install_libraries
+
         install_libraries(version, libraries, minecraft_dir, {})
         logger.info("LiteLoader 库文件下载完成")
     except Exception as e:
@@ -619,8 +606,13 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
     _ensure_version_jar_after_install(installed_version_id, version, minecraft_dir)
 
     logger.info(f"LiteLoader 安装成功: {installed_version_id}")
-    slog.info("mod_loader_installed", loader="liteloader", version=version,
-              installed_version_id=installed_version_id, loader_version=loader_version)
+    slog.info(
+        "mod_loader_installed",
+        loader="liteloader",
+        version=version,
+        installed_version_id=installed_version_id,
+        loader_version=loader_version,
+    )
     return installed_version_id, loader_version
 
 
@@ -636,10 +628,10 @@ _LEGACY_FABRIC_LAUNCH_META_URL = "https://meta.legacyfabric.net/v2/versions/load
 def _get_legacyfabric_versions(version: str) -> Optional[str]:
     """获取指定 MC 版本的最新 LegacyFabric Loader 版本号"""
     import json as _json
+
     try:
         # 获取游戏版本列表
-        resp = requests.get(_LEGACY_FABRIC_GAME_URL, timeout=30,
-                          headers={"User-Agent": USER_AGENT})
+        resp = requests.get(_LEGACY_FABRIC_GAME_URL, timeout=30, headers={"User-Agent": USER_AGENT})
         if resp.status_code != 200:
             return None
         game_versions = {gv.get("version"): gv for gv in _json.loads(resp.text)}
@@ -654,8 +646,7 @@ def _get_legacyfabric_versions(version: str) -> Optional[str]:
             return None
 
         # 获取 loader 版本列表
-        resp2 = requests.get(_LEGACY_FABRIC_LOADER_URL, timeout=30,
-                           headers={"User-Agent": USER_AGENT})
+        resp2 = requests.get(_LEGACY_FABRIC_LOADER_URL, timeout=30, headers={"User-Agent": USER_AGENT})
         if resp2.status_code != 200:
             return None
         loader_versions = _json.loads(resp2.text)
@@ -683,6 +674,7 @@ def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) ->
         (installed_version_id, loader_version)
     """
     import json as _json
+
     import minecraft_launcher_lib
 
     loader_version = _get_legacyfabric_versions(version)
@@ -699,9 +691,7 @@ def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) ->
 
     # 确保原版已安装
     try:
-        minecraft_launcher_lib.install.install_minecraft_version(
-            version, minecraft_dir
-        )
+        minecraft_launcher_lib.install.install_minecraft_version(version, minecraft_dir)
     except Exception as e:
         logger.warning(f"安装 LegacyFabric 原版 Minecraft {version} 时出现异常（将继续安装）: {e}")
 
@@ -711,11 +701,8 @@ def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) ->
         normalized = "2point0_" + version[4:]
 
     # 获取 launcher meta
-    launch_meta_url = _LEGACY_FABRIC_LAUNCH_META_URL.format(
-        game=normalized, loader=loader_version
-    )
-    resp = requests.get(launch_meta_url, timeout=30,
-                      headers={"User-Agent": USER_AGENT})
+    launch_meta_url = _LEGACY_FABRIC_LAUNCH_META_URL.format(game=normalized, loader=loader_version)
+    resp = requests.get(launch_meta_url, timeout=30, headers={"User-Agent": USER_AGENT})
     resp.raise_for_status()
     launcher_meta = _json.loads(resp.text)
 
@@ -770,6 +757,7 @@ def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) ->
     # 下载所有需要的库文件
     try:
         from minecraft_launcher_lib.install import install_libraries
+
         install_libraries(version, libraries, minecraft_dir, {})
         logger.info("LegacyFabric 库文件下载完成")
     except Exception as e:
@@ -779,8 +767,13 @@ def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) ->
     _ensure_version_jar_after_install(installed_version_id, version, minecraft_dir)
 
     logger.info(f"LegacyFabric 安装成功: {installed_version_id}")
-    slog.info("mod_loader_installed", loader="legacyfabric", version=version,
-              installed_version_id=installed_version_id, loader_version=loader_version)
+    slog.info(
+        "mod_loader_installed",
+        loader="legacyfabric",
+        version=version,
+        installed_version_id=installed_version_id,
+        loader_version=loader_version,
+    )
     return installed_version_id, loader_version
 
 
@@ -795,12 +788,12 @@ _CLEANROOM_INSTALLER_URL = "https://hmcl.glavo.site/metadata/cleanroom/files/cle
 def _get_cleanroom_versions(version: str) -> Optional[str]:
     """获取指定 MC 版本的最新 Cleanroom 版本号"""
     import json as _json
+
     if version != "1.12.2":
         logger.warning(f"Cleanroom 仅支持 MC 1.12.2，不支持 {version}")
         return None
     try:
-        resp = requests.get(_CLEANROOM_INDEX_URL, timeout=30,
-                          headers={"User-Agent": USER_AGENT})
+        resp = requests.get(_CLEANROOM_INDEX_URL, timeout=30, headers={"User-Agent": USER_AGENT})
         if resp.status_code != 200:
             return None
         releases = _json.loads(resp.text)
@@ -832,10 +825,11 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
         (installed_version_id, loader_version)
     """
     import json as _json
-    import minecraft_launcher_lib
+    import shutil
     import tempfile
     import zipfile
-    import shutil
+
+    import minecraft_launcher_lib
 
     loader_version = _get_cleanroom_versions(version)
     if not loader_version:
@@ -851,17 +845,14 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
 
     # 确保原版已安装（Cleanroom）
     try:
-        minecraft_launcher_lib.install.install_minecraft_version(
-            version, minecraft_dir
-        )
+        minecraft_launcher_lib.install.install_minecraft_version(version, minecraft_dir)
     except Exception as e:
         logger.warning(f"安装 Cleanroom 原版 Minecraft {version} 时出现异常（将继续安装）: {e}")
 
     # 下载 Cleanroom 安装器
     installer_url = _CLEANROOM_INSTALLER_URL.format(version=loader_version)
     logger.info(f"下载 Cleanroom 安装器: {installer_url}")
-    resp = requests.get(installer_url, timeout=120,
-                      headers={"User-Agent": USER_AGENT})
+    resp = requests.get(installer_url, timeout=120, headers={"User-Agent": USER_AGENT})
     resp.raise_for_status()
 
     with tempfile.NamedTemporaryFile(suffix=".jar", delete=False) as tmp:
@@ -877,6 +868,7 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
             # 安装 installer libraries
             if "libraries" in install_profile:
                 from minecraft_launcher_lib.install import install_libraries
+
                 install_libraries(version, install_profile["libraries"], str(minecraft_dir), {})
 
             # 提取 version.json
@@ -901,6 +893,7 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
             # 安装运行时库文件（version.json 中的 libraries）
             try:
                 from minecraft_launcher_lib.install import install_libraries
+
                 runtime_libs = client_json.get("libraries", [])
                 if runtime_libs:
                     # Cleanroom 运行时库可能缺少 url 字段
@@ -928,8 +921,7 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
             # （top.outlands.foundation.boot.Foundation），它不在 version.json
             # 的 libraries 列表中，需要手动添加才能被 classpath 包含。
             has_foundation = any(
-                lib.get("name", "").startswith("top.outlands:foundation:")
-                for lib in client_json.get("libraries", [])
+                lib.get("name", "").startswith("top.outlands:foundation:") for lib in client_json.get("libraries", [])
             )
             if not has_foundation:
                 # 尝试在本地找已下载的 Foundation 库
@@ -946,10 +938,12 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
                                 break
                         if _fv:
                             logger.info(f"安装 Foundation 库: top.outlands:foundation:{_fv}")
-                            install_libraries(version, [{
-                                "name": f"top.outlands:foundation:{_fv}",
-                                "url": "https://maven.fabricmc.net/"
-                            }], str(minecraft_dir), {})
+                            install_libraries(
+                                version,
+                                [{"name": f"top.outlands:foundation:{_fv}", "url": "https://maven.fabricmc.net/"}],
+                                str(minecraft_dir),
+                                {},
+                            )
                             # 重新扫描本地目录
                             foundation_libs_dir = Path(minecraft_dir) / "libraries" / "top" / "outlands" / "foundation"
                     except Exception as e:
@@ -959,10 +953,9 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
                     found_versions = sorted([d.name for d in foundation_libs_dir.iterdir() if d.is_dir()], reverse=True)
                     if found_versions:
                         fv = found_versions[0]
-                        client_json.setdefault("libraries", []).append({
-                            "name": f"top.outlands:foundation:{fv}",
-                            "url": "https://maven.fabricmc.net/"
-                        })
+                        client_json.setdefault("libraries", []).append(
+                            {"name": f"top.outlands:foundation:{fv}", "url": "https://maven.fabricmc.net/"}
+                        )
                         logger.info(f"已添加 Foundation 库到 version.json: top.outlands:foundation:{fv}")
                         # 重写 version.json 以包含 Foundation
                         with open(json_path, "w", encoding="utf-8") as f:
@@ -986,10 +979,7 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
             for path in possible_paths:
                 try:
                     with zf.open(path) as src:
-                        dest_file = os.path.join(
-                            cleanroom_lib_path,
-                            f"cleanroom-{cleanroom_version}.jar"
-                        )
+                        dest_file = os.path.join(cleanroom_lib_path, f"cleanroom-{cleanroom_version}.jar")
                         with open(dest_file, "wb") as dst:
                             shutil.copyfileobj(src, dst)
                     extracted = True
@@ -1004,6 +994,7 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
         # Cleanroom 使用 LWJGL3（而非原版的 LWJGL2），需要从其 native JAR 中提取 DLL
         try:
             from minecraft_launcher_lib.natives import extract_natives
+
             cleanroom_natives_dir = os.path.join(minecraft_dir, "versions", installed_version_id, "natives")
             extract_natives(installed_version_id, minecraft_dir, cleanroom_natives_dir)
             logger.info(f"Cleanroom LWJGL3 原生库已提取到: {cleanroom_natives_dir}")
@@ -1019,8 +1010,13 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
             pass
 
     logger.info(f"Cleanroom 安装成功: {installed_version_id}")
-    slog.info("mod_loader_installed", loader="cleanroom", version=version,
-              installed_version_id=installed_version_id, loader_version=loader_version)
+    slog.info(
+        "mod_loader_installed",
+        loader="cleanroom",
+        version=version,
+        installed_version_id=installed_version_id,
+        loader_version=loader_version,
+    )
     return installed_version_id, loader_version
 
 
@@ -1038,10 +1034,10 @@ def _get_optifine_versions(version: str) -> Optional[str]:
     返回格式: "{type}_{patch}" (如 "HD_U_E7", "HD_U_G6_pre1")
     """
     import json as _json
+
     try:
         url = _OPTIFINE_BMCLAPI_LIST_URL.format(version=version)
-        resp = requests.get(url, timeout=30,
-                          headers={"User-Agent": USER_AGENT})
+        resp = requests.get(url, timeout=30, headers={"User-Agent": USER_AGENT})
         if resp.status_code != 200:
             logger.warning(f"获取 OptiFine 版本列表失败: HTTP {resp.status_code}")
             return None
@@ -1078,9 +1074,10 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
         (installed_version_id, loader_version)
     """
     import json as _json
-    import minecraft_launcher_lib
-    import tempfile
     import shutil
+    import tempfile
+
+    import minecraft_launcher_lib
 
     loader_version = _get_optifine_versions(version)
     if not loader_version:
@@ -1096,9 +1093,7 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
 
     # 确保原版已安装（OptiFine）
     try:
-        minecraft_launcher_lib.install.install_minecraft_version(
-            version, minecraft_dir
-        )
+        minecraft_launcher_lib.install.install_minecraft_version(version, minecraft_dir)
     except Exception as e:
         logger.warning(f"安装 OptiFine 原版 Minecraft {version} 时出现异常（将继续安装）: {e}")
 
@@ -1114,12 +1109,11 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
     # https://bmclapi2.bangbang93.com/optifine/{mc_version}/{type}/{patch}
     last_underscore = loader_version.rfind("_")
     of_type = loader_version[:last_underscore] if last_underscore > 0 else "HD_U"
-    of_patch = loader_version[last_underscore + 1:] if last_underscore > 0 else loader_version
+    of_patch = loader_version[last_underscore + 1 :] if last_underscore > 0 else loader_version
     download_url = f"https://bmclapi2.bangbang93.com/optifine/{version}/{of_type}/{of_patch}"
 
     logger.info(f"下载 OptiFine 安装器: {download_url}")
-    resp = requests.get(download_url, timeout=120,
-                      headers={"User-Agent": USER_AGENT})
+    resp = requests.get(download_url, timeout=120, headers={"User-Agent": USER_AGENT})
     resp.raise_for_status()
 
     with tempfile.NamedTemporaryFile(suffix=".jar", delete=False) as tmp:
@@ -1135,10 +1129,7 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
         shutil.copy2(installer_path, str(of_lib_path))
 
         # 构建 libraries：launchwrapper + OptiFine
-        libraries = [
-            {"name": "net.minecraft:launchwrapper:1.12"},
-            {"name": f"optifine:OptiFine:{maven_version}"},
-        ]
+        libraries = [{"name": "net.minecraft:launchwrapper:1.12"}, {"name": f"optifine:OptiFine:{maven_version}"}]
 
         # 创建版本 JSON
         new_version = {
@@ -1164,6 +1155,7 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
         # 下载所需库文件（launchwrapper）
         try:
             from minecraft_launcher_lib.install import install_libraries
+
             install_libraries(version, libraries, minecraft_dir, {})
             logger.info("OptiFine 库文件下载完成")
         except Exception as e:
@@ -1178,8 +1170,13 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
             pass
 
     logger.info(f"OptiFine 安装成功: {installed_version_id}")
-    slog.info("mod_loader_installed", loader="optifine", version=version,
-              installed_version_id=installed_version_id, loader_version=loader_version)
+    slog.info(
+        "mod_loader_installed",
+        loader="optifine",
+        version=version,
+        installed_version_id=installed_version_id,
+        loader_version=loader_version,
+    )
     return installed_version_id, loader_version
 
 
@@ -1187,10 +1184,12 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
 # 镜像源辅助函数
 # ══════════════════════════════════════════════════════════════════════
 
+
 def _is_mirror_enabled() -> bool:
     """检测镜像源是否启用"""
     try:
         from mirror import mirror
+
         return mirror.enabled
     except Exception:
         return False
@@ -1206,6 +1205,7 @@ def _ensure_version_jar_after_install(installed_version_id: str, parent_version:
     """
     try:
         from pathlib import Path
+
         target_jar = Path(minecraft_dir) / "versions" / installed_version_id / f"{installed_version_id}.jar"
         if target_jar.exists() and target_jar.stat().st_size > 0:
             return
@@ -1218,6 +1218,7 @@ def _ensure_version_jar_after_install(installed_version_id: str, parent_version:
 
         target_jar.parent.mkdir(parents=True, exist_ok=True)
         import shutil
+
         shutil.copy2(str(parent_jar), str(target_jar))
         logger.info(f"安装后已从父版本 {parent_version} 复制 JAR 到 {installed_version_id}")
     except Exception as e:

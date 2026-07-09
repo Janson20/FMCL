@@ -1,7 +1,8 @@
 """Modrinth 资源浏览窗口 - 浏览并安装模组、资源包、光影"""
+
 import threading
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 from logzero import logger
@@ -13,6 +14,7 @@ from ui.i18n import _
 def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
     try:
         from achievement_engine import get_achievement_engine
+
         engine = get_achievement_engine()
         if engine:
             engine.update_progress(achievement_id, value=value, trigger_type=trigger_type)
@@ -30,10 +32,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
     TAB_SHADERS = "shaders"
 
     # 特殊模组加载器兼容映射：将无法被 API 识别的加载器映射为兼容等效类型
-    MOD_LOADER_COMPAT_MAP: Dict[str, str] = {
-        "legacyfabric": "fabric",
-        "cleanroom": "forge",
-    }
+    MOD_LOADER_COMPAT_MAP: Dict[str, str] = {"legacyfabric": "fabric", "cleanroom": "forge"}
 
     @property
     def _search_loader(self) -> Optional[str]:
@@ -51,7 +50,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self.version_id = version_id
         self.callbacks = callbacks
 
-        from modrinth import parse_mod_loader_from_version, parse_game_version_from_version
+        from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
+
         self._mod_loader = parse_mod_loader_from_version(version_id)
         self._game_version = parse_game_version_from_version(version_id)
 
@@ -115,12 +115,9 @@ class ModBrowserWindow(ctk.CTkToplevel):
             info_parts.append(self._mod_loader.capitalize())
         info_text = " | ".join(info_parts) if info_parts else _("mod_browser_unknown_version")
         info_color = COLORS["success"] if info_parts else COLORS["warning"]
-        ctk.CTkLabel(
-            header,
-            text=info_text,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=info_color,
-        ).pack(side=ctk.RIGHT)
+        ctk.CTkLabel(header, text=info_text, font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=info_color).pack(
+            side=ctk.RIGHT
+        )
 
         self._tabview = ctk.CTkTabview(
             main_frame,
@@ -198,9 +195,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         list_container.pack(fill=ctk.BOTH, expand=True, pady=(0, 8))
 
         list_frame = ctk.CTkScrollableFrame(
-            list_container,
-            fg_color="transparent",
-            scrollbar_button_color=COLORS["bg_light"],
+            list_container, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
         list_frame.pack(fill=ctk.BOTH, expand=True, padx=5, pady=5)
         state["list_frame"] = list_frame
@@ -258,10 +253,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         state["next_btn"] = next_btn
 
         result_count_label = ctk.CTkLabel(
-            page_frame,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
+            page_frame, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"]
         )
         result_count_label.pack(side=ctk.RIGHT)
         state["result_count_label"] = result_count_label
@@ -312,13 +304,14 @@ class ModBrowserWindow(ctk.CTkToplevel):
         # 如果已有缓存，直接本地分页（翻页复用）
         if state["_cached_hits"] is not None:
             offset = state["current_offset"]
-            page = state["_cached_hits"][offset:offset + self.PAGE_SIZE]
+            page = state["_cached_hits"][offset : offset + self.PAGE_SIZE]
             self.after(0, lambda: self._render_tab_results(tab_key, page))
             return
 
         try:
             if tab_key == self.TAB_MODS:
                 from curseforge import unified_search_mods
+
                 result = unified_search_mods(
                     query=state["current_query"],
                     game_version=self._game_version,
@@ -328,19 +321,15 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 )
             elif tab_key == self.TAB_RESOURCE_PACKS:
                 from curseforge import unified_search_resource_packs
+
                 result = unified_search_resource_packs(
-                    query=state["current_query"],
-                    game_version=self._game_version,
-                    offset=0,
-                    limit=300,
+                    query=state["current_query"], game_version=self._game_version, offset=0, limit=300
                 )
             elif tab_key == self.TAB_SHADERS:
                 from curseforge import unified_search_shaders
+
                 result = unified_search_shaders(
-                    query=state["current_query"],
-                    game_version=self._game_version,
-                    offset=0,
-                    limit=300,
+                    query=state["current_query"], game_version=self._game_version, offset=0, limit=300
                 )
             else:
                 return
@@ -353,7 +342,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             state["_sources"] = sources
 
             # 渲染首页
-            page = all_hits[:self.PAGE_SIZE]
+            page = all_hits[: self.PAGE_SIZE]
             self.after(0, lambda: self._render_tab_results(tab_key, page))
 
         except Exception as e:
@@ -362,6 +351,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
     def _on_ai_search(self, tab_key: str):
         from tkinter import messagebox
+
         state = self._tab_states[tab_key]
         entry = state["search_entry"]
         query = entry.get().strip() if entry else ""
@@ -373,11 +363,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
         token = self.callbacks.get("get_jdz_token", lambda: None)()
         if not token:
-            messagebox.showwarning(
-                _("warning"),
-                _("ai_search_login_required"),
-                parent=self,
-            )
+            messagebox.showwarning(_("warning"), _("ai_search_login_required"), parent=self)
             return
 
         state["current_query"] = query
@@ -413,13 +399,12 @@ class ModBrowserWindow(ctk.CTkToplevel):
             state["total_hits"] = len(all_hits)
             state["current_offset"] = 0
 
-            page = all_hits[:self.PAGE_SIZE]
+            page = all_hits[: self.PAGE_SIZE]
             kw_text = ", ".join(keywords) if keywords else query
             self.after(0, lambda: self._render_tab_results(tab_key, page))
-            self.after(0, lambda: self._set_tab_status(
-                tab_key,
-                _("ai_search_done", keywords=kw_text, total=len(all_hits)),
-            ))
+            self.after(
+                0, lambda: self._set_tab_status(tab_key, _("ai_search_done", keywords=kw_text, total=len(all_hits)))
+            )
             self.after(0, lambda: self._restore_ai_button(tab_key))
 
         except Exception as e:
@@ -494,11 +479,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         state = self._tab_states[tab_key]
         list_frame = state["list_frame"]
 
-        row = ctk.CTkFrame(
-            list_frame,
-            fg_color=COLORS["bg_medium"],
-            corner_radius=8,
-        )
+        row = ctk.CTkFrame(list_frame, fg_color=COLORS["bg_medium"], corner_radius=8)
         row.pack(fill=ctk.X, pady=3, padx=2)
 
         top_row = ctk.CTkFrame(row, fg_color="transparent", height=36)
@@ -507,11 +488,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
         title = item.get("title", _("mod_browser_unknown"))
 
-        icons = {
-            self.TAB_MODS: "🧩",
-            self.TAB_RESOURCE_PACKS: "🎨",
-            self.TAB_SHADERS: "✨",
-        }
+        icons = {self.TAB_MODS: "🧩", self.TAB_RESOURCE_PACKS: "🎨", self.TAB_SHADERS: "✨"}
         icon = icons.get(tab_key, "📦")
 
         ctk.CTkLabel(
@@ -584,6 +561,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
                     tag_parts.append(" | ".join(l.capitalize() for l in loader_tags))
             if versions_display:
                 from modrinth import compress_game_versions
+
                 compressed = compress_game_versions(versions_display)
                 if compressed:
                     tag_parts.append(compressed)
@@ -592,6 +570,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             tag_parts = []
             if versions_display:
                 from modrinth import compress_game_versions
+
                 compressed = compress_game_versions(versions_display)
                 if compressed:
                     tag_parts.append(compressed)
@@ -655,7 +634,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         if cached is None:
             return
         offset = state["current_offset"]
-        page = cached[offset:offset + self.PAGE_SIZE]
+        page = cached[offset : offset + self.PAGE_SIZE]
         self._render_tab_results(tab_key, page)
         self._update_tab_pagination(tab_key)
 
@@ -665,7 +644,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         if cached is None:
             return
         offset = state["current_offset"]
-        page = cached[offset:offset + self.PAGE_SIZE]
+        page = cached[offset : offset + self.PAGE_SIZE]
         self._render_tab_results(tab_key, page)
         self._update_tab_pagination(tab_key)
 
@@ -683,15 +662,14 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
             if source == "curseforge":
                 from curseforge import install_mod as cf_install
+
                 success, result = cf_install(
-                    int(project_id),
-                    game_version=self._game_version,
-                    mod_loader=self._search_loader,
-                    mods_dir=mods_dir,
+                    int(project_id), game_version=self._game_version, mod_loader=self._search_loader, mods_dir=mods_dir
                 )
                 installed_names = [title] if success else []
             else:
                 from modrinth import install_mod_with_deps
+
                 success, result, installed_names = install_mod_with_deps(
                     project_id,
                     game_version=self._game_version,
@@ -703,23 +681,28 @@ class ModBrowserWindow(ctk.CTkToplevel):
             if success:
                 if len(installed_names) > 1:
                     deps = ", ".join(installed_names[:-1])
-                    self.after(0, lambda: self._set_tab_status(
-                        self.TAB_MODS, _("mod_browser_install_success_deps", title=title, deps=deps)))
+                    self.after(
+                        0,
+                        lambda: self._set_tab_status(
+                            self.TAB_MODS, _("mod_browser_install_success_deps", title=title, deps=deps)
+                        ),
+                    )
                     _trigger_ach("modder_dependency_expert")
                 else:
-                    self.after(0, lambda: self._set_tab_status(
-                        self.TAB_MODS, _("mod_browser_install_success", title=title)))
+                    self.after(
+                        0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_install_success", title=title))
+                    )
                 _trigger_ach("modder_first_mod", value=len(installed_names))
                 logger.info(f"模组安装成功: {installed_names} -> {result}")
             else:
-                self.after(0, lambda: self._set_tab_status(
-                    self.TAB_MODS, _("mod_browser_install_failed", error=result)))
+                self.after(
+                    0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_install_failed", error=result))
+                )
                 logger.error(f"模组安装失败: {result}")
 
         except Exception as e:
             error_msg = str(e)
-            self.after(0, lambda: self._set_tab_status(
-                self.TAB_MODS, _("mod_browser_install_error", error=error_msg)))
+            self.after(0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_install_error", error=error_msg)))
             logger.error(f"安装模组失败: {e}")
 
     def _on_install_resource_pack(self, project_id: str, title: str):
@@ -731,10 +714,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
         try:
             if not self._game_version:
-                self.after(
-                    0,
-                    lambda: self._set_tab_status(self.TAB_RESOURCE_PACKS, _("mod_browser_unknown_version")),
-                )
+                self.after(0, lambda: self._set_tab_status(self.TAB_RESOURCE_PACKS, _("mod_browser_unknown_version")))
                 return
 
             rp_dir = self._get_resourcepacks_dir()
@@ -743,18 +723,14 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 project_id,
                 game_version=self._game_version,
                 resourcepacks_dir=rp_dir,
-                status_callback=lambda msg: self.after(
-                    0,
-                    lambda: self._set_tab_status(self.TAB_RESOURCE_PACKS, msg),
-                ),
+                status_callback=lambda msg: self.after(0, lambda: self._set_tab_status(self.TAB_RESOURCE_PACKS, msg)),
             )
 
             if success:
                 self.after(
                     0,
                     lambda: self._set_tab_status(
-                        self.TAB_RESOURCE_PACKS,
-                        _("mod_browser_install_success", title=title),
+                        self.TAB_RESOURCE_PACKS, _("mod_browser_install_success", title=title)
                     ),
                 )
                 logger.info(f"资源包安装成功: {title} -> {result}")
@@ -762,8 +738,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 self.after(
                     0,
                     lambda: self._set_tab_status(
-                        self.TAB_RESOURCE_PACKS,
-                        _("mod_browser_install_failed", error=result),
+                        self.TAB_RESOURCE_PACKS, _("mod_browser_install_failed", error=result)
                     ),
                 )
                 logger.error(f"资源包安装失败: {result}")
@@ -772,10 +747,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             error_msg = str(e)
             self.after(
                 0,
-                lambda: self._set_tab_status(
-                    self.TAB_RESOURCE_PACKS,
-                    _("mod_browser_install_error", error=error_msg),
-                ),
+                lambda: self._set_tab_status(self.TAB_RESOURCE_PACKS, _("mod_browser_install_error", error=error_msg)),
             )
             logger.error(f"安装资源包失败: {e}")
 
@@ -788,10 +760,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
         try:
             if not self._game_version:
-                self.after(
-                    0,
-                    lambda: self._set_tab_status(self.TAB_SHADERS, _("mod_browser_unknown_version")),
-                )
+                self.after(0, lambda: self._set_tab_status(self.TAB_SHADERS, _("mod_browser_unknown_version")))
                 return
 
             shader_dir = self._get_shaderpacks_dir()
@@ -800,39 +769,24 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 project_id,
                 game_version=self._game_version,
                 shaderpacks_dir=shader_dir,
-                status_callback=lambda msg: self.after(
-                    0,
-                    lambda: self._set_tab_status(self.TAB_SHADERS, msg),
-                ),
+                status_callback=lambda msg: self.after(0, lambda: self._set_tab_status(self.TAB_SHADERS, msg)),
             )
 
             if success:
                 self.after(
-                    0,
-                    lambda: self._set_tab_status(
-                        self.TAB_SHADERS,
-                        _("mod_browser_install_success", title=title),
-                    ),
+                    0, lambda: self._set_tab_status(self.TAB_SHADERS, _("mod_browser_install_success", title=title))
                 )
                 logger.info(f"光影安装成功: {title} -> {result}")
             else:
                 self.after(
-                    0,
-                    lambda: self._set_tab_status(
-                        self.TAB_SHADERS,
-                        _("mod_browser_install_failed", error=result),
-                    ),
+                    0, lambda: self._set_tab_status(self.TAB_SHADERS, _("mod_browser_install_failed", error=result))
                 )
                 logger.error(f"光影安装失败: {result}")
 
         except Exception as e:
             error_msg = str(e)
             self.after(
-                0,
-                lambda: self._set_tab_status(
-                    self.TAB_SHADERS,
-                    _("mod_browser_install_error", error=error_msg),
-                ),
+                0, lambda: self._set_tab_status(self.TAB_SHADERS, _("mod_browser_install_error", error=error_msg))
             )
             logger.error(f"安装光影失败: {e}")
 

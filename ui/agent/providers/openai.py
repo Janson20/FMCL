@@ -1,13 +1,14 @@
 """OpenAI 提供商 - 标准 OpenAI chat/completions API + 自定义端点兼容"""
 
 import json
-import urllib.request
 import urllib.error
-from typing import Dict, List, Optional, Generator
+import urllib.request
+from typing import Dict, Generator, List, Optional
+
 from logzero import logger
 
 from ui.agent.provider import BaseProvider
-from ui.agent.stream import SSEParser, SSEEventType
+from ui.agent.stream import SSEEventType, SSEParser
 
 OPENAI_DEFAULT_API_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_DEFAULT_MODEL = "gpt-4o"
@@ -20,8 +21,12 @@ class OpenAIProvider(BaseProvider):
     provider_name = "OpenAI"
     default_api_url = OPENAI_DEFAULT_API_URL
 
-    def __init__(self, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None):
-        super().__init__(api_key=api_key, api_url=api_url or OPENAI_DEFAULT_API_URL, timeout=timeout, extra_headers=extra_headers)
+    def __init__(
+        self, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None
+    ):
+        super().__init__(
+            api_key=api_key, api_url=api_url or OPENAI_DEFAULT_API_URL, timeout=timeout, extra_headers=extra_headers
+        )
 
     def _build_headers(self) -> Dict[str, str]:
         return {
@@ -64,12 +69,7 @@ class OpenAIProvider(BaseProvider):
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                self.api_url,
-                data=req_data,
-                headers=self._build_headers(),
-                method="POST",
-            )
+            req = urllib.request.Request(self.api_url, data=req_data, headers=self._build_headers(), method="POST")
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
 
@@ -118,12 +118,7 @@ class OpenAIProvider(BaseProvider):
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                self.api_url,
-                data=req_data,
-                headers=self._build_headers(),
-                method="POST",
-            )
+            req = urllib.request.Request(self.api_url, data=req_data, headers=self._build_headers(), method="POST")
 
             parser = SSEParser()
             accumulated_text = ""
@@ -153,9 +148,17 @@ class OpenAIProvider(BaseProvider):
                     elif event.type == SSEEventType.TOOL_CALL_START:
                         yield {"type": "tool_call_start", "tool_call_id": event.tool_call_id}
                     elif event.type == SSEEventType.TOOL_CALL_NAME:
-                        yield {"type": "tool_call_name", "tool_call_id": event.tool_call_id, "tool_name": event.tool_name}
+                        yield {
+                            "type": "tool_call_name",
+                            "tool_call_id": event.tool_call_id,
+                            "tool_name": event.tool_name,
+                        }
                     elif event.type == SSEEventType.TOOL_CALL_ARGS:
-                        yield {"type": "tool_call_args", "tool_call_id": event.tool_call_id, "tool_args": event.tool_args}
+                        yield {
+                            "type": "tool_call_args",
+                            "tool_call_id": event.tool_call_id,
+                            "tool_args": event.tool_args,
+                        }
                     elif event.type == SSEEventType.USAGE:
                         yield {"type": "usage", "usage": event.usage}
                     elif event.type == SSEEventType.DONE:

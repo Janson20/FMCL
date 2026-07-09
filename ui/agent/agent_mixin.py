@@ -5,19 +5,19 @@ agent_mixin 主要负责初始化 provider、同步状态、对接主应用 call
 """
 
 import threading
-from typing import Dict, Optional, Callable
-from logzero import logger
+from typing import Callable, Dict, Optional
 
 import customtkinter as ctk
+from logzero import logger
 
-from ui.constants import COLORS, FONT_FAMILY
-from ui.i18n import _
-from ui.agent.providers.jingdu import JingduProvider
-from ui.agent.providers.openai import OpenAIProvider
+from ui.agent.agent_chat import AgentChatView
+from ui.agent.config import get_agent_config, init_agent_config, save_agent_config
 from ui.agent.providers.anthropic import AnthropicProvider
 from ui.agent.providers.custom import CustomProvider
-from ui.agent.agent_chat import AgentChatView
-from ui.agent.config import get_agent_config, save_agent_config, init_agent_config
+from ui.agent.providers.jingdu import JingduProvider
+from ui.agent.providers.openai import OpenAIProvider
+from ui.constants import COLORS, FONT_FAMILY
+from ui.i18n import _
 
 
 class AgentMixin(object):
@@ -36,7 +36,7 @@ class AgentMixin(object):
         logger.info("[Agent] 标签页 UI 构建完成")
 
         # 注册主题引用
-        if not hasattr(self, '_theme_refs'):
+        if not hasattr(self, "_theme_refs"):
             self._theme_refs = []
 
     def _refresh_agent_colors(self):
@@ -139,6 +139,7 @@ class AgentMixin(object):
         """获取 Agent 配置（供 web_search 等工具使用）"""
         try:
             from ui.agent.config import get_agent_config
+
             return {"bing_api_key": get_agent_config().bing_api_key}
         except Exception:
             return {}

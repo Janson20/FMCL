@@ -1,13 +1,23 @@
 # This file is part of minecraft-launcher-lib (https://codeberg.org/JakobDev/minecraft-launcher-lib)
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
-from typing import Union, Literal, TypedDict
+from typing import Literal, TypedDict, Union
 
 
 class ClientJsonRule(TypedDict):
     action: Literal["allow", "disallow"]
     os: dict[Literal["name", "arch", "vesion"], str]
-    features: dict[Literal["has_custom_resolution", "is_demo_user", "has_quick_plays_support", "is_quick_play_singleplayer", "is_quick_play_multiplayer", "is_quick_play_realms"], bool]
+    features: dict[
+        Literal[
+            "has_custom_resolution",
+            "is_demo_user",
+            "has_quick_plays_support",
+            "is_quick_play_singleplayer",
+            "is_quick_play_multiplayer",
+            "is_quick_play_realms",
+        ],
+        bool,
+    ]
 
 
 class ClientJsonArgumentRule(TypedDict, total=False):
@@ -44,7 +54,10 @@ class _ClientJsonLibraryDownloadsArtifact(TypedDict):
 
 class _ClientJsonLibraryDownloads(TypedDict, total=False):
     artifact: _ClientJsonLibraryDownloadsArtifact
-    classifiers: dict[Literal["javadoc", "natives-linux", "natives-macos", "natives-windows", "sources"], _ClientJsonLibraryDownloadsArtifact]
+    classifiers: dict[
+        Literal["javadoc", "natives-linux", "natives-macos", "natives-windows", "sources"],
+        _ClientJsonLibraryDownloadsArtifact,
+    ]
 
 
 class ClientJsonLibrary(TypedDict, total=False):

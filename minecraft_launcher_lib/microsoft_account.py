@@ -7,15 +7,26 @@ Many thanks to wiki.vg for it's `documentation of the login process <https://wik
 You may want to read the :doc:`/tutorial/microsoft_login` tutorial before using this module.
 For a list of all types see :doc:`microsoft_types`.
 """
-from .microsoft_types import AuthorizationTokenResponse, XBLResponse, XSTSResponse, MinecraftAuthenticateResponse, MinecraftStoreResponse, MinecraftProfileResponse, CompleteLoginResponse
-from .exceptions import InvalidRefreshToken, AzureAppNotPermitted, AccountNotOwnMinecraft
-from ._helper import get_user_agent, assert_func
-from base64 import urlsafe_b64encode
-from typing import Literal, cast
-from hashlib import sha256
-import urllib.parse
-import requests
+
 import secrets
+import urllib.parse
+from base64 import urlsafe_b64encode
+from hashlib import sha256
+from typing import Literal, cast
+
+import requests
+
+from ._helper import assert_func, get_user_agent
+from .exceptions import AccountNotOwnMinecraft, AzureAppNotPermitted, InvalidRefreshToken
+from .microsoft_types import (
+    AuthorizationTokenResponse,
+    CompleteLoginResponse,
+    MinecraftAuthenticateResponse,
+    MinecraftProfileResponse,
+    MinecraftStoreResponse,
+    XBLResponse,
+    XSTSResponse,
+)
 
 __AUTH_URL__ = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize"
 __TOKEN_URL__ = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
@@ -84,7 +95,7 @@ def get_secure_login_data(client_id: str, redirect_uri: str, state: str | None =
         "scope": __SCOPE__,
         "state": state,
         "code_challenge": code_challenge,
-        "code_challenge_method": code_challenge_method
+        "code_challenge_method": code_challenge_method,
     }
 
     url = urllib.parse.urlparse(__AUTH_URL__)._replace(query=urllib.parse.urlencode(parameters)).geturl()
@@ -136,7 +147,9 @@ def parse_auth_code_url(url: str, state: str | None) -> str:
     return qs["code"][0]
 
 
-def get_authorization_token(client_id: str, client_secret: str | None, redirect_uri: str, auth_code: str, code_verifier: str | None = None) -> AuthorizationTokenResponse:
+def get_authorization_token(
+    client_id: str, client_secret: str | None, redirect_uri: str, auth_code: str, code_verifier: str | None = None
+) -> AuthorizationTokenResponse:
     """
     Get the authorization token. This function is called during :func:`complete_login`, so you need to use this function ony if :func:`complete_login` doesn't work for you.
 
@@ -160,15 +173,14 @@ def get_authorization_token(client_id: str, client_secret: str | None, redirect_
     if code_verifier is not None:
         parameters["code_verifier"] = code_verifier
 
-    header = {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "user-agent": get_user_agent()
-    }
+    header = {"Content-Type": "application/x-www-form-urlencoded", "user-agent": get_user_agent()}
     r = requests.post(__TOKEN_URL__, data=parameters, headers=header)
     return r.json()
 
 
-def refresh_authorization_token(client_id: str, client_secret: str | None, redirect_uri: str | None, refresh_token: str) -> AuthorizationTokenResponse:
+def refresh_authorization_token(
+    client_id: str, client_secret: str | None, redirect_uri: str | None, refresh_token: str
+) -> AuthorizationTokenResponse:
     """
     Refresh the authorization token. This function is called during :func:`complete_refresh`, so you need to use this function ony if :func:`complete_refresh` doesn't work for you.
 
@@ -181,7 +193,7 @@ def refresh_authorization_token(client_id: str, client_secret: str | None, redir
         "client_id": client_id,
         "scope": __SCOPE__,
         "refresh_token": refresh_token,
-        "grant_type": "refresh_token"
+        "grant_type": "refresh_token",
     }
 
     if client_secret is not None:
@@ -191,9 +203,7 @@ def refresh_authorization_token(client_id: str, client_secret: str | None, redir
     # we keep it for backwards compatibility, but it is not required anymore
     _ = redirect_uri
 
-    header = {
-        "user-agent": get_user_agent()
-    }
+    header = {"user-agent": get_user_agent()}
     r = requests.post("https://login.live.com/oauth20_token.srf", data=parameters, headers=header)
     return r.json()
 
@@ -205,19 +215,11 @@ def authenticate_with_xbl(access_token: str) -> XBLResponse:
     :param access_token: The Token you get from :func:`get_authorization_token`
     """
     parameters = {
-        "Properties": {
-            "AuthMethod": "RPS",
-            "SiteName": "user.auth.xboxlive.com",
-            "RpsTicket": f"d={access_token}"
-        },
+        "Properties": {"AuthMethod": "RPS", "SiteName": "user.auth.xboxlive.com", "RpsTicket": f"d={access_token}"},
         "RelyingParty": "http://auth.xboxlive.com",
-        "TokenType": "JWT"
+        "TokenType": "JWT",
     }
-    header = {
-        "Content-Type": "application/json",
-        "user-agent": get_user_agent(),
-        "Accept": "application/json"
-    }
+    header = {"Content-Type": "application/json", "user-agent": get_user_agent(), "Accept": "application/json"}
     r = requests.post("https://user.auth.xboxlive.com/user/authenticate", json=parameters, headers=header)
     return r.json()
 
@@ -229,20 +231,11 @@ def authenticate_with_xsts(xbl_token: str) -> XSTSResponse:
     :param xbl_token: The Token you get from :func:`authenticate_with_xbl`
     """
     parameters = {
-        "Properties": {
-            "SandboxId": "RETAIL",
-            "UserTokens": [
-                xbl_token
-            ]
-        },
+        "Properties": {"SandboxId": "RETAIL", "UserTokens": [xbl_token]},
         "RelyingParty": "rp://api.minecraftservices.com/",
-        "TokenType": "JWT"
+        "TokenType": "JWT",
     }
-    header = {
-        "Content-Type": "application/json",
-        "user-agent": get_user_agent(),
-        "Accept": "application/json"
-    }
+    header = {"Content-Type": "application/json", "user-agent": get_user_agent(), "Accept": "application/json"}
     r = requests.post("https://xsts.auth.xboxlive.com/xsts/authorize", json=parameters, headers=header)
     return r.json()
 
@@ -254,15 +247,11 @@ def authenticate_with_minecraft(userhash: str, xsts_token: str) -> MinecraftAuth
     :param userhash: The Hash you get from :func:`authenticate_with_xbl`
     :param xsts_token: The Token you get from :func:`authenticate_with_xsts`
     """
-    parameters = {
-        "identityToken": f"XBL3.0 x={userhash};{xsts_token}"
-    }
-    header = {
-        "Content-Type": "application/json",
-        "user-agent": get_user_agent(),
-        "Accept": "application/json"
-    }
-    r = requests.post("https://api.minecraftservices.com/authentication/login_with_xbox", json=parameters, headers=header)
+    parameters = {"identityToken": f"XBL3.0 x={userhash};{xsts_token}"}
+    header = {"Content-Type": "application/json", "user-agent": get_user_agent(), "Accept": "application/json"}
+    r = requests.post(
+        "https://api.minecraftservices.com/authentication/login_with_xbox", json=parameters, headers=header
+    )
     return r.json()
 
 
@@ -272,10 +261,7 @@ def get_store_information(access_token: str) -> MinecraftStoreResponse:
 
     :param access_token: The Token you get from :func:`authenticate_with_minecraft`
     """
-    header = {
-        "Authorization": f"Bearer {access_token}",
-        "user-agent": get_user_agent()
-    }
+    header = {"Authorization": f"Bearer {access_token}", "user-agent": get_user_agent()}
     r = requests.get("https://api.minecraftservices.com/entitlements/mcstore", headers=header)
     return r.json()
 
@@ -286,15 +272,14 @@ def get_profile(access_token: str) -> MinecraftProfileResponse:
 
     :param access_token: The Token you get from :func:`authenticate_with_minecraft`
     """
-    header = {
-        "Authorization": f"Bearer {access_token}",
-        "user-agent": get_user_agent()
-    }
+    header = {"Authorization": f"Bearer {access_token}", "user-agent": get_user_agent()}
     r = requests.get("https://api.minecraftservices.com/minecraft/profile", headers=header)
     return r.json()
 
 
-def complete_login(client_id: str, client_secret: str | None, redirect_uri: str, auth_code: str, code_verifier: str | None = None) -> CompleteLoginResponse:
+def complete_login(
+    client_id: str, client_secret: str | None, redirect_uri: str, auth_code: str, code_verifier: str | None = None
+) -> CompleteLoginResponse:
     """
     Do the complete login process.
 
@@ -355,7 +340,9 @@ def complete_login(client_id: str, client_secret: str | None, redirect_uri: str,
     return profile
 
 
-def complete_refresh(client_id: str, client_secret: str | None, redirect_uri: str | None, refresh_token: str) -> CompleteLoginResponse:
+def complete_refresh(
+    client_id: str, client_secret: str | None, redirect_uri: str | None, refresh_token: str
+) -> CompleteLoginResponse:
     """
     Do the complete login process with a refresh token. It returns the same as :func:`complete_login`.
 

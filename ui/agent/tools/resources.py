@@ -2,17 +2,18 @@
 
 import os
 from pathlib import Path
-from typing import Dict, Callable
+from typing import Callable, Dict
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, CATEGORY_RESOURCE
+from ui.agent.tools.base import CATEGORY_RESOURCE, ToolInfo
 
 
 def _get_version_ids(installed) -> list:
     """从 installed 列表中提取版本 ID 字符串（兼容 List[InstanceInfo] 和 List[str]）"""
     result = []
     for v in installed:
-        if hasattr(v, 'folder_name'):
+        if hasattr(v, "folder_name"):
             result.append(v.folder_name)
         else:
             result.append(v)
@@ -32,10 +33,7 @@ def _build_resource_tools() -> list:
                         "type": "string",
                         "description": "搜索关键词，如 Faithful、Default 等。留空则返回默认热门资源包",
                     },
-                    "game_version": {
-                        "type": "string",
-                        "description": "Minecraft 版本号，如 1.20.1",
-                    },
+                    "game_version": {"type": "string", "description": "Minecraft 版本号，如 1.20.1"},
                 },
                 "required": [],
             },
@@ -54,14 +52,8 @@ def _build_resource_tools() -> list:
                         "type": "string",
                         "description": "Minecraft 版本文件夹/实例名称，如 1.20.1、1.20.1-forge-49.0.26",
                     },
-                    "pack_name": {
-                        "type": "string",
-                        "description": "资源包名称，如 Faithful、Default 3D 等",
-                    },
-                    "project_id": {
-                        "type": "string",
-                        "description": "Modrinth 项目ID（如果已知）",
-                    },
+                    "pack_name": {"type": "string", "description": "资源包名称，如 Faithful、Default 3D 等"},
+                    "project_id": {"type": "string", "description": "Modrinth 项目ID（如果已知）"},
                 },
                 "required": ["version_id", "pack_name"],
             },
@@ -80,10 +72,7 @@ def _build_resource_tools() -> list:
                         "type": "string",
                         "description": "搜索关键词，如 BSL、Complementary 等。留空则返回热门光影",
                     },
-                    "game_version": {
-                        "type": "string",
-                        "description": "Minecraft 版本号，如 1.20.1",
-                    },
+                    "game_version": {"type": "string", "description": "Minecraft 版本号，如 1.20.1"},
                 },
                 "required": [],
             },
@@ -102,14 +91,8 @@ def _build_resource_tools() -> list:
                         "type": "string",
                         "description": "Minecraft 版本文件夹/实例名称，如 1.20.1、1.20.1-forge-49.0.26",
                     },
-                    "shader_name": {
-                        "type": "string",
-                        "description": "光影名称，如 BSL、Complementary Shaders 等",
-                    },
-                    "project_id": {
-                        "type": "string",
-                        "description": "Modrinth 项目ID（如果已知）",
-                    },
+                    "shader_name": {"type": "string", "description": "光影名称，如 BSL、Complementary Shaders 等"},
+                    "project_id": {"type": "string", "description": "Modrinth 项目ID（如果已知）"},
                 },
                 "required": ["version_id", "shader_name"],
             },
@@ -157,7 +140,8 @@ def _search_resource_packs(params: Dict[str, str], callbacks: Dict[str, Callable
 
 def _install_resource_pack(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     try:
-        from modrinth import install_resource_pack, search_resource_packs as modrinth_search
+        from modrinth import install_resource_pack
+        from modrinth import search_resource_packs as modrinth_search
 
         version_id = params.get("version_id", "").strip()
         pack_name = params.get("pack_name", "").strip()
@@ -172,7 +156,9 @@ def _install_resource_pack(params: Dict[str, str], callbacks: Dict[str, Callable
         installed = callbacks["get_installed_versions"]()
         installed_ids = _get_version_ids(installed)
         if version_id not in installed_ids:
-            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
+            return (
+                f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
+            )
 
         mc_dir = callbacks["get_minecraft_dir"]()
         game_dir = Path(mc_dir)
@@ -253,7 +239,8 @@ def _search_shaders(params: Dict[str, str], callbacks: Dict[str, Callable]) -> s
 
 def _install_shader(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     try:
-        from modrinth import install_shader, search_shaders as modrinth_search
+        from modrinth import install_shader
+        from modrinth import search_shaders as modrinth_search
 
         version_id = params.get("version_id", "").strip()
         shader_name = params.get("shader_name", "").strip()
@@ -268,7 +255,9 @@ def _install_shader(params: Dict[str, str], callbacks: Dict[str, Callable]) -> s
         installed = callbacks["get_installed_versions"]()
         installed_ids = _get_version_ids(installed)
         if version_id not in installed_ids:
-            return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
+            return (
+                f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
+            )
 
         mc_dir = callbacks["get_minecraft_dir"]()
         game_dir = Path(mc_dir)

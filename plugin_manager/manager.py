@@ -13,20 +13,20 @@
 import json
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Callable, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from logzero import logger
 
-from plugin_manager.manifest import PluginManifest
-from plugin_manager.base import PluginBase, PluginState, HookPoint
-from plugin_manager.hook_bus import HookBus
+from plugin_manager.base import HookPoint, PluginBase, PluginState
 from plugin_manager.dependency import DependencyResolver
-from plugin_manager.loader import PluginLoader
+from plugin_manager.hook_bus import HookBus
 from plugin_manager.installer import PluginInstaller
+from plugin_manager.loader import PluginLoader
+from plugin_manager.manifest import PluginManifest
 from plugin_manager.permissions import (
+    PermissionRiskLevel,
     PluginPermission,
     PluginPermissionState,
-    PermissionRiskLevel,
     classify_permissions,
     get_permission_risk,
 )
@@ -60,28 +60,31 @@ class PluginManager:
         self._cache_dir = self._root / "cache"
 
         for d in [
-            self._root, self._installed_dir, self._disabled_dir,
-            self._config_dir, self._data_dir, self._temp_dir, self._cache_dir,
+            self._root,
+            self._installed_dir,
+            self._disabled_dir,
+            self._config_dir,
+            self._data_dir,
+            self._temp_dir,
+            self._cache_dir,
         ]:
             d.mkdir(parents=True, exist_ok=True)
 
         # 子模块
         self._loader = PluginLoader(self._installed_dir)
-        self._installer = PluginInstaller(
-            self._installed_dir, self._disabled_dir, self._temp_dir,
-        )
+        self._installer = PluginInstaller(self._installed_dir, self._disabled_dir, self._temp_dir)
         self._hook_bus = HookBus()
         self._dependency = DependencyResolver()
 
         # 运行时状态
         self._lock = threading.RLock()
-        self._manifests: Dict[str, PluginManifest] = {}        # 已扫描的插件清单
-        self._instances: Dict[str, PluginBase] = {}            # 已加载的插件实例
-        self._states: Dict[str, PluginState] = {}              # 插件状态
-        self._configs: Dict[str, dict] = {}                     # 插件配置缓存
+        self._manifests: Dict[str, PluginManifest] = {}  # 已扫描的插件清单
+        self._instances: Dict[str, PluginBase] = {}  # 已加载的插件实例
+        self._states: Dict[str, PluginState] = {}  # 插件状态
+        self._configs: Dict[str, dict] = {}  # 插件配置缓存
         self._perm_states: Dict[str, PluginPermissionState] = {}  # 权限状态
-        self._exported_apis: Dict[str, Dict[str, Any]] = {}    # 插件导出的 API {plugin_id: {api_name: obj}}
-        self._error_reasons: Dict[str, str] = {}               # 禁用/错误原因
+        self._exported_apis: Dict[str, Dict[str, Any]] = {}  # 插件导出的 API {plugin_id: {api_name: obj}}
+        self._error_reasons: Dict[str, str] = {}  # 禁用/错误原因
 
         # 通知回调（由主 UI 设置）
         self._notify_callback: Optional[Callable[[str, str, str, str], None]] = None
@@ -109,9 +112,7 @@ class PluginManager:
         """
         self._notify_callback = callback
 
-    def set_perm_confirm_callback(
-        self, callback: Callable[[str, PluginPermission], bool],
-    ):
+    def set_perm_confirm_callback(self, callback: Callable[[str, PluginPermission], bool]):
         """设置权限确认回调
 
         Args:
@@ -203,10 +204,7 @@ class PluginManager:
             # 注入属性
             data_dir = self._data_dir / plugin_id
             perm_state = self._perm_states.get(plugin_id, PluginPermissionState(plugin_id))
-            self._loader.inject_attributes(
-                instance, manifest, data_dir,
-                self._configs.get(plugin_id), self, perm_state,
-            )
+            self._loader.inject_attributes(instance, manifest, data_dir, self._configs.get(plugin_id), self, perm_state)
 
             self._instances[plugin_id] = instance
             self._states[plugin_id] = PluginState.LOADED
@@ -254,10 +252,7 @@ class PluginManager:
             if perm_state:
                 ungranted = perm_state.get_ungranted_permissions()
                 if ungranted:
-                    high_risk_ungranted = [
-                        p for p in ungranted
-                        if get_permission_risk(p) == PermissionRiskLevel.HIGH
-                    ]
+                    high_risk_ungranted = [p for p in ungranted if get_permission_risk(p) == PermissionRiskLevel.HIGH]
                     # 只有高风险才阻止启用（低中风险可以在运行时处理）
                     if high_risk_ungranted:
                         return False, f"存在未授权的高风险权限: {[p.value for p in high_risk_ungranted]}"
@@ -331,6 +326,7 @@ class PluginManager:
 
             # 删除文件（清除 sys.modules）
             import sys
+
             safe_id = plugin_id.replace(".", "_").replace("-", "_")
             module_prefix = f"fmcl_plugin_{safe_id}"
             mods_to_remove = [m for m in sys.modules if m.startswith(module_prefix)]
@@ -350,9 +346,7 @@ class PluginManager:
         self.scan()
         return True, ""
 
-    def update_plugin(
-        self, plugin_id: str, fmpl_path: str,
-    ) -> Tuple[bool, str]:
+    def update_plugin(self, plugin_id: str, fmpl_path: str) -> Tuple[bool, str]:
         """更新插件（备份 → 禁用 → 安装 → 启用；失败则回滚）
 
         Args:
@@ -405,9 +399,7 @@ class PluginManager:
             return True, ""
 
     def update_plugin_from_market(
-        self,
-        plugin_id: str,
-        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        self, plugin_id: str, progress_callback: Optional[Callable[[str, int, int], None]] = None
     ) -> Tuple[bool, str]:
         """从市场下载并更新已安装的插件
 
@@ -423,9 +415,7 @@ class PluginManager:
             return False, "插件市场暂不可用，请检查网络连接"
 
         # 1. 从市场下载最新版 .fmpl
-        fmpl_path, error = market.download_plugin(
-            plugin_id, progress_callback=progress_callback,
-        )
+        fmpl_path, error = market.download_plugin(plugin_id, progress_callback=progress_callback)
         if error:
             return False, f"下载失败: {error}"
 
@@ -447,10 +437,7 @@ class PluginManager:
 
     def get_enabled_plugins(self) -> List[str]:
         """获取已启用的插件 ID 列表"""
-        return [
-            pid for pid, state in self._states.items()
-            if state == PluginState.ENABLED
-        ]
+        return [pid for pid, state in self._states.items() if state == PluginState.ENABLED]
 
     def get_plugin_state(self, plugin_id: str) -> Optional[PluginState]:
         """获取插件状态"""
@@ -472,9 +459,7 @@ class PluginManager:
                 "manifest": manifest.to_dict(),
                 "state": self._states.get(pid, PluginState.SCANNED).value,
                 "error": self._error_reasons.get(pid, ""),
-                "permissions": self._perm_states.get(
-                    pid, PluginPermissionState(pid)
-                ).to_dict(),
+                "permissions": self._perm_states.get(pid, PluginPermissionState(pid)).to_dict(),
             }
         return result
 
@@ -553,10 +538,7 @@ class PluginManager:
         """触发钩子（委托给 HookBus）"""
         return self._hook_bus.emit(hook_point, **kwargs)
 
-    def register_hook(
-        self, plugin_id: str, hook_point: HookPoint,
-        callback: Callable, priority: int = 100,
-    ):
+    def register_hook(self, plugin_id: str, hook_point: HookPoint, callback: Callable, priority: int = 100):
         """注册钩子（供插件调用）"""
         # 检查权限: 核心钩子需要相应权限
         self._hook_bus.register(hook_point, callback, plugin_id, priority)
@@ -573,9 +555,8 @@ class PluginManager:
             return self._market
         try:
             from plugin_manager.market import PluginMarket
-            self._market = PluginMarket(
-                cache_dir=self._cache_dir,
-            )
+
+            self._market = PluginMarket(cache_dir=self._cache_dir)
             return self._market
         except Exception as e:
             logger.warning(f"插件市场初始化失败: {e}")
@@ -600,6 +581,7 @@ class PluginManager:
         config_path = self._config_dir / f"{plugin_id}.json"
         try:
             from config import _json_dumps
+
             config_path.write_text(_json_dumps(config, indent=2), encoding="utf-8")
         except Exception as e:
             logger.error(f"保存插件配置失败 ({plugin_id}): {e}")
@@ -634,10 +616,7 @@ class PluginManager:
             if state in (PluginState.ENABLED, PluginState.DISABLED):
                 persistable[pid] = state.value
         try:
-            self._state_file.write_text(
-                json.dumps(persistable, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            self._state_file.write_text(json.dumps(persistable, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception as e:
             logger.error(f"保存插件状态文件失败: {e}")
 
@@ -651,9 +630,7 @@ class PluginManager:
         config_path = self._config_dir / f"{plugin_id}.json"
         if config_path.exists():
             try:
-                self._configs[plugin_id] = json.loads(
-                    config_path.read_text(encoding="utf-8")
-                )
+                self._configs[plugin_id] = json.loads(config_path.read_text(encoding="utf-8"))
             except Exception as e:
                 logger.warning(f"加载插件配置失败 ({plugin_id}): {e}")
                 self._configs[plugin_id] = {}
@@ -664,9 +641,7 @@ class PluginManager:
         if perm_path.exists():
             try:
                 data = json.loads(perm_path.read_text(encoding="utf-8"))
-                self._perm_states[plugin_id] = PluginPermissionState.from_dict(
-                    plugin_id, data,
-                )
+                self._perm_states[plugin_id] = PluginPermissionState.from_dict(plugin_id, data)
             except Exception as e:
                 logger.warning(f"加载权限状态失败 ({plugin_id}): {e}")
 
@@ -677,29 +652,23 @@ class PluginManager:
             return
         perm_path = self._config_dir / f"{plugin_id}_perms.json"
         try:
-            perm_path.write_text(
-                json.dumps(ps.to_dict(), indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            perm_path.write_text(json.dumps(ps.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception as e:
             logger.error(f"保存权限状态失败 ({plugin_id}): {e}")
 
     def _check_fmcl_version(self, manifest: PluginManifest) -> Tuple[bool, str]:
         """检查 FMCL 版本兼容性"""
         from updater import get_current_version
+
         fmcl_ver = get_current_version()
 
         # 最低版本检查
         if self._dependency.compare_versions(fmcl_ver, manifest.min_fmcl_version) < 0:
-            return False, (
-                f"FMCL 版本 {fmcl_ver} 低于插件最低要求 {manifest.min_fmcl_version}"
-            )
+            return False, (f"FMCL 版本 {fmcl_ver} 低于插件最低要求 {manifest.min_fmcl_version}")
 
         # 最高版本检查
         if manifest.max_fmcl_version is not None:
             if self._dependency.compare_versions(fmcl_ver, manifest.max_fmcl_version) > 0:
-                return False, (
-                    f"FMCL 版本 {fmcl_ver} 超过插件最高支持 {manifest.max_fmcl_version}"
-                )
+                return False, (f"FMCL 版本 {fmcl_ver} 超过插件最高支持 {manifest.max_fmcl_version}")
 
         return True, ""

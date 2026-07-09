@@ -1,10 +1,11 @@
 """Skill 工具 - AI 加载技能文件"""
 
-from typing import Dict, Callable
+from typing import Callable, Dict
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, CATEGORY_SYSTEM
 from ui.agent.skill import get_skill_by_name, load_all_skills
+from ui.agent.tools.base import CATEGORY_SYSTEM, ToolInfo
 
 
 def _build_skill_tool() -> ToolInfo:
@@ -15,10 +16,7 @@ def _build_skill_tool() -> ToolInfo:
         parameters={
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "要加载的技能名称（必须与可用技能列表中的名称完全匹配）",
-                },
+                "name": {"type": "string", "description": "要加载的技能名称（必须与可用技能列表中的名称完全匹配）"}
             },
             "required": ["name"],
         },

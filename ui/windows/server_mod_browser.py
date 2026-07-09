@@ -1,7 +1,8 @@
 """服务器 Modrinth Mod 浏览窗口 - 浏览并安装服务端模组"""
+
 import threading
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 from logzero import logger
@@ -16,10 +17,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
     PAGE_SIZE = 10
 
     # 特殊模组加载器兼容映射：将无法被 API 识别的加载器映射为兼容等效类型
-    MOD_LOADER_COMPAT_MAP: Dict[str, str] = {
-        "legacyfabric": "fabric",
-        "cleanroom": "forge",
-    }
+    MOD_LOADER_COMPAT_MAP: Dict[str, str] = {"legacyfabric": "fabric", "cleanroom": "forge"}
 
     @property
     def _search_loader(self) -> Optional[str]:
@@ -37,7 +35,8 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         self.version_id = version_id
         self.callbacks = callbacks
 
-        from modrinth import parse_mod_loader_from_version, parse_game_version_from_version
+        from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
+
         self._mod_loader = parse_mod_loader_from_version(version_id)
         self._game_version = parse_game_version_from_version(version_id)
 
@@ -95,12 +94,9 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         info_parts.append(_("server_mod_browser_server_only"))
         info_text = " | ".join(info_parts)
         info_color = COLORS["success"]
-        ctk.CTkLabel(
-            header,
-            text=info_text,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=info_color,
-        ).pack(side=ctk.RIGHT)
+        ctk.CTkLabel(header, text=info_text, font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=info_color).pack(
+            side=ctk.RIGHT
+        )
 
         search_frame = ctk.CTkFrame(main_frame, fg_color="transparent", height=40)
         search_frame.pack(fill=ctk.X, pady=(0, 8))
@@ -145,9 +141,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         list_container.pack(fill=ctk.BOTH, expand=True, pady=(0, 8))
 
         self._list_frame = ctk.CTkScrollableFrame(
-            list_container,
-            fg_color="transparent",
-            scrollbar_button_color=COLORS["bg_light"],
+            list_container, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
         self._list_frame.pack(fill=ctk.BOTH, expand=True, padx=5, pady=5)
 
@@ -200,10 +194,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         self._next_btn.pack(side=ctk.LEFT)
 
         self._result_count_label = ctk.CTkLabel(
-            page_frame,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
+            page_frame, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"]
         )
         self._result_count_label.pack(side=ctk.RIGHT)
 
@@ -231,6 +222,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
 
     def _on_ai_search(self):
         from ui.i18n import _
+
         token = self.callbacks.get("get_ai_token", lambda: "")()
         if not token:
             self._set_status(_("ai_search_login_required"))
@@ -248,6 +240,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
 
     def _do_ai_search(self, query: str, token: str):
         from modrinth import ai_expand_search_keywords, search_server_mods
+
         try:
             keywords = ai_expand_search_keywords(query, token)
             if not keywords:
@@ -260,11 +253,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
             for kw in keywords:
                 try:
                     result = search_server_mods(
-                        query=kw,
-                        game_version=self._game_version,
-                        mod_loader=self._search_loader,
-                        offset=0,
-                        limit=30,
+                        query=kw, game_version=self._game_version, mod_loader=self._search_loader, offset=0, limit=30
                     )
                     hits = result.get("hits", [])
                     for hit in hits:
@@ -279,20 +268,19 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
             self._ai_cached_hits = merged
             self._total_hits = len(merged)
             self._current_offset = 0
-            page = merged[:self.PAGE_SIZE]
+            page = merged[: self.PAGE_SIZE]
             self.after(0, self._render_results, page)
             self.after(0, self._update_pagination)
-            self.after(0, lambda: self._set_status(
-                _("ai_search_done", keywords=", ".join(keywords), total=len(merged))
-            ))
+            self.after(
+                0, lambda: self._set_status(_("ai_search_done", keywords=", ".join(keywords), total=len(merged)))
+            )
         except Exception as e:
             logger.error(f"AI搜索失败: {e}")
-            self.after(0, lambda err=str(e): self._set_status(
-                _("mod_browser_search_failed_status", error=err)
-            ))
+            self.after(0, lambda err=str(e): self._set_status(_("mod_browser_search_failed_status", error=err)))
 
     def _do_search(self):
         from modrinth import search_server_mods
+
         try:
             result = search_server_mods(
                 query=self._current_query,
@@ -306,21 +294,22 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
             self.after(0, self._render_results, hits)
             self.after(0, self._update_pagination)
             if self._current_query:
-                self.after(0, lambda: self._set_status(
-                    _("mod_browser_result_range",
-                      start=self._current_offset + 1,
-                      end=self._current_offset + len(hits),
-                      total=self._total_hits)
-                ))
+                self.after(
+                    0,
+                    lambda: self._set_status(
+                        _(
+                            "mod_browser_result_range",
+                            start=self._current_offset + 1,
+                            end=self._current_offset + len(hits),
+                            total=self._total_hits,
+                        )
+                    ),
+                )
             else:
-                self.after(0, lambda: self._set_status(
-                    _("mod_browser_total_found", total=self._total_hits)
-                ))
+                self.after(0, lambda: self._set_status(_("mod_browser_total_found", total=self._total_hits)))
         except Exception as e:
             logger.error(f"搜索服务端模组失败: {e}")
-            self.after(0, lambda err=str(e): self._set_status(
-                _("mod_browser_search_failed_status", error=err)
-            ))
+            self.after(0, lambda err=str(e): self._set_status(_("mod_browser_search_failed_status", error=err)))
 
     def _render_results(self, hits: List[Dict]):
         if not self._list_frame or not self._list_frame.winfo_exists():
@@ -347,11 +336,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
             categories = mod.get("categories", [])
             versions_display = mod.get("versions", [])
 
-            card = ctk.CTkFrame(
-                self._list_frame,
-                fg_color=COLORS["bg_medium"],
-                corner_radius=8,
-            )
+            card = ctk.CTkFrame(self._list_frame, fg_color=COLORS["bg_medium"], corner_radius=8)
             card.pack(fill=ctk.X, pady=3, padx=2)
 
             top_row = ctk.CTkFrame(card, fg_color="transparent", height=36)
@@ -405,6 +390,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
                     tag_parts.append(" | ".join(c.capitalize() for c in loader_tags))
             if versions_display:
                 from modrinth import compress_game_versions
+
                 compressed = compress_game_versions(versions_display)
                 if compressed:
                     tag_parts.append(compressed)
@@ -430,15 +416,13 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         self._prev_btn.configure(state=ctk.NORMAL if has_prev else ctk.DISABLED)
         self._next_btn.configure(state=ctk.NORMAL if has_next else ctk.DISABLED)
         if self._total_hits > 0:
-            self._result_count_label.configure(
-                text=_("mod_browser_total_found", total=self._total_hits)
-            )
+            self._result_count_label.configure(text=_("mod_browser_total_found", total=self._total_hits))
 
     def _on_prev_page(self):
         if self._current_offset >= self.PAGE_SIZE:
             self._current_offset -= self.PAGE_SIZE
             if self._ai_cached_hits is not None:
-                self._render_results(self._ai_cached_hits[self._current_offset:self._current_offset + self.PAGE_SIZE])
+                self._render_results(self._ai_cached_hits[self._current_offset : self._current_offset + self.PAGE_SIZE])
                 self._update_pagination()
             else:
                 self._set_status(_("mod_browser_searching"))
@@ -448,7 +432,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         if self._current_offset + self.PAGE_SIZE < self._total_hits:
             self._current_offset += self.PAGE_SIZE
             if self._ai_cached_hits is not None:
-                self._render_results(self._ai_cached_hits[self._current_offset:self._current_offset + self.PAGE_SIZE])
+                self._render_results(self._ai_cached_hits[self._current_offset : self._current_offset + self.PAGE_SIZE])
                 self._update_pagination()
             else:
                 self._set_status(_("mod_browser_searching"))
@@ -480,16 +464,10 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
                 if len(installed_names) > 1:
                     deps = ", ".join(installed_names[:-1])
                     self.after(
-                        0,
-                        lambda: self._set_status(
-                            _("mod_browser_install_success_deps", title=title, deps=deps),
-                        ),
+                        0, lambda: self._set_status(_("mod_browser_install_success_deps", title=title, deps=deps))
                     )
                 else:
-                    self.after(
-                        0,
-                        lambda: self._set_status(_("mod_browser_install_success", title=title)),
-                    )
+                    self.after(0, lambda: self._set_status(_("mod_browser_install_success", title=title)))
                 logger.info(f"服务端模组安装成功: {installed_names} -> {result}")
             else:
                 self.after(0, lambda: self._set_status(_("mod_browser_install_failed", error=result)))
@@ -497,10 +475,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
 
         except Exception as e:
             error_msg = str(e)
-            self.after(
-                0,
-                lambda: self._set_status(_("mod_browser_install_error", error=error_msg)),
-            )
+            self.after(0, lambda: self._set_status(_("mod_browser_install_error", error=error_msg)))
             logger.error(f"安装服务端模组失败: {e}")
 
     def _get_mods_dir(self) -> str:

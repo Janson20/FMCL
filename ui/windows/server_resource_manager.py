@@ -1,12 +1,13 @@
 """服务器资源管理窗口 - 管理服务端模组"""
-import os
-import json
-import threading
+
 import base64
+import json
+import os
+import threading
 from io import BytesIO
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Any
-from tkinter import messagebox, filedialog
+from tkinter import filedialog, messagebox
+from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 from logzero import logger
@@ -57,6 +58,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
     def _fix_customtkinter_icon(toplevel):
         """修复 CTkToplevel 因内置图标延迟回调崩溃的问题"""
         import types
+
         try:
             icon_path = Path(__file__).parent.parent.parent / "icon.ico"
             icon_str = str(icon_path) if icon_path.exists() else ""
@@ -172,9 +174,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         )
         self._check_updates_btn.pack(side=ctk.RIGHT, padx=(5, 5))
 
-        ctk.CTkFrame(content_frame, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=12, pady=(0, 5)
-        )
+        ctk.CTkFrame(content_frame, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=12, pady=(0, 5))
 
         self._search_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
         self._search_entry = ctk.CTkEntry(
@@ -210,9 +210,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         )
 
         self._list_frame = ctk.CTkScrollableFrame(
-            self._drop_frame,
-            fg_color="transparent",
-            scrollbar_button_color=COLORS["bg_light"],
+            self._drop_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
 
         self._page_frame = ctk.CTkFrame(content_frame, fg_color="transparent", height=34)
@@ -267,23 +265,25 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         mods_dir = self._get_mods_dir()
         if not mods_dir.exists():
             mods_dir.mkdir(parents=True, exist_ok=True)
-        import sys, subprocess
-        if sys.platform == 'win32':
+        import subprocess
+        import sys
+
+        if sys.platform == "win32":
             os.startfile(str(mods_dir))
-        elif sys.platform == 'darwin':
-            subprocess.Popen(['open', str(mods_dir)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(mods_dir)])
         else:
-            subprocess.Popen(['xdg-open', str(mods_dir)])
+            subprocess.Popen(["xdg-open", str(mods_dir)])
 
     def _select_file_install(self):
         mods_dir = self._get_mods_dir()
         files = filedialog.askopenfilenames(
-            title=_("resource_select_file"),
-            filetypes=[("Mod文件", "*.jar *.zip"), ("所有文件", "*.*")],
+            title=_("resource_select_file"), filetypes=[("Mod文件", "*.jar *.zip"), ("所有文件", "*.*")]
         )
         if not files:
             return
         import shutil
+
         installed = 0
         for fpath in files:
             p = Path(fpath)
@@ -308,7 +308,9 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
             try:
                 results = extract_all_mods_metadata(
                     mods_dir,
-                    status_callback=lambda done, total: self.after(0, lambda d=done, t=total: self._update_mod_loading(d, t)),
+                    status_callback=lambda done, total: self.after(
+                        0, lambda d=done, t=total: self._update_mod_loading(d, t)
+                    ),
                 )
                 self.after(0, lambda r=results: self._on_mod_metadata_loaded(r))
             except Exception as e:
@@ -353,7 +355,8 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
 
         if self._search_text:
             filtered = [
-                m for m in self._mod_metadata
+                m
+                for m in self._mod_metadata
                 if self._search_text in m.get("name", "").lower()
                 or self._search_text in m.get("modid", "").lower()
                 or self._search_text in m.get("author", "").lower()
@@ -391,7 +394,15 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         self._page_label.configure(text=_("rm_page_info", current=self._current_page, total=total_pages))
         self._prev_btn.configure(state=ctk.NORMAL if self._current_page > 1 else ctk.DISABLED)
         self._next_btn.configure(state=ctk.NORMAL if self._current_page < total_pages else ctk.DISABLED)
-        self._set_status(_("rm_list_count", count=len(filtered), page=self._current_page, total_pages=total_pages, label=_("resource_mods")))
+        self._set_status(
+            _(
+                "rm_list_count",
+                count=len(filtered),
+                page=self._current_page,
+                total_pages=total_pages,
+                label=_("resource_mods"),
+            )
+        )
 
     def _on_prev_page(self):
         if self._current_page > 1:
@@ -406,11 +417,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
             self._render_mod_list()
 
     def _create_mod_card(self, item: Dict):
-        row = ctk.CTkFrame(
-            self._list_frame,
-            fg_color=COLORS["bg_medium"],
-            corner_radius=8,
-        )
+        row = ctk.CTkFrame(self._list_frame, fg_color=COLORS["bg_medium"], corner_radius=8)
         row.pack(fill=ctk.X, pady=3, padx=2)
 
         icon_size = 48
@@ -513,10 +520,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         frame.pack(fill=ctk.BOTH, expand=True)
         frame.pack_propagate(False)
         ctk.CTkLabel(
-            frame,
-            text="🧩",
-            font=ctk.CTkFont(size=int(size * 0.5)),
-            text_color=COLORS["text_secondary"],
+            frame, text="🧩", font=ctk.CTkFont(size=int(size * 0.5)), text_color=COLORS["text_secondary"]
         ).pack(expand=True)
 
     def _toggle_mod(self, item: Dict):
@@ -548,10 +552,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         if not filepath:
             return
         name = item.get("name", item.get("filename", ""))
-        if not messagebox.askyesno(
-            _("mod_delete_confirm_title"),
-            _("mod_delete_confirm_msg", name=name),
-        ):
+        if not messagebox.askyesno(_("mod_delete_confirm_title"), _("mod_delete_confirm_msg", name=name)):
             return
         try:
             Path(filepath).unlink()
@@ -607,10 +608,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("mod_update_unknown_version"))
             return
 
-        mods_with_modid = [
-            m for m in self._mod_metadata
-            if m.get("modid") and not m.get("disabled")
-        ]
+        mods_with_modid = [m for m in self._mod_metadata if m.get("modid") and not m.get("disabled")]
 
         if not mods_with_modid:
             self._set_status(_("mod_update_no_modid"))
@@ -619,9 +617,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         self._update_checking = True
         self._update_info.clear()
         self._check_updates_btn.configure(
-            text=_("mod_checking_updates"),
-            state=ctk.DISABLED,
-            fg_color=COLORS["bg_light"],
+            text=_("mod_checking_updates"), state=ctk.DISABLED, fg_color=COLORS["bg_light"]
         )
         self._set_status(_("mod_checking_updates_progress", current=0, total=len(mods_with_modid)))
         self._run_in_thread(self._do_check_updates, mods_with_modid, game_version, mod_loader)
@@ -650,9 +646,9 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
                 logger.debug(f"检查模组 {modid} 更新失败: {e}")
             progress = i + 1
             total = len(mods_with_modid)
-            self.after(0, lambda p=progress, t=total: self._set_status(
-                _("mod_checking_updates_progress", current=p, total=t)
-            ))
+            self.after(
+                0, lambda p=progress, t=total: self._set_status(_("mod_checking_updates_progress", current=p, total=t))
+            )
 
         self.after(0, self._on_update_check_done)
 
@@ -660,11 +656,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         if not self.winfo_exists():
             return
         self._update_checking = False
-        self._check_updates_btn.configure(
-            text=_("mod_check_updates"),
-            state=ctk.NORMAL,
-            fg_color=COLORS["success"],
-        )
+        self._check_updates_btn.configure(text=_("mod_check_updates"), state=ctk.NORMAL, fg_color=COLORS["success"])
         if self._update_info:
             self._show_update_dialog()
         else:
@@ -720,9 +712,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             command=lambda: self._batch_update_mods(
-                [mid for mid, var in checkbox_vars.items() if var.get()],
-                checkbox_vars,
-                dialog,
+                [mid for mid, var in checkbox_vars.items() if var.get()], checkbox_vars, dialog
             ),
         ).pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(0, 5))
 
@@ -743,10 +733,15 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         dialog.destroy()
         self._set_status(_("mod_update_batch_starting", count=len(modids)))
 
-        from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
-        from modrinth import download_mod, get_mod_versions
-        from version_utils import resolve_search_loader
         from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        from modrinth import (
+            download_mod,
+            get_mod_versions,
+            parse_game_version_from_version,
+            parse_mod_loader_from_version,
+        )
+        from version_utils import resolve_search_loader
 
         game_version = parse_game_version_from_version(self.version_id)
         mod_loader = resolve_search_loader(parse_mod_loader_from_version(self.version_id))
@@ -763,11 +758,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
 
         def _update_one(modid: str):
             try:
-                versions = get_mod_versions(
-                    project_id=modid,
-                    game_version=game_version,
-                    mod_loader=mod_loader,
-                )
+                versions = get_mod_versions(project_id=modid, game_version=game_version, mod_loader=mod_loader)
                 if not versions:
                     with lock:
                         fail_count[0] += 1
@@ -805,9 +796,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
                     done[0] += 1
                     d = done[0]
                     t = len(modids)
-                    self.after(0, lambda: self._set_status(
-                        _("mod_update_batch_progress", current=d, total=t)
-                    ))
+                    self.after(0, lambda: self._set_status(_("mod_update_batch_progress", current=d, total=t)))
 
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {executor.submit(_update_one, mid): mid for mid in modids}
@@ -815,13 +804,11 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
                 pass
 
         self._refresh_mod_list()
-        self._set_status(
-            _("mod_update_batch_done", success=success_count[0], fail=fail_count[0])
-        )
+        self._set_status(_("mod_update_batch_done", success=success_count[0], fail=fail_count[0]))
 
     def _set_status(self, text: str):
         try:
-            if self.winfo_exists() and hasattr(self, '_status_label') and self._status_label:
+            if self.winfo_exists() and hasattr(self, "_status_label") and self._status_label:
                 self._status_label.configure(text=text)
         except Exception:
             pass

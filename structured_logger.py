@@ -7,6 +7,7 @@
     slog.info("version_installed", version="1.20.4", duration=12.5, success=True)
     slog.error("launch_failed", version="1.20.4-forge", error="OutOfMemoryError")
 """
+
 import json
 import threading
 from datetime import datetime, timezone
@@ -39,6 +40,7 @@ class StructuredLogger:
         if log_path is None:
             try:
                 from config import config
+
                 log_path = str(config.base_dir / "latest_structured.log")
             except Exception:
                 log_path = "latest_structured.log"
@@ -54,11 +56,7 @@ class StructuredLogger:
 
     def _write(self, level: str, event: str, **kwargs: Any) -> None:
         """写入一条结构化日志"""
-        record: Dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "level": level,
-            "event": event,
-        }
+        record: Dict[str, Any] = {"timestamp": datetime.now(timezone.utc).isoformat(), "level": level, "event": event}
         if kwargs:
             record["data"] = kwargs
 

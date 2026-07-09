@@ -1,31 +1,32 @@
 """ModernApp 事件处理 Mixin - 版本管理、游戏操作、更新检查、队列处理等"""
-import os
+
 import io
-import re
-import sys
-import time
 import logging
+import os
 import platform
-import subprocess
-import threading
 import queue
+import re
+import subprocess
+import sys
+import threading
+import time
 import tkinter.messagebox as messagebox
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 from logzero import logger
 
-from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
-from ui.dialogs import show_notification, show_confirmation
-from ui.windows.resource_manager import ResourceManagerWindow
-from ui.windows.launcher_settings import LauncherSettingsWindow
-from ui.windows.modpack_install import ModpackInstallWindow
-from ui.windows.mod_browser import ModBrowserWindow
-from ui.i18n import _, get_available_languages, set_language
-from structured_logger import slog
-from version_utils import has_mod_loader, is_snapshot, InstanceInfo
 from plugin_manager.base import HookPoint
+from structured_logger import slog
+from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
+from ui.dialogs import show_confirmation, show_notification
+from ui.i18n import _, get_available_languages, set_language
+from ui.windows.launcher_settings import LauncherSettingsWindow
+from ui.windows.mod_browser import ModBrowserWindow
+from ui.windows.modpack_install import ModpackInstallWindow
+from ui.windows.resource_manager import ResourceManagerWindow
+from version_utils import InstanceInfo, has_mod_loader, is_snapshot
 
 
 class EventHandlerMixin(object):
@@ -84,12 +85,7 @@ class EventHandlerMixin(object):
                 display_text += f"  ({info.vanilla_name})"
 
             has_loader = info.has_loader
-            btn_frame = ctk.CTkFrame(
-                self.version_list_frame,
-                fg_color=COLORS["bg_medium"],
-                corner_radius=8,
-                height=42,
-            )
+            btn_frame = ctk.CTkFrame(self.version_list_frame, fg_color=COLORS["bg_medium"], corner_radius=8, height=42)
             btn_frame.pack(fill=ctk.X, pady=2)
             btn_frame.pack_propagate(False)
 
@@ -312,9 +308,7 @@ class EventHandlerMixin(object):
         }
         raw_loader = loader_map.get(loader, "")
         if raw_loader and raw_loader != "None":
-            self.modloader_hint.configure(
-                text=_("mod_loader_hint", loader=raw_loader)
-            )
+            self.modloader_hint.configure(text=_("mod_loader_hint", loader=raw_loader))
         else:
             self.modloader_hint.configure(text="")
 
@@ -330,18 +324,12 @@ class EventHandlerMixin(object):
         from ui.dialogs import show_input_dialog
 
         new_name = show_input_dialog(
-            parent=self,
-            title=_("rename_instance_title"),
-            prompt=_("rename_instance_prompt"),
-            initial_value=version,
+            parent=self, title=_("rename_instance_title"), prompt=_("rename_instance_prompt"), initial_value=version
         )
         if not new_name or new_name == version:
             return
 
-        if not messagebox.askyesno(
-            _("rename_instance"),
-            _("rename_instance_confirm", old=version, new=new_name),
-        ):
+        if not messagebox.askyesno(_("rename_instance"), _("rename_instance_confirm", old=version, new=new_name)):
             return
 
         self.set_status(f"正在重命名 {version} → {new_name}...", "loading")
@@ -384,11 +372,7 @@ class EventHandlerMixin(object):
 
     def _emit_game_crashed_hook(self, exit_code: int, crash_files: dict):
         """发射游戏崩溃的插件钩子（异常不影响主流程）"""
-        self._emit_plugin_hook(
-            HookPoint.GAME_CRASHED,
-            exit_code=exit_code,
-            crash_files=crash_files,
-        )
+        self._emit_plugin_hook(HookPoint.GAME_CRASHED, exit_code=exit_code, crash_files=crash_files)
 
     def _emit_plugin_hook(self, hook_point, **kwargs):
         """通用插件钩子发射器"""
@@ -399,6 +383,7 @@ class EventHandlerMixin(object):
             pm.emit(hook_point, **kwargs)
         except Exception as e:
             from logzero import logger
+
             logger.warning(f"发射插件钩子异常 ({hook_point.value}): {e}")
 
     def _start_launch_animation(self):
@@ -498,14 +483,18 @@ class EventHandlerMixin(object):
                     # 崩溃报告（取最新的）
                     crash_dir = game_dir / "crash-reports"
                     if crash_dir.exists():
-                        crash_reports = sorted(crash_dir.glob("crash-*.txt"), key=lambda f: f.stat().st_mtime, reverse=True)
+                        crash_reports = sorted(
+                            crash_dir.glob("crash-*.txt"), key=lambda f: f.stat().st_mtime, reverse=True
+                        )
                         if crash_reports:
                             if "crash_report" not in files:
                                 files["crash_report"] = str(crash_reports[0])
                             if "crash_report_list" not in files:
                                 files["crash_report_list"] = [str(f) for f in crash_reports[:10]]
                     # JVM 崩溃日志 (hs_err_pid*.log)
-                    hs_err_files = sorted(game_dir.glob("hs_err_pid*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+                    hs_err_files = sorted(
+                        game_dir.glob("hs_err_pid*.log"), key=lambda f: f.stat().st_mtime, reverse=True
+                    )
                     if hs_err_files and "jvm_crash_log" not in files:
                         files["jvm_crash_log"] = str(hs_err_files[0])
         except Exception as e:
@@ -604,6 +593,7 @@ class EventHandlerMixin(object):
         """
         try:
             from updater import check_for_update
+
             release_info = check_for_update()
 
             if release_info:
@@ -646,11 +636,7 @@ class EventHandlerMixin(object):
         ).pack(pady=(20, 10))
 
         # 更新日志
-        changelog_frame = ctk.CTkScrollableFrame(
-            dialog,
-            fg_color=COLORS["bg_medium"],
-            height=160,
-        )
+        changelog_frame = ctk.CTkScrollableFrame(dialog, fg_color=COLORS["bg_medium"], height=160)
         changelog_frame.pack(fill=ctk.BOTH, expand=True, padx=20, pady=(0, 10))
 
         display_text = body if body else "暂无更新日志"
@@ -709,7 +695,7 @@ class EventHandlerMixin(object):
     def _do_update(self):
         """执行更新下载与安装（后台线程）"""
         try:
-            from updater import check_for_update, find_suitable_asset, download_update, install_update
+            from updater import check_for_update, download_update, find_suitable_asset, install_update
 
             # 重新检查获取 release 信息
             release_info = check_for_update()
@@ -759,6 +745,7 @@ class EventHandlerMixin(object):
     def _check_terms_consent(self, on_complete=None):
         """检查使用条款/AI隐私同意状态，任一未同意则显示弹窗"""
         from config import config
+
         if not config.terms_consent or not config.ai_privacy_consent:
             self.after(500, lambda: self._show_terms_consent_dialog(on_complete))
         elif on_complete:
@@ -767,7 +754,7 @@ class EventHandlerMixin(object):
     def _show_terms_consent_dialog(self, on_complete=None):
         """显示使用条款与隐私协议同意弹窗（ctk风格，内嵌HTML渲染的TERMS_OF_USE.md）"""
         from config import config
-        from ui.app_about import _load_terms_md, _build_terms_html_frame
+        from ui.app_about import _build_terms_html_frame, _load_terms_md
 
         dialog = ctk.CTkToplevel(self)
         dialog.title(_("terms_title"))
@@ -778,7 +765,7 @@ class EventHandlerMixin(object):
             dialog.grab_set()
         except Exception:
             pass
-        dialog.attributes('-topmost', True)
+        dialog.attributes("-topmost", True)
 
         w, h = 640, 660
         dialog.geometry(f"{w}x{h}")
@@ -952,7 +939,7 @@ class EventHandlerMixin(object):
     def _launch_game(self, version_id: str):
         """启动游戏（后台线程）"""
         # 启动前自动备份
-        if hasattr(self, '_auto_backup_before_launch'):
+        if hasattr(self, "_auto_backup_before_launch"):
             self._auto_backup_before_launch(version_id)
 
         try:
@@ -966,7 +953,9 @@ class EventHandlerMixin(object):
         """处理版本安装相关成就"""
         import re
         from datetime import datetime, timedelta
+
         from achievement_engine import get_achievement_engine
+
         engine = get_achievement_engine()
         if not engine:
             return
@@ -985,13 +974,13 @@ class EventHandlerMixin(object):
         engine.check_and_unlock("gamer_cross_era", has_release and has_snapshot)
 
         if version_id:
-            match = re.match(r'(\d+)\.(\d+)', version_id)
+            match = re.match(r"(\d+)\.(\d+)", version_id)
             if match:
                 major, minor = int(match.group(1)), int(match.group(2))
                 if major == 1 and minor <= 12:
                     engine.check_and_unlock("gamer_retro", True)
 
-        if version_id and ('pre' in version_id or 'rc' in version_id or 'snapshot' in version_id):
+        if version_id and ("pre" in version_id or "rc" in version_id or "snapshot" in version_id):
             try:
                 from achievement_engine import ACHIEVEMENTS
             except ImportError:
@@ -1036,10 +1025,10 @@ class EventHandlerMixin(object):
         # 检测标签页切换
         try:
             current_tab = self.tabview.get()
-            prev = getattr(self, '_last_tab', None)
+            prev = getattr(self, "_last_tab", None)
             if current_tab != prev:
                 self._last_tab = current_tab
-                if current_tab == "💾 备份" and hasattr(self, '_refresh_world_list'):
+                if current_tab == "💾 备份" and hasattr(self, "_refresh_world_list"):
                     self._refresh_world_list()
         except Exception:
             pass
@@ -1049,7 +1038,7 @@ class EventHandlerMixin(object):
     def _handle_task(self, task_type: str, data: Any):
         """处理队列任务"""
         # 备份相关任务
-        if hasattr(self, '_handle_backup_task'):
+        if hasattr(self, "_handle_backup_task"):
             handled = self._handle_backup_task(task_type, data)
             if handled:
                 return
@@ -1066,10 +1055,7 @@ class EventHandlerMixin(object):
         elif task_type == "installed_loaded":
             installed = data
             self._render_installed_versions(installed)
-            self.set_status(
-                f"已安装 {len(installed)} 个版本 | 正在获取可用版本...",
-                "loading"
-            )
+            self.set_status(f"已安装 {len(installed)} 个版本 | 正在获取可用版本...", "loading")
             # 异步加载可用版本列表（可能因网络失败）
             self._run_in_thread(self._load_available_versions)
 
@@ -1080,16 +1066,12 @@ class EventHandlerMixin(object):
             snapshot_count = len([v for v in available if v.get("type") == "snapshot"])
             installed_count = len([b["version"] for b in self.version_buttons])
             self.set_status(
-                f"已安装 {installed_count} 个 | 正式版 {release_count} 个 | 测试版 {snapshot_count} 个",
-                "success"
+                f"已安装 {installed_count} 个 | 正式版 {release_count} 个 | 测试版 {snapshot_count} 个", "success"
             )
 
         elif task_type == "available_load_error":
             installed_count = len([b["version"] for b in self.version_buttons])
-            self.set_status(
-                f"已安装 {installed_count} 个 | 可用版本列表获取失败（离线模式）",
-                "warning"
-            )
+            self.set_status(f"已安装 {installed_count} 个 | 可用版本列表获取失败（离线模式）", "warning")
 
         elif task_type == "load_error":
             self.set_status(f"加载失败: {data}", "error")
@@ -1130,7 +1112,10 @@ class EventHandlerMixin(object):
         elif task_type == "rename_done":
             old_name, new_name, success, msg = data
             if success:
-                self.set_status(_("rename_instance_success", old=old_name, new=new_name).format(old=old_name, new=new_name), "success")
+                self.set_status(
+                    _("rename_instance_success", old=old_name, new=new_name).format(old=old_name, new=new_name),
+                    "success",
+                )
                 if self.selected_version == old_name:
                     self.selected_version = new_name
                 self._refresh_versions()
@@ -1176,10 +1161,7 @@ class EventHandlerMixin(object):
             available = data
             self._render_server_available_versions(available)
             server_release_count = len(available)
-            self.set_status(
-                f"服务器可用 {server_release_count} 个正式版",
-                "success"
-            )
+            self.set_status(f"服务器可用 {server_release_count} 个正式版", "success")
 
         elif task_type == "server_error":
             self.set_status(f"服务器操作错误: {data}", "error")
@@ -1310,7 +1292,7 @@ class EventHandlerMixin(object):
             else:
                 self._killed_by_user = False  # 重置标志
             # 退出后自动备份
-            if hasattr(self, '_auto_backup_after_exit'):
+            if hasattr(self, "_auto_backup_after_exit"):
                 self._auto_backup_after_exit()
 
         elif task_type == "game_crashed":
@@ -1331,9 +1313,14 @@ class EventHandlerMixin(object):
             if _crash_report_path:
                 try:
                     from pathlib import Path as _P
+
                     _content = Path(_crash_report_path).read_text(encoding="utf-8", errors="ignore")
                     import re as _re
-                    _match = _re.search(r"(java\.\w+\.\w+Exception|net\.minecraft\.\w+Exception|OutOfMemoryError|StackOverflowError)", _content)
+
+                    _match = _re.search(
+                        r"(java\.\w+\.\w+Exception|net\.minecraft\.\w+Exception|OutOfMemoryError|StackOverflowError)",
+                        _content,
+                    )
                     if _match:
                         _error_type = _match.group(1)
                     _lines = _content.strip().splitlines()
@@ -1342,22 +1329,26 @@ class EventHandlerMixin(object):
                     pass
 
             # 从版本ID解析 loader
-            _version_id = getattr(self, '_running_version_id', '') or ''
-            _loader = ''
+            _version_id = getattr(self, "_running_version_id", "") or ""
+            _loader = ""
             _vl = _version_id.lower()
-            if 'forge' in _vl:
-                _loader = 'forge'
-            elif 'fabric' in _vl:
-                _loader = 'fabric'
-            elif 'neoforge' in _vl:
-                _loader = 'neoforge'
+            if "forge" in _vl:
+                _loader = "forge"
+            elif "fabric" in _vl:
+                _loader = "fabric"
+            elif "neoforge" in _vl:
+                _loader = "neoforge"
 
-            slog.error("game_crash", exit_code=exit_code,
-                       version=_version_id, loader=_loader,
-                       error_type=_error_type,
-                       has_crash_report="crash_report" in crash_files,
-                       has_game_log="game_log" in crash_files,
-                       log_snippet=_log_snippet[:300])
+            slog.error(
+                "game_crash",
+                exit_code=exit_code,
+                version=_version_id,
+                loader=_loader,
+                error_type=_error_type,
+                has_crash_report="crash_report" in crash_files,
+                has_game_log="game_log" in crash_files,
+                log_snippet=_log_snippet[:300],
+            )
             # 恢复最小化的窗口
             try:
                 self.deiconify()
@@ -1416,13 +1407,7 @@ class EventHandlerMixin(object):
 
     def set_status(self, text: str, status_type: str = "info"):
         """设置状态栏文本"""
-        icons = {
-            "success": "✅",
-            "error": "❌",
-            "warning": "⚠️",
-            "loading": "⏳",
-            "info": "ℹ️",
-        }
+        icons = {"success": "✅", "error": "❌", "warning": "⚠️", "loading": "⏳", "info": "ℹ️"}
         colors = {
             "success": COLORS["success"],
             "error": COLORS["accent"],
@@ -1483,10 +1468,7 @@ class EventHandlerMixin(object):
         top_frame.pack(fill=ctk.X, pady=(0, 15))
 
         # Logo
-        icon_path = os.path.join(
-            getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))),
-            "icon.ico",
-        )
+        icon_path = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "icon.ico")
         icon_displayed = False
         if os.path.exists(icon_path):
             try:
@@ -1494,43 +1476,30 @@ class EventHandlerMixin(object):
 
                 pil_img = PILImage.open(icon_path).resize((64, 64), PILImage.Resampling.LANCZOS)
                 ctk_img = ctk.CTkImage(pil_img, size=(80, 80))
-                ctk.CTkLabel(top_frame, image=ctk_img, text="").pack(
-                    side=ctk.LEFT, padx=(0, 15)
-                )
+                ctk.CTkLabel(top_frame, image=ctk_img, text="").pack(side=ctk.LEFT, padx=(0, 15))
                 # 保存对图像的引用以防止被垃圾回收
-                setattr(about, '_icon_ref', ctk_img)
+                setattr(about, "_icon_ref", ctk_img)
                 icon_displayed = True
             except Exception:
                 pass
 
         if not icon_displayed:
-            ctk.CTkLabel(
-                top_frame,
-                text="\u26cf",
-                font=ctk.CTkFont(size=36),
-                text_color=COLORS["accent"],
-            ).pack(side=ctk.LEFT, padx=(0, 15))
+            ctk.CTkLabel(top_frame, text="\u26cf", font=ctk.CTkFont(size=36), text_color=COLORS["accent"]).pack(
+                side=ctk.LEFT, padx=(0, 15)
+            )
 
         # 标题信息
         info_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
         info_frame.pack(side=ctk.LEFT)
         ctk.CTkLabel(
-            info_frame,
-            text="FMCL",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color=COLORS["text_primary"],
+            info_frame, text="FMCL", font=ctk.CTkFont(size=20, weight="bold"), text_color=COLORS["text_primary"]
         ).pack(anchor=ctk.W)
         ctk.CTkLabel(
-            info_frame,
-            text="Fusion Minecraft Launcher",
-            font=ctk.CTkFont(size=10),
-            text_color=COLORS["text_secondary"],
+            info_frame, text="Fusion Minecraft Launcher", font=ctk.CTkFont(size=10), text_color=COLORS["text_secondary"]
         ).pack(anchor=ctk.W)
 
         # 分隔线
-        ctk.CTkFrame(
-            main_frame, height=1, fg_color=COLORS["card_border"]
-        ).pack(fill=ctk.X, pady=(0, 15))
+        ctk.CTkFrame(main_frame, height=1, fg_color=COLORS["card_border"]).pack(fill=ctk.X, pady=(0, 15))
 
         # 系统信息
         info_items = [
@@ -1676,10 +1645,7 @@ class EventHandlerMixin(object):
         # 检查 AI 是否正在处理任务
         if hasattr(self, "_agent_chat") and self._agent_chat is not None:
             if self._agent_chat.is_processing():
-                confirmed = show_confirmation(
-                    _("agent_close_confirm"),
-                    title="FMCL"
-                )
+                confirmed = show_confirmation(_("agent_close_confirm"), title="FMCL")
                 if not confirmed:
                     return
         self._running = False

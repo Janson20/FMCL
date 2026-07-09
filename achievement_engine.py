@@ -5,18 +5,15 @@ Data stored in SQLite at <base_dir>/achievements.db, structured for future cloud
 """
 
 import sqlite3
-import time
 import threading
-from pathlib import Path
-from typing import Dict, List, Optional, Callable, Any
+import time
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
 from logzero import logger
 
-from achievement_defs import (
-    AchievementDef, AchievementCategory, CATEGORY_ORDER,
-    ACHIEVEMENTS, CATEGORY_META,
-)
+from achievement_defs import ACHIEVEMENTS, CATEGORY_META, CATEGORY_ORDER, AchievementCategory, AchievementDef
 
 
 @dataclass
@@ -96,11 +93,9 @@ class AchievementEngine:
                 for cat in CATEGORY_ORDER:
                     cat_defs = [d for d in ACHIEVEMENTS if d.category == cat]
                     cat_items = [self._build_item(d, conn) for d in cat_defs]
-                    result.append({
-                        "category": cat.value,
-                        "category_meta": CATEGORY_META[cat],
-                        "achievements": cat_items,
-                    })
+                    result.append(
+                        {"category": cat.value, "category_meta": CATEGORY_META[cat], "achievements": cat_items}
+                    )
             finally:
                 conn.close()
         return result
@@ -149,8 +144,9 @@ class AchievementEngine:
             finally:
                 conn.close()
 
-    def update_progress(self, achievement_id: str, value: int = 1,
-                        trigger_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def update_progress(
+        self, achievement_id: str, value: int = 1, trigger_type: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         """PUT/PATCH /achievements/{id}/progress - 更新成就进度"""
         d = self._defs_by_id.get(achievement_id)
         if d is None:
@@ -172,14 +168,14 @@ class AchievementEngine:
                     new_value = value if ttype == "set" else old_value + value
                     conn.execute(
                         "UPDATE achievement_progress SET current_value = ?, updated_at = ? WHERE achievement_id = ?",
-                        (new_value, now, achievement_id)
+                        (new_value, now, achievement_id),
                     )
                 else:
                     old_stage = 0
                     new_value = value
                     conn.execute(
                         "INSERT INTO achievement_progress (achievement_id, current_value, stage, updated_at, sync_timestamp) VALUES (?, ?, 0, ?, ?)",
-                        (achievement_id, new_value, now, now)
+                        (achievement_id, new_value, now, now),
                     )
 
                 new_stage = self._calc_stage(d, new_value)
@@ -188,12 +184,12 @@ class AchievementEngine:
                 if unlocked_new_stages:
                     conn.execute(
                         "UPDATE achievement_progress SET stage = ?, unlocked_at = COALESCE(unlocked_at, ?) WHERE achievement_id = ?",
-                        (new_stage, now, achievement_id)
+                        (new_stage, now, achievement_id),
                     )
                     for stage_num in unlocked_new_stages:
                         conn.execute(
                             "INSERT INTO achievement_unlocks (achievement_id, stage, unlocked_at, sync_timestamp) VALUES (?, ?, ?, ?)",
-                            (achievement_id, stage_num, now, now)
+                            (achievement_id, stage_num, now, now),
                         )
 
                 conn.commit()
@@ -250,9 +246,7 @@ class AchievementEngine:
                     "SELECT COUNT(DISTINCT achievement_id) FROM achievement_progress WHERE stage > 0"
                 ).fetchone()[0]
                 max_stages = sum(len(d.stages) for d in ACHIEVEMENTS)
-                unlocked_stages = conn.execute(
-                    "SELECT COALESCE(SUM(stage), 0) FROM achievement_progress"
-                ).fetchone()[0]
+                unlocked_stages = conn.execute("SELECT COALESCE(SUM(stage), 0) FROM achievement_progress").fetchone()[0]
                 return {
                     "total_achievements": total,
                     "unlocked_achievements": unlocked,
@@ -270,7 +264,7 @@ class AchievementEngine:
             try:
                 conn.execute(
                     "INSERT OR REPLACE INTO achievement_state (key, value) VALUES (?, ?)",
-                    ("last_sync_time", str(timestamp))
+                    ("last_sync_time", str(timestamp)),
                 )
                 conn.commit()
             finally:
@@ -285,9 +279,7 @@ class AchievementEngine:
         with self._lock:
             conn = self._get_conn()
             try:
-                row = conn.execute(
-                    "SELECT value FROM achievement_state WHERE key = 'last_sync_time'"
-                ).fetchone()
+                row = conn.execute("SELECT value FROM achievement_state WHERE key = 'last_sync_time'").fetchone()
                 if row:
                     return float(row["value"])
                 return None
@@ -302,9 +294,7 @@ class AchievementEngine:
         with self._lock:
             conn = self._get_conn()
             try:
-                row = conn.execute(
-                    "SELECT value FROM achievement_state WHERE key = 'last_checkin_date'"
-                ).fetchone()
+                row = conn.execute("SELECT value FROM achievement_state WHERE key = 'last_checkin_date'").fetchone()
                 last_date = row["value"] if row else None
 
                 if last_date == today:
@@ -329,8 +319,13 @@ class AchievementEngine:
                     if streak_row:
                         streak = int(streak_row["value"]) + 1
 
-                conn.execute("INSERT OR REPLACE INTO achievement_state (key, value) VALUES (?, ?)", ("last_checkin_date", today))
-                conn.execute("INSERT OR REPLACE INTO achievement_state (key, value) VALUES (?, ?)", ("checkin_streak", str(streak)))
+                conn.execute(
+                    "INSERT OR REPLACE INTO achievement_state (key, value) VALUES (?, ?)", ("last_checkin_date", today)
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO achievement_state (key, value) VALUES (?, ?)",
+                    ("checkin_streak", str(streak)),
+                )
                 conn.commit()
                 conn.close()
                 return self.update_progress("advanced_checkin", value=streak, trigger_type="set")
@@ -365,15 +360,25 @@ class AchievementEngine:
                 for p in data.get("progress", []):
                     conn.execute(
                         "INSERT INTO achievement_progress (achievement_id, current_value, stage, unlocked_at, updated_at, notified, sync_timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (p["achievement_id"], p["current_value"], p["stage"], p.get("unlocked_at"), p.get("updated_at", time.time()), p.get("notified", 0), time.time())
+                        (
+                            p["achievement_id"],
+                            p["current_value"],
+                            p["stage"],
+                            p.get("unlocked_at"),
+                            p.get("updated_at", time.time()),
+                            p.get("notified", 0),
+                            time.time(),
+                        ),
                     )
                 for u in data.get("unlocks", []):
                     conn.execute(
                         "INSERT INTO achievement_unlocks (achievement_id, stage, unlocked_at, notified, sync_timestamp) VALUES (?, ?, ?, ?, ?)",
-                        (u["achievement_id"], u["stage"], u["unlocked_at"], u.get("notified", 0), time.time())
+                        (u["achievement_id"], u["stage"], u["unlocked_at"], u.get("notified", 0), time.time()),
                     )
                 for s in data.get("state", []):
-                    conn.execute("INSERT OR REPLACE INTO achievement_state (key, value) VALUES (?, ?)", (s["key"], s["value"]))
+                    conn.execute(
+                        "INSERT OR REPLACE INTO achievement_state (key, value) VALUES (?, ?)", (s["key"], s["value"])
+                    )
                 conn.commit()
                 return True
             except Exception as e:
@@ -401,12 +406,18 @@ class AchievementEngine:
                     if d:
                         stage = row["stage"]
                         name = d.stage_names[stage - 1] if 0 < stage <= len(d.stage_names) else d.i18n_key
-                        results.append({
-                            "id": row["id"], "achievement_id": row["achievement_id"],
-                            "stage": stage, "stage_name": name,
-                            "unlocked_at": row["unlocked_at"], "icon": d.icon,
-                            "i18n_key": d.i18n_key, "category": d.category.value,
-                        })
+                        results.append(
+                            {
+                                "id": row["id"],
+                                "achievement_id": row["achievement_id"],
+                                "stage": stage,
+                                "stage_name": name,
+                                "unlocked_at": row["unlocked_at"],
+                                "icon": d.icon,
+                                "i18n_key": d.i18n_key,
+                                "category": d.category.value,
+                            }
+                        )
                 return results
             finally:
                 conn.close()
@@ -417,7 +428,7 @@ class AchievementEngine:
             try:
                 conn.execute(
                     "UPDATE achievement_unlocks SET notified = 1 WHERE achievement_id = ? AND stage = ?",
-                    (achievement_id, stage)
+                    (achievement_id, stage),
                 )
                 conn.execute("UPDATE achievement_progress SET notified = 1 WHERE achievement_id = ?", (achievement_id,))
                 conn.commit()
@@ -428,7 +439,9 @@ class AchievementEngine:
         with self._lock:
             conn = self._get_conn()
             try:
-                conn.executemany("UPDATE achievement_unlocks SET notified = 1 WHERE id = ?", [(uid,) for uid in unlock_ids])
+                conn.executemany(
+                    "UPDATE achievement_unlocks SET notified = 1 WHERE id = ?", [(uid,) for uid in unlock_ids]
+                )
                 conn.commit()
             finally:
                 conn.close()
@@ -444,12 +457,19 @@ class AchievementEngine:
 
     def _build_item(self, d: AchievementDef, conn: sqlite3.Connection) -> Dict[str, Any]:
         item: Dict[str, Any] = {
-            "id": d.achievement_id, "category": d.category.value,
-            "i18n_key": d.i18n_key, "desc_i18n_key": d.desc_i18n_key,
-            "icon": d.icon, "stages": d.stages, "stage_names": d.stage_names,
-            "max_stage": len(d.stages), "trigger_type": d.trigger_type,
+            "id": d.achievement_id,
+            "category": d.category.value,
+            "i18n_key": d.i18n_key,
+            "desc_i18n_key": d.desc_i18n_key,
+            "icon": d.icon,
+            "stages": d.stages,
+            "stage_names": d.stage_names,
+            "max_stage": len(d.stages),
+            "trigger_type": d.trigger_type,
         }
-        row = conn.execute("SELECT * FROM achievement_progress WHERE achievement_id = ?", (d.achievement_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM achievement_progress WHERE achievement_id = ?", (d.achievement_id,)
+        ).fetchone()
         if row:
             stage = row["stage"]
             current = row["current_value"]
@@ -490,8 +510,8 @@ def _do_merge_db(local_db_path: Path, remote_data: bytes) -> Optional[bytes]:
 
     使用 ATTACH DATABASE 方式合并，避免 WAL 模式下的序列化问题。
     """
-    import tempfile
     import shutil
+    import tempfile
 
     tmp_dir = Path(tempfile.mkdtemp())
     merged_path = tmp_dir / "merged.db"
@@ -519,35 +539,42 @@ def _do_merge_db(local_db_path: Path, remote_data: bytes) -> Optional[bytes]:
                         """INSERT INTO achievement_progress
                            (achievement_id, current_value, stage, unlocked_at, updated_at, notified, sync_timestamp)
                            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (aid, rr["current_value"], rr["stage"],
-                         rr["unlocked_at"], rr["updated_at"],
-                         rr["notified"] or 0, time.time())
+                        (
+                            aid,
+                            rr["current_value"],
+                            rr["stage"],
+                            rr["unlocked_at"],
+                            rr["updated_at"],
+                            rr["notified"] or 0,
+                            time.time(),
+                        ),
                     )
                 else:
-                    ls = local_row["stage"] or 0; rs = rr["stage"] or 0
-                    lv = local_row["current_value"] or 0; rv = rr["current_value"] or 0
+                    ls = local_row["stage"] or 0
+                    rs = rr["stage"] or 0
+                    lv = local_row["current_value"] or 0
+                    rv = rr["current_value"] or 0
                     if rs > ls or (rs == ls and rv > lv):
                         merged_conn.execute(
                             """UPDATE achievement_progress
                                SET current_value = ?, stage = ?, unlocked_at = ?,
                                    updated_at = ?, sync_timestamp = ?
                                WHERE achievement_id = ?""",
-                            (rv, rs, rr["unlocked_at"], rr["updated_at"], time.time(), aid)
+                            (rv, rs, rr["unlocked_at"], rr["updated_at"], time.time(), aid),
                         )
 
             remote_unlocks = merged_conn.execute("SELECT * FROM remote.achievement_unlocks").fetchall()
             for ru in remote_unlocks:
                 existing = merged_conn.execute(
                     "SELECT id FROM achievement_unlocks WHERE achievement_id = ? AND stage = ?",
-                    (ru["achievement_id"], ru["stage"])
+                    (ru["achievement_id"], ru["stage"]),
                 ).fetchone()
                 if not existing:
                     merged_conn.execute(
                         """INSERT INTO achievement_unlocks
                            (achievement_id, stage, unlocked_at, notified, sync_timestamp)
                            VALUES (?, ?, ?, ?, ?)""",
-                        (ru["achievement_id"], ru["stage"],
-                         ru["unlocked_at"], ru["notified"] or 0, time.time())
+                        (ru["achievement_id"], ru["stage"], ru["unlocked_at"], ru["notified"] or 0, time.time()),
                     )
 
             remote_state = merged_conn.execute("SELECT * FROM remote.achievement_state").fetchall()
@@ -559,8 +586,7 @@ def _do_merge_db(local_db_path: Path, remote_data: bytes) -> Optional[bytes]:
                 ).fetchone()
                 if not existing:
                     merged_conn.execute(
-                        "INSERT OR REPLACE INTO achievement_state (key, value) VALUES (?, ?)",
-                        (rs["key"], rs["value"])
+                        "INSERT OR REPLACE INTO achievement_state (key, value) VALUES (?, ?)", (rs["key"], rs["value"])
                     )
 
             merged_conn.commit()

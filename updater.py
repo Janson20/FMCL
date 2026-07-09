@@ -16,7 +16,7 @@ import platform
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any, Callable
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import requests
 from logzero import logger
@@ -36,6 +36,7 @@ def _load_current_version() -> str:
     """从 pyproject.toml 动态读取当前版本号"""
     try:
         import re
+
         pyproject_path = Path(__file__).parent / "pyproject.toml"
         if pyproject_path.exists():
             content = pyproject_path.read_text(encoding="utf-8")
@@ -70,8 +71,11 @@ def check_for_update() -> Optional[Dict[str, Any]]:
     try:
         current = get_current_version()
         logger.info(f"检查更新: 当前版本 {current}")
-        slog.info("update_check_start", current_version=current,
-                  platform=f"{platform.system().lower()}_{platform.machine().lower()}")
+        slog.info(
+            "update_check_start",
+            current_version=current,
+            platform=f"{platform.system().lower()}_{platform.machine().lower()}",
+        )
 
         headers = {"User-Agent": f"FMCL/{get_current_version()} ({platform.system()}; {platform.machine()})"}
         resp = requests.get(PROXY_API_URL, timeout=10, headers=headers)
@@ -94,11 +98,13 @@ def check_for_update() -> Optional[Dict[str, Any]]:
         # 有新版本
         assets = []
         for asset in release.get("assets", []):
-            assets.append({
-                "name": asset.get("name", ""),
-                "browser_download_url": asset.get("browser_download_url", ""),
-                "size": asset.get("size", 0),
-            })
+            assets.append(
+                {
+                    "name": asset.get("name", ""),
+                    "browser_download_url": asset.get("browser_download_url", ""),
+                    "size": asset.get("size", 0),
+                }
+            )
 
         result = {
             "version": remote_version,
@@ -113,18 +119,27 @@ def check_for_update() -> Optional[Dict[str, Any]]:
 
     except requests.exceptions.Timeout:
         logger.warning("检查更新超时")
-        slog.warning("update_check_failed", current_version=get_current_version(),
-                     failure_stage="check_network", error="timeout")
+        slog.warning(
+            "update_check_failed", current_version=get_current_version(), failure_stage="check_network", error="timeout"
+        )
         return None
     except requests.exceptions.ConnectionError:
         logger.warning("检查更新失败: 无法连接到 GitHub")
-        slog.warning("update_check_failed", current_version=get_current_version(),
-                     failure_stage="check_network", error="connection_error")
+        slog.warning(
+            "update_check_failed",
+            current_version=get_current_version(),
+            failure_stage="check_network",
+            error="connection_error",
+        )
         return None
     except Exception as e:
         logger.error(f"检查更新失败: {e}")
-        slog.error("update_check_failed", current_version=get_current_version(),
-                   failure_stage="check_network", error=str(e)[:200])
+        slog.error(
+            "update_check_failed",
+            current_version=get_current_version(),
+            failure_stage="check_network",
+            error=str(e)[:200],
+        )
         return None
 
 
@@ -137,6 +152,7 @@ def _compare_versions(v1: str, v2: str) -> int:
          0 如果 v1 == v2
         <0 如果 v1 < v2
     """
+
     def parse(v: str):
         parts = []
         for p in v.split("."):
@@ -211,9 +227,7 @@ def find_suitable_asset(assets: list) -> Optional[Dict[str, Any]]:
 
 
 def download_update(
-    asset: Dict[str, Any],
-    tag_name: str = "",
-    progress_callback: Optional[Callable[[int, int], None]] = None,
+    asset: Dict[str, Any], tag_name: str = "", progress_callback: Optional[Callable[[int, int], None]] = None
 ) -> Optional[str]:
     """
     下载更新安装包
@@ -277,8 +291,9 @@ def download_update(
             return None
 
         logger.info(f"更新下载完成: {save_path} (SHA256: {sha256_hash.hexdigest()})")
-        slog.info("update_download_complete", installer_path=save_path, size_bytes=downloaded,
-                  sha256=sha256_hash.hexdigest())
+        slog.info(
+            "update_download_complete", installer_path=save_path, size_bytes=downloaded, sha256=sha256_hash.hexdigest()
+        )
         return save_path
 
     except Exception as e:
@@ -311,8 +326,7 @@ def install_update(file_path: str) -> bool:
         else:
             # macOS / Linux：自 v2.10.3 起不再提供预编译包，更新功能仅支持 Windows
             logger.warning(f"当前平台 ({system}) 不支持自动更新安装，请使用安装脚本或源码运行")
-            slog.info("update_platform_unsupported", platform=system,
-                      message="v2.10.3+ 仅提供 Windows 预编译包")
+            slog.info("update_platform_unsupported", platform=system, message="v2.10.3+ 仅提供 Windows 预编译包")
             return False
 
         logger.info("安装程序已启动，即将退出当前程序...")
@@ -321,8 +335,7 @@ def install_update(file_path: str) -> bool:
 
     except Exception as e:
         logger.error(f"启动安装程序失败: {e}")
-        slog.error("update_install_failed", failure_stage="execute_installer",
-                   error_message=str(e)[:200])
+        slog.error("update_install_failed", failure_stage="execute_installer", error_message=str(e)[:200])
         return False
 
 

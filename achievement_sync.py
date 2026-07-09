@@ -3,11 +3,11 @@
 下载/上传 achievements.db 到净读 API，支持冲突合并。
 """
 
-import time
 import sqlite3
 import threading
+import time
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 import requests
 from logzero import logger
@@ -117,9 +117,9 @@ def _cleanup_wal_shm(db_path: Path):
             pass
 
 
-def run_sync(token: str, db_path: Path,
-             on_status: Optional[Callable[[str], None]] = None,
-             engine: object = None) -> bool:
+def run_sync(
+    token: str, db_path: Path, on_status: Optional[Callable[[str], None]] = None, engine: object = None
+) -> bool:
     """执行完整同步流程: 下载 → 合并 → 上传
 
     当传入 engine 时，所有数据库操作通过 engine._lock 串行化，
@@ -197,8 +197,9 @@ def run_sync(token: str, db_path: Path,
 
 def reset_cloud_db(token: str) -> bool:
     """重置云存档（上传空数据库）"""
-    from achievement_engine import AchievementEngine
     import tempfile
+
+    from achievement_engine import AchievementEngine
 
     temp_dir = Path(tempfile.mkdtemp())
     temp_db = temp_dir / "achievements.db"

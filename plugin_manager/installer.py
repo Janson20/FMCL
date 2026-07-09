@@ -34,9 +34,7 @@ class PluginInstaller:
         for d in (self._installed_dir, self._disabled_dir, self._temp_dir):
             d.mkdir(parents=True, exist_ok=True)
 
-    def install_from_fmpl(
-        self, fmpl_path: str, plugin_id: str,
-    ) -> Tuple[bool, str]:
+    def install_from_fmpl(self, fmpl_path: str, plugin_id: str) -> Tuple[bool, str]:
         """从 .fmpl 文件安装插件
 
         Args:
@@ -87,6 +85,7 @@ class PluginInstaller:
 
             # 4. 读取 manifest 并校验 ID 一致
             from plugin_manager.manifest import PluginManifest
+
             manifest = PluginManifest.from_file(plugin_json)
             if manifest.id != plugin_id:
                 return False, f"manifest ID ({manifest.id}) 与预期 ({plugin_id}) 不一致"
@@ -215,5 +214,6 @@ class PluginInstaller:
     def _sanitize_id(self, plugin_id: str) -> str:
         """净化插件 ID，移除不安全字符"""
         import re
+
         # 只允许字母、数字、点、连字符、下划线
-        return re.sub(r'[^a-zA-Z0-9._\-]', '_', plugin_id)
+        return re.sub(r"[^a-zA-Z0-9._\-]", "_", plugin_id)

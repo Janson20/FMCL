@@ -1,12 +1,13 @@
 """ModernApp 服务器 Mixin - 开服标签页相关方法"""
+
 import os
-import re
-import sys
-import subprocess
 import platform
+import re
+import subprocess
+import sys
 import tkinter.messagebox as messagebox
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 from logzero import logger
@@ -65,9 +66,7 @@ class ServerTabMixin(object):
         self.server_log_status_label.pack(side=ctk.RIGHT)
 
         # 分割线
-        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(8, 5)
-        )
+        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=15, pady=(8, 5))
 
         # 日志文本框
         self.server_log_text = ctk.CTkTextbox(
@@ -96,12 +95,9 @@ class ServerTabMixin(object):
         player_frame = ctk.CTkFrame(status_bar, fg_color="transparent")
         player_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(8, 4), pady=6)
 
-        ctk.CTkLabel(
-            player_frame,
-            text="👥",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"],
-        ).pack(side=ctk.LEFT)
+        ctk.CTkLabel(player_frame, text="👥", font=ctk.CTkFont(size=13), text_color=COLORS["text_secondary"]).pack(
+            side=ctk.LEFT
+        )
 
         self.server_player_label = ctk.CTkLabel(
             player_frame,
@@ -125,18 +121,12 @@ class ServerTabMixin(object):
         mem_frame = ctk.CTkFrame(status_bar, fg_color="transparent")
         mem_frame.pack(side=ctk.RIGHT, fill=ctk.Y, padx=(4, 8), pady=6)
 
-        ctk.CTkLabel(
-            mem_frame,
-            text="💾",
-            font=ctk.CTkFont(size=13),
-            text_color=COLORS["text_secondary"],
-        ).pack(side=ctk.LEFT)
+        ctk.CTkLabel(mem_frame, text="💾", font=ctk.CTkFont(size=13), text_color=COLORS["text_secondary"]).pack(
+            side=ctk.LEFT
+        )
 
         self.server_mem_label = ctk.CTkLabel(
-            mem_frame,
-            text="0 MB",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_primary"],
+            mem_frame, text="0 MB", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_primary"]
         )
         self.server_mem_label.pack(side=ctk.LEFT, padx=(4, 0))
 
@@ -185,15 +175,22 @@ class ServerTabMixin(object):
         # 插入初始提示
         self._append_server_log(_("server_waiting_start"))
 
-        if not hasattr(self, '_theme_refs'):
+        if not hasattr(self, "_theme_refs"):
             self._theme_refs = []
         self._theme_refs.append((self._server_log_panel, {"fg_color": "card_bg"}))
-        self._theme_refs.append((self.server_log_text, {"fg_color": "bg_dark", "border_color": "card_border", "text_color": "text_primary"}))
+        self._theme_refs.append(
+            (self.server_log_text, {"fg_color": "bg_dark", "border_color": "card_border", "text_color": "text_primary"})
+        )
         self._theme_refs.append((self._server_status_bar, {"fg_color": "bg_medium"}))
         self._theme_refs.append((self.server_player_label, {"text_color": "text_primary"}))
         self._theme_refs.append((self.server_player_names_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self.server_mem_label, {"text_color": "text_primary"}))
-        self._theme_refs.append((self.server_cmd_entry, {"fg_color": "bg_medium", "border_color": "card_border", "text_color": "text_primary"}))
+        self._theme_refs.append(
+            (
+                self.server_cmd_entry,
+                {"fg_color": "bg_medium", "border_color": "card_border", "text_color": "text_primary"},
+            )
+        )
         self._theme_refs.append((self.server_cmd_send_btn, {"fg_color": "accent", "hover_color": "bg_light"}))
 
     def _build_server_installed_panel(self, parent):
@@ -239,14 +236,10 @@ class ServerTabMixin(object):
         open_dir_btn.pack(side=ctk.RIGHT, padx=(0, 8))
 
         # 分割线
-        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(8, 5)
-        )
+        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=15, pady=(8, 5))
 
         # 服务器列表 (带滚动)
-        list_frame = ctk.CTkScrollableFrame(
-            panel, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
-        )
+        list_frame = ctk.CTkScrollableFrame(panel, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"])
         list_frame.pack(fill=ctk.BOTH, expand=True, padx=10, pady=(0, 10))
 
         self.server_list_frame = list_frame
@@ -318,9 +311,7 @@ class ServerTabMixin(object):
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(15, 8), anchor=ctk.W)
 
-        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(0, 10)
-        )
+        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=15, pady=(0, 10))
 
         # 版本ID输入
         ctk.CTkLabel(
@@ -374,9 +365,7 @@ class ServerTabMixin(object):
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(5, 8), anchor=ctk.W)
 
-        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(0, 8)
-        )
+        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=15, pady=(0, 8))
 
         # 服务器版本列表（只有正式版）
         server_avail_frame = ctk.CTkScrollableFrame(
@@ -438,9 +427,7 @@ class ServerTabMixin(object):
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(10, 8), anchor=ctk.W)
 
-        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(0, 10)
-        )
+        ctk.CTkFrame(panel, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=15, pady=(0, 10))
 
         # 最大内存设置
         ctk.CTkLabel(
@@ -488,9 +475,18 @@ class ServerTabMixin(object):
         self._theme_refs.append((self.server_version_entry, {"fg_color": "bg_medium", "border_color": "card_border"}))
         self._theme_refs.append((self.server_install_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
         self._theme_refs.append((self.server_modpack_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
-        self._theme_refs.append((self.server_memory_menu, {"fg_color": "bg_medium", "button_color": "bg_light",
-            "button_hover_color": "card_border", "dropdown_fg_color": "bg_medium",
-            "dropdown_hover_color": "bg_light"}))
+        self._theme_refs.append(
+            (
+                self.server_memory_menu,
+                {
+                    "fg_color": "bg_medium",
+                    "button_color": "bg_light",
+                    "button_hover_color": "card_border",
+                    "dropdown_fg_color": "bg_medium",
+                    "dropdown_hover_color": "bg_light",
+                },
+            )
+        )
         self._theme_refs.append((self._server_prev_page_btn, {"hover_color": "bg_light", "text_color": "text_primary"}))
         self._theme_refs.append((self._server_page_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._server_next_page_btn, {"hover_color": "bg_light", "text_color": "text_primary"}))
@@ -516,12 +512,7 @@ class ServerTabMixin(object):
 
         for ver in versions:
             has_loader = has_mod_loader(ver)
-            btn_frame = ctk.CTkFrame(
-                self.server_list_frame,
-                fg_color=COLORS["bg_medium"],
-                corner_radius=8,
-                height=42,
-            )
+            btn_frame = ctk.CTkFrame(self.server_list_frame, fg_color=COLORS["bg_medium"], corner_radius=8, height=42)
             btn_frame.pack(fill=ctk.X, pady=2)
             btn_frame.pack_propagate(False)
 
@@ -579,12 +570,7 @@ class ServerTabMixin(object):
                 )
                 mod_install_btn.pack(side=ctk.RIGHT, padx=(0, 2))
 
-            self.server_buttons.append({
-                "version": ver,
-                "frame": btn_frame,
-                "button": btn,
-                "delete_btn": del_btn,
-            })
+            self.server_buttons.append({"version": ver, "frame": btn_frame, "button": btn, "delete_btn": del_btn})
 
     def _select_server_version(self, version: str):
         """选中服务器版本"""
@@ -622,7 +608,9 @@ class ServerTabMixin(object):
 
         self._server_page_label.configure(text=f"{self._server_current_page}/{total_pages}")
         self._server_prev_page_btn.configure(state=ctk.NORMAL if self._server_current_page > 1 else ctk.DISABLED)
-        self._server_next_page_btn.configure(state=ctk.NORMAL if self._server_current_page < total_pages else ctk.DISABLED)
+        self._server_next_page_btn.configure(
+            state=ctk.NORMAL if self._server_current_page < total_pages else ctk.DISABLED
+        )
 
         if not page_versions:
             ctk.CTkLabel(
@@ -744,7 +732,9 @@ class ServerTabMixin(object):
 
     def _on_server_remove(self, version_id: str):
         """删除服务器版本"""
-        if not messagebox.askyesno(_("server_delete_confirm_title"), _("server_delete_confirm_msg", version=version_id)):
+        if not messagebox.askyesno(
+            _("server_delete_confirm_title"), _("server_delete_confirm_msg", version=version_id)
+        ):
             return
 
         self.set_status(_("server_deleting", version=version_id), "loading")
@@ -779,10 +769,7 @@ class ServerTabMixin(object):
             # 启动游戏并直连服务器
             if "launch_game" in self.callbacks:
                 success, target = self.callbacks["launch_game"](
-                    version_id,
-                    minimize_after=True,
-                    server_ip="localhost",
-                    server_port=25565,
+                    version_id, minimize_after=True, server_ip="localhost", server_port=25565
                 )
                 self._task_queue.put(("server_join_done", (version_id, success)))
             else:
@@ -797,12 +784,12 @@ class ServerTabMixin(object):
             path = Path(server_dir)
             if not path.exists():
                 path.mkdir(parents=True, exist_ok=True)
-            if sys.platform == 'win32':
+            if sys.platform == "win32":
                 os.startfile(str(path))
-            elif sys.platform == 'darwin':
-                subprocess.Popen(['open', str(path)])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
             else:
-                subprocess.Popen(['xdg-open', str(path)])
+                subprocess.Popen(["xdg-open", str(path)])
 
     def _open_server_mod_browser(self, version_id: str):
         """打开服务器模组浏览窗口"""
@@ -815,10 +802,10 @@ class ServerTabMixin(object):
     def _append_server_log(self, message: str):
         """追加日志到服务器控制台（线程安全）并解析玩家事件"""
         # 解析玩家加入
-        join_match = re.search(r'joined the game$', message)
+        join_match = re.search(r"joined the game$", message)
         if join_match:
             # 提取玩家名（格式: [HH:MM:SS] [Server thread/INFO]: <PlayerName> joined the game）
-            name_match = re.search(r'<([^>]+)> joined the game', message)
+            name_match = re.search(r"<([^>]+)> joined the game", message)
             if name_match:
                 player = name_match.group(1)
                 if player not in self._server_online_players:
@@ -826,9 +813,9 @@ class ServerTabMixin(object):
                     self.after(0, self._update_player_display)
 
         # 解析玩家离开
-        leave_match = re.search(r'left the game$', message)
+        leave_match = re.search(r"left the game$", message)
         if leave_match:
-            name_match = re.search(r'<([^>]+)> left the game', message)
+            name_match = re.search(r"<([^>]+)> left the game", message)
             if name_match:
                 player = name_match.group(1)
                 if player in self._server_online_players:
@@ -836,12 +823,13 @@ class ServerTabMixin(object):
                     self.after(0, self._update_player_display)
 
         def _do_append():
-            if not hasattr(self, 'server_log_text') or not self.server_log_text.winfo_exists():
+            if not hasattr(self, "server_log_text") or not self.server_log_text.winfo_exists():
                 return
             self.server_log_text.configure(state=ctk.NORMAL)
             self.server_log_text.insert(ctk.END, message + "\n")
             self.server_log_text.see(ctk.END)
             self.server_log_text.configure(state=ctk.DISABLED)
+
         self.after(0, _do_append)
 
     def _update_player_display(self):
@@ -889,12 +877,16 @@ class ServerTabMixin(object):
     def _get_process_memory(pid: int) -> Optional[int]:
         """获取进程的内存占用（MB），Windows 用 tasklist，Linux 用 /proc"""
         import subprocess
+
         try:
             import platform
+
             if platform.system() == "Windows":
                 result = subprocess.run(
                     ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                     creationflags=subprocess.CREATE_NO_WINDOW,
                 )
                 for line in result.stdout.splitlines():
@@ -967,15 +959,16 @@ class ServerTabMixin(object):
 
     def _ask_server_exit_quality(self, exit_code: int):
         """服务器退出后询问用户服务器是否正常运行，否则触发 AI 分析"""
-        from ui.i18n import _
         import tkinter as tk
+
+        from ui.i18n import _
 
         dialog = tk.Toplevel(self)
         dialog.title(_("server_exit_question_title"))
         dialog.geometry("400x180")
         dialog.resizable(False, False)
-        dialog.attributes('-topmost', True)
-        dialog.configure(bg='#1a1a2e')
+        dialog.attributes("-topmost", True)
+        dialog.configure(bg="#1a1a2e")
         dialog.transient(self)
         try:
             dialog.grab_set()
@@ -988,19 +981,26 @@ class ServerTabMixin(object):
 
         # 标题
         exit_info = f" ({exit_code=})" if exit_code != 0 else ""
-        tk.Label(dialog, text=_("server_exit_question_title") + exit_info,
-                 font=(FONT_FAMILY, 13, 'bold'), fg='#ffffff', bg='#1a1a2e').pack(pady=(24, 8))
+        tk.Label(
+            dialog,
+            text=_("server_exit_question_title") + exit_info,
+            font=(FONT_FAMILY, 13, "bold"),
+            fg="#ffffff",
+            bg="#1a1a2e",
+        ).pack(pady=(24, 8))
 
         # 问题
-        tk.Label(dialog, text=_("server_exit_question_msg"),
-                 font=(FONT_FAMILY, 11), fg='#a0a0b0', bg='#1a1a2e').pack(pady=(0, 20))
+        tk.Label(dialog, text=_("server_exit_question_msg"), font=(FONT_FAMILY, 11), fg="#a0a0b0", bg="#1a1a2e").pack(
+            pady=(0, 20)
+        )
 
         # 按钮区域
-        btn_frame = tk.Frame(dialog, bg='#1a1a2e')
+        btn_frame = tk.Frame(dialog, bg="#1a1a2e")
         btn_frame.pack(pady=(0, 16))
 
-        btn_style = dict(font=(FONT_FAMILY, 10), relief='flat', cursor='hand2',
-                         bd=0, highlightthickness=0, width=16, height=1)
+        btn_style = dict(
+            font=(FONT_FAMILY, 10), relief="flat", cursor="hand2", bd=0, highlightthickness=0, width=16, height=1
+        )
 
         def _on_yes():
             dialog.destroy()
@@ -1009,20 +1009,32 @@ class ServerTabMixin(object):
             dialog.destroy()
             self._ai_analyze_server_crash(exit_code)
 
-        no_btn = tk.Button(btn_frame, text=_("server_exit_no_analyze"),
-                           command=_on_no,
-                           bg='#6c5ce7', fg='white', activebackground='#a29bfe', activeforeground='white',
-                           **btn_style)
+        no_btn = tk.Button(
+            btn_frame,
+            text=_("server_exit_no_analyze"),
+            command=_on_no,
+            bg="#6c5ce7",
+            fg="white",
+            activebackground="#a29bfe",
+            activeforeground="white",
+            **btn_style,
+        )
         no_btn.pack(side=tk.LEFT, padx=8)
 
-        yes_btn = tk.Button(btn_frame, text=_("server_exit_yes"),
-                            command=_on_yes,
-                            bg='#0f3460', fg='white', activebackground='#2d3a5c', activeforeground='white',
-                            **btn_style)
+        yes_btn = tk.Button(
+            btn_frame,
+            text=_("server_exit_yes"),
+            command=_on_yes,
+            bg="#0f3460",
+            fg="white",
+            activebackground="#2d3a5c",
+            activeforeground="white",
+            **btn_style,
+        )
         yes_btn.pack(side=tk.LEFT, padx=8)
 
     def _refresh_server_colors(self):
-        for item in getattr(self, 'server_buttons', []):
+        for item in getattr(self, "server_buttons", []):
             frame = item.get("frame")
             if frame:
                 try:
@@ -1033,16 +1045,20 @@ class ServerTabMixin(object):
                     for child in frame.winfo_children():
                         if isinstance(child, ctk.CTkButton):
                             if child.cget("text", "").strip() == "X":
-                                child.configure(hover_color=COLORS["accent"],
-                                                text_color=COLORS["text_secondary"],
-                                                fg_color="transparent")
+                                child.configure(
+                                    hover_color=COLORS["accent"],
+                                    text_color=COLORS["text_secondary"],
+                                    fg_color="transparent",
+                                )
                             else:
-                                child.configure(hover_color=COLORS["bg_light"],
-                                                text_color=COLORS["text_primary"],
-                                                fg_color="transparent")
+                                child.configure(
+                                    hover_color=COLORS["bg_light"],
+                                    text_color=COLORS["text_primary"],
+                                    fg_color="transparent",
+                                )
                 except Exception:
                     pass
-        if hasattr(self, 'selected_server_version') and self.selected_server_version:
+        if hasattr(self, "selected_server_version") and self.selected_server_version:
             for item in self.server_buttons:
                 if item.get("version") == self.selected_server_version:
                     try:
@@ -1050,12 +1066,12 @@ class ServerTabMixin(object):
                     except Exception:
                         pass
                     break
-        for item in getattr(self, 'server_available_version_buttons', []):
+        for item in getattr(self, "server_available_version_buttons", []):
             btn = item.get("button")
             if btn and btn.winfo_exists():
                 try:
-                    btn.configure(fg_color=COLORS["bg_medium"],
-                                  hover_color=COLORS["bg_light"],
-                                  text_color=COLORS["text_primary"])
+                    btn.configure(
+                        fg_color=COLORS["bg_medium"], hover_color=COLORS["bg_light"], text_color=COLORS["text_primary"]
+                    )
                 except Exception:
                     pass

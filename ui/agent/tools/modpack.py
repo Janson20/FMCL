@@ -1,10 +1,11 @@
 """整合包管理工具 - 搜索/下载/安装/开服 .mrpack 整合包"""
 
 import os
-from typing import Dict, Callable
+from typing import Callable, Dict
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, CATEGORY_MODPACK
+from ui.agent.tools.base import CATEGORY_MODPACK, ToolInfo
 
 
 def _build_modpack_tools() -> list:
@@ -20,10 +21,7 @@ def _build_modpack_tools() -> list:
                         "type": "string",
                         "description": "搜索关键词，如 skyblock、RLCraft 等。留空则返回热门整合包",
                     },
-                    "game_version": {
-                        "type": "string",
-                        "description": "Minecraft 版本号，如 1.20.1",
-                    },
+                    "game_version": {"type": "string", "description": "Minecraft 版本号，如 1.20.1"},
                 },
                 "required": [],
             },
@@ -42,10 +40,7 @@ def _build_modpack_tools() -> list:
                         "type": "string",
                         "description": "Modrinth 整合包项目ID（从 search_modpack 结果中获得）",
                     },
-                    "game_version": {
-                        "type": "string",
-                        "description": "Minecraft 版本号筛选，如 1.20.1",
-                    },
+                    "game_version": {"type": "string", "description": "Minecraft 版本号筛选，如 1.20.1"},
                 },
                 "required": ["project_id"],
             },
@@ -59,12 +54,7 @@ def _build_modpack_tools() -> list:
             description="安装 .mrpack 整合包文件",
             parameters={
                 "type": "object",
-                "properties": {
-                    "mrpack_path": {
-                        "type": "string",
-                        "description": ".mrpack 整合包文件的绝对路径",
-                    },
-                },
+                "properties": {"mrpack_path": {"type": "string", "description": ".mrpack 整合包文件的绝对路径"}},
                 "required": ["mrpack_path"],
             },
             category=CATEGORY_MODPACK,
@@ -77,12 +67,7 @@ def _build_modpack_tools() -> list:
             description="安装 .mrpack 整合包作为服务器",
             parameters={
                 "type": "object",
-                "properties": {
-                    "mrpack_path": {
-                        "type": "string",
-                        "description": ".mrpack 整合包文件的绝对路径",
-                    },
-                },
+                "properties": {"mrpack_path": {"type": "string", "description": ".mrpack 整合包文件的绝对路径"}},
                 "required": ["mrpack_path"],
             },
             category=CATEGORY_MODPACK,
@@ -94,7 +79,8 @@ def _build_modpack_tools() -> list:
 
 def _search_modpack(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     try:
-        from modrinth import search_modpacks as modrinth_search, compress_game_versions
+        from modrinth import compress_game_versions
+        from modrinth import search_modpacks as modrinth_search
 
         query = params.get("query", "").strip()
         game_version = params.get("game_version", "").strip() or None

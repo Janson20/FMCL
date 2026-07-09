@@ -2,23 +2,26 @@
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
 "This module contains some helper functions. It should nt be used outside minecraft_launcher_lib"
-from .exceptions import FileOutsideMinecraftDirectory, InvalidChecksum, VersionNotFound
-from ._internal_types.shared_types import ClientJson, ClientJsonRule, ClientJsonLibrary
-from ._internal_types.helper_types import RequestsResponseCache, MavenMetadata
-from .types import MinecraftOptions, CallbackDict
-from typing import Literal, Any
-import subprocess
+
 import datetime
-import requests
-import platform
 import hashlib
-import zipfile
-import shutil
-import lzma
 import json
-import sys
-import re
+import lzma
 import os
+import platform
+import re
+import shutil
+import subprocess
+import sys
+import zipfile
+from typing import Any, Literal
+
+import requests
+
+from ._internal_types.helper_types import MavenMetadata, RequestsResponseCache
+from ._internal_types.shared_types import ClientJson, ClientJsonLibrary, ClientJsonRule
+from .exceptions import FileOutsideMinecraftDirectory, InvalidChecksum, VersionNotFound
+from .types import CallbackDict, MinecraftOptions
 
 if os.name == "nt":
     info = subprocess.STARTUPINFO()  # type: ignore
@@ -44,7 +47,16 @@ def check_path_inside_minecraft_directory(minecraft_directory: str | os.PathLike
         raise FileOutsideMinecraftDirectory(os.path.abspath(path), os.path.abspath(minecraft_directory))
 
 
-def download_file(url: str, path: str, callback: CallbackDict = {}, sha1: str | None = None, lzma_compressed: bool | None = False, session: requests.sessions.Session | None = None, minecraft_directory: str | os.PathLike | None = None, overwrite: bool | None = False) -> bool:
+def download_file(
+    url: str,
+    path: str,
+    callback: CallbackDict = {},
+    sha1: str | None = None,
+    lzma_compressed: bool | None = False,
+    session: requests.sessions.Session | None = None,
+    minecraft_directory: str | os.PathLike | None = None,
+    overwrite: bool | None = False,
+) -> bool:
     """
     Downloads a file into the given path. Check sha1 if given.
     """
@@ -73,7 +85,7 @@ def download_file(url: str, path: str, callback: CallbackDict = {}, sha1: str | 
     if r.status_code != 200:
         return False
 
-    with open(path, 'wb') as f:
+    with open(path, "wb") as f:
         r.raw.decode_content = True
         if lzma_compressed:
             f.write(lzma.decompress(r.content))
@@ -99,11 +111,11 @@ def parse_single_rule(rule: ClientJsonRule, options: MinecraftOptions) -> bool:
 
     for os_key, os_value in rule.get("os", {}).items():
         if os_key == "name":
-            if os_value == "windows" and platform.system() != 'Windows':
+            if os_value == "windows" and platform.system() != "Windows":
                 return returnvalue
-            elif os_value == "osx" and platform.system() != 'Darwin':
+            elif os_value == "osx" and platform.system() != "Darwin":
                 return returnvalue
-            elif os_value == "linux" and platform.system() != 'Linux':
+            elif os_value == "linux" and platform.system() != "Linux":
                 return returnvalue
         elif os_key == "arch":
             if os_value == "x86" and platform.architecture()[0] != "32bit":
@@ -239,7 +251,7 @@ def get_sha1_hash(path: str) -> str:
     """
     BUF_SIZE = 65536
     sha1 = hashlib.sha1()
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         while True:
             data = f.read(BUF_SIZE)
             if not data:
@@ -296,13 +308,13 @@ def get_requests_response_cache(url: str) -> requests.models.Response:
     Caches the result of request.get(). If a request was made to the same URL within the last hour, the cache will be used, so you don't need to make a request to a URl each timje you call a function.
     """
     global _requests_response_cache  # noqa: F824
-    if url not in _requests_response_cache or (datetime.datetime.now() - _requests_response_cache[url]["datetime"]).total_seconds() / 60 / 60 >= 1:
+    if (
+        url not in _requests_response_cache
+        or (datetime.datetime.now() - _requests_response_cache[url]["datetime"]).total_seconds() / 60 / 60 >= 1
+    ):
         r = requests.get(url, headers={"user-agent": get_user_agent()})
         if r.status_code == 200:
-            _requests_response_cache[url] = {
-                "response": r,
-                "datetime": datetime.datetime.now()
-            }
+            _requests_response_cache[url] = {"response": r, "datetime": datetime.datetime.now()}
         return r
     else:
         return _requests_response_cache[url]["response"]
@@ -317,11 +329,13 @@ def parse_maven_metadata(url: str) -> MavenMetadata:
     return {
         "release": re.search("(?<=<release>).*?(?=</release>)", r.text, re.MULTILINE).group(),  # type: ignore
         "latest": re.search("(?<=<latest>).*?(?=</latest>)", r.text, re.MULTILINE).group(),  # type: ignore
-        "versions": re.findall("(?<=<version>).*?(?=</version>)", r.text, re.MULTILINE)
+        "versions": re.findall("(?<=<version>).*?(?=</version>)", r.text, re.MULTILINE),
     }
 
 
-def extract_file_from_zip(handler: zipfile.ZipFile, zip_path: str, extract_path: str, minecraft_directory: str | os.PathLike | None = None) -> None:
+def extract_file_from_zip(
+    handler: zipfile.ZipFile, zip_path: str, extract_path: str, minecraft_directory: str | os.PathLike | None = None
+) -> None:
     """
     Extract a file from a zip handler into the given path
     """
@@ -360,7 +374,9 @@ def get_client_json(version: str, minecraft_directory: str | os.PathLike) -> Cli
 
         return data
 
-    version_list = get_requests_response_cache("https://launchermeta.mojang.com/mc/game/version_manifest_v2.json").json()
+    version_list = get_requests_response_cache(
+        "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
+    ).json()
     for i in version_list["versions"]:
         if i["id"] == version:
             return get_requests_response_cache(i["url"]).json()

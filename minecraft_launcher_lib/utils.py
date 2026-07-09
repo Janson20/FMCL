@@ -2,17 +2,19 @@
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
 "utils contains a few functions for helping you that doesn't fit in any other category"
-from .types import MinecraftOptions, LatestMinecraftVersions, MinecraftVersionInfo
-from ._internal_types.shared_types import ClientJson, VersionListManifestJson
-from ._helper import get_requests_response_cache, assert_func
-from datetime import datetime
-import platform
+
+import json
+import os
 import pathlib
+import platform
 import random
 import shutil
 import uuid
-import json
-import os
+from datetime import datetime
+
+from ._helper import assert_func, get_requests_response_cache
+from ._internal_types.shared_types import ClientJson, VersionListManifestJson
+from .types import LatestMinecraftVersions, MinecraftOptions, MinecraftVersionInfo
 
 
 def get_minecraft_directory() -> str:
@@ -46,7 +48,9 @@ def get_latest_version() -> LatestMinecraftVersions:
         print("Latest Release " + latest_version["release"])
         print("Latest Snapshot " + latest_version["snapshot"])
     """
-    return get_requests_response_cache("https://launchermeta.mojang.com/mc/game/version_manifest_v2.json").json()["latest"]
+    return get_requests_response_cache("https://launchermeta.mojang.com/mc/game/version_manifest_v2.json").json()[
+        "latest"
+    ]
 
 
 def get_version_list() -> list[MinecraftVersionInfo]:
@@ -60,10 +64,19 @@ def get_version_list() -> list[MinecraftVersionInfo]:
         for version in minecraft_launcher_lib.utils.get_version_list():
             print(version["id"])
     """
-    vlist: VersionListManifestJson = get_requests_response_cache("https://launchermeta.mojang.com/mc/game/version_manifest_v2.json").json()
+    vlist: VersionListManifestJson = get_requests_response_cache(
+        "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
+    ).json()
     returnlist: list[MinecraftVersionInfo] = []
     for i in vlist["versions"]:
-        returnlist.append({"id": i["id"], "type": i["type"], "releaseTime": datetime.fromisoformat(i["releaseTime"]), "complianceLevel": i["complianceLevel"]})
+        returnlist.append(
+            {
+                "id": i["id"],
+                "type": i["type"],
+                "releaseTime": datetime.fromisoformat(i["releaseTime"]),
+                "complianceLevel": i["complianceLevel"],
+            }
+        )
     return returnlist
 
 
@@ -100,7 +113,14 @@ def get_installed_versions(minecraft_directory: str | os.PathLike) -> list[Minec
             # In case some custom client has a invalid time
             release_time = datetime.fromtimestamp(0)
 
-        version_list.append({"id": version_data["id"], "type": version_data["type"], "releaseTime": release_time, "complianceLevel": version_data.get("complianceLevel", 0)})
+        version_list.append(
+            {
+                "id": version_data["id"],
+                "type": version_data["type"],
+                "releaseTime": release_time,
+                "complianceLevel": version_data.get("complianceLevel", 0),
+            }
+        )
     return version_list
 
 
@@ -205,11 +225,7 @@ def generate_test_options() -> MinecraftOptions:
         command = minecraft_launcher_lib.command.get_minecraft_command(version, minecraft_directory, options)
         subprocess.run(command)
     """
-    return {
-        "username": f"Player{random.randrange(100, 1000)}",
-        "uuid": str(uuid.uuid4()),
-        "token": ""
-    }
+    return {"username": f"Player{random.randrange(100, 1000)}", "uuid": str(uuid.uuid4()), "token": ""}
 
 
 def is_version_valid(version: str, minecraft_directory: str | os.PathLike) -> bool:

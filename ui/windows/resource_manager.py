@@ -1,10 +1,11 @@
 """资源管理窗口 - 模组/资源包/地图/光影管理"""
-import os
+
 import logging
+import os
 import threading
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Any
 from tkinter import messagebox
+from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 from logzero import logger
@@ -15,6 +16,7 @@ from ui.i18n import _
 
 try:
     from tkinterdnd2 import DND_FILES
+
     HAS_DND: bool = True
 except ImportError:
     HAS_DND = False
@@ -23,6 +25,7 @@ except ImportError:
 def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
     try:
         from achievement_engine import get_achievement_engine
+
         engine = get_achievement_engine()
         if engine:
             engine.update_progress(achievement_id, value=value, trigger_type=trigger_type)
@@ -33,6 +36,7 @@ def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "incre
 def _check_ach(achievement_id: str, condition: bool):
     try:
         from achievement_engine import get_achievement_engine
+
         engine = get_achievement_engine()
         if engine:
             engine.check_and_unlock(achievement_id, condition)
@@ -103,6 +107,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         参考 PCL-CE: McInstance.Modable 属性。
         """
         from version_utils import has_mod_loader_from_json
+
         mc_dir = self._get_minecraft_dir()
         return has_mod_loader_from_json(version_id, str(mc_dir))
 
@@ -251,9 +256,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._check_updates_btn.pack(side=ctk.RIGHT, padx=(5, 5))
 
         # 分割线
-        ctk.CTkFrame(content_frame, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=12, pady=(0, 5)
-        )
+        ctk.CTkFrame(content_frame, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=12, pady=(0, 5))
 
         # 通用搜索栏
         self._search_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
@@ -294,9 +297,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         # 资源列表（可滚动）- 初始不pack，由_refresh_current_list管理
         self._list_frame = ctk.CTkScrollableFrame(
-            self._drop_frame,
-            fg_color="transparent",
-            scrollbar_button_color=COLORS["bg_light"],
+            self._drop_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
 
         # 分页控件
@@ -374,7 +375,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             while i < len(raw):
                 if raw[i] == "{":
                     end = raw.index("}", i)
-                    files.append(raw[i + 1:end])
+                    files.append(raw[i + 1 : end])
                     i = end + 2
                 else:
                     parts = raw[i:].split()
@@ -544,7 +545,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             try:
                 results = extract_all_mods_metadata(
                     mods_dir,
-                    status_callback=lambda done, total: self.after(0, lambda d=done, t=total: self._update_mod_loading(d, t)),
+                    status_callback=lambda done, total: self.after(
+                        0, lambda d=done, t=total: self._update_mod_loading(d, t)
+                    ),
                 )
                 self.after(0, lambda r=results: self._on_mod_metadata_loaded(r))
             except Exception as e:
@@ -625,7 +628,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         # 搜索过滤
         if self._search_text:
             filtered = [
-                m for m in self._mod_metadata
+                m
+                for m in self._mod_metadata
                 if self._search_text in m.get("name", "").lower()
                 or self._search_text in m.get("modid", "").lower()
                 or self._search_text in m.get("author", "").lower()
@@ -656,8 +660,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         if self._search_text:
             self._filtered_items = [
-                item for item in self._current_items
-                if self._search_text in item.get("name", "").lower()
+                item for item in self._current_items if self._search_text in item.get("name", "").lower()
             ]
         else:
             self._filtered_items = self._current_items
@@ -750,11 +753,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _create_mod_card(self, item: Dict):
         """创建模组卡片"""
-        row = ctk.CTkFrame(
-            self._list_frame,
-            fg_color=COLORS["bg_medium"],
-            corner_radius=8,
-        )
+        row = ctk.CTkFrame(self._list_frame, fg_color=COLORS["bg_medium"], corner_radius=8)
         row.pack(fill=ctk.X, pady=3, padx=2)
 
         # 左侧: 图标
@@ -768,7 +767,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             try:
                 import base64
                 from io import BytesIO
+
                 from PIL import Image
+
                 img_data = base64.b64decode(icon_base64)
                 img = Image.open(BytesIO(img_data))
                 photo = ctk.CTkImage(img, size=(icon_size, icon_size))
@@ -898,10 +899,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         """创建默认图标"""
         icon_text = "🔕" if item.get("disabled") else "🧩"
         icon_label = ctk.CTkLabel(
-            parent,
-            text=icon_text,
-            font=ctk.CTkFont(size=size // 2),
-            text_color=COLORS["text_secondary"],
+            parent, text=icon_text, font=ctk.CTkFont(size=size // 2), text_color=COLORS["text_secondary"]
         )
         icon_label.pack(fill=ctk.BOTH, expand=True)
 
@@ -917,12 +915,14 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                     if entry.is_dir() and not entry.name.startswith("."):
                         # 检查是否是有效的地图存档
                         level_dat = entry / "level.dat"
-                        items.append({
-                            "name": entry.name,
-                            "path": str(entry),
-                            "is_dir": True,
-                            "has_level_dat": level_dat.exists(),
-                        })
+                        items.append(
+                            {
+                                "name": entry.name,
+                                "path": str(entry),
+                                "is_dir": True,
+                                "has_level_dat": level_dat.exists(),
+                            }
+                        )
             else:
                 # 模组/资源包/光影是文件
                 ext_filter = RESOURCE_TYPES[resource_type]["extensions"]
@@ -931,7 +931,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                         continue
                     # 检查文件扩展名：支持 .jar 和 .jar.disabled 等格式
                     is_disabled = entry.suffix.lower() == ".disabled"
-                    actual_ext = entry.suffixes[-2].lower() if is_disabled and len(entry.suffixes) >= 2 else entry.suffix.lower()
+                    actual_ext = (
+                        entry.suffixes[-2].lower() if is_disabled and len(entry.suffixes) >= 2 else entry.suffix.lower()
+                    )
                     if actual_ext in ext_filter or entry.suffix.lower() in ext_filter:
                         # 文件大小
                         try:
@@ -939,13 +941,15 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                             size_str = self._format_size(size)
                         except Exception:
                             size_str = "?"
-                        items.append({
-                            "name": entry.name,
-                            "path": str(entry),
-                            "is_dir": False,
-                            "size": size_str,
-                            "disabled": is_disabled,
-                        })
+                        items.append(
+                            {
+                                "name": entry.name,
+                                "path": str(entry),
+                                "is_dir": False,
+                                "size": size_str,
+                                "disabled": is_disabled,
+                            }
+                        )
         except Exception as e:
             logger.error(f"扫描资源目录失败: {e}")
 
@@ -962,12 +966,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _create_resource_item(self, item: Dict, resource_type: str):
         """创建资源列表项"""
-        row = ctk.CTkFrame(
-            self._list_frame,
-            fg_color=COLORS["bg_medium"],
-            corner_radius=6,
-            height=36,
-        )
+        row = ctk.CTkFrame(self._list_frame, fg_color=COLORS["bg_medium"], corner_radius=6, height=36)
         row.pack(fill=ctk.X, pady=2)
         row.pack_propagate(False)
 
@@ -981,6 +980,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         # 尝试为资源包/光影提取预览缩略图
         if resource_type in ("resourcepacks", "shaderpacks") and not item.get("is_dir"):
             from pathlib import Path as _Path
+
             zip_p = _Path(item["path"])
             ext = zip_p.suffix.lower()
             if ext in (".zip", ".jar"):
@@ -1010,10 +1010,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                 icon_text = "📄"
 
             icon_label = ctk.CTkLabel(
-                icon_frame,
-                text=icon_text,
-                font=ctk.CTkFont(size=14),
-                text_color=COLORS["text_secondary"],
+                icon_frame, text=icon_text, font=ctk.CTkFont(size=14), text_color=COLORS["text_secondary"]
             )
             icon_label.pack(fill=ctk.BOTH, expand=True)
 
@@ -1080,9 +1077,11 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         for w in icon_frame.winfo_children():
             w.destroy()
         try:
-            from io import BytesIO
             import base64
+            from io import BytesIO
+
             from PIL import Image
+
             img_data = base64.b64decode(base64_data)
             img = Image.open(BytesIO(img_data))
             photo = ctk.CTkImage(img, size=(size, size))
@@ -1098,6 +1097,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         def _load():
             try:
                 from modrinth import extract_zip_thumbnail
+
                 thumbnail = extract_zip_thumbnail(zip_path, max_size=size)
                 if thumbnail:
                     item["_thumbnail"] = thumbnail
@@ -1114,7 +1114,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         """缩略图加载完成回调，更新进度状态"""
         if not self.winfo_exists():
             return
-        total = getattr(self, '_thumbnail_total', 0)
+        total = getattr(self, "_thumbnail_total", 0)
         if total <= 0:
             return
         self._thumbnail_loaded += 1
@@ -1130,6 +1130,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
     def _install_resource(self, src_path: str, resource_type: str) -> bool:
         """安装资源文件到对应目录"""
         import shutil  # 延迟导入：仅资源管理窗口使用
+
         try:
             resource_dir = self._get_resource_dir(resource_type)
             resource_dir.mkdir(parents=True, exist_ok=True)
@@ -1200,7 +1201,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                         for member in zf.namelist():
                             if member.startswith(sub_dir + "/"):
                                 # 去掉子目录前缀，提取到 dst
-                                relative = member[len(sub_dir) + 1:]
+                                relative = member[len(sub_dir) + 1 :]
                                 if not relative:
                                     continue
                                 target = dst / relative
@@ -1233,9 +1234,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         filetypes = [(self._get_resource_label(current_type), ext_list), ("所有文件", "*.*")]  # type: ignore[list-item]
 
         from tkinter import filedialog
+
         files = filedialog.askopenfilenames(
-            title=_("rm_select_file_title", label=self._get_resource_label(current_type)),
-            filetypes=filetypes,
+            title=_("rm_select_file_title", label=self._get_resource_label(current_type)), filetypes=filetypes
         )
 
         if not files:
@@ -1291,6 +1292,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
     def _toggle_mod(self, path: str, is_disabled: bool):
         """启用/禁用模组"""
         from structured_logger import slog
+
         try:
             p = Path(path)
             mod_name = p.name
@@ -1311,7 +1313,12 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._refresh_current_list()
         except Exception as e:
             logger.error(f"切换模组状态失败: {e}")
-            slog.error("mod_toggle_failed", mod_name=Path(path).name, action="enable" if is_disabled else "disable", error=str(e)[:200])
+            slog.error(
+                "mod_toggle_failed",
+                mod_name=Path(path).name,
+                action="enable" if is_disabled else "disable",
+                error=str(e)[:200],
+            )
             self._set_status(_("rm_operation_failed", error=str(e)))
 
     def _export_mod_list(self):
@@ -1363,10 +1370,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("mod_update_unknown_version"))
             return
 
-        mods_with_modid = [
-            m for m in self._mod_metadata
-            if m.get("modid") and not m.get("disabled")
-        ]
+        mods_with_modid = [m for m in self._mod_metadata if m.get("modid") and not m.get("disabled")]
 
         if not mods_with_modid:
             self._set_status(_("mod_update_no_modid"))
@@ -1375,19 +1379,17 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._update_checking = True
         self._update_info.clear()
         self._check_updates_btn.configure(
-            text=_("mod_checking_updates"),
-            state=ctk.DISABLED,
-            fg_color=COLORS["bg_light"],
+            text=_("mod_checking_updates"), state=ctk.DISABLED, fg_color=COLORS["bg_light"]
         )
         self._set_status(_("mod_checking_updates_progress", current=0, total=len(mods_with_modid)))
 
         def _do_check():
-            from concurrent.futures import ThreadPoolExecutor, as_completed
             import threading as _threading
+            from concurrent.futures import ThreadPoolExecutor, as_completed
 
             try:
-                from modrinth import compare_mod_versions
                 from curseforge import check_update_dual_source
+                from modrinth import compare_mod_versions
 
                 lock = _threading.Lock()
                 checked = [0]
@@ -1425,8 +1427,12 @@ class ResourceManagerWindow(ctk.CTkToplevel):
                     finally:
                         with lock:
                             checked[0] += 1
-                            self.after(0, lambda c=checked[0]: self._set_status(
-                                _("mod_checking_updates_progress", current=c, total=total)))
+                            self.after(
+                                0,
+                                lambda c=checked[0]: self._set_status(
+                                    _("mod_checking_updates_progress", current=c, total=total)
+                                ),
+                            )
 
                 with ThreadPoolExecutor(max_workers=8) as executor:
                     futures = {executor.submit(_check_one, mod): mod for mod in mods_with_modid}
@@ -1456,11 +1462,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         if not self.winfo_exists():
             return
         self._update_checking = False
-        self._check_updates_btn.configure(
-            text=_("mod_check_updates"),
-            state=ctk.NORMAL,
-            fg_color=COLORS["success"],
-        )
+        self._check_updates_btn.configure(text=_("mod_check_updates"), state=ctk.NORMAL, fg_color=COLORS["success"])
 
         if updates_found > 0:
             self._set_status(_("mod_updates_available", count=updates_found))
@@ -1473,11 +1475,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         if not self.winfo_exists():
             return
         self._update_checking = False
-        self._check_updates_btn.configure(
-            text=_("mod_check_updates"),
-            state=ctk.NORMAL,
-            fg_color=COLORS["success"],
-        )
+        self._check_updates_btn.configure(text=_("mod_check_updates"), state=ctk.NORMAL, fg_color=COLORS["success"])
         self._set_status(_("mod_update_check_failed", error=error))
 
     def _show_update_dialog(self):
@@ -1527,10 +1525,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         hint.pack(anchor=ctk.W, pady=(0, 8))
 
         list_frame = ctk.CTkScrollableFrame(
-            main,
-            fg_color=COLORS["card_bg"],
-            corner_radius=8,
-            scrollbar_button_color=COLORS["bg_light"],
+            main, fg_color=COLORS["card_bg"], corner_radius=8, scrollbar_button_color=COLORS["bg_light"]
         )
         list_frame.pack(fill=ctk.BOTH, expand=True, pady=(0, 5))
 
@@ -1582,10 +1577,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
                 ver_text = f"v{info['current_version']} → v{info['latest_version']}"
                 ver_label = ctk.CTkLabel(
-                    row,
-                    text=ver_text,
-                    font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                    text_color=COLORS["success"],
+                    row, text=ver_text, font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["success"]
                 )
                 ver_label.pack(side=ctk.RIGHT, padx=(0, 8))
 
@@ -1672,9 +1664,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             fg_color=COLORS["success"],
             hover_color="#27ae60",
             text_color=COLORS["text_primary"],
-            command=lambda: self._batch_update_mods(
-                list(self._update_info.keys()), checkbox_vars, dialog
-            ),
+            command=lambda: self._batch_update_mods(list(self._update_info.keys()), checkbox_vars, dialog),
         )
         update_all_btn.pack(side=ctk.RIGHT, padx=(5, 0))
 
@@ -1688,8 +1678,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             hover_color=COLORS["accent_hover"],
             text_color=COLORS["text_primary"],
             command=lambda: self._batch_update_mods(
-                [mid for mid, v in checkbox_vars.items() if v.get()],
-                checkbox_vars, dialog,
+                [mid for mid, v in checkbox_vars.items() if v.get()], checkbox_vars, dialog
             ),
         )
         update_selected_btn.pack(side=ctk.RIGHT, padx=(5, 0))
@@ -1702,12 +1691,11 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         dialog.destroy()
         self._set_status(_("mod_update_batch_starting", count=len(modids)))
 
-
-        from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
-        from modrinth import download_mod
-        from version_utils import resolve_search_loader
-        from concurrent.futures import ThreadPoolExecutor, as_completed
         import threading as _threading
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        from modrinth import download_mod, parse_game_version_from_version, parse_mod_loader_from_version
+        from version_utils import resolve_search_loader
 
         game_version = parse_game_version_from_version(self.version_id)
         mod_loader = resolve_search_loader(parse_mod_loader_from_version(self.version_id))
@@ -1733,11 +1721,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             try:
                 # 复用已缓存的 latest_version 信息，直接获取该版本的 files
                 from modrinth import get_project_latest_version
-                version = get_project_latest_version(
-                    project_id,
-                    game_version=game_version,
-                    mod_loader=mod_loader,
-                )
+
+                version = get_project_latest_version(project_id, game_version=game_version, mod_loader=mod_loader)
                 if not version:
                     return False, mod_name
 
@@ -1776,8 +1761,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             finally:
                 with lock:
                     done[0] += 1
-                    self.after(0, lambda d=done[0]: self._set_status(
-                        _("mod_update_batch_progress", done=d, total=len(modids))))
+                    self.after(
+                        0, lambda d=done[0]: self._set_status(_("mod_update_batch_progress", done=d, total=len(modids)))
+                    )
 
         def _run_batch():
             with ThreadPoolExecutor(max_workers=8) as executor:
