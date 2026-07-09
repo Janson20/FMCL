@@ -624,6 +624,16 @@ class ServerTabMixin(object):
         self._server_prev_page_btn.configure(state=ctk.NORMAL if self._server_current_page > 1 else ctk.DISABLED)
         self._server_next_page_btn.configure(state=ctk.NORMAL if self._server_current_page < total_pages else ctk.DISABLED)
 
+        if not page_versions:
+            ctk.CTkLabel(
+                self.server_available_list_frame,
+                text=_("server_no_available"),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLORS["text_secondary"],
+                justify=ctk.CENTER,
+            ).pack(pady=15)
+            return
+
         for v in page_versions:
             version_id = v.get("id", "")
             btn = ctk.CTkButton(

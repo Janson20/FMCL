@@ -157,6 +157,7 @@
   "server_port_hint": "Default Port: 25565 (Offline Mode)",
   "server_eula_hint": "EULA will be auto-accepted",
   "server_no_installed": "No servers installed\nInstall a server version on the right",
+  "server_no_available": "No server versions available\nCheck your network and try again",
   "server_version_selected": "Server selected: {version}",
   "server_enter_version": "Please enter a server version ID",
   "server_installing": "Installing server {version} ...",

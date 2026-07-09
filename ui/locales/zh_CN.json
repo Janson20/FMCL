@@ -157,6 +157,7 @@
   "server_port_hint": "默认端口: 25565 (离线模式)",
   "server_eula_hint": "EULA 将自动同意",
   "server_no_installed": "暂无已安装的服务器\n请在右侧安装服务器版本",
+  "server_no_available": "暂无可用服务器版本\n请检查网络连接后重试",
   "server_version_selected": "已选择服务器: {version}",
   "server_enter_version": "请输入服务器版本 ID",
   "server_installing": "正在安装服务器 {version} ...",

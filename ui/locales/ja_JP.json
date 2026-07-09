@@ -157,6 +157,7 @@
   "server_port_hint": "デフォルトポート: 25565 (オフラインモード)",
   "server_eula_hint": "EULA は自動的に同意されます",
   "server_no_installed": "インストール済みサーバーはありません\n右側でサーバーバージョンをインストールしてください",
+  "server_no_available": "利用可能なサーバーバージョンがありません\nネットワーク接続を確認して再試行してください",
   "server_version_selected": "選択中のサーバー: {version}",
   "server_enter_version": "サーバーバージョンIDを入力してください",
   "server_installing": "サーバー {version} をインストール中...",

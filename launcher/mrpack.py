@@ -871,10 +871,10 @@ class MrpackMixin:
                 logger.info(f"Fabric API 安装成功: {', '.join(api_names)}")
                 self._set_status(f"Fabric API 安装成功: {', '.join(api_names)}")
             else:
-                logger.warning(f"Fabric API 安装失败（不影响启动）: {api_msg}")
+                logger.warning(f"Fabric API 安装失败: {api_msg}")
                 self._set_status(f"Fabric API 安装失败: {api_msg}")
         except Exception as e:
-            logger.warning(f"Fabric API 下载异常（不影响启动）: {e}")
+            logger.warning(f"Fabric API 下载异常: {e}")
 
         logger.info(f"Fabric 服务端安装完成")
         return True, ""

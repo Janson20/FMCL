@@ -489,30 +489,6 @@ class MinecraftLauncher:
             if skipped:
                 logger.warning(f"过滤了 {skipped} 个缺少 releaseTime 的异常版本条目")
 
-            # 合并已安装的本地版本（自带防御，不依赖上游 get_installed_versions）
-            installed_ids = {v["id"] for v in version_list}
-            versions_dir = self.config.get_versions_dir()
-            if versions_dir.exists():
-                for folder_name in os.listdir(str(versions_dir)):
-                    json_path = versions_dir / folder_name / f"{folder_name}.json"
-                    if not json_path.exists():
-                        continue
-                    try:
-                        with open(json_path, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                        vid = data.get("id", folder_name)
-                        if vid in installed_ids:
-                            continue
-                        rt_str = data.get("releaseTime", "2000-01-01T00:00:00+00:00")
-                        version_list.append({
-                            "id": vid,
-                            "type": data.get("type", "release"),
-                            "releaseTime": datetime.fromisoformat(rt_str.replace("Z", "+00:00")),
-                            "complianceLevel": data.get("complianceLevel", 0),
-                        })
-                    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
-                        continue
-
             logger.info(f"安全模式获取到 {len(version_list)} 个版本")
             return version_list
         except Exception as e:
