@@ -574,37 +574,41 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         self._render_page()  # 更新按钮状态
 
         def _download_and_install():
-            self.after(0, lambda: self._set_status(
-                _("plugin_market_downloading", name=name), "loading",
-            ))
+            try:
+                self.after(0, lambda: self._set_status(
+                    _("plugin_market_downloading", name=name), "loading",
+                ))
 
-            fmpl_path, error = self._market.download_plugin(
-                pid,
-                progress_callback=lambda stage, cur, tot: self.after(
-                    0, lambda s=stage, c=cur, t=tot: self._set_status(
-                        _("plugin_market_downloading_progress", name=name, cur=c, total=t),
-                        "loading",
-                    )
-                ),
-            )
+                fmpl_path, error = self._market.download_plugin(
+                    pid,
+                    progress_callback=lambda stage, cur, tot: self.after(
+                        0, lambda s=stage, c=cur, t=tot: self._set_status(
+                            _("plugin_market_downloading_progress", name=name, cur=c, total=t),
+                            "loading",
+                        )
+                    ),
+                )
 
-            if error:
-                self.after(0, lambda e=error: self._on_install_failed(pid, e))
-                return
+                if error:
+                    self.after(0, lambda e=error: self._on_install_failed(pid, e))
+                    return
 
-            # 安装
-            ok, msg = self._pm.install_from_file(fmpl_path, pid)
+                # 安装
+                ok, msg = self._pm.install_from_file(fmpl_path, pid)
 
-            if ok:
-                # 授权权限
-                if permissions:
-                    self._pm.grant_all_permissions(pid)
-                # 启用
-                self._pm.load_plugin(pid)
-                self._pm.enable_plugin(pid)
-                self.after(0, lambda n=name: self._on_install_success(pid, n))
-            else:
-                self.after(0, lambda m=msg: self._on_install_failed(pid, m))
+                if ok:
+                    # 授权权限
+                    if permissions:
+                        self._pm.grant_all_permissions(pid)
+                    # 启用
+                    self._pm.load_plugin(pid)
+                    self._pm.enable_plugin(pid)
+                    self.after(0, lambda n=name: self._on_install_success(pid, n))
+                else:
+                    self.after(0, lambda m=msg: self._on_install_failed(pid, m))
+            except Exception as e:
+                logger.error(f"插件安装失败 ({pid}): {e}")
+                self.after(0, lambda m=str(e): self._on_install_failed(pid, m))
 
         threading.Thread(target=_download_and_install, daemon=True).start()
 
@@ -633,19 +637,23 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         self._set_status(_("plugin_updating_progress", name=name), "loading")
 
         def _do_update():
-            ok, msg = self._pm.update_plugin_from_market(
-                pid,
-                progress_callback=lambda stage, cur, tot: self.after(
-                    0, lambda s=stage, c=cur, t=tot: self._set_status(
-                        _("plugin_market_downloading_progress", name=name, cur=c, total=t),
-                        "loading",
-                    )
-                ),
-            )
-            if ok:
-                self.after(0, lambda n=name: self._on_update_success(pid, n))
-            else:
-                self.after(0, lambda m=msg: self._on_update_failed(pid, m))
+            try:
+                ok, msg = self._pm.update_plugin_from_market(
+                    pid,
+                    progress_callback=lambda stage, cur, tot: self.after(
+                        0, lambda s=stage, c=cur, t=tot: self._set_status(
+                            _("plugin_market_downloading_progress", name=name, cur=c, total=t),
+                            "loading",
+                        )
+                    ),
+                )
+                if ok:
+                    self.after(0, lambda n=name: self._on_update_success(pid, n))
+                else:
+                    self.after(0, lambda m=msg: self._on_update_failed(pid, m))
+            except Exception as e:
+                logger.error(f"插件更新失败 ({pid}): {e}")
+                self.after(0, lambda m=str(e): self._on_update_failed(pid, m))
 
         threading.Thread(target=_do_update, daemon=True).start()
 
@@ -681,8 +689,12 @@ class PluginBrowserWindow(ctk.CTkToplevel):
                     self._pm.grant_all_permissions(pid)
                 else:
                     return
-        self._pm.load_plugin(pid)
-        ok, msg = self._pm.enable_plugin(pid)
+        try:
+            self._pm.load_plugin(pid)
+            ok, msg = self._pm.enable_plugin(pid)
+        except Exception as e:
+            logger.error(f"启用插件失败 ({pid}): {e}")
+            ok, msg = False, str(e)
         if ok:
             self._set_status(_("plugin_state_enabled") + f": {pid}")
         else:

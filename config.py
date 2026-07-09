@@ -2,7 +2,7 @@
 import os
 import platform
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 import logzero
 from logzero import logger
@@ -93,6 +93,9 @@ class Config:
     DEFAULT_AUTO_CHECK_UPDATE = True
     DEFAULT_PLAYER_NAME = "Steve"
     DEFAULT_LANGUAGE = "zh_CN"
+
+    # 配置错误回调（由 UI 层注册，用于显示错误弹窗）
+    _error_callback: Any = None
 
     def __init__(self, base_dir: Optional[str] = None):
         """
@@ -206,6 +209,24 @@ class Config:
     def jdz_user_info(self, value: Optional[dict]) -> None:
         self._jdz_user_info = value
 
+    @classmethod
+    def set_error_callback(cls, callback):
+        """设置配置错误回调（由 UI 层注册，用于显示错误弹窗）
+        
+        Args:
+            callback: 接受 (title: str, message: str) 的回调函数
+        """
+        cls._error_callback = callback
+
+    @classmethod
+    def _notify_error(cls, title: str, message: str):
+        """通知配置错误"""
+        if cls._error_callback:
+            try:
+                cls._error_callback(title, message)
+            except Exception:
+                pass
+
     def _load_config(self) -> None:
         """从配置文件加载配置"""
         if not self.config_file.exists():
@@ -280,6 +301,7 @@ class Config:
 
         except Exception as e:
             logger.error(f"加载配置文件失败: {e}")
+            Config._notify_error("配置加载失败", f"配置文件可能已损坏，已恢复默认设置:\n{e}")
 
     def save_config(self) -> None:
         """保存配置到文件（使用原子写入防止文件损坏）"""
@@ -329,6 +351,7 @@ class Config:
             logger.info("配置已保存")
         except Exception as e:
             logger.error(f"保存配置文件失败: {e}")
+            Config._notify_error("配置保存失败", f"无法保存配置文件:\n{e}")
 
     def ensure_directories(self) -> None:
         """确保必要的目录存在"""
@@ -354,8 +377,12 @@ class Config:
             except PermissionError:
                 logger.warning(f"无权限创建配置目录: {config_dir}")
                 logger.warning(f"请运行: sudo mkdir -p {config_dir} && sudo chown $USER:$USER {config_dir}")
+                Config._notify_error("权限不足",
+                    f"无权限创建配置目录: {config_dir}\n"
+                    f"请运行: sudo mkdir -p {config_dir} && sudo chown $USER:$USER {config_dir}")
             except Exception as e:
                 logger.error(f"创建配置目录失败: {e}")
+                Config._notify_error("目录创建失败", f"无法创建配置目录: {e}")
             
             try:
                 # 尝试创建日志目录（可能需要 sudo）
@@ -364,8 +391,12 @@ class Config:
             except PermissionError:
                 logger.warning(f"无权限创建日志目录: {log_dir}")
                 logger.warning(f"请运行: sudo mkdir -p {log_dir} && sudo chown $USER:$USER {log_dir}")
+                Config._notify_error("权限不足",
+                    f"无权限创建日志目录: {log_dir}\n"
+                    f"请运行: sudo mkdir -p {log_dir} && sudo chown $USER:$USER {log_dir}")
             except Exception as e:
                 logger.error(f"创建日志目录失败: {e}")
+                Config._notify_error("目录创建失败", f"无法创建日志目录: {e}")
 
     def get_versions_dir(self) -> Path:
         """获取版本目录路径"""
@@ -391,9 +422,13 @@ class Config:
         """
         import json
         config_path = self.get_mmc_config_path(version_id)
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, ensure_ascii=False, indent=2)
+        try:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(config_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"保存 MultiMC 配置失败 ({version_id}): {e}")
+            Config._notify_error("配置保存失败", f"无法保存整合包配置:\n{e}")
         self.mmc_configurations[version_id] = config_data
         logger.info(f"MultiMC 配置已保存: {version_id}")
 

@@ -427,7 +427,12 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
     def _fetch_versions_and_pick(self, project_id: str, title: str):
         from modrinth import get_modpack_versions
 
-        versions = get_modpack_versions(project_id)
+        try:
+            versions = get_modpack_versions(project_id)
+        except Exception as e:
+            logger.error(f"获取整合包版本列表失败: {e}")
+            self.after(0, self._set_status, f"获取版本列表失败: {e}")
+            return
 
         if not versions:
             self.after(0, self._set_status, _("mp_browser_no_versions", title=title))
@@ -675,11 +680,16 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
         _status(_("mp_browser_downloading", title=title, version=version_number))
 
-        success, result = download_modpack_file(
-            project_id,
-            version_data=version_data,
-            status_callback=_status,
-        )
+        try:
+            success, result = download_modpack_file(
+                project_id,
+                version_data=version_data,
+                status_callback=_status,
+            )
+        except Exception as e:
+            logger.error(f"整合包下载异常: {e}")
+            self.after(0, self._set_status, _("mp_browser_download_error", error=str(e)))
+            return
 
         if not success:
             self.after(0, self._set_status, _("mp_browser_download_error", error=result))

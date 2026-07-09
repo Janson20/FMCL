@@ -541,6 +541,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("mod_disabled_ok" if not disabled else "mod_enabled_ok"))
         except Exception as e:
             logger.error(f"切换模组状态失败: {e}")
+            self._set_status(f"切换模组状态失败: {e}")
 
     def _delete_mod(self, item: Dict):
         filepath = item.get("filepath", "")
@@ -558,6 +559,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("mod_deleted_ok", name=name))
         except Exception as e:
             logger.error(f"删除模组失败: {e}")
+            self._set_status(f"删除模组失败: {e}")
 
     def _export_mod_list(self):
         if not self._mod_metadata:
@@ -794,7 +796,8 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
                 else:
                     with lock:
                         fail_count[0] += 1
-            except Exception:
+            except Exception as e:
+                logger.error(f"批量更新模组失败 ({mid}): {e}")
                 with lock:
                     fail_count[0] += 1
             finally:
