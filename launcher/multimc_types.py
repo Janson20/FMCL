@@ -113,15 +113,16 @@ def is_minecraft_component(uid: str) -> bool:
 
 
 def detect_multimc_format(zip_path: str) -> Tuple[bool, Optional[str]]:
-    """检测 .zip 文件是否为 MultiMC 整合包格式。
+    """检测 .zip 文件是否为 MultiMC/Prism 整合包格式。
 
-    递归搜索所有目录层级，查找 instance.cfg。
+    递归搜索所有目录层级，优先查找 instance.cfg（标准 MultiMC），
+    其次查找 mmc-pack.json（Prism Launcher 变体，无 instance.cfg）。
 
     Args:
         zip_path: .zip 文件路径
 
     Returns:
-        (是否为 MultiMC 格式, 根目录名前缀（空字符串表示根目录）)
+        (是否为 MMC 格式, 根目录名前缀（空字符串表示根目录）)
     """
     if not os.path.isfile(zip_path):
         return False, None
@@ -130,10 +131,16 @@ def detect_multimc_format(zip_path: str) -> Tuple[bool, Optional[str]]:
         with zipfile.ZipFile(zip_path, "r") as zf:
             names = zf.namelist()
 
-            # 检查根目录
+            # 优先查找 instance.cfg（标准 MultiMC 格式）
             for name in names:
                 if name == "instance.cfg" or name.endswith("/instance.cfg"):
                     prefix = name[:-len("instance.cfg")]
+                    return True, prefix
+
+            # 其次查找 mmc-pack.json（Prism Launcher 变体）
+            for name in names:
+                if name == "mmc-pack.json" or name.endswith("/mmc-pack.json"):
+                    prefix = name[:-len("mmc-pack.json")]
                     return True, prefix
 
     except (zipfile.BadZipFile, OSError) as e:
@@ -144,23 +151,31 @@ def detect_multimc_format(zip_path: str) -> Tuple[bool, Optional[str]]:
 
 
 def find_root_entry(zip_path: str) -> str:
-    """在 MultiMC zip 中定位根目录（返回前缀路径，如 "" 或 "MyPack/"）。
+    """在 MultiMC/Prism zip 中定位根目录。
 
-    递归搜索所有目录层级。
+    递归搜索所有目录层级，优先 instance.cfg，其次 mmc-pack.json。
 
     Raises:
-        ValueError: 不是有效的 MultiMC 整合包
+        ValueError: 不是有效的 MultiMC/Prism 整合包
     """
     with zipfile.ZipFile(zip_path, "r") as zf:
         names = zf.namelist()
 
+        # 优先 instance.cfg
         for name in names:
             if name == "instance.cfg" or name.endswith("/instance.cfg"):
                 if name == "instance.cfg":
                     return ""
                 return name[:-len("instance.cfg")]
 
-    raise ValueError("不是有效的 MultiMC 整合包：未找到 instance.cfg")
+        # 其次 mmc-pack.json
+        for name in names:
+            if name == "mmc-pack.json" or name.endswith("/mmc-pack.json"):
+                if name == "mmc-pack.json":
+                    return ""
+                return name[:-len("mmc-pack.json")]
+
+    raise ValueError("不是有效的 MultiMC/Prism 整合包：未找到 instance.cfg 或 mmc-pack.json")
 
 
 # ════════════════════════════════════════════════════════════════
@@ -398,10 +413,10 @@ def read_instance_cfg(
     root_entry: str = "",
     default_name: Optional[str] = None,
 ) -> MultiMCInstanceConfig:
-    """从 MultiMC zip 中读取 instance.cfg。
+    """从 MultiMC/Prism zip 中读取实例配置。
 
-    使用 configparser 解析 INI 格式，并处理特殊字符问题
-    （参考 HMCL issue #2991：末尾带冒号的引号值）。
+    优先读取 instance.cfg（标准 MultiMC），若不存在则从 mmc-pack.json
+    自动生成默认配置（Prism Launcher 变体，常出现在 GTNH 等整合包中）。
 
     Args:
         zip_path: .zip 文件路径
@@ -410,23 +425,44 @@ def read_instance_cfg(
 
     Returns:
         MultiMCInstanceConfig 实例
-
-    Raises:
-        ValueError: 解析失败
     """
     cfg_path = f"{root_entry}instance.cfg"
-    with zipfile.ZipFile(zip_path, "r") as zf:
-        if cfg_path not in zf.namelist():
-            raise ValueError(f"instance.cfg 不存在于 {cfg_path}")
-        text = zf.read(cfg_path).decode("utf-8", errors="replace")
+    name = default_name or "MultiMC Instance"
 
-    # 使用 configparser 解析 Properties 格式
-    # instance.cfg 缺少标准的 section 头，需要添加默认 section
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        names = set(zf.namelist())
+
+        if cfg_path in names:
+            # 标准 MultiMC：读取 instance.cfg
+            text = zf.read(cfg_path).decode("utf-8", errors="replace")
+            return _parse_instance_cfg_text(text, name)
+        else:
+            # Prism Launcher 变体：从 mmc-pack.json 推导
+            logger.info(f"未找到 instance.cfg，从 mmc-pack.json 生成默认配置")
+            mmc_manifest = read_mmc_pack_json(zip_path, root_entry)
+            mc_version = mmc_manifest.get_minecraft_version() or ""
+            # 尝试从 mmc-pack.json 中获取更好的名称
+            for comp in mmc_manifest.components:
+                if comp.cached_name and comp.uid == "net.minecraft":
+                    # 有些包把整合包名称存在 Minecraft 组件的 cachedName 中
+                    pass
+            return MultiMCInstanceConfig(
+                name=name,
+                notes=f"Prism Launcher 格式整合包\nMinecraft {mc_version}",
+                icon_key=None,
+                instance_type=None,
+            )
+
+
+def _parse_instance_cfg_text(text: str, default_name: str) -> MultiMCInstanceConfig:
+    """解析 instance.cfg 文本内容。
+
+    使用 configparser 解析 INI 格式，并处理特殊字符问题
+    （参考 HMCL issue #2991：末尾带冒号的引号值）。
+    """
     parser = configparser.ConfigParser()
-    # 保持键名大小写
     parser.optionxform = lambda option: option
     try:
-        # 添加一个默认 section 头以便 parser 工作
         parser.read_string("[DEFAULT]\n" + text)
     except configparser.Error as e:
         raise ValueError(f"解析 instance.cfg 失败: {e}") from e
@@ -462,7 +498,7 @@ def read_instance_cfg(
         return value
 
     name = default_name or _get("name", "MultiMC Instance")
-    instance_cfg = MultiMCInstanceConfig(
+    return MultiMCInstanceConfig(
         name=name,
         icon_key=_get("iconKey"),
         notes=_get("notes", ""),
@@ -488,7 +524,6 @@ def read_instance_cfg(
         override_commands=_get_bool("OverrideCommands"),
         override_window=_get_bool("OverrideWindow"),
     )
-    return instance_cfg
 
 
 # ════════════════════════════════════════════════════════════════

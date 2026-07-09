@@ -1,6 +1,7 @@
 """Minecraft启动器核心模块"""
 import gc
 import hashlib
+import json
 import os
 import platform
 import shutil
@@ -204,6 +205,16 @@ class MinecraftLauncher:
                         return best.path
                     # 系统扫描未找到合适的 Java，跳过 recommend_for_mc（会推荐 Java 8）
                     # 继续往下尝试 Minecraft runtime
+                elif self._is_mmc_instance(target_version):
+                    _min_java = self._get_mmc_min_java(target_version) or 0
+                    if _min_java:
+                        _java_versions = [j for j in javas if j.major_version >= _min_java]
+                        if _java_versions:
+                            best = min(_java_versions, key=lambda j: j.major_version)
+                            logger.info(f"MMC 实例需要 Java {_min_java}+，选择: {best.display_name}")
+                            return best.path
+                        # 未找到合适 Java，继续尝试 Minecraft runtime
+                        logger.warning(f"系统未找到 Java {_min_java}+，继续尝试 Minecraft runtime...")
                 else:
                     best = recommend_for_mc(javas, target_version)
                 if best:
@@ -222,9 +233,15 @@ class MinecraftLauncher:
                 if component:
                     java_path = self._mcllib.runtime.get_executable_path(component, self.minecraft_dir)
                     if java_path and os.path.isfile(java_path):
-                        # 对 Cleanroom 检查 Java 版本是否满足要求
+                        # 对 Cleanroom / MMC 检查 Java 版本是否满足要求
+                        _skip_runtime = False
+                        _min_java = 0
                         if _loader_type == "cleanroom":
                             _min_java = self._get_cleanroom_min_java(target_version)
+                        elif self._is_mmc_instance(target_version):
+                            _min_java = self._get_mmc_min_java(target_version) or 0
+
+                        if _min_java > 0:
                             try:
                                 import re as _re
                                 result = subprocess.run([java_path, "-version"], capture_output=True, text=True, timeout=10)
@@ -1073,6 +1090,13 @@ class MinecraftLauncher:
                         os.makedirs(default_natives, exist_ok=True)
                         options["nativesDirectory"] = default_natives
 
+            # ── retrofuturabootstrap: 提前下载并补充到版本 JSON ──
+            # GTNH 2.8+ 需要 retrofuturabootstrap 在类路径中。
+            # 在生成启动命令前将 JAR 加入 version.json 的 libraries，
+            # 确保 minecraft_launcher_lib 将其纳入 classpath。
+            # 此处 _ensure 仅下载 + 补充 JSON，不修改 command。
+            self._ensure_retrofuturabootstrap_early(target_version)
+
             # 获取启动命令（Yggdrasil 账号使用 authlib-injector）
             logger.info(f"正在生成启动命令: {target_version}")
             if self._account_system and account_options:
@@ -1118,19 +1142,41 @@ class MinecraftLauncher:
                         minecraft_command[0] = resolved_java
                         logger.info(f"自动安装 Java runtime 后使用: {resolved_java}")
 
-                # ── Cleanroom: 最终 Java 版本检查 ──
+                # ── Cleanroom / MMC: 最终 Java 版本检查 ──
                 # _resolve_java_executable 可能回退到系统 PATH 的 Java 8，
                 # 此处强制验证并覆盖
+                logger.info(f"[JavaCheck] 开始检查: {target_version}")
+                _is_mmc = False
                 if self._detect_mod_loader_type(target_version) == "cleanroom":
                     _min_java = self._get_cleanroom_min_java(target_version)
+                    logger.info(f"[JavaCheck] Cleanroom: min_java={_min_java}")
+                elif self._is_mmc_instance(target_version):
+                    _min_java = self._get_mmc_min_java(target_version) or 0
+                    _is_mmc = _min_java > 0
+                    logger.info(f"[JavaCheck] MMC: min_java={_min_java}, is_mmc={_is_mmc}")
+                else:
+                    _min_java = 0
+                    logger.info(f"[JavaCheck] 非 Cleanroom/MMC, 跳过")
+
+                if _min_java > 0:
+                    logger.info(f"[JavaCheck] 需要 Java {_min_java}+, 当前: {minecraft_command[0]}")
                     if not self._verify_java_version(minecraft_command[0], _min_java):
-                        logger.warning(f"当前 Java 不满足 Cleanroom 最低要求 (Java {_min_java})，尝试自动安装...")
-                        _new_java = self._ensure_java_runtime(target_version)
-                        if _new_java != "java" and os.path.isfile(_new_java) and self._verify_java_version(_new_java, _min_java):
-                            minecraft_command[0] = _new_java
-                            logger.info(f"Cleanroom Java 已修正: {_new_java}")
+                        logger.warning(f"当前 Java 不满足要求 (Java {_min_java})，尝试自动安装...")
+
+                        # MMC: 直接从 version.json 读取 component 并安装 JVM runtime
+                        if _is_mmc:
+                            _new_java = self._install_mmc_java_runtime(target_version, _min_java)
                         else:
-                            logger.error(f"无法为 Cleanroom 找到 Java {_min_java}+，启动可能失败")
+                            _new_java = None
+
+                        if not _new_java:
+                            _new_java = self._ensure_java_runtime(target_version)
+
+                        if _new_java and _new_java != "java" and os.path.isfile(_new_java) and self._verify_java_version(_new_java, _min_java):
+                            minecraft_command[0] = _new_java
+                            logger.info(f"Java 已修正为: {_new_java}")
+                        else:
+                            logger.error(f"无法找到 Java {_min_java}+，启动可能失败")
 
             # 直连服务器时追加 --quickPlayMultiplayer（1.20.4+，启动后立即加入）
             if server_ip:
@@ -1138,6 +1184,35 @@ class MinecraftLauncher:
                 minecraft_command.append("--quickPlayMultiplayer")
                 minecraft_command.append(server_addr)
                 logger.info(f"追加 --quickPlayMultiplayer {server_addr}")
+
+            # ── retrofuturabootstrap: 构建 classpath + 替换 system.class.loader ──
+            # Forge 不通过 -cp 加载库，但 JVM 需要 -cp 来找到主类。
+            # 扫描 .minecraft/libraries/ 下所有 jar 构建完整 classpath。
+            rfb_jar_path = self._ensure_retrofuturabootstrap(target_version, minecraft_command)
+            if rfb_jar_path:
+                # 替换 -Djava.system.class.loader → -Drfb.skipClassLoaderCheck=true
+                for i, a in enumerate(minecraft_command):
+                    if a.startswith("-Djava.system.class.loader="):
+                        minecraft_command[i] = "-Drfb.skipClassLoaderCheck=true"
+                        break
+                # 构建 classpath：扫描 .minecraft/libraries/ 下所有 jar
+                libs_root = os.path.join(self.minecraft_dir, "libraries")
+                all_jars = []
+                if os.path.isdir(libs_root):
+                    for root, _dirs, files in os.walk(libs_root):
+                        for f in files:
+                            if f.endswith(".jar"):
+                                all_jars.append(os.path.join(root, f))
+                # 确保 retrofuturabootstrap 在最前面
+                if rfb_jar_path not in all_jars:
+                    all_jars.insert(0, rfb_jar_path)
+                # 在 main class 前插入 -cp <classpath>
+                main_class_name = "com.gtnewhorizons.retrofuturabootstrap.Main"
+                for i, a in reversed(list(enumerate(minecraft_command))):
+                    if a == main_class_name:
+                        minecraft_command[i:i] = ["-cp", os.pathsep.join(all_jars)]
+                        break
+                logger.info(f"retrofuturabootstrap: classpath 已构建 ({len(all_jars)} jars)")
 
             # ── JVM 参数优化 ──
             minecraft_command = self._optimize_jvm_args(minecraft_command, target_version)
@@ -1155,9 +1230,8 @@ class MinecraftLauncher:
             minecraft_command = self._set_launcher_brand(minecraft_command)
 
             logger.info("正在启动游戏...")
-            # 使用 Popen 非阻塞启动
-            # Windows 下使用 CREATE_NO_WINDOW 隐藏 Java 控制台窗口
-            # 始终捕获 stdout+stderr 以便在进程快速退出时记录错误
+            # 使用 PIPE 捕获 + 同步输出到终端
+            import sys as _sys
             popen_kwargs = dict(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -1165,6 +1239,26 @@ class MinecraftLauncher:
             )
             if sys.platform == 'win32':
                 popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+
+            # ── Windows 命令行长度限制绕过 ──
+            # cmd.exe 限制为 8191 字符，classpath 可能超限。
+            # 使用 Java @参数文件 绕过限制（Java 9+ 原生支持）。
+            _args_file = None
+            if sys.platform == 'win32':
+                # java.exe 本身不算在命令长度内（通过 Popen 列表传递）
+                # 但 classpath 作为单个参数可能接近或超过限制，统一用 @file
+                if any(len(a) > 2000 for a in minecraft_command):
+                    import tempfile
+                    _args_file = tempfile.NamedTemporaryFile(
+                        mode='w', suffix='.txt', delete=False, encoding='utf-8'
+                    )
+                    for a in minecraft_command[1:]:  # 跳过 java.exe
+                        _args_file.write(a + '\n')
+                    _args_file.flush()
+                    _args_file.close()
+                    _args_path = _args_file.name
+                    minecraft_command = [minecraft_command[0], f"@{_args_path}"]
+                    logger.info(f"使用 @参数文件绕过命令行长度限制: {_args_path}")
 
             # ── Cleanroom 环境变量 ──
             # 参考 HMCL DefaultLauncher: 设置 INST_CLEANROOM=1 让
@@ -1192,11 +1286,9 @@ class MinecraftLauncher:
             )
 
             # ── 启动子进程输出采集线程 ──
-            # 读取 stdout/stderr 并记录到日志，用于诊断快速退出的问题
             _early_output_lines: List[str] = []
 
             def _read_subprocess_output():
-                """在后台线程中读取子进程输出，直到 pipe 关闭"""
                 try:
                     stdout = self._game_process.stdout
                     if stdout is None:
@@ -1205,9 +1297,10 @@ class MinecraftLauncher:
                         line = line_bytes.decode("utf-8", errors="replace").rstrip()
                         if line:
                             _early_output_lines.append(line)
-                            logger.debug(f"game: {line}")
+                            _sys.stdout.write(line + '\n')
+                            _sys.stdout.flush()
                 except (ValueError, OSError):
-                    pass  # pipe 关闭或 fd 无效
+                    pass
                 except Exception:
                     pass
 
@@ -1218,9 +1311,7 @@ class MinecraftLauncher:
             try:
                 self._game_process.wait(timeout=2)
                 exit_code = self._game_process.returncode
-                # 进程已退出，等待 reader 线程读完剩余输出
                 _reader_thread.join(timeout=1)
-                # 吸入可能残留的缓冲区内容
                 try:
                     remaining = self._game_process.stdout.read().decode("utf-8", errors="replace")
                     if remaining:
@@ -1228,16 +1319,17 @@ class MinecraftLauncher:
                             line = line.rstrip()
                             if line:
                                 _early_output_lines.append(line)
+                                _sys.stdout.write(line + '\n')
                 except Exception:
                     pass
+                _sys.stdout.flush()
                 if _early_output_lines:
-                    logger.error(f"游戏进程在 2 秒内退出 (退出码 {exit_code})，输出:")
-                    for line in _early_output_lines[:50]:
+                    logger.error(f"游戏进程在 2 秒内退出 (退出码 {exit_code})，输出({len(_early_output_lines)}行)")
+                    for line in _early_output_lines[-30:]:
                         logger.error(f"  {line}")
                 else:
                     logger.error(f"游戏进程在 2 秒内退出 (退出码 {exit_code})，无输出")
-                slog.error("game_early_exit", version=target_version, exit_code=exit_code,
-                           output_lines=len(_early_output_lines))
+                slog.error("game_early_exit", version=target_version, exit_code=exit_code)
                 return False, target_version
             except subprocess.TimeoutExpired:
                 pass  # 进程运行超过 2 秒，正常
@@ -1247,9 +1339,6 @@ class MinecraftLauncher:
 
             # ── 启动后内存释放 ──
             self._release_memory_after_launch()
-
-            if _early_output_lines:
-                logger.info(f"游戏进程已启动，已采集 {len(_early_output_lines)} 行早期输出")
 
             logger.info(f"游戏已启动 ({target_version})")
             return True, target_version
@@ -1318,6 +1407,163 @@ class MinecraftLauncher:
         # 回退到 Java 21
         return 21
 
+    def _is_mmc_instance(self, version_id: str) -> bool:
+        """检测是否为 MultiMC 整合包实例。
+
+        检测方式：
+        1. mmc_config.json 存在（最可靠）
+        2. version.json 中有 inheritsFrom 且非标准 loader 名称模式
+           （MMC 实例从原版继承，不以 forge/fabric 等 loader 前缀命名）
+
+        Args:
+            version_id: 版本 ID
+
+        Returns:
+            True 如果该版本是 MMC 整合包安装的实例
+        """
+        # 1. mmc_config.json
+        config_path = os.path.join(
+            self.minecraft_dir, "versions", version_id, "mmc_config.json"
+        )
+        if os.path.isfile(config_path):
+            return True
+
+        # 2. inheritsFrom 兜底（MMC 实例克隆自原版版本）
+        try:
+            json_path = os.path.join(
+                self.minecraft_dir, "versions", version_id, f"{version_id}.json"
+            )
+            logger.info(f"[MMC-minJava] 检查: {json_path}, exists={os.path.isfile(json_path)}")
+            if os.path.isfile(json_path):
+                with open(json_path, "r", encoding="utf-8") as f:
+                    vj = json.loads(f.read())
+                # 有 inheritsFrom 且不是标准 loader 版本（forge/fabric/neoforge/quilt）
+                if vj.get("inheritsFrom"):
+                    loader_prefixes = ("forge-", "fabric-", "neoforge-", "quilt-")
+                    if not version_id.lower().startswith(loader_prefixes):
+                        logger.info(f"通过 inheritsFrom 检测到 MMC 实例: {version_id}")
+                        return True
+        except Exception:
+            pass
+
+        return False
+
+    def _get_mmc_min_java(self, version_id: str) -> Optional[int]:
+        """获取 MultiMC 整合包所需的最低 Java 主版本号。
+
+        从版本 JSON 的 javaVersion.majorVersion 字段读取。
+        参照 Cleanroom 的 _get_cleanroom_min_java 模式。
+
+        Args:
+            version_id: 版本 ID
+
+        Returns:
+            最低 Java 主版本号，或 None（无特殊要求）
+        """
+        try:
+            json_path = os.path.join(
+                self.minecraft_dir, "versions", version_id, f"{version_id}.json"
+            )
+            if os.path.isfile(json_path):
+                with open(json_path, "r", encoding="utf-8") as f:
+                    obj = json.loads(f.read())
+                java_ver = obj.get("javaVersion")
+                if java_ver and isinstance(java_ver, dict):
+                    major = java_ver.get("majorVersion")
+                    if isinstance(major, int) and major >= 8:
+                        # Minecraft runtime 最高只到 Java 21，超出的 cap 到 21
+                        # Java 21 兼容 GTNH 2.8+（官方推荐 Java 17-25）
+                        if major > 21:
+                            logger.info(
+                                f"MMC 实例 {version_id} 要求 Java {major}+，"
+                                f"但 Minecraft runtime 最高为 21，使用 Java 21"
+                            )
+                            major = 21
+                        logger.info(f"MMC 实例 {version_id} 需要 Java {major}+")
+                        return major
+
+                # 兜底: 检查当前 version.json 的 JVM 参数
+                jvm_args = obj.get("arguments", {}).get("jvm", [])
+                logger.info(
+                    f"[MMC-minJava] {version_id}: javaVersion={'有' if java_ver else '无'}, "
+                    f"jvm_args_count={len(jvm_args)}"
+                )
+                for arg in jvm_args:
+                    arg_str = arg if isinstance(arg, str) else str(arg)
+                    if "--add-opens" in arg_str or "--add-exports" in arg_str:
+                        logger.info(f"MMC 实例 {version_id} JVM 含 --add-opens，推断需要 Java 17+")
+                        return 17
+        except Exception as e:
+            logger.warning(f"获取 MMC 最低 Java 版本失败 ({version_id}): {e}")
+        return None
+
+    def _install_mmc_java_runtime(self, version_id: str, min_java: int) -> Optional[str]:
+        """为 MMC 实例安装所需的 JVM 运行时。
+
+        从 version.json 读取 javaVersion.component，通过
+        minecraft_launcher_lib.runtime 安装对应的 JRE。
+
+        Args:
+            version_id: 版本 ID
+            min_java: 最低 Java 主版本号
+
+        Returns:
+            Java 可执行文件路径，或 None
+        """
+        try:
+            json_path = os.path.join(
+                self.minecraft_dir, "versions", version_id, f"{version_id}.json"
+            )
+            if not os.path.isfile(json_path):
+                return None
+
+            with open(json_path, "r", encoding="utf-8") as f:
+                vj = json.loads(f.read())
+
+            jv = vj.get("javaVersion", {})
+            component = jv.get("component", "")
+            if not component:
+                # 旧版安装无 component 字段，从 min_java 推导
+                if min_java >= 21:
+                    component = "java-runtime-delta"
+                elif min_java >= 17:
+                    component = "java-runtime-gamma"
+                else:
+                    component = "java-runtime-alpha"
+                logger.info(f"MMC: 从 min_java={min_java} 推导 component={component}")
+
+            # 检查是否已安装
+            try:
+                java_path = self._mcllib.runtime.get_executable_path(component, self.minecraft_dir)
+                if java_path and os.path.isfile(java_path) and self._verify_java_version(java_path, min_java):
+                    logger.info(f"MMC JVM runtime 已安装 ({component}): {java_path}")
+                    return java_path
+            except Exception:
+                pass
+
+            # 安装 JVM runtime
+            self._set_status(f"正在安装 Java {min_java} 运行时 ({component})...")
+            logger.info(f"MMC: 安装 JVM 运行时 {component} (Java {min_java})")
+            try:
+                self._mcllib.runtime.install_jvm_runtime(component, self.minecraft_dir,
+                    callback=self._get_callback() if hasattr(self, "_get_callback") else {})
+            except Exception as e:
+                logger.warning(f"JVM 运行时安装 ({component}) 失败: {e}")
+                return None
+
+            # 再次尝试获取路径
+            try:
+                java_path = self._mcllib.runtime.get_executable_path(component, self.minecraft_dir)
+                if java_path and os.path.isfile(java_path):
+                    logger.info(f"MMC JVM runtime 安装完成 ({component}): {java_path}")
+                    return java_path
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.warning(f"安装 MMC Java 运行时失败: {e}")
+        return None
+
     @staticmethod
     def _verify_java_version(java_path: str, min_major: int) -> bool:
         """验证 Java 可执行文件的主版本号是否 >= min_major
@@ -1347,6 +1593,261 @@ class MinecraftLauncher:
         except Exception as e:
             logger.debug(f"_verify_java_version 失败: {e}")
         return False
+
+    def _ensure_retrofuturabootstrap_early(self, version_id: str) -> None:
+        """提前准备 retrofuturabootstrap（下载 + 补充版本 JSON）。
+
+        在 minecraft_launcher_lib 生成启动命令之前调用，
+        将 JAR 加入 version.json 的 libraries 中，使其自动纳入 classpath。
+
+        Args:
+            version_id: 版本 ID
+        """
+        json_path = os.path.join(
+            self.minecraft_dir, "versions", version_id, f"{version_id}.json"
+        )
+        if not os.path.isfile(json_path):
+            return
+
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                vj = json.loads(f.read())
+        except Exception:
+            return
+
+        main_class = vj.get("mainClass", "")
+        jvm_args = vj.get("arguments", {}).get("jvm", [])
+
+        needs_rfb = "retrofuturabootstrap" in main_class.lower()
+        if not needs_rfb:
+            for arg in jvm_args:
+                if isinstance(arg, str) and "retrofuturabootstrap" in arg.lower():
+                    needs_rfb = True
+                    break
+        if not needs_rfb:
+            return
+
+        # 下载 JAR
+        rfb_jar = self._ensure_retrofuturabootstrap(version_id, [])
+        if not rfb_jar:
+            return
+
+        # 追加到版本 JSON 的 libraries（Maven 格式，Forge 可自动解析）
+        # 从 JAR 路径提取版本号：.../retrofuturabootstrap/1.0.12/retrofuturabootstrap-1.0.12.jar
+        rfb_ver = "1.0.12"
+        for part in rfb_jar.replace("\\", "/").split("/"):
+            if part.startswith("retrofuturabootstrap-") and part.endswith(".jar"):
+                rfb_ver = part[len("retrofuturabootstrap-"):-len(".jar")]
+                break
+        lib_name = f"com.gtnewhorizons:retrofuturabootstrap:{rfb_ver}"
+        maven_path = f"com/gtnewhorizons/retrofuturabootstrap/{rfb_ver}/retrofuturabootstrap-{rfb_ver}.jar"
+        new_lib = {
+            "name": lib_name,
+            "downloads": {
+                "artifact": {
+                    "path": maven_path,
+                    "url": (
+                        f"https://github.com/GTNewHorizons/RetroFuturaBootstrap"
+                        f"/releases/download/{rfb_ver}/RetroFuturaBootstrap-{rfb_ver}.jar"
+                    ),
+                }
+            },
+        }
+
+        libraries = vj.get("libraries", [])
+        existing_names = {lib.get("name", "") for lib in libraries}
+        if lib_name not in existing_names:
+            libraries.append(new_lib)
+            vj["libraries"] = libraries
+
+        # 修复 --add-opens/--add-exports 格式：展开为每个值一个 flag
+        # version.json 中为 ["--add-opens", "val1", "val2", "--add-opens", "val3"]，
+        # 展开为 ["--add-opens", "val1", "--add-opens", "val2", "--add-opens", "val3"]
+        jvm_args = vj.get("arguments", {}).get("jvm", [])
+        if jvm_args:
+            fixed_jvm = []
+            pending = None
+            for a in jvm_args:
+                if isinstance(a, str) and a in ("--add-opens", "--add-exports"):
+                    pending = a.lstrip("-")
+                    continue
+                if pending:
+                    if isinstance(a, str) and not a.startswith("-"):
+                        fixed_jvm.append(f"--{pending}")
+                        fixed_jvm.append(a)
+                        continue  # 保持 pending，可处理连续多个值
+                    pending = None  # 非值参数，丢弃 pending
+                fixed_jvm.append(a)
+            vj["arguments"]["jvm"] = fixed_jvm
+            # 移除末尾孤立的 --add-opens/--add-exports（之前版本可能遗留）
+            while fixed_jvm and fixed_jvm[-1] in ("--add-opens", "--add-exports"):
+                fixed_jvm.pop()
+            logger.info(f"已修复版本 JSON 中 --add-opens/--add-exports 格式")
+
+        try:
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(vj, f, ensure_ascii=False, indent=2)
+            logger.info(f"retrofuturabootstrap 已添加到版本 JSON: {version_id}")
+        except Exception as e:
+            logger.warning(f"写入版本 JSON 失败: {e}")
+
+    def _ensure_retrofuturabootstrap(self, version_id: str, command: List[str]) -> Optional[str]:
+        """确保 retrofuturabootstrap JAR 存在并返回其路径。
+
+        GTNH 2.8+ 等 MMC 实例使用 retrofuturabootstrap 作为 mainClass 和
+        system class loader（-Djava.system.class.loader=RfbSystemClassLoader）。
+        该类必须在 JVM bootstrap classpath 上才能被加载。
+
+        Args:
+            version_id: 版本 ID
+            command: 当前启动命令列表（用于检测是否已存在）
+
+        Returns:
+            retrofuturabootstrap JAR 路径，或 None（不需要或失败）
+        """
+        # 快速检查：命令中是否已含 -Xbootclasspath/a 指向 retrofuturabootstrap
+        for arg in command:
+            if arg.startswith("-Xbootclasspath/a:") and "retrofuturabootstrap" in arg.lower():
+                return None
+
+        json_path = os.path.join(
+            self.minecraft_dir, "versions", version_id, f"{version_id}.json"
+        )
+        if not os.path.isfile(json_path):
+            return None
+
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                vj = json.loads(f.read())
+        except Exception:
+            return None
+
+        main_class = vj.get("mainClass", "")
+        jvm_args = vj.get("arguments", {}).get("jvm", [])
+
+        needs_rfb = "retrofuturabootstrap" in main_class.lower()
+        if not needs_rfb:
+            for arg in jvm_args:
+                if isinstance(arg, str) and "retrofuturabootstrap" in arg.lower():
+                    needs_rfb = True
+                    break
+        if not needs_rfb:
+            return None
+
+        # 目标：Maven 标准路径（Forge/mclib 可从 libraries 解析）
+        # .minecraft/libraries/com/gtnewhorizons/retrofuturabootstrap/<ver>/
+        maven_dir = os.path.join(
+            self.minecraft_dir, "libraries", "com", "gtnewhorizons", "retrofuturabootstrap"
+        )
+        os.makedirs(maven_dir, exist_ok=True)
+
+        # 检查 Maven 路径是否已存在
+        if os.path.isdir(maven_dir):
+            for root, _dirs, files in os.walk(maven_dir):
+                for f in files:
+                    if f.endswith(".jar") and "sources" not in f and "javadoc" not in f:
+                        return os.path.join(root, f)
+
+        # 也检查旧的实例 libraries 目录中的缓存
+        instance_dir = os.path.join(self.minecraft_dir, "versions", version_id)
+        old_lib_dir = os.path.join(instance_dir, "libraries")
+        if os.path.isdir(old_lib_dir):
+            for existing in os.listdir(old_lib_dir):
+                if existing.lower().startswith("retrofuturabootstrap") and existing.endswith(".jar"):
+                    jar_path = os.path.join(old_lib_dir, existing)
+                    logger.info(f"retrofuturabootstrap 已存在于实例目录: {jar_path}")
+                    # 复制到 Maven 路径
+                    dest_dir = os.path.join(maven_dir, existing.replace("retrofuturabootstrap-", "").replace(".jar", ""))
+                    os.makedirs(dest_dir, exist_ok=True)
+                    dest_path = os.path.join(dest_dir, existing)
+                    if not os.path.isfile(dest_path):
+                        import shutil
+                        shutil.copy2(jar_path, dest_path)
+                        logger.info(f"retrofuturabootstrap 已复制到 Maven 路径: {dest_path}")
+                    return dest_path
+
+        # 下载 retrofuturabootstrap（从旧版本开始尝试，兼容 GTNH 2.8.4）
+        # 通过 -cp 加载到 AppClassLoader，由 Main 类在运行时创建 class loader
+        versions_to_try = ["1.0.12", "1.0.13", "1.0.14", "1.0.15", "1.0.16", "1.0.17"]
+        base_url = (
+            "https://github.com/GTNewHorizons/RetroFuturaBootstrap"
+            "/releases/download/{ver}/RetroFuturaBootstrap-{ver}.jar"
+        )
+
+        import requests as _req
+        for ver in versions_to_try:
+            url = base_url.format(ver=ver)
+            # Maven 标准路径：libraries/com/gtnewhorizons/retrofuturabootstrap/<ver>/<jar>
+            target_dir = os.path.join(maven_dir, ver)
+            os.makedirs(target_dir, exist_ok=True)
+            target_path = os.path.join(target_dir, f"retrofuturabootstrap-{ver}.jar")
+            try:
+                logger.info(f"下载 retrofuturabootstrap {ver}: {url}")
+                resp = _req.get(
+                    url,
+                    headers={"User-Agent": "FMCL/2.0"},
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                with open(target_path, "wb") as f:
+                    f.write(resp.content)
+                logger.info(f"retrofuturabootstrap 下载完成: {target_path}")
+                return target_path
+            except Exception as e:
+                logger.warning(f"下载 retrofuturabootstrap {ver} 失败: {e}")
+                if os.path.isfile(target_path):
+                    try:
+                        os.remove(target_path)
+                    except OSError:
+                        pass
+                continue
+
+        logger.error("无法下载 retrofuturabootstrap，启动可能失败")
+        return None
+
+    def _add_library_to_version_json(self, version_id: str, jar_path: str) -> None:
+        """将 retrofuturabootstrap JAR 追加到版本 JSON 的 libraries 列表中。
+
+        确保 minecraft_launcher_lib 生成启动命令时将 JAR 包含在 classpath 中。
+
+        Args:
+            version_id: 版本 ID
+            jar_path: JAR 文件的绝对路径
+        """
+        json_path = os.path.join(
+            self.minecraft_dir, "versions", version_id, f"{version_id}.json"
+        )
+        if not os.path.isfile(json_path):
+            return
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                vj = json.loads(f.read())
+        except Exception:
+            return
+
+        lib_name = "com.gtnewhorizons:retrofuturabootstrap:1.0.0"
+        jar_url = f"file:///{jar_path.replace(os.sep, '/')}"
+        new_lib = {
+            "name": lib_name,
+            "downloads": {
+                "artifact": {
+                    "path": jar_path,
+                    "url": jar_url,
+                }
+            },
+        }
+
+        libraries = vj.get("libraries", [])
+        existing_names = {lib.get("name", "") for lib in libraries}
+        if lib_name not in existing_names:
+            libraries.append(new_lib)
+            vj["libraries"] = libraries
+            try:
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(vj, f, ensure_ascii=False, indent=2)
+                logger.info(f"已将 retrofuturabootstrap 添加到版本 JSON libraries: {version_id}")
+            except Exception as e:
+                logger.warning(f"写入版本 JSON 失败: {e}")
 
     def _ensure_version_jar(self, version_id: str) -> bool:
         """确保版本 JAR 文件存在
