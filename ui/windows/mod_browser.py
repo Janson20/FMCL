@@ -93,7 +93,6 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._build_ui()
 
         self._switch_to_tab(self.TAB_MODS)
-        self.after(300, lambda: self._do_tab_search(self.TAB_MODS))
 
     def _build_ui(self):
         main_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -143,7 +142,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._build_tab_content(self._tabview.tab(_("mod_browser_tab_resourcepacks")), self.TAB_RESOURCE_PACKS)
         self._build_tab_content(self._tabview.tab(_("mod_browser_tab_shaders")), self.TAB_SHADERS)
 
-        self._tabview._segmented_button.configure(command=self._on_tab_changed)
+        self._tabview.configure(command=self._on_tab_changed)
 
     def _build_tab_content(self, tab_frame, tab_key: str):
         state = self._tab_states[tab_key]
@@ -276,7 +275,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         status_label.pack(anchor=ctk.W, pady=(5, 0))
         state["status_label"] = status_label
 
-    def _on_tab_changed(self):
+    def _on_tab_changed(self, value=None):
         selected = self._tabview.get()
         tab_map = {
             _("mod_browser_tab_mods"): self.TAB_MODS,
@@ -293,7 +292,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
             children = state["list_frame"].winfo_children()
             has_content = any(not isinstance(w, ctk.CTkLabel) or w != state["loading_label"] for w in children)
             if not has_content or (len(children) == 1 and children[0] == state["loading_label"]):
-                self._do_tab_search(tab_key)
+                self._set_tab_status(tab_key, _("mod_browser_loading"))
+                self._run_in_thread(lambda: self._do_tab_search(tab_key))
 
     def _on_tab_search(self, tab_key: str):
         state = self._tab_states[tab_key]
