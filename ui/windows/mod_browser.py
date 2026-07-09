@@ -87,6 +87,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 "status_label": None,
                 "ai_search_btn": None,
                 "_ai_cached_hits": None,
+                "_cached_hits": None,  # 常规搜索缓存，用于本地分页
             }
 
         self._build_ui()
@@ -301,11 +302,19 @@ class ModBrowserWindow(ctk.CTkToplevel):
             state["current_query"] = entry.get().strip()
         state["current_offset"] = 0
         state["_ai_cached_hits"] = None
+        state["_cached_hits"] = None  # 清除常规搜索缓存
         self._set_tab_status(tab_key, _("mod_browser_searching"))
         self._run_in_thread(lambda: self._do_tab_search(tab_key))
 
     def _do_tab_search(self, tab_key: str):
         state = self._tab_states[tab_key]
+
+        # 如果已有缓存，直接本地分页（翻页复用）
+        if state["_cached_hits"] is not None:
+            offset = state["current_offset"]
+            page = state["_cached_hits"][offset:offset + self.PAGE_SIZE]
+            self.after(0, lambda: self._render_tab_results(tab_key, page))
+            return
 
         try:
             if tab_key == self.TAB_MODS:
@@ -314,35 +323,38 @@ class ModBrowserWindow(ctk.CTkToplevel):
                     query=state["current_query"],
                     game_version=self._game_version,
                     mod_loader=self._search_loader,
-                    offset=state["current_offset"],
-                    limit=self.PAGE_SIZE,
+                    offset=0,
+                    limit=300,  # 请求大批量以触发多页拉取
                 )
             elif tab_key == self.TAB_RESOURCE_PACKS:
                 from curseforge import unified_search_resource_packs
                 result = unified_search_resource_packs(
                     query=state["current_query"],
                     game_version=self._game_version,
-                    offset=state["current_offset"],
-                    limit=self.PAGE_SIZE,
+                    offset=0,
+                    limit=300,
                 )
             elif tab_key == self.TAB_SHADERS:
                 from curseforge import unified_search_shaders
                 result = unified_search_shaders(
                     query=state["current_query"],
                     game_version=self._game_version,
-                    offset=state["current_offset"],
-                    limit=self.PAGE_SIZE,
+                    offset=0,
+                    limit=300,
                 )
             else:
                 return
 
-            hits = result.get("hits", [])
+            all_hits = result.get("hits", [])
             state["total_hits"] = result.get("total_hits", 0)
+            state["_cached_hits"] = all_hits  # 缓存全部拉取结果用于本地分页
             # 保存来源统计用于显示
             sources = result.get("sources", {})
             state["_sources"] = sources
 
-            self.after(0, lambda: self._render_tab_results(tab_key, hits))
+            # 渲染首页
+            page = all_hits[:self.PAGE_SIZE]
+            self.after(0, lambda: self._render_tab_results(tab_key, page))
 
         except Exception as e:
             logger.error(f"搜索失败 ({tab_key}): {e}")
@@ -618,6 +630,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
             state["current_offset"] -= self.PAGE_SIZE
             if state["_ai_cached_hits"] is not None:
                 self._render_page_from_ai_cache(tab_key)
+            elif state["_cached_hits"] is not None:
+                self._render_page_from_cache(tab_key)
             else:
                 self._set_tab_status(tab_key, _("mod_browser_loading"))
                 self._run_in_thread(lambda: self._do_tab_search(tab_key))
@@ -628,9 +642,22 @@ class ModBrowserWindow(ctk.CTkToplevel):
             state["current_offset"] += self.PAGE_SIZE
             if state["_ai_cached_hits"] is not None:
                 self._render_page_from_ai_cache(tab_key)
+            elif state["_cached_hits"] is not None:
+                self._render_page_from_cache(tab_key)
             else:
                 self._set_tab_status(tab_key, _("mod_browser_loading"))
                 self._run_in_thread(lambda: self._do_tab_search(tab_key))
+
+    def _render_page_from_cache(self, tab_key: str):
+        """从常规搜索缓存渲染页面"""
+        state = self._tab_states[tab_key]
+        cached = state["_cached_hits"]
+        if cached is None:
+            return
+        offset = state["current_offset"]
+        page = cached[offset:offset + self.PAGE_SIZE]
+        self._render_tab_results(tab_key, page)
+        self._update_tab_pagination(tab_key)
 
     def _render_page_from_ai_cache(self, tab_key: str):
         state = self._tab_states[tab_key]
