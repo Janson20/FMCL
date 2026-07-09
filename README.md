@@ -18,7 +18,7 @@
 | 🔧 多模组加载器 | Forge / Fabric / NeoForge / Quilt / LiteLoader / LegacyFabric / Cleanroom / OptiFine 一站式安装，版本隔离 | 与原版并行安装，自动适配 YY.D.H 新版本格式，JSON 检测加载器类型 |
 | ⚡ 国内镜像加速 | 内置 BMCLAPI 镜像源，国内下载速度大幅提升 | 一键开关，覆盖版本清单/资源/库/安装器 |
 | 🧩 模组管理 | Modrinth + CurseForge 在线搜索安装，AI 搜索 | 自动匹配版本和加载器，支持依赖递归安装 |
-| 📦 整合包 | 支持 .mrpack / MultiMC .zip 安装与开服，Modrinth 在线下载 | 并行安装优化，分段进度显示，增量更新 |
+| 📦 整合包 | 支持 Modrinth / CurseForge / MultiMC / HMCL / MCBBS / 通用压缩包 安装与开服 | 并行安装优化，分段进度显示，增量更新，自动格式检测 |
 | 🖥 服务器管理 | 一键安装/启动 MC 服务器，实时日志与命令交互 | 自动同意 EULA，智能 Java 管理，1G~16G 内存 |
 | 🌐 陶瓦联机 | 基于 EasyTier P2P 虚拟组网，局域网广播模拟 | Base34 大厅编号，TCP 端口转发，成员管理 |
 | 💾 存档备份 | 手动/自动备份，一键恢复，压缩/校验/导出 | 支持版本隔离目录扫描，备份索引记录 |

@@ -2275,6 +2275,16 @@ class MinecraftLauncher:
             "install_multimc_pack_server": self.install_multimc_pack_server,
             "update_multimc_pack": self.update_multimc_pack,
             "get_instance_launch_overrides": self._get_instance_launch_overrides,
+            # 统一整合包入口
+            "install_modpack": self.install_modpack,
+            # CurseForge 整合包
+            "get_cf_pack_info": self.get_cf_pack_info,
+            # HMCL 整合包
+            "get_hmcl_pack_info": self.get_hmcl_pack_info,
+            # MCBBS 整合包
+            "get_mcbbs_pack_info": self.get_mcbbs_pack_info,
+            # 通用压缩包/启动器包
+            "get_compress_pack_info": self.get_compress_pack_info,
             # Java 运行时相关
             "scan_system_java": self.scan_system_java,
             "get_java_suggestion": self.get_java_suggestion,
