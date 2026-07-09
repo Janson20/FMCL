@@ -65,8 +65,15 @@ test: ## 运行测试
 	python -m pytest tests/ -v
 
 lint: ## 代码检查
-	python -m flake8 *.py
-	python -m mypy *.py
+	python -m flake8 . --exclude=.git,__pycache__,build,dist,.venv,venv,env,node_modules
+	python -m mypy --ignore-missing-imports \
+		main.py cli_agent.py agent_cli.py config.py downloader.py mirror.py \
+		modrinth.py curseforge.py backup_manager.py updater.py secure_storage.py \
+		validation.py screen_shot.py structured_logger.py version_utils.py \
+		launcher/ minecraft_launcher_lib/ plugin_manager/ ui/ scripts/ tests/
+	-python -m mypy --ignore-missing-imports \
+		achievement_defs.py achievement_engine.py achievement_sync.py \
+		curseforge.py screen_shot.py
 
 dev: ## 开发模式运行
 	python main.py

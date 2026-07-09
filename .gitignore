@@ -74,7 +74,6 @@ fmcl_*_amd64/
 *.orig
 *.dat
 /logs
-config.json
 
 # Other
 video/

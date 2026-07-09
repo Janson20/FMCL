@@ -26,3 +26,21 @@ dependencies = [
     "psutil>=7.2.2",
     "nvidia-ml-py>=13.610.43",
 ]
+
+[tool.black]
+line-length = 120
+target-version = ["py310", "py311"]
+skip-magic-trailing-comma = true
+
+[tool.isort]
+profile = "black"
+line_length = 120
+multi_line_output = 3
+include_trailing_comma = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
