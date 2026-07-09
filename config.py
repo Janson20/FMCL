@@ -174,6 +174,9 @@ class Config:
         self.backup_auto_launch: bool = False
         self.backup_auto_exit: bool = False
 
+        # MultiMC 整合包配置
+        self.mmc_configurations: Dict[str, dict] = {}
+
         # 账号系统配置
         self.accounts_file: Optional[str] = None
         self.current_account_id: Optional[str] = None
@@ -367,6 +370,52 @@ class Config:
     def get_versions_dir(self) -> Path:
         """获取版本目录路径"""
         return self.minecraft_dir / "versions"
+
+    def get_mmc_config_path(self, version_id: str) -> Path:
+        """获取 MultiMC 整合包配置文件的路径
+
+        Args:
+            version_id: 版本 ID
+
+        Returns:
+            mmc_config.json 的完整路径
+        """
+        return self.get_versions_dir() / version_id / "mmc_config.json"
+
+    def save_mmc_config(self, version_id: str, config_data: dict) -> None:
+        """保存 MultiMC 整合包配置到版本目录
+
+        Args:
+            version_id: 版本 ID
+            config_data: 配置字典（ModpackConfiguration.to_dict() 的输出）
+        """
+        import json
+        config_path = self.get_mmc_config_path(version_id)
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config_data, f, ensure_ascii=False, indent=2)
+        self.mmc_configurations[version_id] = config_data
+        logger.info(f"MultiMC 配置已保存: {version_id}")
+
+    def load_mmc_config(self, version_id: str) -> Optional[dict]:
+        """加载 MultiMC 整合包配置
+
+        Args:
+            version_id: 版本 ID
+
+        Returns:
+            配置字典或 None
+        """
+        import json
+        config_path = self.get_mmc_config_path(version_id)
+        if not config_path.is_file():
+            return None
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"加载 MultiMC 配置失败 {version_id}: {e}")
+            return None
 
     def migrate_accounts(self) -> bool:
         """旧配置自动迁移：将旧 player_name 迁移为离线账号"""

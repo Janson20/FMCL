@@ -1,10 +1,11 @@
-"""整合包安装窗口 - 选择 .mrpack 文件，确认信息，执行安装"""
+"""整合包安装窗口 - 选择 .mrpack / .zip 文件，确认信息，执行安装（支持 Modrinth 和 MultiMC 格式）"""
 import os
 import threading
 import tkinter.messagebox as messagebox
 from typing import List, Dict, Optional, Callable, Any
 
 import customtkinter as ctk
+from launcher.multimc_types import detect_multimc_format
 
 from ui.constants import COLORS, FONT_FAMILY
 from ui.dialogs import show_notification
@@ -22,7 +23,7 @@ def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "incre
 
 
 class ModpackInstallWindow(ctk.CTkToplevel):
-    """整合包（.mrpack）安装窗口 - 选择文件、确认信息、执行安装"""
+    """整合包安装窗口 - 支持 .mrpack（Modrinth）和 .zip（MultiMC）格式"""
 
     def __init__(self, parent, callbacks: Dict[str, Callable]):
         super().__init__(parent)
@@ -212,7 +213,7 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         path = filedialog.askopenfilename(
             parent=self,
             title=_("mp_select_dialog_title"),
-            filetypes=[("Modrinth 整合包", "*.mrpack"), ("所有文件", "*.*")],
+            filetypes=[("Modrinth 整合包", "*.mrpack"), ("MultiMC 整合包", "*.zip"), ("所有文件", "*.*")],
         )
         if not path:
             return
@@ -241,13 +242,48 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         self._run_in_thread(self._load_mrpack_info)
 
     def _load_mrpack_info(self):
-        """读取整合包信息（后台线程）"""
+        """读取整合包信息（后台线程）- 自动检测 mrpack 或 MultiMC 格式"""
+        import zipfile as _zipfile
+        from logzero import logger as _logger
+
         try:
-            info = self.callbacks["get_mrpack_information"](self._mrpack_path)
+            path = self._mrpack_path
+            if not path:
+                return
+            # Auto-detect format
+            is_mmc, _prefix = detect_multimc_format(path)
+            if is_mmc:
+                info = self.callbacks["get_multimc_pack_info"](path)
+                info["format"] = "multimc"
+            elif path.lower().endswith(".mrpack"):
+                info = self.callbacks["get_mrpack_information"](path)
+                info["format"] = "mrpack"
+            else:
+                # 不是 .mrpack 也不是 MultiMC，尝试诊断 zip 内容
+                try:
+                    with _zipfile.ZipFile(path, "r") as zf:
+                        top_names = [n for n in zf.namelist() if n.count("/") <= 1][:8]
+                    _logger.info(
+                        f"文件 {os.path.basename(path)} 既非 mrpack 也非 MultiMC。"
+                        f"根目录内容: {top_names}"
+                    )
+                except Exception:
+                    pass
+                raise ValueError(
+                    f"无法识别整合包格式。该文件既不是 Modrinth (.mrpack) 也不是 "
+                    f"MultiMC (.zip 含 instance.cfg)。请确认文件来源。"
+                )
             self._mrpack_info = info
-            self.after(0, lambda: self._show_mrpack_info(info))
+            self.after(0, lambda info=info: self._show_mrpack_info(info))
         except Exception as e:
-            self.after(0, lambda: self._show_error(str(e)))
+            err_msg = str(e)
+            self.after(0, lambda msg=err_msg: self._show_error(msg))
+
+    def _clear_optional_frame(self):
+        """清空可选文件区域的所有子控件"""
+        for widget in self._optional_frame.winfo_children():
+            widget.destroy()
+        self._optional_var_map.clear()
 
     def _show_mrpack_info(self, info: Dict[str, Any]):
         """在 UI 中显示整合包信息"""
@@ -260,28 +296,60 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         else:
             self._info_summary_label.pack_forget()
 
-        mc_version = info.get("minecraftVersion", "未知")
-        self._info_version_label.configure(text=_("mp_mc_version", version=mc_version))
+        mc_version = info.get("mc_version", info.get("minecraftVersion", "未知"))
+        version_text = _("mp_mc_version", version=mc_version)
 
-        # 可选文件
-        optional_files = info.get("optionalFiles", [])
-        if optional_files:
-            ctk.CTkLabel(
-                self._optional_frame, text=_("mp_optional_components"),
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLORS["text_secondary"], anchor=ctk.W,
-            ).pack(fill=ctk.X, pady=(0, 3))
+        # MultiMC 格式额外显示 loader 信息
+        if info.get("format") == "multimc":
+            lt = info.get("loader_type")
+            if lt:
+                lv = info.get("loader_version", "")
+                version_text += f" | {lt} {lv}".strip()
 
-            self._optional_var_map.clear()
-            for opt_name in optional_files:
-                var = ctk.BooleanVar(value=False)
-                self._optional_var_map[opt_name] = var
-                ctk.CTkCheckBox(
-                    self._optional_frame, text=opt_name, variable=var,
-                    font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-                    fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
-                    text_color=COLORS["text_primary"],
-                ).pack(anchor=ctk.W, pady=1)
+        self._info_version_label.configure(text=version_text)
+
+        # 可选文件 / 组件列表
+        self._clear_optional_frame()
+
+        if info.get("format") == "multimc":
+            # MultiMC 格式：显示组件列表（只读标签）
+            components = info.get("components", [])
+            if components:
+                ctk.CTkLabel(
+                    self._optional_frame, text=_("mp_optional_components"),
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                    text_color=COLORS["text_secondary"], anchor=ctk.W,
+                ).pack(fill=ctk.X, pady=(0, 3))
+
+                for comp in components:
+                    if isinstance(comp, dict):
+                        comp_text = comp.get("name", comp.get("uid", "?"))
+                    else:
+                        comp_text = str(comp)
+                    ctk.CTkLabel(
+                        self._optional_frame, text=f"  - {comp_text}",
+                        font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                        text_color=COLORS["text_primary"], anchor=ctk.W,
+                    ).pack(anchor=ctk.W, pady=1)
+        else:
+            # mrpack 格式：可选文件复选框
+            optional_files = info.get("optionalFiles", [])
+            if optional_files:
+                ctk.CTkLabel(
+                    self._optional_frame, text=_("mp_optional_components"),
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                    text_color=COLORS["text_secondary"], anchor=ctk.W,
+                ).pack(fill=ctk.X, pady=(0, 3))
+
+                for opt_name in optional_files:
+                    var = ctk.BooleanVar(value=False)
+                    self._optional_var_map[opt_name] = var
+                    ctk.CTkCheckBox(
+                        self._optional_frame, text=opt_name, variable=var,
+                        font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                        fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                        text_color=COLORS["text_primary"],
+                    ).pack(anchor=ctk.W, pady=1)
 
         self._info_frame.pack(fill=ctk.X, pady=(0, 5))
         self._install_btn.configure(state=ctk.NORMAL, text=_("modpack_start_install"))
@@ -313,7 +381,7 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         self._run_in_thread(self._do_install, optional_files)
 
     def _do_install(self, optional_files: list):
-        """执行安装（后台线程）"""
+        """执行安装（后台线程）- 根据 format 分发"""
         launcher = getattr(self.callbacks.get("install_mrpack"), "__self__", None)
         if launcher:
             self._launcher_instance = launcher
@@ -365,14 +433,28 @@ class ModpackInstallWindow(ctk.CTkToplevel):
 
         self.after(0, _poll_progress)
 
+        # Determine install method based on format
+        pack_format = self._mrpack_info.get("format", "mrpack") if self._mrpack_info else "mrpack"
+
         try:
-            success, result = self.callbacks["install_mrpack"](
-                self._mrpack_path,
-                optional_files=optional_files,
-            )
-            self.after(0, lambda: self._on_install_done(success, result))
+            if pack_format == "multimc":
+                self._progress_status.configure(text="Installing MultiMC modpack...")
+                if "install_multimc_pack" in self.callbacks:
+                    success, result = self.callbacks["install_multimc_pack"](
+                        self._mrpack_path,
+                        optional_files=optional_files,
+                    )
+                else:
+                    success, result = False, "MultiMC install callback not available"
+            else:
+                success, result = self.callbacks["install_mrpack"](
+                    self._mrpack_path,
+                    optional_files=optional_files,
+                )
+            self.after(0, lambda s=success, r=result: self._on_install_done(s, r))
         except Exception as e:
-            self.after(0, lambda: self._on_install_done(False, str(e)))
+            err_msg = str(e)
+            self.after(0, lambda msg=err_msg: self._on_install_done(False, msg))
         finally:
             self._polling = False
             if launcher and self._orig_on_progress is not None:

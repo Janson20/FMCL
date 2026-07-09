@@ -2,10 +2,11 @@
 from launcher.core import MinecraftLauncher as MinecraftLauncherCore
 from launcher.server import ServerMixin
 from launcher.mrpack import MrpackMixin
+from launcher.multimc import MultiMCMixin
 from launcher.verify import concurrent_file_verify
 
 
-class MinecraftLauncher(MrpackMixin, ServerMixin, MinecraftLauncherCore):
+class MinecraftLauncher(MultiMCMixin, MrpackMixin, ServerMixin, MinecraftLauncherCore):
     """Minecraft启动器类 - 组合自核心模块、服务器模块和整合包模块"""
     pass
 
