@@ -34,7 +34,22 @@ from launcher.multimc_types import (
     compute_file_sha1,
 )
 
-DEFAULT_UA = "MCL-MultiMC-Installer/1.0 (compatible; Minecraft Launcher)"
+DEFAULT_UA = "FMCL-MultiMC-Installer/1.0 (compatible; Minecraft Launcher)"
+
+
+def _java_major_to_component(major: int) -> str:
+    """将 Java 主版本号映射到 Minecraft runtime 组件名。
+
+    组件名用于 minecraft_launcher_lib.runtime 自动安装和查找 JRE。
+    """
+    if major >= 21:
+        return "java-runtime-delta"
+    elif major >= 17:
+        return "java-runtime-gamma"
+    elif major >= 16:
+        return "java-runtime-alpha"
+    else:
+        return "jre-legacy"
 
 
 class MultiMCMixin:
@@ -265,6 +280,43 @@ class MultiMCMixin:
             "logging": {},
         }
 
+        # 设置 Java 版本要求（从 patches 的 compatibleJavaMajors 推导）
+        # 参考 HMCL：取最高支持的 Java 主版本
+        if java_majors:
+            sorted_majors = sorted(java_majors, reverse=True)
+            # 优先选择标准 JRE 版本号（8, 11, 16, 17, 21）
+            for major in sorted_majors:
+                if major >= 8:
+                    version_json["javaVersion"] = {
+                        "majorVersion": major,
+                        "component": _java_major_to_component(major),
+                    }
+                    logger.warning(
+                        f"========== Java 版本要求: {major}+ ==========\n"
+                        f"整合包要求 Java {major}+。请在「设置 → Java 运行时」中\n"
+                        f"选择或安装 Java {major}+，否则启动会失败。\n"
+                        f"当前如果你用的是 Java 8，JVM 会报 'Unrecognized option: --add-opens'。"
+                    )
+                    break
+
+        # 如果没有 patches 指定 Java 版本，检测 JVM 参数判断最低要求
+        if not version_json.get("javaVersion"):
+            _default_major = 8
+            for _arg in jvm_arg_objects:
+                if isinstance(_arg, str) and (
+                    _arg.startswith("--add-opens") or _arg.startswith("--add-exports")
+                ):
+                    _default_major = max(_default_major, 17)
+                    break
+            if _default_major > 8:
+                version_json["javaVersion"] = {
+                    "majorVersion": _default_major,
+                    "component": _java_major_to_component(_default_major),
+                }
+                logger.warning(
+                    f"========== 未从 patches 找到 Java 要求，根据 JVM 参数推断: Java {_default_major}+ =========="
+                )
+
         if asset_index:
             version_json["assetIndex"] = asset_index
         if main_jar:
@@ -476,6 +528,21 @@ class MultiMCMixin:
         self, game_version: str, loader_type: Optional[str],
         loader_version: Optional[str], merged: Dict[str, Any],
     ) -> Tuple[bool, str]:
+        """安装 Minecraft 原版。
+
+        MMC 格式的 Loader（Forge/Fabric 等）配置已包含在 patches 中，
+        不需要调用标准安装器。_supplement_version_json 会合并 patches 到
+        version.json。
+
+        Args:
+            game_version: Minecraft 版本号
+            loader_type: Loader 类型（仅用于日志）
+            loader_version: Loader 版本（仅用于日志）
+            merged: patches 合并结果
+
+        Returns:
+            (成功, 版本ID)
+        """
         import minecraft_launcher_lib as _mcllib
         mc_dir = getattr(self, "minecraft_dir", "")
         callback = self._get_callback() if hasattr(self, "_get_callback") else {}
@@ -485,27 +552,15 @@ class MultiMCMixin:
         except Exception as e:
             return False, f"Minecraft {game_version} install failed: {e}"
 
+        if loader_type and loader_version:
+            logger.info(
+                f"Loader {loader_type} {loader_version} will be configured from patches, "
+                f"not via standard installer (MMC patch format)"
+            )
+
+        # 使用 merged version.json 中的 id（即实例名称）作为版本 ID
         version_json = merged.get("version_json", {})
         version_id = version_json.get("id", game_version)
-
-        if loader_type and loader_version:
-            try:
-                loader_map = {"forge": "forge", "neoforge": "neoforge", "fabric": "fabric", "quilt": "quilt"}
-                loader_name = loader_map.get(loader_type)
-                if loader_name:
-                    loader = _mcllib.mod_loader.get_mod_loader(loader_name)
-                    loader.install(game_version, mc_dir, loader_version=loader_version, callback=callback)
-                    if loader_type == "fabric":
-                        version_id = f"fabric-loader-{loader_version}-{game_version}"
-                    elif loader_type == "forge":
-                        version_id = f"{game_version}-forge-{loader_version}"
-                    elif loader_type == "quilt":
-                        version_id = f"quilt-loader-{loader_version}-{game_version}"
-                    elif loader_type == "neoforge":
-                        version_id = f"{game_version}-neoforge-{loader_version}"
-            except Exception as e:
-                logger.warning(f"Loader install failed (continuing): {e}")
-
         return True, version_id
 
     def install_multimc_pack(
@@ -618,16 +673,41 @@ class MultiMCMixin:
             return False, str(e)
 
     def _supplement_version_json(self, version_id: str, merged: Dict[str, Any]) -> None:
+        """将 patches 合并到 version.json。
+
+        如果实例的 version.json 不存在，则从原版 Minecraft 的 version.json
+        克隆并应用 patches。这用于 MMC 格式（Loader 通过 patches 配置而非标准安装器）。
+
+        Args:
+            version_id: 版本 ID（实例名称）
+            merged: patches 合并结果
+        """
         mc_dir = getattr(self, "minecraft_dir", "")
         json_path = os.path.join(mc_dir, "versions", version_id, f"{version_id}.json")
-        if not os.path.isfile(json_path):
+        version_info = merged.get("version_json", {})
+        game_version = merged.get("game_version", "")
+
+        # 获取基础 version.json
+        if os.path.isfile(json_path):
+            with open(json_path, "r", encoding="utf-8") as f:
+                vj = json.load(f)
+        elif game_version:
+            vanilla_json = os.path.join(mc_dir, "versions", game_version, f"{game_version}.json")
+            if not os.path.isfile(vanilla_json):
+                logger.warning(f"原版 version.json 不存在: {vanilla_json}")
+                return
+            os.makedirs(os.path.dirname(json_path), exist_ok=True)
+            with open(vanilla_json, "r", encoding="utf-8") as f:
+                vj = json.load(f)
+            vj["id"] = version_id
+            # 设置 inheritsFrom 让启动器从原版目录查找 JAR
+            vj["inheritsFrom"] = game_version
+            logger.info(f"从 {game_version} 克隆 version.json -> {version_id}")
+        else:
+            logger.warning(f"无法确定游戏版本，跳过 version.json 补充")
             return
 
         try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                vj = json.load(f)
-
-            version_info = merged.get("version_json", {})
             existing = {lib.get("name", ""): lib for lib in vj.get("libraries", [])}
             for lib in version_info.get("libraries", []):
                 name = lib.get("name", "")
@@ -645,10 +725,33 @@ class MultiMCMixin:
             if alt and alt != "net.minecraft.client.main.Main":
                 vj["mainClass"] = alt
 
+            if version_info.get("assetIndex"):
+                vj["assetIndex"] = version_info["assetIndex"]
+
+            if version_info.get("javaVersion"):
+                vj["javaVersion"] = version_info["javaVersion"]
+
+            main_jar = merged.get("main_jar")
+            if main_jar and isinstance(main_jar, dict) and "downloads" in main_jar:
+                vj["downloads"] = vj.get("downloads", {})
+                vj["downloads"]["client"] = main_jar["downloads"].get("artifact", main_jar)
+
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(vj, f, ensure_ascii=False, indent=2)
+
+            logger.info(f"version.json 已更新: {json_path}")
+
+            # 复制父版本 JAR（参照 Cleanroom / LiteLoader 等自定义 loader 的处理方式）
+            if game_version:
+                parent_jar = os.path.join(mc_dir, "versions", game_version, f"{game_version}.jar")
+                instance_jar = os.path.join(mc_dir, "versions", version_id, f"{version_id}.jar")
+                if os.path.isfile(parent_jar) and not os.path.isfile(instance_jar):
+                    os.makedirs(os.path.dirname(instance_jar), exist_ok=True)
+                    shutil.copy2(parent_jar, instance_jar)
+                    logger.info(f"已从 {game_version} 复制 JAR -> {version_id}")
         except Exception as e:
-            logger.warning(f"supplement version.json failed: {e}")
+            logger.warning(f"补充 version.json 失败: {e}")
+
 
     # ================== server install ==================
 
