@@ -686,11 +686,8 @@ class PluginManager:
 
     def _check_fmcl_version(self, manifest: PluginManifest) -> Tuple[bool, str]:
         """检查 FMCL 版本兼容性"""
-        try:
-            from config import Config
-            fmcl_ver = "2.10.4"  # TODO: 后续从 pyproject.toml 动态读取
-        except ImportError:
-            fmcl_ver = "2.10.4"
+        from updater import get_current_version
+        fmcl_ver = get_current_version()
 
         # 最低版本检查
         if self._dependency.compare_versions(fmcl_ver, manifest.min_fmcl_version) < 0:

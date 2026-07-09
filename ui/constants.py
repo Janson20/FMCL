@@ -245,6 +245,14 @@ def _get_fmcl_version():
     return 'unknown'
 
 
+def _get_user_agent() -> str:
+    """获取 HTTP User-Agent 字符串"""
+    return f"FMCL/{_get_fmcl_version()}"
+
+
+USER_AGENT = _get_user_agent()
+
+
 # ─── 资源类型配置 ─────────────────────────────────────────────
 
 RESOURCE_TYPES = {
