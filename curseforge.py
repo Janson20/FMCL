@@ -895,58 +895,50 @@ def _fetch_modrinth_batch(
 ) -> tuple:
     """
     从 Modrinth 批量拉取搜索结果（支持多页）
-    
+
     Modrinth API 每页最大 100 条，本函数自动翻页拉取至 target_count 条。
-    请求使用并发以降低延迟。
-    
+    使用顺序请求（非并发），避免与 Tkinter 主线程冲突。
+
     Args:
         search_fn: search_mods / search_resource_packs / search_shaders
         query: 搜索关键词
         game_version: 游戏版本
         mod_loader: 模组加载器（仅模组搜索使用）
         target_count: 目标拉取数量
-        
+
     Returns:
         (all_hits: list, total_hits: int)  — total_hits 为 API 返回的真实总数
     """
     page_size = 100  # Modrinth 单页上限
-    
-    # 第一页
-    import concurrent.futures
-    first = search_fn(query, game_version, mod_loader, offset=0, limit=page_size) if mod_loader is not None else search_fn(query, game_version, offset=0, limit=page_size)
-    all_hits = list(first.get("hits", []))
-    total_hits = first.get("total_hits", 0)
-    
-    if len(all_hits) >= target_count or len(all_hits) < page_size:
-        return all_hits, total_hits
-    
-    # 第二页（并发预取更多页）
-    pages_needed = (target_count - len(all_hits) + page_size - 1) // page_size
-    pages_needed = min(pages_needed, 4)  # 最多额外拉 4 页（共 5 页 = 500 条）
-    
-    def _fetch_page(offset_val):
+    max_pages = 5    # 最多拉 5 页（500 条）
+
+    def _call_search(offset_val):
         if mod_loader is not None:
             return search_fn(query, game_version, mod_loader, offset=offset_val, limit=page_size)
         else:
             return search_fn(query, game_version, offset=offset_val, limit=page_size)
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(pages_needed, 3)) as executor:
-        futures = {
-            executor.submit(_fetch_page, page_size * (i + 1)): i
-            for i in range(pages_needed)
-        }
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                result = future.result()
-                page_hits = result.get("hits", [])
-                all_hits.extend(page_hits)
-                if result.get("total_hits", 0) > total_hits:
-                    total_hits = result.get("total_hits", 0)
-                if len(all_hits) >= target_count:
-                    break
-            except Exception:
-                continue
-    
+
+    # 第一页
+    first = _call_search(0)
+    all_hits = list(first.get("hits", []))
+    total_hits = first.get("total_hits", 0)
+
+    # 顺序翻页拉取
+    for page_idx in range(1, max_pages):
+        if len(all_hits) >= target_count:
+            break
+        if len(all_hits) < page_size * page_idx:
+            # 上一页不足 page_size，说明已拉完
+            break
+
+        result = _call_search(page_size * page_idx)
+        page_hits = result.get("hits", [])
+        if not page_hits:
+            break
+        all_hits.extend(page_hits)
+        if result.get("total_hits", 0) > total_hits:
+            total_hits = result.get("total_hits", 0)
+
     return all_hits, total_hits
 
 
