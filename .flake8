@@ -1,0 +1,10 @@
+[flake8]
+max-line-length = 120
+exclude = .git,__pycache__,build,dist,.venv,venv,env,node_modules
+extend-ignore =
+    # E203: whitespace before ':' (冲突于 black 格式)
+    E203,
+    # W503: line break before binary operator (冲突于 black 格式)
+    W503,
+    # E501: line too long (由 black 处理)
+    E501,
