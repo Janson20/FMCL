@@ -113,7 +113,7 @@ class OpenAIProvider(BaseProvider):
     ) -> Generator[Dict, None, None]:
         payload = self._build_payload(messages, tools, model, max_tokens, temperature, stream=True)
         # OpenAI stream_options 返回 usage
-        if stream:
+        if payload.get("stream"):
             payload["stream_options"] = {"include_usage": True}
 
         try:

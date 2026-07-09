@@ -308,7 +308,7 @@ class CrashHandlerMixin(object):
                     if not launcher_log_content.strip():
                         import platform as _platform
                         system = _platform.system().lower()
-                        
+
                         if system == "linux":
                             # Linux: 日志在 /var/log/fmcl/latest.log
                             disk_log = Path("/var/log/fmcl/latest.log")
@@ -319,7 +319,7 @@ class CrashHandlerMixin(object):
                                 disk_log = Path(base_dir) / "latest.log"
                             else:
                                 disk_log = None
-                        
+
                         if disk_log and disk_log.exists():
                             try:
                                 # Windows 下 logzero 可能使用 GBK 编码
@@ -395,11 +395,11 @@ class CrashHandlerMixin(object):
                         dialog.after(0, lambda: messagebox.showerror(
                             _("crash_title"), _("crash_share_no_log"), parent=dialog))
                 except LogShareError as e:
-                    dialog.after(0, lambda: messagebox.showerror(
-                        _("crash_title"), _("crash_share_failed", error=str(e)), parent=dialog))
+                    dialog.after(0, lambda err=str(e): messagebox.showerror(
+                        _("crash_title"), _("crash_share_failed", error=err), parent=dialog))
                 except Exception as e:
-                    dialog.after(0, lambda: messagebox.showerror(
-                        _("crash_title"), _("crash_share_failed", error=str(e)), parent=dialog))
+                    dialog.after(0, lambda err=str(e): messagebox.showerror(
+                        _("crash_title"), _("crash_share_failed", error=err), parent=dialog))
                 finally:
                     dialog.after(0, lambda: share_btn.configure(
                         state='normal' if game_log_path and os.path.exists(game_log_path) else 'disabled',

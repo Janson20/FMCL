@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import Canvas, Button
 import threading
 
+import keyboard
+
 
 class ScreenshotTool:
     def __init__(self, root):
@@ -70,6 +72,6 @@ if __name__ == "__main__":
     # 在后台运行快捷键监听器
     hotkey_thread = threading.Thread(target=listen_for_hotkey, daemon=True)
     hotkey_thread.start()
-    
+
     # 使用 keyboard.wait() 替代 while True 循环,避免 CPU 100% 占用
     keyboard.wait()

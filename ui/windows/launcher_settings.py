@@ -1210,7 +1210,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             try:
                 info = self.callbacks["fetch_jdz_user_info"]()
             except Exception as e:
-                self.after(0, lambda: self._on_account_refresh_error(str(e)))
+                self.after(0, lambda err=str(e): self._on_account_refresh_error(err))
                 return
             if info:
                 self.after(0, lambda: self._update_account_info_display(info))
@@ -1537,7 +1537,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                             self.after(0, lambda: messagebox.showerror("FMCL", "❌ 认证失败：API Key 无效"))
                         else:
                             body = e.read().decode("utf-8", errors="ignore")[:200]
-                            self.after(0, lambda b=body: messagebox.showerror("FMCL", f"❌ HTTP {e.code}: {b}"))
+                            self.after(0, lambda code=e.code, b=body: messagebox.showerror("FMCL", f"❌ HTTP {code}: {b}"))
                     except Exception as e:
                         self.after(0, lambda err=str(e): messagebox.showerror("FMCL", f"❌ 连接失败: {err}"))
                 else:

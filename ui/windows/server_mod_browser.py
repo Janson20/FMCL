@@ -287,8 +287,8 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
             ))
         except Exception as e:
             logger.error(f"AI搜索失败: {e}")
-            self.after(0, lambda: self._set_status(
-                _("mod_browser_search_failed_status", error=str(e))
+            self.after(0, lambda err=str(e): self._set_status(
+                _("mod_browser_search_failed_status", error=err)
             ))
 
     def _do_search(self):
@@ -318,8 +318,8 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
                 ))
         except Exception as e:
             logger.error(f"搜索服务端模组失败: {e}")
-            self.after(0, lambda: self._set_status(
-                _("mod_browser_search_failed_status", error=str(e))
+            self.after(0, lambda err=str(e): self._set_status(
+                _("mod_browser_search_failed_status", error=err)
             ))
 
     def _render_results(self, hits: List[Dict]):

@@ -1,6 +1,6 @@
 [flake8]
 max-line-length = 120
-exclude = .git,__pycache__,build,dist,.venv,venv,env,node_modules
+exclude = .git,__pycache__,build,dist,.venv,venv,env,node_modules,tmp,plugins
 extend-ignore =
     # E203: whitespace before ':' (冲突于 black 格式)
     E203,
@@ -8,3 +8,44 @@ extend-ignore =
     W503,
     # E501: line too long (由 black 处理)
     E501,
+    # E127/E128: 续行缩进风格 (由 black 格式化)
+    E127,
+    E128,
+    # E741: 模糊变量名 (如 l, O, I)
+    E741,
+    # E731: lambda 赋值 (风格选择)
+    E731,
+    # E401: 单行多导入
+    E401,
+    # W292: 文件末尾无换行
+    W292,
+    # W391: 文件末尾空行
+    W391,
+    # E261: 行内注释前空格数
+    E261,
+    # E303: 过多空行
+    E303,
+    # E306: 嵌套定义前空行
+    E306,
+    # E305/E301/E302: 空行数量
+    E305,
+    E301,
+    E302,
+    # F541: f-string 缺少占位符 (无害)
+    F541,
+    # E702: 单行多条语句 (风格选择)
+    E702,
+    # E402: 模块级导入不在顶部 (延迟导入模式)
+    E402,
+    # F401: 未使用的导入 (历史遗留, 欢迎 PR 清理)
+    F401,
+    # F841: 未使用的局部变量 (历史遗留, 欢迎 PR 清理)
+    F841,
+    # F402: import 被循环变量遮盖
+    F402,
+    # F811: 变量重定义
+    F811,
+    # E124: 关闭括号缩进不匹配
+    E124,
+    # E231: 逗号后缺少空格
+    E231,

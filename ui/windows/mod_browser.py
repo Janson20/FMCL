@@ -358,7 +358,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
         except Exception as e:
             logger.error(f"搜索失败 ({tab_key}): {e}")
-            self.after(0, lambda: self._render_tab_error(tab_key, str(e)))
+            self.after(0, lambda err=str(e): self._render_tab_error(tab_key, err))
 
     def _on_ai_search(self, tab_key: str):
         from tkinter import messagebox
@@ -424,7 +424,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
         except Exception as e:
             logger.error(f"AI 搜索失败 ({tab_key}): {e}")
-            self.after(0, lambda: self._render_tab_error(tab_key, str(e)))
+            self.after(0, lambda err=str(e): self._render_tab_error(tab_key, err))
             self.after(0, lambda: self._restore_ai_button(tab_key))
 
     def _restore_ai_button(self, tab_key: str):

@@ -278,7 +278,7 @@ class AchievementEngine:
 
     def get_last_sync_time(self) -> Optional[float]:
         """获取上次成功同步的时间戳
-        
+
         Returns:
             时间戳（秒），如果没有同步过则返回 None
         """

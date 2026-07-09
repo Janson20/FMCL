@@ -247,7 +247,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
             self._mrpack_info = info
             self.after(0, lambda: self._show_mrpack_info(info))
         except Exception as e:
-            self.after(0, lambda: self._show_error(str(e)))
+            self.after(0, lambda err=str(e): self._show_error(err))
 
     def _show_mrpack_info(self, info: Dict[str, Any]):
         if not self.winfo_exists():
@@ -363,7 +363,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
             )
             self.after(0, lambda: self._on_install_done(success, result))
         except Exception as e:
-            self.after(0, lambda: self._on_install_done(False, str(e)))
+            self.after(0, lambda err=str(e): self._on_install_done(False, err))
         finally:
             self._polling = False
 

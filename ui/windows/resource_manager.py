@@ -1446,7 +1446,7 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
             except Exception as e:
                 logger.error(f"检查模组更新失败: {e}")
-                self.after(0, lambda: self._on_update_check_error(str(e)))
+                self.after(0, lambda err=str(e): self._on_update_check_error(err))
 
         thread = threading.Thread(target=_do_check, daemon=True)
         thread.start()

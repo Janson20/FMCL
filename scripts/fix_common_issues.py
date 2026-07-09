@@ -31,13 +31,13 @@ def run_command(cmd, description):
 def fix_permissions():
     """修复权限问题"""
     print("\n📁 修复文件权限...")
-    
+
     # Linux/macOS
     if sys.platform != 'win32':
         run_command("chmod +x scripts/*.py", "设置脚本执行权限")
         if Path("dist/FMCL").exists():
             run_command("chmod +x dist/FMCL", "设置可执行文件权限")
-    
+
     # 修复.minecraft目录权限
     minecraft_dir = Path(".minecraft")
     if minecraft_dir.exists():
@@ -48,15 +48,15 @@ def fix_permissions():
 def clean_build():
     """清理构建文件"""
     print("\n🧹 清理构建文件...")
-    
+
     dirs_to_clean = ['build', 'dist', '__pycache__', '.pytest_cache', '.mypy_cache']
     files_to_clean = ['*.spec', '*.pyc', '*.log']
-    
+
     for dir_name in dirs_to_clean:
         dir_path = Path(dir_name)
         if dir_path.exists():
             run_command(f"rm -rf {dir_name}", f"删除 {dir_name}")
-    
+
     for pattern in files_to_clean:
         run_command(f"find . -name '{pattern}' -delete", f"删除 {pattern} 文件")
 
@@ -64,13 +64,13 @@ def clean_build():
 def reinstall_dependencies():
     """重新安装依赖"""
     print("\n📦 重新安装依赖...")
-    
+
     # 卸载现有依赖
     run_command("pip uninstall -y -r requirements.txt", "卸载现有依赖")
-    
+
     # 清理缓存
     run_command("pip cache purge", "清理pip缓存")
-    
+
     # 重新安装
     run_command("pip install --upgrade pip setuptools wheel", "升级pip和setuptools")
     run_command("pip install -r requirements.txt", "安装项目依赖")
@@ -80,13 +80,13 @@ def fix_macos_issues():
     """修复macOS特定问题"""
     if sys.platform != 'darwin':
         return
-    
+
     print("\n🍎 修复macOS问题...")
-    
+
     # 移除隔离属性
     if Path("dist/FMCL.app").exists():
         run_command("xattr -cr dist/FMCL.app", "移除应用隔离属性")
-    
+
     # 安装Xcode命令行工具
     run_command("xcode-select --install", "安装Xcode命令行工具")
 
@@ -95,9 +95,9 @@ def fix_linux_issues():
     """修复Linux特定问题"""
     if sys.platform != 'linux':
         return
-    
+
     print("\n🐧 修复Linux问题...")
-    
+
     # 检测包管理器并安装依赖
     if Path("/usr/bin/apt-get").exists():
         run_command(
@@ -147,7 +147,7 @@ def main():
     print("=" * 60)
     print("FMCL 快速修复工具")
     print("=" * 60)
-    
+
     print("\n可用选项:")
     print("1. 修复权限问题")
     print("2. 清理构建文件")
@@ -157,10 +157,10 @@ def main():
     print("6. 检查Java环境")
     print("7. 全部执行")
     print("0. 退出")
-    
+
     while True:
         choice = input("\n请选择操作 (0-7): ").strip()
-        
+
         if choice == '0':
             print("\n👋 退出")
             break
@@ -186,10 +186,10 @@ def main():
             check_java()
         else:
             print("❌ 无效选择，请重试")
-        
+
         if choice in ['1', '2', '3', '4', '5', '6', '7']:
             print("\n✅ 操作完成")
-    
+
     print("\n" + "=" * 60)
     print("修复完成！如有问题，请查看 docs/TROUBLESHOOTING.md")
     print("=" * 60)

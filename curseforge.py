@@ -951,22 +951,22 @@ def _fetch_curseforge_batch(
 ) -> list:
     """
     从 CurseForge 批量拉取搜索结果（支持多页）
-    
+
     CurseForge API 每页最大 50 条，本函数自动翻页拉取至 target_count 条。
-    
+
     Args:
         search_fn: search_mods / search_resource_packs / search_shaders
         query: 搜索关键词
         game_version: 游戏版本
         mod_loader: 模组加载器
         target_count: 目标拉取数量
-        
+
     Returns:
         原始 CF 结果列表（未经 normalize）
     """
     page_size = 50  # CF 单页上限
     all_data = []
-    
+
     # 第一页
     if mod_loader is not None:
         first = search_fn(query, game_version, mod_loader, offset=0, limit=page_size)
@@ -974,10 +974,10 @@ def _fetch_curseforge_batch(
         first = search_fn(query, game_version, offset=0, limit=page_size)
     data = first.get("data", []) or []
     all_data.extend(data)
-    
+
     if len(all_data) >= target_count or len(data) < page_size:
         return all_data
-    
+
     # 第二页
     if mod_loader is not None:
         second = search_fn(query, game_version, mod_loader, offset=page_size, limit=page_size)
@@ -985,7 +985,7 @@ def _fetch_curseforge_batch(
         second = search_fn(query, game_version, offset=page_size, limit=page_size)
     data2 = second.get("data", []) or []
     all_data.extend(data2)
-    
+
     return all_data
 
 

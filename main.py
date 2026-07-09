@@ -288,7 +288,7 @@ def main():
                 logger.error(f"_init_launcher: 启动器初始化失败: {e}", exc_info=True)
                 _launcher_result['error'] = str(e)
                 _launcher_ready.set()
-                app.after(0, lambda: _show_init_error(app, f"启动器核心初始化失败:\n{e}"))
+                app.after(0, lambda err=str(e): _show_init_error(app, f"启动器核心初始化失败:\n{err}"))
 
         def _try_dismiss_splash():
             """尝试关闭启动画面：需同时满足 launcher、achievements 就绪 且 1 秒"""
@@ -348,14 +348,14 @@ def main():
                     app.after(0, lambda: app.set_status("成就云存档同步完成", "success"))
                 except Exception as e:
                     logger.error(f"成就同步异常: {e}")
-                    app.after(0, lambda: app.set_status(f"成就云存档同步失败: {e}", "warning"))
+                    app.after(0, lambda err=str(e): app.set_status(f"成就云存档同步失败: {err}", "warning"))
             try:
                 result = ach_engine.checkin()
                 if result and result.get("success"):
                     app.after(0, lambda: app.set_status(f"签到成功! 连续 {result.get('streak', 0)} 天", "success"))
             except Exception as e:
                 logger.error(f"签到异常: {e}")
-                app.after(0, lambda: app.set_status(f"每日签到失败: {e}", "warning"))
+                app.after(0, lambda err=str(e): app.set_status(f"每日签到失败: {err}", "warning"))
             app.after(0, app._refresh_achievements)
 
         def _on_launcher_ready(launcher):
