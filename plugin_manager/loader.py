@@ -7,8 +7,8 @@ from typing import Dict, List, Optional, Tuple
 
 from logzero import logger
 
-from plugin_manager.manifest import PluginManifest
 from plugin_manager.base import PluginBase, PluginState
+from plugin_manager.manifest import PluginManifest
 
 
 class PluginLoader:
@@ -87,8 +87,7 @@ class PluginLoader:
 
             # 动态加载
             spec = importlib.util.spec_from_file_location(
-                module_name, entry_path,
-                submodule_search_locations=[str(plugin_dir)],
+                module_name, entry_path, submodule_search_locations=[str(plugin_dir)]
             )
             if spec is None or spec.loader is None:
                 return None, f"无法创建模块 spec: {entry_path}"
@@ -124,10 +123,7 @@ class PluginLoader:
         module_name = f"fmcl_plugin_{safe_id}"
 
         # 清除所有相关模块缓存
-        modules_to_remove = [
-            m for m in sys.modules
-            if m == module_name or m.startswith(module_name + ".")
-        ]
+        modules_to_remove = [m for m in sys.modules if m == module_name or m.startswith(module_name + ".")]
         for m in modules_to_remove:
             del sys.modules[m]
 
@@ -159,10 +155,6 @@ class PluginLoader:
 
         for attr_name in dir(module):
             attr = getattr(module, attr_name)
-            if (
-                isinstance(attr, type)
-                and issubclass(attr, _PluginBase)
-                and attr is not _PluginBase
-            ):
+            if isinstance(attr, type) and issubclass(attr, _PluginBase) and attr is not _PluginBase:
                 return attr
         return None

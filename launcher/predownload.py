@@ -1,4 +1,5 @@
 """预下载模块 - 启动时检测并预下载 Minecraft 资源包"""
+
 import os
 import shutil
 import subprocess
@@ -6,7 +7,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Callable, Optional
 
 import requests
 from logzero import logger
@@ -56,7 +57,7 @@ class Predownloader:
         try:
             response = requests.head(self.url, timeout=10)
             response.raise_for_status()
-            self._total_size = int(response.headers.get('Content-Length', 0))
+            self._total_size = int(response.headers.get("Content-Length", 0))
             if self._total_size == 0:
                 raise ValueError("无法获取文件大小")
 
@@ -115,11 +116,11 @@ class Predownloader:
             response = requests.get(self.url, stream=True, timeout=60)
             response.raise_for_status()
 
-            content_length = response.headers.get('Content-Length')
+            content_length = response.headers.get("Content-Length")
             if content_length:
                 self._total_size = int(content_length)
 
-            with open(rar_path, 'wb') as f:
+            with open(rar_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=self.chunk_size):
                     if self._cancel_event.is_set():
                         return RESULT_CANCELLED
@@ -127,7 +128,11 @@ class Predownloader:
                         f.write(chunk)
                         with self._lock:
                             self._downloaded_bytes += len(chunk)
-                            clamped = min(self._downloaded_bytes, self._total_size) if self._total_size > 0 else self._downloaded_bytes
+                            clamped = (
+                                min(self._downloaded_bytes, self._total_size)
+                                if self._total_size > 0
+                                else self._downloaded_bytes
+                            )
                             if self._progress_callback:
                                 self._progress_callback(clamped, max(self._total_size, clamped), "download")
             return RESULT_COMPLETED
@@ -136,7 +141,7 @@ class Predownloader:
             return RESULT_ERROR
 
     def _download_part(self, part_num: int, start_byte: int, end_byte: int, filepath: Path):
-        headers = {'Range': f'bytes={start_byte}-{end_byte}'}
+        headers = {"Range": f"bytes={start_byte}-{end_byte}"}
         part_file = Path(f"{filepath}.part{part_num}")
         try:
             response = requests.get(self.url, headers=headers, stream=True, timeout=60)
@@ -148,7 +153,7 @@ class Predownloader:
                 self._cancel_event.set()
                 return
 
-            with open(part_file, 'wb') as f:
+            with open(part_file, "wb") as f:
                 for chunk in response.iter_content(chunk_size=self.chunk_size):
                     if self._cancel_event.is_set():
                         return
@@ -167,13 +172,13 @@ class Predownloader:
     def _merge_parts(self, filepath: Path):
         if self._progress_callback:
             self._progress_callback(self._total_size, self._total_size, "merge")
-        with open(filepath, 'wb') as outfile:
+        with open(filepath, "wb") as outfile:
             for i in range(self.num_threads):
                 if self._cancel_event.is_set():
                     return
                 part_file = Path(f"{filepath}.part{i}")
                 if part_file.exists():
-                    with open(part_file, 'rb') as infile:
+                    with open(part_file, "rb") as infile:
                         outfile.write(infile.read())
                     part_file.unlink()
 
@@ -271,12 +276,10 @@ def run_predownload_check(parent, minecraft_dir: Path, _tr) -> Optional[bool]:
 
 def _find_rar_tool() -> Optional[str]:
     tools = []
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         import winreg
-        for key_path in [
-            r"SOFTWARE\7-Zip",
-            r"SOFTWARE\WOW6432Node\7-Zip",
-        ]:
+
+        for key_path in [r"SOFTWARE\7-Zip", r"SOFTWARE\WOW6432Node\7-Zip"]:
             try:
                 with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as key:
                     path = winreg.QueryValueEx(key, "Path")[0]
@@ -310,15 +313,20 @@ def _find_rar_tool() -> Optional[str]:
     return None
 
 
-def _extract_with_tool(tool: str, rar_path: Path, dest_dir: Path, cancel_event: threading.Event, progress_callback=None):
+def _extract_with_tool(
+    tool: str, rar_path: Path, dest_dir: Path, cancel_event: threading.Event, progress_callback=None
+):
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     if "7z" in tool.lower():
         cmd = [tool, "x", str(rar_path), f"-o{str(dest_dir)}", "-y"]
         if progress_callback:
             proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                universal_newlines=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             )
             for line in proc.stdout:
                 if cancel_event.is_set():
@@ -333,12 +341,13 @@ def _extract_with_tool(tool: str, rar_path: Path, dest_dir: Path, cancel_event: 
                         pass
             proc.wait()
         else:
-            subprocess.run(cmd, check=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+            subprocess.run(cmd, check=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     else:
         cmd = [tool, "x", str(rar_path), str(dest_dir) + os.sep, "-y"]
-        subprocess.run(cmd, check=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0)
+        subprocess.run(cmd, check=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
         if progress_callback:
             progress_callback(100, 100, "extract")
+
 
 def _create_prompt_dialog(parent, _tr, result):
     import tkinter as tk
@@ -347,8 +356,8 @@ def _create_prompt_dialog(parent, _tr, result):
     dialog.title(_tr("predownload_title"))
     dialog.geometry("500x200")
     dialog.resizable(False, False)
-    dialog.attributes('-topmost', True)
-    dialog.configure(bg='#1a1a2e')
+    dialog.attributes("-topmost", True)
+    dialog.configure(bg="#1a1a2e")
     dialog.transient(parent)
     dialog.grab_set()
 
@@ -364,20 +373,26 @@ def _create_prompt_dialog(parent, _tr, result):
         dialog.geometry(f"{w}x{h}+{x}+{y}")
 
     tk.Label(
-        dialog, text=_tr("predownload_prompt"),
+        dialog,
+        text=_tr("predownload_prompt"),
         font=("Microsoft YaHei", 13),
-        fg='#ffffff', bg='#1a1a2e',
-        wraplength=400, justify=tk.CENTER
+        fg="#ffffff",
+        bg="#1a1a2e",
+        wraplength=400,
+        justify=tk.CENTER,
     ).pack(pady=(30, 15))
 
     tk.Label(
-        dialog, text=_tr("predownload_hint"),
+        dialog,
+        text=_tr("predownload_hint"),
         font=("Microsoft YaHei", 10),
-        fg='#a0a0b0', bg='#1a1a2e',
-        wraplength=400, justify=tk.CENTER
+        fg="#a0a0b0",
+        bg="#1a1a2e",
+        wraplength=400,
+        justify=tk.CENTER,
     ).pack(pady=(0, 20))
 
-    btn_frame = tk.Frame(dialog, bg='#1a1a2e')
+    btn_frame = tk.Frame(dialog, bg="#1a1a2e")
     btn_frame.pack()
 
     def on_yes():
@@ -396,35 +411,53 @@ def _create_prompt_dialog(parent, _tr, result):
         dialog.destroy()
 
     tk.Button(
-        btn_frame, text=_tr("predownload_yes"),
+        btn_frame,
+        text=_tr("predownload_yes"),
         font=("Microsoft YaHei", 11),
-        fg='#ffffff', bg='#e94560',
-        activebackground='#ff6b81', activeforeground='#ffffff',
-        relief='flat', cursor='hand2',
-        bd=0, highlightthickness=0,
-        width=12, height=1,
+        fg="#ffffff",
+        bg="#e94560",
+        activebackground="#ff6b81",
+        activeforeground="#ffffff",
+        relief="flat",
+        cursor="hand2",
+        bd=0,
+        highlightthickness=0,
+        width=12,
+        height=1,
         command=on_yes,
     ).pack(side=tk.LEFT, padx=6)
 
     tk.Button(
-        btn_frame, text=_tr("predownload_lite"),
+        btn_frame,
+        text=_tr("predownload_lite"),
         font=("Microsoft YaHei", 11),
-        fg='#ffffff', bg='#0f3460',
-        activebackground='#1a5276', activeforeground='#ffffff',
-        relief='flat', cursor='hand2',
-        bd=0, highlightthickness=0,
-        width=12, height=1,
+        fg="#ffffff",
+        bg="#0f3460",
+        activebackground="#1a5276",
+        activeforeground="#ffffff",
+        relief="flat",
+        cursor="hand2",
+        bd=0,
+        highlightthickness=0,
+        width=12,
+        height=1,
         command=on_lite,
     ).pack(side=tk.LEFT, padx=6)
 
     tk.Button(
-        btn_frame, text=_tr("predownload_cancel"),
+        btn_frame,
+        text=_tr("predownload_cancel"),
         font=("Microsoft YaHei", 11),
-        fg='#a0a0b0', bg='#16213e',
-        activebackground='#2d3a5c', activeforeground='#ffffff',
-        relief='flat', cursor='hand2',
-        bd=0, highlightthickness=0,
-        width=12, height=1,
+        fg="#a0a0b0",
+        bg="#16213e",
+        activebackground="#2d3a5c",
+        activeforeground="#ffffff",
+        relief="flat",
+        cursor="hand2",
+        bd=0,
+        highlightthickness=0,
+        width=12,
+        height=1,
         command=on_no,
     ).pack(side=tk.LEFT, padx=6)
 
@@ -439,8 +472,8 @@ def _create_progress_window(parent, _tr, predownloader: Predownloader):
     win.title(_tr("predownload_progress_title"))
     win.geometry("480x220")
     win.resizable(False, False)
-    win.attributes('-topmost', True)
-    win.configure(bg='#1a1a2e')
+    win.attributes("-topmost", True)
+    win.configure(bg="#1a1a2e")
     win.transient(parent)
     win.grab_set()
 
@@ -456,40 +489,35 @@ def _create_progress_window(parent, _tr, predownloader: Predownloader):
         win.geometry(f"{w}x{h}+{x}+{y}")
 
     tk.Label(
-        win, text=_tr("predownload_progress_label"),
-        font=("Microsoft YaHei", 13, 'bold'),
-        fg='#ffffff', bg='#1a1a2e'
+        win, text=_tr("predownload_progress_label"), font=("Microsoft YaHei", 13, "bold"), fg="#ffffff", bg="#1a1a2e"
     ).pack(pady=(25, 5))
 
     status_label = tk.Label(
-        win, text=_tr("predownload_status_downloading"),
-        font=("Microsoft YaHei", 10),
-        fg='#a0a0b0', bg='#1a1a2e'
+        win, text=_tr("predownload_status_downloading"), font=("Microsoft YaHei", 10), fg="#a0a0b0", bg="#1a1a2e"
     )
     status_label.pack(pady=(0, 10))
 
     progress_var = tk.DoubleVar(value=0)
-    progress_bar = ttk.Progressbar(
-        win, variable=progress_var, maximum=100,
-        mode='determinate', length=420
-    )
+    progress_bar = ttk.Progressbar(win, variable=progress_var, maximum=100, mode="determinate", length=420)
     progress_bar.pack(pady=(5, 5))
 
-    detail_label = tk.Label(
-        win, text="0 MB / 0 MB",
-        font=("Microsoft YaHei", 10),
-        fg='#a0a0b0', bg='#1a1a2e'
-    )
+    detail_label = tk.Label(win, text="0 MB / 0 MB", font=("Microsoft YaHei", 10), fg="#a0a0b0", bg="#1a1a2e")
     detail_label.pack(pady=(0, 10))
 
     cancel_btn = tk.Button(
-        win, text=_tr("predownload_cancel_btn"),
+        win,
+        text=_tr("predownload_cancel_btn"),
         font=("Microsoft YaHei", 11),
-        fg='#a0a0b0', bg='#16213e',
-        activebackground='#2d3a5c', activeforeground='#ffffff',
-        relief='flat', cursor='hand2',
-        bd=0, highlightthickness=0,
-        width=14, height=1,
+        fg="#a0a0b0",
+        bg="#16213e",
+        activebackground="#2d3a5c",
+        activeforeground="#ffffff",
+        relief="flat",
+        cursor="hand2",
+        bd=0,
+        highlightthickness=0,
+        width=14,
+        height=1,
         command=predownloader.cancel,
     )
     cancel_btn.pack(pady=(0, 15))
@@ -536,14 +564,6 @@ def _finish_predownload(progress_win, parent, _tr, dl_result: str):
         progress_win.destroy()
 
     if dl_result == RESULT_COMPLETED:
-        messagebox.showinfo(
-            _tr("predownload_complete_title"),
-            _tr("predownload_complete_msg"),
-            parent=parent
-        )
+        messagebox.showinfo(_tr("predownload_complete_title"), _tr("predownload_complete_msg"), parent=parent)
     elif dl_result == RESULT_ERROR:
-        messagebox.showerror(
-            _tr("predownload_error_title"),
-            _tr("predownload_error_msg"),
-            parent=parent
-        )
+        messagebox.showerror(_tr("predownload_error_title"), _tr("predownload_error_msg"), parent=parent)

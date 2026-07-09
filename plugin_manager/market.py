@@ -16,11 +16,10 @@ import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Callable
+from typing import Callable, Dict, List, Optional, Tuple
 
 import requests
 from logzero import logger
-
 
 # GitHub 仓库配置
 DEFAULT_REPO = "Janson20/FMCL-Plugins"
@@ -37,12 +36,7 @@ USER_AGENT = "FMCL-MinecraftLauncher/2.0 (github.com/Janson20/FMCL)"
 class PluginMarket:
     """插件市场 - 从 GitHub 获取插件列表并提供搜索下载"""
 
-    def __init__(
-        self,
-        cache_dir: Path,
-        repo: str = DEFAULT_REPO,
-        branch: str = DEFAULT_BRANCH,
-    ):
+    def __init__(self, cache_dir: Path, repo: str = DEFAULT_REPO, branch: str = DEFAULT_BRANCH):
         """
         Args:
             cache_dir: 缓存目录 (如 plugins/cache/)
@@ -87,12 +81,7 @@ class PluginMarket:
 
             try:
                 resp = requests.get(
-                    url,
-                    headers={
-                        "User-Agent": USER_AGENT,
-                        "Accept": "application/json",
-                    },
-                    timeout=REQUEST_TIMEOUT,
+                    url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}, timeout=REQUEST_TIMEOUT
                 )
                 resp.raise_for_status()
                 data = resp.json()
@@ -112,10 +101,7 @@ class PluginMarket:
 
             # 写入缓存
             data["_cached_at"] = datetime.now(timezone.utc).isoformat()
-            self._index_cache_path.write_text(
-                json.dumps(data, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            self._index_cache_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
             plugins = data.get("plugins", [])
             self._plugin_list = plugins
@@ -136,10 +122,7 @@ class PluginMarket:
 
         if tags:
             tag_set = set(tags)
-            results = [
-                p for p in results
-                if tag_set.intersection(set(p.get("tags", [])))
-            ]
+            results = [p for p in results if tag_set.intersection(set(p.get("tags", [])))]
 
         if query:
             q_lower = query.lower()
@@ -154,12 +137,7 @@ class PluginMarket:
                         desc_text += desc[lang].lower() + " "
                 author = p.get("author", "").lower()
 
-                if (
-                    q_lower in name
-                    or q_lower in pid
-                    or q_lower in desc_text
-                    or q_lower in author
-                ):
+                if q_lower in name or q_lower in pid or q_lower in desc_text or q_lower in author:
                     filtered.append(p)
 
             results = filtered
@@ -185,9 +163,7 @@ class PluginMarket:
     # ── 下载与安装 ──
 
     def download_plugin(
-        self,
-        plugin_id: str,
-        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        self, plugin_id: str, progress_callback: Optional[Callable[[str, int, int], None]] = None
     ) -> Tuple[Optional[str], str]:
         """从 GitHub 下载插件源码，打包为 .fmpl 临时文件
 
@@ -222,11 +198,7 @@ class PluginMarket:
                     progress_callback("downloading", i + 1, total)
 
                 # 下载单个文件
-                resp = requests.get(
-                    download_url,
-                    headers={"User-Agent": USER_AGENT},
-                    timeout=REQUEST_TIMEOUT,
-                )
+                resp = requests.get(download_url, headers={"User-Agent": USER_AGENT}, timeout=REQUEST_TIMEOUT)
                 resp.raise_for_status()
 
                 # 计算相对路径并保存
@@ -260,6 +232,7 @@ class PluginMarket:
         finally:
             # 清理临时目录
             import shutil
+
             if tmp_dir.exists():
                 shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -285,10 +258,7 @@ class PluginMarket:
 
     # ── 更新检查 ──
 
-    def check_updates(
-        self,
-        installed_versions: Dict[str, str],
-    ) -> Dict[str, dict]:
+    def check_updates(self, installed_versions: Dict[str, str]) -> Dict[str, dict]:
         """检查已安装插件是否有可用更新
 
         Args:
@@ -307,6 +277,7 @@ class PluginMarket:
             }
         """
         from plugin_manager.dependency import DependencyResolver
+
         resolver = DependencyResolver()
 
         results: Dict[str, dict] = {}
@@ -373,10 +344,7 @@ class PluginMarket:
         try:
             resp = requests.get(
                 url,
-                headers={
-                    "User-Agent": USER_AGENT,
-                    "Accept": "application/vnd.github.v3+json",
-                },
+                headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github.v3+json"},
                 timeout=REQUEST_TIMEOUT,
             )
             resp.raise_for_status()
@@ -385,11 +353,13 @@ class PluginMarket:
             if isinstance(contents, list):
                 for item in contents:
                     if item.get("type") == "file":
-                        results.append({
-                            "path": item["path"],
-                            "download_url": item.get("download_url", ""),
-                            "size": item.get("size", 0),
-                        })
+                        results.append(
+                            {
+                                "path": item["path"],
+                                "download_url": item.get("download_url", ""),
+                                "size": item.get("size", 0),
+                            }
+                        )
                     elif item.get("type") == "dir":
                         # 递归获取子目录
                         results.extend(self._list_github_dir(item["path"]))
@@ -403,10 +373,7 @@ class PluginMarket:
         if dest_path.exists():
             dest_path.unlink()
 
-        with zipfile.ZipFile(
-            dest_path, "w",
-            compression=zipfile.ZIP_DEFLATED,
-        ) as zf:
+        with zipfile.ZipFile(dest_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for file_path in sorted(src_dir.rglob("*")):
                 if file_path.is_file():
                     arcname = str(file_path.relative_to(src_dir))

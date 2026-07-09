@@ -1,6 +1,8 @@
 """备份设置窗口"""
-import customtkinter as ctk
+
 from pathlib import Path
+
+import customtkinter as ctk
 
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
@@ -34,7 +36,8 @@ class BackupSettingsWindow(ctk.CTkToplevel):
     def _build_ui(self):
         # 标题
         ctk.CTkLabel(
-            self, text=_("backup_settings_window_title"),
+            self,
+            text=_("backup_settings_window_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(pady=(20, 15))
@@ -45,7 +48,8 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         # ── 备份存储路径 ──
         ctk.CTkLabel(
-            scroll, text=_("backup_settings_path_label"),
+            scroll,
+            text=_("backup_settings_path_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor=ctk.W, pady=(10, 5))
@@ -90,13 +94,15 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         # ── 压缩等级 ──
         ctk.CTkLabel(
-            scroll, text=_("backup_settings_compress_label"),
+            scroll,
+            text=_("backup_settings_compress_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor=ctk.W, pady=(15, 5))
 
         ctk.CTkLabel(
-            scroll, text=_("backup_settings_compress_desc"),
+            scroll,
+            text=_("backup_settings_compress_desc"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
             wraplength=360,
@@ -134,13 +140,15 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         # ── 每个存档最大备份数 ──
         ctk.CTkLabel(
-            scroll, text=_("backup_settings_max_label"),
+            scroll,
+            text=_("backup_settings_max_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor=ctk.W, pady=(15, 5))
 
         ctk.CTkLabel(
-            scroll, text=_("backup_settings_max_desc"),
+            scroll,
+            text=_("backup_settings_max_desc"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
         ).pack(anchor=ctk.W, pady=(0, 5))
@@ -165,7 +173,8 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         # ── 恢复时旧存档处理方式 ──
         ctk.CTkLabel(
-            scroll, text=_("backup_settings_restore_label"),
+            scroll,
+            text=_("backup_settings_restore_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(anchor=ctk.W, pady=(15, 5))
@@ -176,11 +185,13 @@ class BackupSettingsWindow(ctk.CTkToplevel):
             _("backup_settings_restore_overwrite_opt"),
             _("backup_settings_restore_trash_opt"),
         ]
-        self._restore_var = ctk.StringVar(value={
-            "rename": _("backup_settings_restore_rename_opt"),
-            "overwrite": _("backup_settings_restore_overwrite_opt"),
-            "trash": _("backup_settings_restore_trash_opt"),
-        }.get(current_restore, _("backup_settings_restore_rename_opt")))
+        self._restore_var = ctk.StringVar(
+            value={
+                "rename": _("backup_settings_restore_rename_opt"),
+                "overwrite": _("backup_settings_restore_overwrite_opt"),
+                "trash": _("backup_settings_restore_trash_opt"),
+            }.get(current_restore, _("backup_settings_restore_rename_opt"))
+        )
 
         self._restore_menu = ctk.CTkOptionMenu(
             scroll,
@@ -224,6 +235,7 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
     def _browse_backup_dir(self):
         from tkinter import filedialog
+
         path = filedialog.askdirectory(title=_("backup_settings_select_dir"))
         if path:
             self._backup_path_var.set(path)
@@ -269,6 +281,8 @@ class BackupSettingsWindow(ctk.CTkToplevel):
 
         except Exception as e:
             from logzero import logger
+
             logger.error(f"保存备份设置失败: {e}")
             import tkinter.messagebox as messagebox
+
             messagebox.showerror("保存失败", f"无法保存备份设置:\n{e}", parent=self)

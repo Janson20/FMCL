@@ -34,7 +34,7 @@ class MCBBSPackMixin:
         if not os.path.isfile(zip_path):
             raise ValueError(f"文件不存在: {zip_path}")
 
-        from launcher.modpack_types import detect_modpack_archive, ModpackType
+        from launcher.modpack_types import ModpackType, detect_modpack_archive
 
         detection = detect_modpack_archive(zip_path)
         if detection.pack_type != ModpackType.MCBBS:
@@ -49,13 +49,15 @@ class MCBBSPackMixin:
         components = []
 
         for addon_id, addon_ver in sorted(addons.items()):
-            label = {"game": "Minecraft", "forge": "Forge", "neoforge": "NeoForge",
-                     "fabric": "Fabric", "quilt": "Quilt", "optifine": "OptiFine"}.get(addon_id, addon_id)
-            components.append({
-                "uid": addon_id,
-                "version": addon_ver,
-                "name": f"{label} {addon_ver}",
-            })
+            label = {
+                "game": "Minecraft",
+                "forge": "Forge",
+                "neoforge": "NeoForge",
+                "fabric": "Fabric",
+                "quilt": "Quilt",
+                "optifine": "OptiFine",
+            }.get(addon_id, addon_id)
+            components.append({"uid": addon_id, "version": addon_ver, "name": f"{label} {addon_ver}"})
 
         return {
             "name": raw.get("name", ""),
@@ -71,11 +73,7 @@ class MCBBSPackMixin:
 
     # ─── 安装 ──────────────────────────────────────────────────
 
-    def install_mcbbs_pack(
-        self,
-        zip_path: str,
-        instance_name: Optional[str] = None,
-    ) -> Tuple[bool, str]:
+    def install_mcbbs_pack(self, zip_path: str, instance_name: Optional[str] = None) -> Tuple[bool, str]:
         """
         安装 MCBBS 整合包
 
@@ -91,7 +89,7 @@ class MCBBSPackMixin:
         Returns:
             (是否成功, 版本ID 或 错误信息)
         """
-        from launcher.modpack_types import detect_modpack_archive, ModpackType
+        from launcher.modpack_types import ModpackType, detect_modpack_archive
 
         if not os.path.isfile(zip_path):
             return False, f"文件不存在: {zip_path}"
@@ -153,7 +151,7 @@ class MCBBSPackMixin:
                     if info.file_size == 0 or info.is_dir():
                         continue
 
-                    rel_path = normalized[len(override_prefix):]
+                    rel_path = normalized[len(override_prefix) :]
                     if not rel_path:
                         continue
 
@@ -174,9 +172,7 @@ class MCBBSPackMixin:
             cb = self._get_callback()
 
             if not self._is_mc_installed(mc_version):
-                self._mcllib.install.install_minecraft_version(
-                    mc_version, mc_dir, callback=cb
-                )
+                self._mcllib.install.install_minecraft_version(mc_version, mc_dir, callback=cb)
             logger.info(f"Minecraft {mc_version} 安装完成")
 
             # ── 安装 Mod Loader ──
@@ -212,7 +208,7 @@ class MCBBSPackMixin:
         except Exception as e:
             logger.error(f"MCBBS 整合包安装失败: {e}")
             try:
-                if 'version_dir' in locals() and os.path.isdir(version_dir):
+                if "version_dir" in locals() and os.path.isdir(version_dir):
                     shutil.rmtree(version_dir)
             except Exception:
                 pass
@@ -246,8 +242,7 @@ class MCBBSPackMixin:
         return None
 
     def _install_mcbbs_loader(
-        self, loader_type: str, loader_version: str,
-        mc_version: str, mc_dir: str, callback: Dict,
+        self, loader_type: str, loader_version: str, mc_version: str, mc_dir: str, callback: Dict
     ):
         """安装 MCBBS 整合包的 Mod Loader"""
         loader_map = {"forge": "forge", "neoforge": "neoforge", "fabric": "fabric", "quilt": "quilt"}
@@ -275,9 +270,7 @@ class MCBBSPackMixin:
             logger.warning(f"保存 MCBBS 启动参数失败: {e}")
 
     def _is_mc_installed(self, mc_version: str) -> bool:
-        version_json = os.path.join(
-            self.minecraft_dir, "versions", mc_version, f"{mc_version}.json"
-        )
+        version_json = os.path.join(self.minecraft_dir, "versions", mc_version, f"{mc_version}.json")
         return os.path.isfile(version_json)
 
     def _sanitize_name(self, name: str) -> str:

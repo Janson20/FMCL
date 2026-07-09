@@ -7,18 +7,20 @@ import json
 import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+
 from logzero import logger
 
-from ui.agent.permission import PermissionManager, DEFAULT_RULES
+from ui.agent.permission import DEFAULT_RULES, PermissionManager
 
 
 @dataclass
 class ProviderConfig:
     """单个提供商的配置"""
+
     enabled: bool = False
     api_key: str = ""
-    api_url: str = ""           # 自定义 API URL
-    default_model: str = ""     # 默认模型
+    api_url: str = ""  # 自定义 API URL
+    default_model: str = ""  # 默认模型
     custom_models: List[str] = field(default_factory=list)  # 自定义模型列表
 
 
@@ -36,18 +38,20 @@ class AgentConfig:
     active_models: Dict[str, str] = field(default_factory=dict)
 
     # 权限规则（ask/deny 必须在 allow 通配符之前）
-    permissions: List[dict] = field(default_factory=lambda: [
-        {"action": "exec_command", "resource": "*", "effect": "ask"},
-        {"action": "write_file", "resource": "*", "effect": "ask"},
-        {"action": "replace_in_file", "resource": "*", "effect": "ask"},
-        {"action": "delete_file", "resource": "*", "effect": "ask"},
-        {"action": "*", "resource": "*", "effect": "allow"},
-    ])
+    permissions: List[dict] = field(
+        default_factory=lambda: [
+            {"action": "exec_command", "resource": "*", "effect": "ask"},
+            {"action": "write_file", "resource": "*", "effect": "ask"},
+            {"action": "replace_in_file", "resource": "*", "effect": "ask"},
+            {"action": "delete_file", "resource": "*", "effect": "ask"},
+            {"action": "*", "resource": "*", "effect": "allow"},
+        ]
+    )
 
     # 通用设置
     max_iterations: int = 50
     stream_enabled: bool = True
-    compact_auto: bool = True      # 自动压缩上下文
+    compact_auto: bool = True  # 自动压缩上下文
 
     # Bing API Key
     bing_api_key: str = ""

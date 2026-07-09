@@ -7,33 +7,31 @@ You should take a look at the :doc:`tutorial </tutorial/install_mod_loader>` bef
 
 .. versionadded:: 8.0
 """
-from ._fabric import Fabric
-from ._quilt import Quilt
-from ._base import ModLoaderBase
-from ..types import CallbackDict
-from ..exceptions import VersionNotFound, UnsupportedVersion
-from ..install import install_minecraft_version
-from ._forge import Forge
-from ..utils import is_version_valid
-from ._neoforge import Neoforge
+
 import os
+
+from ..exceptions import UnsupportedVersion, VersionNotFound
+from ..install import install_minecraft_version
+from ..types import CallbackDict
+from ..utils import is_version_valid
+from ._base import ModLoaderBase
+from ._fabric import Fabric
+from ._forge import Forge
+from ._neoforge import Neoforge
+from ._quilt import Quilt
 
 __all__ = ["get_mod_loader", "list_mod_loader", "ModLoader"]
 
-_MOD_LOADER_LIST: list[ModLoaderBase] = [
-    Forge(),
-    Neoforge(),
-    Fabric(),
-    Quilt(),
-]
+_MOD_LOADER_LIST: list[ModLoaderBase] = [Forge(), Neoforge(), Fabric(), Quilt()]
 
 
-class ModLoader():
+class ModLoader:
     """
     This class offers a standardized way to access the functions of various mod loaders.
     You can obtain an instance of this class by calling :func:`~minecraft_launcher_lib.mod_loader.get_mod_loader`.
     You should not create a new instance of this class on your own.
     """
+
     def __init__(self, base: ModLoaderBase) -> None:
         self._base = base
 
@@ -167,7 +165,15 @@ class ModLoader():
         """
         return self._base.get_installed_version(minecraft_version, loader_version)
 
-    def install(self, minecraft_version: str, minecraft_directory: str | os.PathLike, *, loader_version: str | None = None, callback: CallbackDict | None = None, java: str | os.PathLike | None = None) -> str:
+    def install(
+        self,
+        minecraft_version: str,
+        minecraft_directory: str | os.PathLike,
+        *,
+        loader_version: str | None = None,
+        callback: CallbackDict | None = None,
+        java: str | os.PathLike | None = None,
+    ) -> str:
         """
         Installs the mod loader for the given vanilla version.
 

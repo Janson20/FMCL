@@ -17,7 +17,6 @@ import platform
 import subprocess
 from typing import Optional, Tuple
 
-
 # ──────────────────────────────────────────────
 # JDK 下载链接 (Microsoft OpenJDK / Adoptium)
 # ──────────────────────────────────────────────
@@ -74,10 +73,7 @@ _JDK_DOWNLOADS = {
             "x64": "https://aka.ms/download-jdk/microsoft-jdk-25-macOS-x64.tar.gz",
             "aarch64": "https://aka.ms/download-jdk/microsoft-jdk-25-macOS-aarch64.tar.gz",
         },
-        "linux": {
-            "x64": None,
-            "aarch64": None,
-        },
+        "linux": {"x64": None, "aarch64": None},
     },
 }
 
@@ -87,6 +83,7 @@ _ADOPTIUM_LATEST_URL = "https://adoptium.net/temurin/releases/?version={version}
 # ──────────────────────────────────────────────
 # 包管理器安装命令
 # ──────────────────────────────────────────────
+
 
 def _get_windows_install_cmd(jdk_version: int) -> str:
     return f"winget install Microsoft.OpenJDK.{jdk_version}"
@@ -111,6 +108,7 @@ def _get_linux_install_cmd(jdk_version: int) -> Optional[str]:
 # ──────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────
+
 
 def get_download_url(jdk_version: int, os_name: Optional[str] = None, arch: Optional[str] = None) -> Optional[str]:
     os_name = os_name or _get_current_os()
@@ -190,7 +188,9 @@ def install_java_via_winget(jdk_version: int) -> Tuple[bool, str]:
     try:
         result = subprocess.run(
             ["winget", "install", f"Microsoft.OpenJDK.{jdk_version}", "--accept-source-agreements"],
-            capture_output=True, text=True, timeout=300
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         if result.returncode == 0:
             return True, f"JDK {jdk_version} installed successfully via winget"

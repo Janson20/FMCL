@@ -2,10 +2,11 @@
 
 import os
 from pathlib import Path
-from typing import Dict, Callable
+from typing import Callable, Dict
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, CATEGORY_MOD
+from ui.agent.tools.base import CATEGORY_MOD, ToolInfo
 
 
 def _build_mod_tools() -> list:
@@ -17,14 +18,8 @@ def _build_mod_tools() -> list:
             parameters={
                 "type": "object",
                 "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "搜索关键词，如 sodium、jei 等。留空则返回热门模组",
-                    },
-                    "game_version": {
-                        "type": "string",
-                        "description": "Minecraft 版本号，如 1.20.1",
-                    },
+                    "query": {"type": "string", "description": "搜索关键词，如 sodium、jei 等。留空则返回热门模组"},
+                    "game_version": {"type": "string", "description": "Minecraft 版本号，如 1.20.1"},
                     "mod_loader": {
                         "type": "string",
                         "enum": ["fabric", "forge", "neoforge"],
@@ -53,14 +48,8 @@ def _build_mod_tools() -> list:
                         "enum": ["fabric", "forge", "neoforge"],
                         "description": "模组加载器",
                     },
-                    "mod_name": {
-                        "type": "string",
-                        "description": "模组名称，如 Sodium、JEI 等",
-                    },
-                    "mod_project_id": {
-                        "type": "string",
-                        "description": "Modrinth 项目ID（如果已知）",
-                    },
+                    "mod_name": {"type": "string", "description": "模组名称，如 Sodium、JEI 等"},
+                    "mod_project_id": {"type": "string", "description": "Modrinth 项目ID（如果已知）"},
                 },
                 "required": ["version_id", "mod_loader", "mod_name"],
             },
@@ -79,12 +68,7 @@ def _search_mods(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
         game_version = params.get("game_version", "").strip() or None
         mod_loader = params.get("mod_loader", "").strip() or None
 
-        result = modrinth_search(
-            query=query,
-            game_version=game_version,
-            mod_loader=mod_loader,
-            limit=10,
-        )
+        result = modrinth_search(query=query, game_version=game_version, mod_loader=mod_loader, limit=10)
 
         hits = result.get("hits", [])
         if not hits:
@@ -116,7 +100,8 @@ def _search_mods(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
 
 def _install_mod(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     try:
-        from modrinth import install_mod_with_deps, search_mods as modrinth_search
+        from modrinth import install_mod_with_deps
+        from modrinth import search_mods as modrinth_search
 
         version_id = params.get("version_id", "").strip()
         mod_loader = params.get("mod_loader", "").strip().lower()
@@ -133,7 +118,7 @@ def _install_mod(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
 
         # installed 可能是 List[InstanceInfo] 或 List[str]
         def _get_version_str(v):
-            if hasattr(v, 'folder_name'):
+            if hasattr(v, "folder_name"):
                 return v.folder_name
             return v
 
@@ -167,12 +152,7 @@ def _install_mod(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
         os.makedirs(mods_dir, exist_ok=True)
 
         if not mod_project_id:
-            search_result = modrinth_search(
-                query=mod_name,
-                game_version=version_id,
-                mod_loader=mod_loader,
-                limit=5,
-            )
+            search_result = modrinth_search(query=mod_name, game_version=version_id, mod_loader=mod_loader, limit=5)
             hits = search_result.get("hits", [])
             if not hits:
                 return f"未找到模组 '{mod_name}'"

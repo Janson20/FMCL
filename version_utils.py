@@ -14,7 +14,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict
+from typing import Dict, List, Optional, Tuple
 
 # ══════════════════════════════════════════════════════════════════════
 # 实例信息数据结构（参考 PCL-CE: McInstanceInfo）
@@ -38,6 +38,7 @@ class InstanceInfo:
         state: 实例状态，对应 McInstanceState 枚举值
         reliable: 版本号是否可靠（非猜测获得）
     """
+
     folder_name: str = ""
     vanilla_name: str = "Unknown"
     loader_type: Optional[str] = None
@@ -54,6 +55,7 @@ class InstanceInfo:
     def modable(self) -> bool:
         """是否可以安装模组（同 has_loader，保留为别名）"""
         return self.has_loader
+
 
 # ══════════════════════════════════════════════════════════════════════
 # Minecraft 版本正则表达式
@@ -111,10 +113,7 @@ _SEMVER_RE = re.compile(_SEMVER_PATTERN)
 # Minecraft 下载 URL 中的版本号
 # 参考 PCL-CE: RegexPatterns.MinecraftDownloadUrlVersion
 # 注意: Python re 不支持可变宽度的后顾断言，改用捕获组提取
-_MC_DOWNLOAD_URL_VERSION_RE = re.compile(
-    r"launcher\.mojang\.com/mc/game/([^/\s]+)",
-    re.IGNORECASE
-)
+_MC_DOWNLOAD_URL_VERSION_RE = re.compile(r"launcher\.mojang\.com/mc/game/([^/\s]+)", re.IGNORECASE)
 
 # ══════════════════════════════════════════════════════════════════════
 # 模组加载器版本正则表达式
@@ -123,83 +122,56 @@ _MC_DOWNLOAD_URL_VERSION_RE = re.compile(
 # Forge 主版本号（位于 "forge:X.Y.Z-" 之后）
 # 参考 PCL-CE: RegexPatterns.ForgeMainVersion
 # 注意: Python re 不支持可变宽度的后顾断言，改用捕获组提取
-_FORGE_MAIN_VERSION_RE = re.compile(
-    r"forge:[0-9.]+(?:_pre[0-9]*)?-([0-9.]+)",
-    re.IGNORECASE
-)
+_FORGE_MAIN_VERSION_RE = re.compile(r"forge:[0-9.]+(?:_pre[0-9]*)?-([0-9.]+)", re.IGNORECASE)
 
 # Forge Maven 坐标中的版本号
 # 参考 PCL-CE: RegexPatterns.ForgeLibVersion
-_FORGE_LIB_VERSION_RE = re.compile(
-    r"net\.minecraftforge:(?:forge|fmlloader):[0-9.]+-([0-9a-zA-Z._+-]+)",
-    re.IGNORECASE
-)
+_FORGE_LIB_VERSION_RE = re.compile(r"net\.minecraftforge:(?:forge|fmlloader):[0-9.]+-([0-9a-zA-Z._+-]+)", re.IGNORECASE)
 
 # NeoForge 版本号（从 JSON 参数中提取）
 # 参考 PCL-CE: RegexPatterns.NeoForgeVersion
-_NEOFORGE_VERSION_RE = re.compile(
-    r'orgeVersion",[^"]*?"([^"]+)"',
-    re.IGNORECASE
-)
+_NEOFORGE_VERSION_RE = re.compile(r'orgeVersion",[^"]*?"([^"]+)"', re.IGNORECASE)
 
 # NeoForge 版本列表中的版本号（包含 beta/alpha/snapshot/pre 后缀）
 # 参考 PCL-CE: RegexPatterns.DlNeoForgeVersion
 _NEOFORGE_DL_VERSION_RE = re.compile(
     r'"(?:1\.20\.1-)?(\d+\.[^.]+\.[0-9]+(?:\.[0-9]+)?'
-    r'(?:-(?:beta|alpha)(?:\.[0-9]+)?)?'
+    r"(?:-(?:beta|alpha)(?:\.[0-9]+)?)?"
     r'(?:\+snapshot-\d+)?(?:\+pre-\d+)?)"',
-    re.IGNORECASE
+    re.IGNORECASE,
 )
 
 # Fabric Loader 版本
 # 参考 PCL-CE: RegexPatterns.FabricVersion
-_FABRIC_VERSION_RE = re.compile(
-    r"net\.fabricmc:fabric-loader:([0-9.]+(?:\+build\.[0-9]+)?)",
-    re.IGNORECASE
-)
+_FABRIC_VERSION_RE = re.compile(r"net\.fabricmc:fabric-loader:([0-9.]+(?:\+build\.[0-9]+)?)", re.IGNORECASE)
 
 # LegacyFabric 版本
 # 参考 PCL-CE: RegexPatterns.LegacyFabricVersion
-_LEGACY_FABRIC_VERSION_RE = re.compile(
-    r"net\.fabricmc:fabric-loader:([0-9.]+(?:\+build\.[0-9]+)?)",
-    re.IGNORECASE
-)
+_LEGACY_FABRIC_VERSION_RE = re.compile(r"net\.fabricmc:fabric-loader:([0-9.]+(?:\+build\.[0-9]+)?)", re.IGNORECASE)
 
 # Quilt Loader 版本
 # 参考 PCL-CE: RegexPatterns.QuiltVersion
 _QUILT_VERSION_RE = re.compile(
-    r"org\.quiltmc:quilt-loader:([0-9.]+(?:\+build\.[0-9]+)?"
-    r"(?:(?:-beta\.)[0-9](?:[0-9]?))?)",
-    re.IGNORECASE
+    r"org\.quiltmc:quilt-loader:([0-9.]+(?:\+build\.[0-9]+)?" r"(?:(?:-beta\.)[0-9](?:[0-9]?))?)", re.IGNORECASE
 )
 
 # Cleanroom 版本
 # 参考 PCL-CE: RegexPatterns.CleanroomVersion
 _CLEANROOM_VERSION_RE = re.compile(
-    r"com\.cleanroommc:cleanroom:([0-9.]+(?:\+build\.[0-9]+)?(?:-alpha)?)",
-    re.IGNORECASE
+    r"com\.cleanroommc:cleanroom:([0-9.]+(?:\+build\.[0-9]+)?(?:-alpha)?)", re.IGNORECASE
 )
 
 # Fabric-Like (Fabric/Quilt/LegacyFabric) 中间映射版本
 # 参考 PCL-CE: RegexPatterns.FabricLikeLibVersion
-_FABRIC_LIKE_LIB_VERSION_RE = re.compile(
-    r"(?:fabricmc|quiltmc|legacyfabric):intermediary:([^\"\s]+)",
-    re.IGNORECASE
-)
+_FABRIC_LIKE_LIB_VERSION_RE = re.compile(r"(?:fabricmc|quiltmc|legacyfabric):intermediary:([^\"\s]+)", re.IGNORECASE)
 
 # OptiFine 版本
 # 参考 PCL-CE: RegexPatterns.OptiFineVersion, OptiFineLibVersion
-_OPTIFINE_VERSION_RE = re.compile(
-    r'HD_U_([^"":/\s]+)',
-    re.IGNORECASE
-)
+_OPTIFINE_VERSION_RE = re.compile(r'HD_U_([^"":/\s]+)', re.IGNORECASE)
 
 # LabyMod 版本
 # 参考 PCL-CE: RegexPatterns.LabyModVersion
-_LABYMOD_VERSION_RE = re.compile(
-    r"-Dnet\.labymod\.running-version=(1\.[0-9+.]+)",
-    re.IGNORECASE
-)
+_LABYMOD_VERSION_RE = re.compile(r"-Dnet\.labymod\.running-version=(1\.[0-9+.]+)", re.IGNORECASE)
 
 # ══════════════════════════════════════════════════════════════════════
 # 版本格式判断
@@ -207,10 +179,7 @@ _LABYMOD_VERSION_RE = re.compile(
 
 # 预发布/快照标识检测
 _PRE_RELEASE_CHECK_RE = re.compile(r"-(?:pre|rc|snapshot|beta|alpha)", re.IGNORECASE)
-_SNAPSHOT_CHECK_RE = re.compile(
-    r"^(?:\d+w\d+[a-z]?|.*-snapshot.*|.*-pre.*|.*-rc.*|snapshot-.*)$",
-    re.IGNORECASE
-)
+_SNAPSHOT_CHECK_RE = re.compile(r"^(?:\d+w\d+[a-z]?|.*-snapshot.*|.*-pre.*|.*-rc.*|snapshot-.*)$", re.IGNORECASE)
 
 
 def is_mc_normal_version(version: str) -> bool:
@@ -431,17 +400,21 @@ _LOADER_KEYWORDS = {
 
 # 检测顺序：先检测更具体的（如 neoforge 必须在 forge 之前）
 _LOADER_DETECTION_ORDER = [
-    "neoforge", "forge", "liteloader", "legacyfabric", "fabric",
-    "quilt", "cleanroom", "optifine", "labymod",
+    "neoforge",
+    "forge",
+    "liteloader",
+    "legacyfabric",
+    "fabric",
+    "quilt",
+    "cleanroom",
+    "optifine",
+    "labymod",
 ]
 
 
 # 特殊模组加载器兼容映射：将无法被 Modrinth/CurseForge API
 # 识别的加载器映射为兼容等效类型，用于搜索与更新检测。
-MOD_LOADER_API_COMPAT_MAP: Dict[str, str] = {
-    "legacyfabric": "fabric",
-    "cleanroom": "forge",
-}
+MOD_LOADER_API_COMPAT_MAP: Dict[str, str] = {"legacyfabric": "fabric", "cleanroom": "forge"}
 
 
 def resolve_search_loader(loader: Optional[str]) -> Optional[str]:
@@ -792,8 +765,9 @@ def parse_optifine_version_from_json(json_text: str) -> Optional[str]:
 # ══════════════════════════════════════════════════════════════════════
 
 
-def parse_mc_version_from_json_full(json_text: str, inherit_name: Optional[str] = None,
-                                     folder_name: Optional[str] = None) -> str:
+def parse_mc_version_from_json_full(
+    json_text: str, inherit_name: Optional[str] = None, folder_name: Optional[str] = None
+) -> str:
     """从版本 JSON 中全面提取 Minecraft 版本号（PCL 式多策略回退）
 
     模拟 PCL-CE McInstance.Info 的版本识别流程:
@@ -822,18 +796,12 @@ def parse_mc_version_from_json_full(json_text: str, inherit_name: Optional[str] 
         return m.group(1)
 
     # 策略 2: patches (HMCL 格式)
-    game_version_m = re.search(
-        r'"id"\s*:\s*"game".*?"version"\s*:\s*"([^"]+)"',
-        json_text, re.DOTALL
-    )
+    game_version_m = re.search(r'"id"\s*:\s*"game".*?"version"\s*:\s*"([^"]+)"', json_text, re.DOTALL)
     if game_version_m:
         return game_version_m.group(1)
 
     # 策略 3: --fml.mcVersion (Forge/NeoForge arguments)
-    fml_m = re.search(
-        r'"--fml\.mcVersion"\s*,\s*"([^"]+)"',
-        json_text
-    )
+    fml_m = re.search(r'"--fml\.mcVersion"\s*,\s*"([^"]+)"', json_text)
     if fml_m:
         return fml_m.group(1)
 
@@ -901,32 +869,41 @@ def parse_mc_version_from_json_full(json_text: str, inherit_name: Optional[str] 
 # extra_check_fn(lib_tuples) 返回 True 才匹配，None 表示无额外检查
 _LOADER_LIB_RULES = []
 
+
 def _register_rule(loader_type, group_pattern, artifact_pattern, extra_check=None):
-    _LOADER_LIB_RULES.append((
-        loader_type,
-        re.compile(group_pattern),
-        re.compile(artifact_pattern),
-        extra_check,
-    ))
+    _LOADER_LIB_RULES.append((loader_type, re.compile(group_pattern), re.compile(artifact_pattern), extra_check))
+
 
 # 按 HMCL LibraryType 定义注册检测规则（按匹配优先级从高到低）
 
 # LEGACY_FABRIC: group=net.fabricmc, artifact=fabric-loader + 必须存在 net.legacyfabric 组
-_register_rule("legacyfabric", r"net\.fabricmc", r"fabric-loader",
-               extra_check=lambda libs: any(g == "net.legacyfabric" for g, a in libs))
+_register_rule(
+    "legacyfabric",
+    r"net\.fabricmc",
+    r"fabric-loader",
+    extra_check=lambda libs: any(g == "net.legacyfabric" for g, a in libs),
+)
 
 # FABRIC: group=net.fabricmc, artifact=fabric-loader + 确保没有 net.legacyfabric
-_register_rule("fabric", r"net\.fabricmc", r"fabric-loader",
-               extra_check=lambda libs: not any(g == "net.legacyfabric" for g, a in libs))
+_register_rule(
+    "fabric",
+    r"net\.fabricmc",
+    r"fabric-loader",
+    extra_check=lambda libs: not any(g == "net.legacyfabric" for g, a in libs),
+)
 
 # NEO_FORGE: group=net.neoforged.fancymodloader, artifact=(core|loader)
 _register_rule("neoforge", r"net\.neoforged\.fancymodloader", r"(core|loader)")
 
 # FORGE: group=net.minecraftforge, artifact=(forge|fmlloader) + 确保没有 NeoForge
-_register_rule("forge", r"net\.minecraftforge", r"(forge|fmlloader)",
-               extra_check=lambda libs: not any(
-                   re.match(r"net\.neoforged\.fancymodloader", g) and re.match(r"(core|loader)", a)
-                   for g, a in libs))
+_register_rule(
+    "forge",
+    r"net\.minecraftforge",
+    r"(forge|fmlloader)",
+    extra_check=lambda libs: not any(
+        re.match(r"net\.neoforged\.fancymodloader", g) and re.match(r"(core|loader)", a) for g, a in libs
+    ),
+)
 
 # CLEANROOM: group=com.cleanroommc, artifact=cleanroom
 _register_rule("cleanroom", r"com\.cleanroommc", r"cleanroom")
@@ -1014,27 +991,17 @@ _JSON_LOADER_VERSION_EXTRACTORS = {
         re.compile(r"forge:[0-9.]+(?:_pre[0-9]*)?-([0-9.]+)", re.IGNORECASE),
         re.compile(r"net\.minecraftforge:(?:forge|fmlloader):[0-9.]+-([0-9a-zA-Z._+-]+)", re.IGNORECASE),
     ],
-    "neoforge": [
-        re.compile(r'orgeVersion",[^"]*?"([^"]+)"', re.IGNORECASE),
-    ],
-    "fabric": [
-        re.compile(r"net\.fabricmc:fabric-loader:([0-9.]+(?:\+build\.[0-9]+)?)", re.IGNORECASE),
-    ],
-    "legacyfabric": [
-        re.compile(r"net\.fabricmc:fabric-loader:([0-9.]+(?:\+build\.[0-9]+)?)", re.IGNORECASE),
-    ],
+    "neoforge": [re.compile(r'orgeVersion",[^"]*?"([^"]+)"', re.IGNORECASE)],
+    "fabric": [re.compile(r"net\.fabricmc:fabric-loader:([0-9.]+(?:\+build\.[0-9]+)?)", re.IGNORECASE)],
+    "legacyfabric": [re.compile(r"net\.fabricmc:fabric-loader:([0-9.]+(?:\+build\.[0-9]+)?)", re.IGNORECASE)],
     "quilt": [
-        re.compile(r"org\.quiltmc:quilt-loader:([0-9.]+(?:\+build\.[0-9]+)?(?:-beta\.[0-9]+(?:[0-9])?)?)", re.IGNORECASE),
+        re.compile(
+            r"org\.quiltmc:quilt-loader:([0-9.]+(?:\+build\.[0-9]+)?(?:-beta\.[0-9]+(?:[0-9])?)?)", re.IGNORECASE
+        )
     ],
-    "cleanroom": [
-        re.compile(r"com\.cleanroommc:cleanroom:([0-9.]+(?:\+build\.[0-9]+)?(?:-alpha)?)", re.IGNORECASE),
-    ],
-    "optifine": [
-        re.compile(r'HD_U_([^"":/\s]+)', re.IGNORECASE),
-    ],
-    "labymod": [
-        re.compile(r"-Dnet\.labymod\.running-version=(1\.[0-9+.]+)", re.IGNORECASE),
-    ],
+    "cleanroom": [re.compile(r"com\.cleanroommc:cleanroom:([0-9.]+(?:\+build\.[0-9]+)?(?:-alpha)?)", re.IGNORECASE)],
+    "optifine": [re.compile(r'HD_U_([^"":/\s]+)', re.IGNORECASE)],
+    "labymod": [re.compile(r"-Dnet\.labymod\.running-version=(1\.[0-9+.]+)", re.IGNORECASE)],
 }
 
 
@@ -1099,11 +1066,7 @@ def parse_loader_version_from_json(json_text: str, loader_type: str) -> Optional
     return None
 
 
-def parse_instance_from_json(
-    json_text: str,
-    folder_name: str,
-    minecraft_dir: Optional[str] = None,
-) -> InstanceInfo:
+def parse_instance_from_json(json_text: str, folder_name: str, minecraft_dir: Optional[str] = None) -> InstanceInfo:
     """从版本 JSON 文本中解析完整的实例信息
 
     参考 PCL-CE: McInstance.Info (getter) 和 McInstance.Load() 的完整流程。
@@ -1147,9 +1110,7 @@ def parse_instance_from_json(
     # 参考 PCL-CE: JsonObject.getter 中的继承实例合并
     if "inheritsFrom" in json_obj and minecraft_dir:
         try:
-            merged, _ = _resolve_inherits_chain(
-                json_obj, folder_name, minecraft_dir, max_depth=10
-            )
+            merged, _ = _resolve_inherits_chain(json_obj, folder_name, minecraft_dir, max_depth=10)
             if merged is not None:
                 json_obj = merged
                 json_text = json.dumps(merged)
@@ -1158,9 +1119,7 @@ def parse_instance_from_json(
 
     # ── 提取 MC 版本号（多策略回退）──
     info.vanilla_name = parse_mc_version_from_json_full(
-        json_text,
-        inherit_name=json_obj.get("inheritsFrom", "").strip('"'),
-        folder_name=folder_name,
+        json_text, inherit_name=json_obj.get("inheritsFrom", "").strip('"'), folder_name=folder_name
     )
 
     # 修正: 20.X / 21.X → 1.20.X / 1.21.X（PCL 兼容处理）
@@ -1175,6 +1134,7 @@ def parse_instance_from_json(
     if release_time:
         try:
             from datetime import datetime
+
             rt = datetime.fromisoformat(release_time.replace("Z", "+00:00"))
             if rt.year >= 2000 and rt.year < 2013:
                 info.state = "old"
@@ -1247,10 +1207,7 @@ def _merge_hmcl_patches(json_obj: dict) -> Optional[dict]:
         return None
 
     try:
-        sorted_patches = sorted(
-            patches,
-            key=lambda p: int(str(p.get("priority", "0"))),
-        )
+        sorted_patches = sorted(patches, key=lambda p: int(str(p.get("priority", "0"))))
     except (ValueError, TypeError):
         sorted_patches = list(patches)
 
@@ -1272,12 +1229,7 @@ def _merge_hmcl_patches(json_obj: dict) -> Optional[dict]:
     return current
 
 
-def _resolve_inherits_chain(
-    json_obj: dict,
-    folder_name: str,
-    minecraft_dir: str,
-    max_depth: int = 10,
-) -> tuple:
+def _resolve_inherits_chain(json_obj: dict, folder_name: str, minecraft_dir: str, max_depth: int = 10) -> tuple:
     """解析 inheritsFrom 继承链，递归合并父实例的 JSON
 
     参考 PCL-CE: JsonObject.getter 中的继承实例合并逻辑。
@@ -1320,9 +1272,7 @@ def _resolve_inherits_chain(
         return json_obj, inherit_name
 
     # 递归解析父实例的继承链
-    merged_parent, _ = _resolve_inherits_chain(
-        parent_obj, inherit_name, minecraft_dir, max_depth - 1
-    )
+    merged_parent, _ = _resolve_inherits_chain(parent_obj, inherit_name, minecraft_dir, max_depth - 1)
     if merged_parent is None:
         merged_parent = parent_obj
 

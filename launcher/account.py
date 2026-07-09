@@ -14,6 +14,7 @@ import enum
 import hashlib
 import json
 import os
+import platform as _platform_mod
 import secrets
 import sys
 import threading
@@ -21,31 +22,28 @@ import time
 import urllib.parse
 import uuid as uuid_mod
 import webbrowser
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Optional, Callable, List, Dict, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import requests
 from logzero import logger
 
-import platform as _platform_mod
-
-from secure_storage import encrypt_token, decrypt_token
+from secure_storage import decrypt_token, encrypt_token
 
 
 def _build_ua_header() -> dict:
     return {"User-Agent": f"FMCL/1.0 ({_platform_mod.system()}; {_platform_mod.machine()})"}
+
 
 MICROSOFT_CLIENT_ID = "980ebc21-3288-46a6-bfe1-fc584ba7713e"
 MICROSOFT_REDIRECT_URI = "http://localhost:8080"
 MICROSOFT_REDIRECT_PORTS = [8080, 8081, 8082, 8083, 8084]
 
 AUTHLIB_INJECTOR_VERSION = "1.2.5"
-AUTHLIB_INJECTOR_URL = (
-    "https://pysio.online/static/mirror/authlib-injector/authlib-injector-{version}.jar"
-)
+AUTHLIB_INJECTOR_URL = "https://pysio.online/static/mirror/authlib-injector/authlib-injector-{version}.jar"
 AUTHLIB_INJECTOR_MIRRORS = [
     "https://authlib-injector.yushi.moe/artifact/{version}/authlib-injector-{version}.jar",
     "https://pysio.online/static/mirror/authlib-injector/authlib-injector-{version}.jar",
@@ -75,11 +73,7 @@ class Account:
     last_login: Optional[str] = None
 
     def to_dict(self) -> dict:
-        d = {
-            "id": self.id,
-            "name": self.name,
-            "account_type": self.account_type.value,
-        }
+        d = {"id": self.id, "name": self.name, "account_type": self.account_type.value}
         if self.uuid:
             d["uuid"] = self.uuid
         if self.access_token:
@@ -148,9 +142,9 @@ class Account:
     @property
     def display_name(self) -> str:
         type_labels = {
-            AccountType.MICROSOFT: "\u5FAE\u8F6F",
-            AccountType.OFFLINE: "\u79BB\u7EBF",
-            AccountType.YGGDRASIL: "\u5916\u7F6E",
+            AccountType.MICROSOFT: "\u5fae\u8f6f",
+            AccountType.OFFLINE: "\u79bb\u7ebf",
+            AccountType.YGGDRASIL: "\u5916\u7f6e",
         }
         return f"{self.name} ({type_labels.get(self.account_type, '')})"
 
@@ -169,16 +163,16 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
             self.server.auth_state = query_params.get("state", [None])[0]
             html = (
                 "<html><head><meta charset='utf-8'></head><body>"
-                "<h1>\u767B\u5F55\u6210\u529F\uFF01</h1>"
-                "<p>\u60A8\u53EF\u4EE5\u5173\u95ED\u6B64\u7A97\u53E3\u8FD4\u56DE\u542F\u52A8\u5668\u3002</p>"
+                "<h1>\u767b\u5f55\u6210\u529f\uff01</h1>"
+                "<p>\u60a8\u53ef\u4ee5\u5173\u95ed\u6b64\u7a97\u53e3\u8fd4\u56de\u542f\u52a8\u5668\u3002</p>"
                 "</body></html>"
             )
             self.wfile.write(html.encode("utf-8"))
         else:
-            error_desc = query_params.get("error_description", ["\u672A\u77E5\u9519\u8BEF"])[0]
+            error_desc = query_params.get("error_description", ["\u672a\u77e5\u9519\u8bef"])[0]
             html = (
                 "<html><head><meta charset='utf-8'></head><body>"
-                f"<h1>\u767B\u5F55\u5931\u8D25</h1><p>{error_desc}</p>"
+                f"<h1>\u767b\u5f55\u5931\u8d25</h1><p>{error_desc}</p>"
                 "</body></html>"
             )
             self.wfile.write(html.encode("utf-8"))
@@ -195,6 +189,7 @@ class MicrosoftLoginManager:
 
     def _find_available_port(self) -> int:
         import socket
+
         for port in MICROSOFT_REDIRECT_PORTS:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 if s.connect_ex(("127.0.0.1", port)) != 0:
@@ -202,14 +197,16 @@ class MicrosoftLoginManager:
         return MICROSOFT_REDIRECT_PORTS[0]
 
     def _complete_login_with_error_handling(
-        self, client_id: str, redirect_uri: str, auth_code: str,
-        code_verifier: str, status_callback: Optional[Callable[[str], None]] = None,
+        self,
+        client_id: str,
+        redirect_uri: str,
+        auth_code: str,
+        code_verifier: str,
+        status_callback: Optional[Callable[[str], None]] = None,
     ) -> Optional[dict]:
         import minecraft_launcher_lib.microsoft_account as microsoft
 
-        token_resp = microsoft.get_authorization_token(
-            client_id, None, redirect_uri, auth_code, code_verifier
-        )
+        token_resp = microsoft.get_authorization_token(client_id, None, redirect_uri, auth_code, code_verifier)
         if "access_token" not in token_resp:
             error_msg = token_resp.get("error_description") or token_resp.get("error") or str(token_resp)
             logger.error(f"微软 OAuth Token 交换失败: {error_msg}")
@@ -217,16 +214,13 @@ class MicrosoftLoginManager:
                 status_callback(f"Token 交换失败: {error_msg}")
             return None
 
-        return self._do_minecraft_auth(
-            token_resp["access_token"], token_resp["refresh_token"], status_callback
-        )
+        return self._do_minecraft_auth(token_resp["access_token"], token_resp["refresh_token"], status_callback)
 
     def _do_minecraft_auth(
-        self, ms_access_token: str, ms_refresh_token: str,
-        status_callback: Optional[Callable[[str], None]] = None,
+        self, ms_access_token: str, ms_refresh_token: str, status_callback: Optional[Callable[[str], None]] = None
     ) -> Optional[dict]:
-        import minecraft_launcher_lib.microsoft_account as microsoft
         import minecraft_launcher_lib.exceptions as mcll_exceptions
+        import minecraft_launcher_lib.microsoft_account as microsoft
 
         try:
             xbl_resp = microsoft.authenticate_with_xbl(ms_access_token)
@@ -268,24 +262,19 @@ class MicrosoftLoginManager:
         profile["refresh_token"] = ms_refresh_token
         return profile
 
-    def login(
-        self,
-        status_callback: Optional[Callable[[str], None]] = None,
-    ) -> Optional[Account]:
+    def login(self, status_callback: Optional[Callable[[str], None]] = None) -> Optional[Account]:
         import minecraft_launcher_lib.microsoft_account as microsoft
 
         self._redirect_port = self._find_available_port()
         redirect_uri = f"http://localhost:{self._redirect_port}"
 
         if status_callback:
-            status_callback("\u6B63\u5728\u83B7\u53D6\u767B\u5F55\u94FE\u63A5...")
+            status_callback("\u6b63\u5728\u83b7\u53d6\u767b\u5f55\u94fe\u63a5...")
 
         try:
-            login_url, state, code_verifier = microsoft.get_secure_login_data(
-                self.client_id, redirect_uri
-            )
+            login_url, state, code_verifier = microsoft.get_secure_login_data(self.client_id, redirect_uri)
         except Exception as e:
-            logger.error(f"\u83B7\u53D6\u5FAE\u8F6F\u767B\u5F55\u6570\u636E\u5931\u8D25: {e}")
+            logger.error(f"\u83b7\u53d6\u5fae\u8f6f\u767b\u5f55\u6570\u636e\u5931\u8d25: {e}")
             return None
 
         server = HTTPServer(("localhost", self._redirect_port), OAuthCallbackHandler)
@@ -294,7 +283,7 @@ class MicrosoftLoginManager:
         server.shutdown_flag = False
 
         if status_callback:
-            status_callback("\u6B63\u5728\u6253\u5F00\u6D4F\u89C8\u5668...")
+            status_callback("\u6b63\u5728\u6253\u5f00\u6d4f\u89c8\u5668...")
         webbrowser.open(login_url)
 
         def run_server():
@@ -316,17 +305,17 @@ class MicrosoftLoginManager:
             pass
 
         if server.auth_code is None:
-            logger.error("\u5FAE\u8F6F\u767B\u5F55\u8D85\u65F6")
+            logger.error("\u5fae\u8f6f\u767b\u5f55\u8d85\u65f6")
             if status_callback:
-                status_callback("\u767B\u5F55\u8D85\u65F6\uFF0C\u8BF7\u91CD\u8BD5")
+                status_callback("\u767b\u5f55\u8d85\u65f6\uff0c\u8bf7\u91cd\u8bd5")
             return None
 
         if server.auth_state != state:
-            logger.error(f"OAuth state \u4E0D\u5339\u914D: expected={state}, got={server.auth_state}")
+            logger.error(f"OAuth state \u4e0d\u5339\u914d: expected={state}, got={server.auth_state}")
             return None
 
         if status_callback:
-            status_callback("\u6B63\u5728\u5B8C\u6210\u767B\u5F55...")
+            status_callback("\u6b63\u5728\u5b8c\u6210\u767b\u5f55...")
 
         try:
             login_data = self._complete_login_with_error_handling(
@@ -335,7 +324,7 @@ class MicrosoftLoginManager:
             if login_data is None:
                 return None
         except Exception as e:
-            logger.error(f"\u5B8C\u6210\u5FAE\u8F6F\u767B\u5F55\u5931\u8D25: {e}")
+            logger.error(f"\u5b8c\u6210\u5fae\u8f6f\u767b\u5f55\u5931\u8d25: {e}")
             if status_callback:
                 status_callback(f"登录失败: {e}")
             return None
@@ -357,35 +346,30 @@ class MicrosoftLoginManager:
 
     def refresh_token(self, account: Account) -> bool:
         if not account.refresh_token:
-            logger.warning(f"\u5FAE\u8F6F\u8D26\u53F7 {account.name} \u6CA1\u6709 refresh_token")
+            logger.warning(f"\u5fae\u8f6f\u8d26\u53f7 {account.name} \u6ca1\u6709 refresh_token")
             return False
 
-        logger.info(f"\u6B63\u5728\u5237\u65B0\u5FAE\u8F6F\u8D26\u53F7 {account.name} \u7684 Token...")
+        logger.info(f"\u6b63\u5728\u5237\u65b0\u5fae\u8f6f\u8d26\u53f7 {account.name} \u7684 Token...")
 
         try:
-            import minecraft_launcher_lib.microsoft_account as microsoft
             import minecraft_launcher_lib.exceptions as mcll_exceptions
+            import minecraft_launcher_lib.microsoft_account as microsoft
+
             refresh_data = microsoft.complete_refresh(
-                self.client_id,
-                None,
-                f"http://localhost:{self._redirect_port}",
-                account.refresh_token,
+                self.client_id, None, f"http://localhost:{self._redirect_port}", account.refresh_token
             )
             account.access_token = refresh_data.get("access_token", account.access_token)
             new_refresh = refresh_data.get("refresh_token")
             if new_refresh:
                 account.refresh_token = new_refresh
             account.last_login = datetime.now(timezone.utc).isoformat()
-            logger.info(f"\u5FAE\u8F6F\u8D26\u53F7 {account.name} Token \u5237\u65B0\u6210\u529F")
+            logger.info(f"\u5fae\u8f6f\u8d26\u53f7 {account.name} Token \u5237\u65b0\u6210\u529f")
             return True
         except Exception as e:
-            logger.warning(f"\u5FAE\u8F6F\u8D26\u53F7 {account.name} Token \u5237\u65B0\u5931\u8D25: {e}")
+            logger.warning(f"\u5fae\u8f6f\u8d26\u53f7 {account.name} Token \u5237\u65b0\u5931\u8d25: {e}")
             return False
 
-    def login_device_code(
-        self,
-        status_callback: Optional[Callable[[str], None]] = None,
-    ) -> Optional[Account]:
+    def login_device_code(self, status_callback: Optional[Callable[[str], None]] = None) -> Optional[Account]:
         DEVICE_CODE_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode"
         TOKEN_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
         SCOPE = "XboxLive.signin offline_access"
@@ -399,10 +383,7 @@ class MicrosoftLoginManager:
 
         try:
             resp = requests.post(
-                DEVICE_CODE_URL,
-                data={"client_id": self.client_id, "scope": SCOPE},
-                headers=headers,
-                timeout=30,
+                DEVICE_CODE_URL, data={"client_id": self.client_id, "scope": SCOPE}, headers=headers, timeout=30
             )
             resp.raise_for_status()
             device_data = resp.json()
@@ -425,6 +406,7 @@ class MicrosoftLoginManager:
         interval = device_data.get("interval", 5)
 
         import tkinter as tk
+
         try:
             root = tk.Tk()
             root.withdraw()
@@ -437,9 +419,7 @@ class MicrosoftLoginManager:
         webbrowser.open(DEVICE_LOGIN_PAGE)
 
         if status_callback:
-            status_callback(
-                f"代码 {user_code} 已复制到剪贴板，请在浏览器中打开 {DEVICE_LOGIN_PAGE} 并输入此代码"
-            )
+            status_callback(f"代码 {user_code} 已复制到剪贴板，请在浏览器中打开 {DEVICE_LOGIN_PAGE} 并输入此代码")
 
         logger.info(f"设备代码登录已启动: user_code={user_code}, 有效期 {expires_in} 秒")
 
@@ -467,9 +447,7 @@ class MicrosoftLoginManager:
                 if status_callback:
                     status_callback("正在完成 Minecraft 认证...")
 
-                profile = self._do_minecraft_auth(
-                    ms_access_token, ms_refresh_token, status_callback
-                )
+                profile = self._do_minecraft_auth(ms_access_token, ms_refresh_token, status_callback)
                 if profile is None:
                     return None
 
@@ -513,11 +491,7 @@ class MicrosoftLoginManager:
 
 class YggdrasilLoginManager:
     def login(
-        self,
-        server_url: str,
-        username: str,
-        password: str,
-        status_callback: Optional[Callable[[str], None]] = None,
+        self, server_url: str, username: str, password: str, status_callback: Optional[Callable[[str], None]] = None
     ) -> Optional[Account]:
         if not server_url or not username or not password:
             return None
@@ -529,7 +503,7 @@ class YggdrasilLoginManager:
             auth_url = f"{server_url}/authenticate"
 
         if status_callback:
-            status_callback(f"\u6B63\u5728\u8FDE\u63A5: {server_url}")
+            status_callback(f"\u6b63\u5728\u8fde\u63a5: {server_url}")
 
         auth_payload = {
             "agent": {"name": "Minecraft", "version": 1},
@@ -539,28 +513,23 @@ class YggdrasilLoginManager:
         }
 
         try:
-            resp = requests.post(
-                auth_url,
-                json=auth_payload,
-                headers=_build_ua_header(),
-                timeout=15,
-            )
+            resp = requests.post(auth_url, json=auth_payload, headers=_build_ua_header(), timeout=15)
             if resp.status_code != 200:
                 error_msg = resp.text[:200] if resp.text else f"HTTP {resp.status_code}"
-                logger.error(f"Yggdrasil \u8BA4\u8BC1\u5931\u8D25: {error_msg}")
+                logger.error(f"Yggdrasil \u8ba4\u8bc1\u5931\u8d25: {error_msg}")
                 return None
 
             data = resp.json()
         except requests.RequestException as e:
-            logger.error(f"Yggdrasil \u8BF7\u6C42\u5931\u8D25: {e}")
+            logger.error(f"Yggdrasil \u8bf7\u6c42\u5931\u8d25: {e}")
             return None
         except Exception as e:
-            logger.error(f"Yggdrasil \u89E3\u6790\u5931\u8D25: {e}")
+            logger.error(f"Yggdrasil \u89e3\u6790\u5931\u8d25: {e}")
             return None
 
         selected = data.get("selectedProfile")
         if not selected:
-            logger.error("Yggdrasil \u54CD\u5E94\u4E2D\u6CA1\u6709 selectedProfile")
+            logger.error("Yggdrasil \u54cd\u5e94\u4e2d\u6ca1\u6709 selectedProfile")
             return None
 
         account_id = str(uuid_mod.uuid4())
@@ -616,54 +585,43 @@ class AuthlibInjectorManager:
         self._injector_dir.mkdir(parents=True, exist_ok=True)
 
         urls = [AUTHLIB_INJECTOR_URL.format(version=AUTHLIB_INJECTOR_VERSION)]
-        urls.extend(
-            m.format(version=AUTHLIB_INJECTOR_VERSION) for m in AUTHLIB_INJECTOR_MIRRORS
-        )
+        urls.extend(m.format(version=AUTHLIB_INJECTOR_VERSION) for m in AUTHLIB_INJECTOR_MIRRORS)
 
         for url in urls:
             try:
                 if status_callback:
-                    status_callback(f"\u6B63\u5728\u4E0B\u8F7D authlib-injector...")
-                logger.info(f"\u4E0B\u8F7D authlib-injector: {url}")
+                    status_callback(f"\u6b63\u5728\u4e0b\u8f7d authlib-injector...")
+                logger.info(f"\u4e0b\u8f7d authlib-injector: {url}")
                 resp = requests.get(url, headers=_build_ua_header(), timeout=60, stream=True)
                 if resp.status_code == 200:
                     with open(self._jar_path, "wb") as f:
                         for chunk in resp.iter_content(chunk_size=8192):
                             f.write(chunk)
-                    logger.info(f"authlib-injector \u4E0B\u8F7D\u5B8C\u6210: {self._jar_path}")
+                    logger.info(f"authlib-injector \u4e0b\u8f7d\u5b8c\u6210: {self._jar_path}")
                     return True
             except Exception as e:
-                logger.debug(f"authlib-injector \u4E0B\u8F7D\u5931\u8D25 ({url}): {e}")
+                logger.debug(f"authlib-injector \u4e0b\u8f7d\u5931\u8d25 ({url}): {e}")
                 continue
 
-        logger.error("authlib-injector \u4E0B\u8F7D\u5931\u8D25\uFF0C\u6240\u6709\u955C\u50CF\u5747\u4E0D\u53EF\u7528")
+        logger.error("authlib-injector \u4e0b\u8f7d\u5931\u8d25\uff0c\u6240\u6709\u955c\u50cf\u5747\u4e0d\u53ef\u7528")
         return False
 
     def build_launch_command(self, target_version: str, mc_dir: str, account: Account) -> List[str]:
         import minecraft_launcher_lib
 
-        options = {
-            "username": account.name,
-            "uuid": account.uuid or account.id,
-            "token": account.access_token or "0",
-        }
+        options = {"username": account.name, "uuid": account.uuid or account.id, "token": account.access_token or "0"}
 
-        raw_command = minecraft_launcher_lib.command.get_minecraft_command(
-            target_version, mc_dir, options
-        )
+        raw_command = minecraft_launcher_lib.command.get_minecraft_command(target_version, mc_dir, options)
 
         if not self.is_installed:
-            logger.warning("authlib-injector \u672A\u5B89\u88C5\uFF0C\u65E0\u6CD5\u6CE8\u5165")
+            logger.warning("authlib-injector \u672a\u5b89\u88c5\uff0c\u65e0\u6cd5\u6ce8\u5165")
             return raw_command
 
         yggdrasil_url = account.yggdrasil_server_url or ""
         if not yggdrasil_url.endswith("/authserver"):
             yggdrasil_url = yggdrasil_url.rstrip("/") + "/api/yggdrasil"
 
-        injector_args = [
-            f"-javaagent:{self.jar_path}={yggdrasil_url}",
-            "-Dauthlibinjector.side=client",
-        ]
+        injector_args = [f"-javaagent:{self.jar_path}={yggdrasil_url}", "-Dauthlibinjector.side=client"]
 
         main_class_index = None
         for i, arg in enumerate(raw_command):
@@ -741,23 +699,19 @@ class GlobalAccountSystem:
                 data = json.load(f)
             self._accounts = [Account.from_dict(a) for a in data.get("accounts", [])]
             self._current_account_id = data.get("current_account_id")
-            logger.info(f"\u5DF2\u52A0\u8F7D {len(self._accounts)} \u4E2A\u8D26\u53F7")
+            logger.info(f"\u5df2\u52a0\u8f7d {len(self._accounts)} \u4e2a\u8d26\u53f7")
         except Exception as e:
-            logger.error(f"\u52A0\u8F7D\u8D26\u53F7\u6587\u4EF6\u5931\u8D25: {e}")
+            logger.error(f"\u52a0\u8f7d\u8d26\u53f7\u6587\u4ef6\u5931\u8d25: {e}")
             self._accounts = []
 
     def _save(self):
         import tempfile
+
         try:
-            data = {
-                "accounts": [a.to_dict() for a in self._accounts],
-                "current_account_id": self._current_account_id,
-            }
+            data = {"accounts": [a.to_dict() for a in self._accounts], "current_account_id": self._current_account_id}
             content = json.dumps(data, indent=2, ensure_ascii=False)
 
-            fd, tmp_path = tempfile.mkstemp(
-                dir=str(self._accounts_file.parent), suffix=".tmp"
-            )
+            fd, tmp_path = tempfile.mkstemp(dir=str(self._accounts_file.parent), suffix=".tmp")
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(content)
@@ -768,9 +722,9 @@ class GlobalAccountSystem:
                 except Exception:
                     pass
                 raise
-            logger.info(f"\u5DF2\u4FDD\u5B58 {len(self._accounts)} \u4E2A\u8D26\u53F7")
+            logger.info(f"\u5df2\u4fdd\u5b58 {len(self._accounts)} \u4e2a\u8d26\u53f7")
         except Exception as e:
-            logger.error(f"\u4FDD\u5B58\u8D26\u53F7\u6587\u4EF6\u5931\u8D25: {e}")
+            logger.error(f"\u4fdd\u5b58\u8d26\u53f7\u6587\u4ef6\u5931\u8d25: {e}")
 
     def get_account(self, account_id: str) -> Optional[Account]:
         for acc in self._accounts:
@@ -810,11 +764,11 @@ class GlobalAccountSystem:
 
     def set_current_account(self, account_id: str) -> bool:
         if not self.get_account(account_id):
-            logger.warning(f"\u8D26\u53F7 {account_id} \u4E0D\u5B58\u5728")
+            logger.warning(f"\u8d26\u53f7 {account_id} \u4e0d\u5b58\u5728")
             return False
         self._current_account_id = account_id
         self._save()
-        logger.info(f"\u5DF2\u5207\u6362\u5F53\u524D\u8D26\u53F7: {account_id}")
+        logger.info(f"\u5df2\u5207\u6362\u5f53\u524d\u8d26\u53f7: {account_id}")
         return True
 
     def microsoft_login(self, status_callback: Optional[Callable[[str], None]] = None) -> Optional[Account]:
@@ -824,9 +778,7 @@ class GlobalAccountSystem:
             self.set_current_account(account.id)
         return account
 
-    def microsoft_device_code_login(
-        self, status_callback: Optional[Callable[[str], None]] = None
-    ) -> Optional[Account]:
+    def microsoft_device_code_login(self, status_callback: Optional[Callable[[str], None]] = None) -> Optional[Account]:
         account = self._microsoft_login.login_device_code(status_callback=status_callback)
         if account:
             self.add_account(account)
@@ -834,11 +786,7 @@ class GlobalAccountSystem:
         return account
 
     def yggdrasil_login(
-        self,
-        server_url: str,
-        username: str,
-        password: str,
-        status_callback: Optional[Callable[[str], None]] = None,
+        self, server_url: str, username: str, password: str, status_callback: Optional[Callable[[str], None]] = None
     ) -> Optional[Account]:
         account = self._yggdrasil_login.login(server_url, username, password, status_callback=status_callback)
         if account:
@@ -868,7 +816,9 @@ class GlobalAccountSystem:
             if target.is_token_expired():
                 success = self._microsoft_login.refresh_token(target)
                 if not success:
-                    logger.warning(f"\u5FAE\u8F6F\u8D26\u53F7 {target.name} Token \u65E0\u6548\u4E14\u5237\u65B0\u5931\u8D25")
+                    logger.warning(
+                        f"\u5fae\u8f6f\u8d26\u53f7 {target.name} Token \u65e0\u6548\u4e14\u5237\u65b0\u5931\u8d25"
+                    )
                 else:
                     self._save()
         return target
@@ -881,16 +831,16 @@ class GlobalAccountSystem:
             if not acc.refresh_token:
                 continue
             if acc.is_token_expired(buffer_seconds=600):
-                logger.info(f"\u6B63\u5728\u81EA\u52A8\u5237\u65B0\u5FAE\u8F6F\u8D26\u53F7 {acc.name} \u7684 Token...")
+                logger.info(f"\u6b63\u5728\u81ea\u52a8\u5237\u65b0\u5fae\u8f6f\u8d26\u53f7 {acc.name} \u7684 Token...")
                 success = self._microsoft_login.refresh_token(acc)
                 if success:
                     count += 1
-                    logger.info(f"\u5FAE\u8F6F\u8D26\u53F7 {acc.name} Token \u81EA\u52A8\u5237\u65B0\u6210\u529F")
+                    logger.info(f"\u5fae\u8f6f\u8d26\u53f7 {acc.name} Token \u81ea\u52a8\u5237\u65b0\u6210\u529f")
                 else:
-                    logger.warning(f"\u5FAE\u8F6F\u8D26\u53F7 {acc.name} Token \u81EA\u52A8\u5237\u65B0\u5931\u8D25")
+                    logger.warning(f"\u5fae\u8f6f\u8d26\u53f7 {acc.name} Token \u81ea\u52a8\u5237\u65b0\u5931\u8d25")
         if count > 0:
             self._save()
-            logger.info(f"\u81EA\u52A8\u5237\u65B0\u5B8C\u6210: {count} \u4E2A\u8D26\u53F7 Token \u5DF2\u66F4\u65B0")
+            logger.info(f"\u81ea\u52a8\u5237\u65b0\u5b8c\u6210: {count} \u4e2a\u8d26\u53f7 Token \u5df2\u66f4\u65b0")
         return count
 
     def build_launch_options(self, account: Optional[Account] = None) -> dict:
@@ -899,30 +849,14 @@ class GlobalAccountSystem:
             return {}
 
         if target.account_type == AccountType.MICROSOFT:
-            return {
-                "username": target.name,
-                "uuid": target.uuid or target.id,
-                "token": target.access_token or "0",
-            }
+            return {"username": target.name, "uuid": target.uuid or target.id, "token": target.access_token or "0"}
         elif target.account_type == AccountType.YGGDRASIL:
-            return {
-                "username": target.name,
-                "uuid": target.uuid or target.id,
-                "token": target.access_token or "0",
-            }
+            return {"username": target.name, "uuid": target.uuid or target.id, "token": target.access_token or "0"}
         elif target.account_type == AccountType.OFFLINE:
-            return {
-                "username": target.name,
-                "uuid": target.uuid or target.id,
-            }
+            return {"username": target.name, "uuid": target.uuid or target.id}
         return {}
 
-    def build_launch_command(
-        self,
-        target_version: str,
-        mc_dir: str,
-        account: Optional[Account] = None,
-    ) -> List[str]:
+    def build_launch_command(self, target_version: str, mc_dir: str, account: Optional[Account] = None) -> List[str]:
         import minecraft_launcher_lib
 
         target = account or self.current_account
@@ -935,12 +869,12 @@ class GlobalAccountSystem:
             if self._authlib_manager.is_installed:
                 return self._authlib_manager.build_launch_command(target_version, mc_dir, target)
             else:
-                logger.warning("authlib-injector \u672A\u5B89\u88C5\uFF0C\u4F7F\u7528\u666E\u901A\u65B9\u5F0F\u542F\u52A8 Yggdrasil \u8D26\u53F7")
+                logger.warning(
+                    "authlib-injector \u672a\u5b89\u88c5\uff0c\u4f7f\u7528\u666e\u901a\u65b9\u5f0f\u542f\u52a8 Yggdrasil \u8d26\u53f7"
+                )
 
         options = self.build_launch_options(target)
-        return minecraft_launcher_lib.command.get_minecraft_command(
-            target_version, mc_dir, options
-        )
+        return minecraft_launcher_lib.command.get_minecraft_command(target_version, mc_dir, options)
 
     def export_accounts(self, password: str, account_ids: Optional[List[str]] = None) -> Optional[bytes]:
         from cryptography.fernet import Fernet
@@ -973,7 +907,7 @@ class GlobalAccountSystem:
             import_marker = b"FMCL_ACCOUNTS_V1\n"
             return import_marker + encrypted
         except Exception as e:
-            logger.error(f"\u5BFC\u51FA\u8D26\u53F7\u52A0\u5BC6\u5931\u8D25: {e}")
+            logger.error(f"\u5bfc\u51fa\u8d26\u53f7\u52a0\u5bc6\u5931\u8d25: {e}")
             return None
 
     def import_accounts(self, password: str, data: bytes, merge: bool = True) -> int:
@@ -984,10 +918,10 @@ class GlobalAccountSystem:
 
         marker = b"FMCL_ACCOUNTS_V1\n"
         if not data.startswith(marker):
-            logger.error("\u65E0\u6548\u7684\u8D26\u53F7\u5BFC\u51FA\u6587\u4EF6\u683C\u5F0F")
+            logger.error("\u65e0\u6548\u7684\u8d26\u53f7\u5bfc\u51fa\u6587\u4ef6\u683c\u5f0f")
             return -1
 
-        encrypted = data[len(marker):]
+        encrypted = data[len(marker) :]
 
         salt = b"FMCL_ACCOUNT_EXPORT_SALT_v1"
         derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 600000)
@@ -998,10 +932,10 @@ class GlobalAccountSystem:
             plaintext = cipher.decrypt(encrypted)
             export_data = json.loads(plaintext.decode("utf-8"))
         except InvalidToken:
-            logger.error("\u5BFC\u5165\u8D26\u53F7\u5931\u8D25: \u5BC6\u7801\u9519\u8BEF")
+            logger.error("\u5bfc\u5165\u8d26\u53f7\u5931\u8d25: \u5bc6\u7801\u9519\u8bef")
             return -1
         except Exception as e:
-            logger.error(f"\u5BFC\u5165\u8D26\u53F7\u89E3\u5BC6\u5931\u8D25: {e}")
+            logger.error(f"\u5bfc\u5165\u8d26\u53f7\u89e3\u5bc6\u5931\u8d25: {e}")
             return -1
 
         imported_count = 0
@@ -1021,7 +955,7 @@ class GlobalAccountSystem:
             imported_count += 1
 
         self._save()
-        logger.info(f"\u5BFC\u5165\u8D26\u53F7\u5B8C\u6210: {imported_count} \u4E2A")
+        logger.info(f"\u5bfc\u5165\u8d26\u53f7\u5b8c\u6210: {imported_count} \u4e2a")
         return imported_count
 
 

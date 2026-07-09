@@ -7,10 +7,11 @@ AI 通过此工具创建和维护结构化任务列表，
 
 import json
 import os
-from typing import Dict, List, Optional, Callable
+from typing import Callable, Dict, List, Optional
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, CATEGORY_SYSTEM
+from ui.agent.tools.base import CATEGORY_SYSTEM, ToolInfo
 
 
 def _build_todo_write_tool() -> ToolInfo:
@@ -26,14 +27,8 @@ def _build_todo_write_tool() -> ToolInfo:
                     "items": {
                         "type": "object",
                         "properties": {
-                            "id": {
-                                "type": "string",
-                                "description": "任务唯一标识",
-                            },
-                            "content": {
-                                "type": "string",
-                                "description": "任务描述/内容",
-                            },
+                            "id": {"type": "string", "description": "任务唯一标识"},
+                            "content": {"type": "string", "description": "任务描述/内容"},
                             "status": {
                                 "type": "string",
                                 "enum": ["pending", "in_progress", "completed"],
@@ -48,7 +43,7 @@ def _build_todo_write_tool() -> ToolInfo:
                         "required": ["content", "status", "id", "priority"],
                     },
                     "description": "更新后的完整任务列表",
-                },
+                }
             },
             "required": ["todos"],
         },
@@ -80,12 +75,14 @@ def _todo_write(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
         priority = t.get("priority", "medium")
         if priority not in valid_priorities:
             priority = "medium"
-        valid_todos.append({
-            "id": t.get("id", f"todo_{len(valid_todos) + 1}"),
-            "content": content,
-            "status": status,
-            "priority": priority,
-        })
+        valid_todos.append(
+            {
+                "id": t.get("id", f"todo_{len(valid_todos) + 1}"),
+                "content": content,
+                "status": status,
+                "priority": priority,
+            }
+        )
 
     # 获取会话 ID 用于持久化
     session_id = _get_session_id(callbacks)

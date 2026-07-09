@@ -5,13 +5,14 @@
 """
 
 import json
-import urllib.request
 import urllib.error
+import urllib.request
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Generator, Callable
+from typing import Callable, Dict, Generator, List, Optional
+
 from logzero import logger
 
-from ui.agent.models import ModelInfo, get_models_by_provider, get_default_model
+from ui.agent.models import ModelInfo, get_default_model, get_models_by_provider
 
 
 class BaseProvider(ABC):
@@ -23,11 +24,7 @@ class BaseProvider(ABC):
     default_api_url: str = ""
 
     def __init__(
-        self,
-        api_key: str,
-        api_url: str = "",
-        timeout: int = 120,
-        extra_headers: Optional[Dict[str, str]] = None,
+        self, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None
     ):
         self.api_key = api_key
         self.api_url = api_url or self.default_api_url
@@ -78,11 +75,7 @@ class BaseProvider(ABC):
 
     @classmethod
     def from_config(
-        cls,
-        api_key: str,
-        api_url: str = "",
-        timeout: int = 120,
-        extra_headers: Optional[Dict[str, str]] = None,
+        cls, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None
     ):
         return cls(api_key=api_key, api_url=api_url, timeout=timeout, extra_headers=extra_headers)
 
@@ -94,11 +87,9 @@ class BaseProvider(ABC):
             {"ok": True/False, "message": "...", "models": [...]}
         """
         try:
-            req_data = json.dumps({
-                "model": "gpt-3.5-turbo",
-                "messages": [{"role": "user", "content": "hi"}],
-                "max_tokens": 1,
-            }).encode("utf-8")
+            req_data = json.dumps(
+                {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1}
+            ).encode("utf-8")
 
             url = api_url.rstrip("/") + "/chat/completions"
             req = urllib.request.Request(

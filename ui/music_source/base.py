@@ -1,9 +1,10 @@
 """音乐源基类 - 所有音源插件必须继承此基类"""
+
 import abc
-import time
 import logging
+import time
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Callable
+from typing import Callable, Dict, List, Optional
 
 import requests
 
@@ -21,6 +22,7 @@ RETRY_BASE_DELAY = 1.0
 
 class QualityLevel:
     """音质等级常量"""
+
     LOW = "128k"
     MEDIUM = "320k"
     HIGH = "flac"
@@ -39,18 +41,19 @@ class QualityLevel:
 @dataclass
 class MusicInfo:
     """歌曲信息数据结构"""
-    name: str                    # 歌曲名
-    singer: str                  # 歌手名
-    source: str                  # 来源标识 (kw/kg/mg/tx/wy)
-    songmid: str                 # 歌曲ID
-    album_name: str = ""         # 专辑名
-    album_id: str = ""           # 专辑ID
-    interval: int = 0            # 时长(秒)
-    img: Optional[str] = None    # 封面图URL
-    lrc: Optional[str] = None    # 歌词
+
+    name: str  # 歌曲名
+    singer: str  # 歌手名
+    source: str  # 来源标识 (kw/kg/mg/tx/wy)
+    songmid: str  # 歌曲ID
+    album_name: str = ""  # 专辑名
+    album_id: str = ""  # 专辑ID
+    interval: int = 0  # 时长(秒)
+    img: Optional[str] = None  # 封面图URL
+    lrc: Optional[str] = None  # 歌词
     types: List[Dict] = field(default_factory=list)  # 可用音质列表
-    _types: Dict = field(default_factory=dict)        # 音质详情 (hash/size)
-    type_url: Dict = field(default_factory=dict)      # 音质URL缓存
+    _types: Dict = field(default_factory=dict)  # 音质详情 (hash/size)
+    type_url: Dict = field(default_factory=dict)  # 音质URL缓存
     other_source: Optional[str] = None  # 备用源
 
     def __repr__(self):
@@ -130,21 +133,31 @@ class BaseMusicSource(abc.ABC):
 
     # ── HTTP 辅助方法 ─────────────────────────────────
 
-    def http_get(self, url: str, headers: Optional[Dict] = None,
-                 timeout: int = DEFAULT_TIMEOUT,
-                 retries: int = MAX_RETRIES, **kwargs) -> requests.Response:
+    def http_get(
+        self,
+        url: str,
+        headers: Optional[Dict] = None,
+        timeout: int = DEFAULT_TIMEOUT,
+        retries: int = MAX_RETRIES,
+        **kwargs,
+    ) -> requests.Response:
         """带重试的GET请求"""
-        return self._request("GET", url, headers=headers, timeout=timeout,
-                             retries=retries, **kwargs)
+        return self._request("GET", url, headers=headers, timeout=timeout, retries=retries, **kwargs)
 
-    def http_post(self, url: str, data: Optional[Dict] = None,
-                  json: Optional[Dict] = None, headers: Optional[Dict] = None,
-                  timeout: int = DEFAULT_TIMEOUT,
-                  retries: int = MAX_RETRIES, **kwargs) -> requests.Response:
+    def http_post(
+        self,
+        url: str,
+        data: Optional[Dict] = None,
+        json: Optional[Dict] = None,
+        headers: Optional[Dict] = None,
+        timeout: int = DEFAULT_TIMEOUT,
+        retries: int = MAX_RETRIES,
+        **kwargs,
+    ) -> requests.Response:
         """带重试的POST请求"""
-        return self._request("POST", url, data=data, json=json,
-                             headers=headers, timeout=timeout,
-                             retries=retries, **kwargs)
+        return self._request(
+            "POST", url, data=data, json=json, headers=headers, timeout=timeout, retries=retries, **kwargs
+        )
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         retries = kwargs.pop("retries", MAX_RETRIES)
@@ -157,7 +170,7 @@ class BaseMusicSource(abc.ABC):
             except requests.RequestException as e:
                 last_error = e
                 if attempt < retries:
-                    delay = RETRY_BASE_DELAY * (2 ** attempt)
+                    delay = RETRY_BASE_DELAY * (2**attempt)
                     logger.debug(f"[{self.source_id}] 请求重试 {attempt + 1}/{retries}: {url} (delay={delay}s)")
                     time.sleep(delay)
         raise last_error

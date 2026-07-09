@@ -14,11 +14,12 @@
     parser.parse(raw_lrc_text)
     current_line = parser.get_line_at(55000)  # 获取55秒处的歌词行
 """
-import re
+
 import logging
+import re
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Tuple
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger("music_lyrics")
 
@@ -26,9 +27,10 @@ logger = logging.getLogger("music_lyrics")
 @dataclass
 class LyricWord:
     """单个字/词的逐字歌词信息"""
-    text: str = ""                # 文本
-    start: int = 0                # 起始时间 (毫秒)
-    duration: int = 0             # 持续时间 (毫秒)
+
+    text: str = ""  # 文本
+    start: int = 0  # 起始时间 (毫秒)
+    duration: int = 0  # 持续时间 (毫秒)
 
     def __repr__(self):
         return f"LyricWord({self.text!r}, {self.start}ms, +{self.duration}ms)"
@@ -37,12 +39,13 @@ class LyricWord:
 @dataclass
 class LyricLine:
     """一行歌词"""
-    text: str = ""                # 原始文本
-    time: int = 0                 # 起始时间 (毫秒)
-    translation: str = ""         # 翻译文本
-    roma: str = ""                # 罗马音
+
+    text: str = ""  # 原始文本
+    time: int = 0  # 起始时间 (毫秒)
+    translation: str = ""  # 翻译文本
+    roma: str = ""  # 罗马音
     words: List[LyricWord] = field(default_factory=list)  # 逐字歌词列表
-    is_word_based: bool = False   # 是否为逐字歌词
+    is_word_based: bool = False  # 是否为逐字歌词
 
     @property
     def end_time(self) -> int:
@@ -178,12 +181,7 @@ class LyricParser:
                 if time_ms < 0:
                     time_ms = 0
 
-                lyric_line = LyricLine(
-                    text=plain_text,
-                    time=time_ms,
-                    words=words,
-                    is_word_based=len(words) > 0,
-                )
+                lyric_line = LyricLine(text=plain_text, time=time_ms, words=words, is_word_based=len(words) > 0)
                 result.append(lyric_line)
             except (ValueError, TypeError):
                 continue
@@ -220,11 +218,7 @@ class LyricParser:
                 # 为每个字符创建LyricWord (若没有对应的时间标签则用默认值)
                 word_start = last_end
                 for ch in char_text:
-                    words.append(LyricWord(
-                        text=ch,
-                        start=word_start,
-                        duration=300,  # 默认每个字300ms
-                    ))
+                    words.append(LyricWord(text=ch, start=word_start, duration=300))  # 默认每个字300ms
                     word_start += 300
                 last_end = word_start
 

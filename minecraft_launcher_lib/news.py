@@ -7,10 +7,13 @@ news includes functions to retrieve news about Minecraft using the official API 
 .. warning::
     The format of the data returned by this API may change at any time
 """
-from .types import MinecraftNews, JavaPatchNotes
-from ._helper import get_user_agent
+
 import datetime
+
 import requests
+
+from ._helper import get_user_agent
+from .types import JavaPatchNotes, MinecraftNews
 
 
 def get_minecraft_news() -> MinecraftNews:
@@ -54,4 +57,6 @@ def get_java_patch_notes() -> JavaPatchNotes:
 
     :return: The patch notes
     """
-    return requests.get("https://launchercontent.mojang.com/javaPatchNotes.json", headers={"user-agent": get_user_agent()}).json()
+    return requests.get(
+        "https://launchercontent.mojang.com/javaPatchNotes.json", headers={"user-agent": get_user_agent()}
+    ).json()

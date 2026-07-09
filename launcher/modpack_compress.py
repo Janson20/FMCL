@@ -33,7 +33,7 @@ class CompressPackMixin:
         if not os.path.isfile(zip_path):
             raise ValueError(f"文件不存在: {zip_path}")
 
-        from launcher.modpack_types import detect_modpack_archive, ModpackType
+        from launcher.modpack_types import ModpackType, detect_modpack_archive
 
         detection = detect_modpack_archive(zip_path)
         if detection.pack_type not in (ModpackType.GENERIC, ModpackType.LAUNCHER_PACK):
@@ -82,19 +82,12 @@ class CompressPackMixin:
             "mc_version": mc_version,
             "format": "compress",
             "summary": f"通用压缩包, MC {mc_version}",
-            "description": (
-                f"检测到 .minecraft 目录结构。"
-                f"将把内容提取到 versions/{instance_name}/ 下。"
-            ),
+            "description": (f"检测到 .minecraft 目录结构。" f"将把内容提取到 versions/{instance_name}/ 下。"),
         }
 
     # ─── 安装 ──────────────────────────────────────────────────
 
-    def install_compress_pack(
-        self,
-        zip_path: str,
-        instance_name: Optional[str] = None,
-    ) -> Tuple[bool, str]:
+    def install_compress_pack(self, zip_path: str, instance_name: Optional[str] = None) -> Tuple[bool, str]:
         """
         安装通用压缩包
 
@@ -152,7 +145,7 @@ class CompressPackMixin:
                     if info.file_size == 0 or info.is_dir():
                         continue
 
-                    rel_path = normalized[len(mc_prefix_norm):]
+                    rel_path = normalized[len(mc_prefix_norm) :]
                     if not rel_path:
                         continue
 
@@ -174,16 +167,13 @@ class CompressPackMixin:
         except Exception as e:
             logger.error(f"通用压缩包安装失败: {e}")
             try:
-                if 'version_dir' in locals() and os.path.isdir(version_dir):
+                if "version_dir" in locals() and os.path.isdir(version_dir):
                     shutil.rmtree(version_dir)
             except Exception:
                 pass
             return False, str(e)
 
-    def install_launcher_pack(
-        self,
-        zip_path: str,
-    ) -> Tuple[bool, str]:
+    def install_launcher_pack(self, zip_path: str) -> Tuple[bool, str]:
         """
         安装带启动器的压缩包
 
@@ -214,6 +204,7 @@ class CompressPackMixin:
 
             # 提取内嵌文件到临时目录
             import tempfile
+
             tmp_dir = tempfile.mkdtemp(prefix="fmcl_launcherpack_")
             inner_path = os.path.join(tmp_dir, os.path.basename(inner_file))
 

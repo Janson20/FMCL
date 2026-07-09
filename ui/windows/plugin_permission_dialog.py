@@ -4,15 +4,15 @@ from typing import List, Optional
 
 import customtkinter as ctk
 
-from ui.constants import COLORS, FONT_FAMILY
-from ui.i18n import _
 from plugin_manager.permissions import (
-    PluginPermission,
     PermissionRiskLevel,
+    PluginPermission,
     classify_permissions,
     get_permission_display_key,
     get_permission_risk,
 )
+from ui.constants import COLORS, FONT_FAMILY
+from ui.i18n import _
 
 # 风险等级颜色
 RISK_COLORS = {
@@ -36,13 +36,7 @@ class PluginPermissionDialog(ctk.CTkToplevel):
         result = dialog.get_result()  # True/False
     """
 
-    def __init__(
-        self,
-        parent,
-        plugin_name: str,
-        permissions: List[str],
-        title: Optional[str] = None,
-    ):
+    def __init__(self, parent, plugin_name: str, permissions: List[str], title: Optional[str] = None):
         super().__init__(parent)
         self._result: bool = False
 
@@ -103,12 +97,7 @@ class PluginPermissionDialog(ctk.CTkToplevel):
         ).pack(anchor=ctk.W, padx=20, pady=(0, 12))
 
         # ── 可滚动权限列表 ──
-        scroll_frame = ctk.CTkScrollableFrame(
-            self,
-            fg_color=COLORS["bg_medium"],
-            width=480,
-            height=280,
-        )
+        scroll_frame = ctk.CTkScrollableFrame(self, fg_color=COLORS["bg_medium"], width=480, height=280)
         scroll_frame.pack(fill=ctk.BOTH, expand=True, padx=20, pady=(0, 12))
 
         # 按风险等级从高到低排列
@@ -144,20 +133,13 @@ class PluginPermissionDialog(ctk.CTkToplevel):
 
             # 权限项
             for perm in perms:
-                item_frame = ctk.CTkFrame(
-                    scroll_frame,
-                    fg_color=COLORS["card_bg"],
-                    corner_radius=6,
-                )
+                item_frame = ctk.CTkFrame(scroll_frame, fg_color=COLORS["card_bg"], corner_radius=6)
                 item_frame.pack(fill=ctk.X, padx=4, pady=2)
 
                 # 左侧颜色条
-                ctk.CTkFrame(
-                    item_frame,
-                    fg_color=risk_color,
-                    width=3,
-                    corner_radius=2,
-                ).pack(side=ctk.LEFT, fill=ctk.Y, padx=(0, 8))
+                ctk.CTkFrame(item_frame, fg_color=risk_color, width=3, corner_radius=2).pack(
+                    side=ctk.LEFT, fill=ctk.Y, padx=(0, 8)
+                )
 
                 # 权限名称
                 ctk.CTkLabel(

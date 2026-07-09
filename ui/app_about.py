@@ -1,4 +1,5 @@
 """ModernApp 关于 Mixin - 关于标签页（markdown→HTML 渲染）"""
+
 import sys
 from pathlib import Path
 
@@ -109,7 +110,7 @@ th {
 
 
 def _get_terms_md_path() -> Path:
-    if getattr(sys, 'frozen', False):
+    if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS) / "TERMS_OF_USE.md"
     return Path(__file__).parent.parent / "TERMS_OF_USE.md"
 
@@ -126,11 +127,7 @@ def _load_terms_md() -> str:
 
 
 def _md_to_html(md_text: str) -> str:
-    body_html = markdown.markdown(
-        md_text,
-        extensions=["extra", "codehilite", "fenced_code"],
-        output_format="html5",
-    )
+    body_html = markdown.markdown(md_text, extensions=["extra", "codehilite", "fenced_code"], output_format="html5")
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="utf-8"><style>{_TERMS_DARK_CSS}</style></head>

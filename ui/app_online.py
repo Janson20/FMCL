@@ -1,25 +1,25 @@
 """ModernApp 联机 Mixin - 陶瓦联机标签页相关方法"""
-import os
-import re
-import io
-import sys
-import json
-import time
-import socket
-import struct
-import secrets
-import hashlib
-import zipfile
-import shutil
-import subprocess
-import threading
-import platform
-import urllib.request
-import urllib.error
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import enum
+import hashlib
+import io
+import json
+import os
+import platform
+import re
+import secrets
+import shutil
+import socket
+import struct
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+import zipfile
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
 from logzero import logger
@@ -27,7 +27,6 @@ from logzero import logger
 from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
 from ui.dialogs import show_notification
 from ui.i18n import _
-
 
 EASYTIER_VERSION = "2.5.0"
 EASYTIER_BASE_URL = "https://easytier.jingdu.qzz.io/download/v{version}/easytier-windows-x86_64-v{version}.zip"
@@ -81,8 +80,9 @@ def _get_easytier_base_dir() -> Path:
 class LobbyInfo:
     __slots__ = ("full_code", "network_name", "network_secret", "minecraft_port", "is_host")
 
-    def __init__(self, full_code: str, network_name: str, network_secret: str,
-                 minecraft_port: int = 0, is_host: bool = False):
+    def __init__(
+        self, full_code: str, network_name: str, network_secret: str, minecraft_port: int = 0, is_host: bool = False
+    ):
         self.full_code = full_code
         self.network_name = network_name
         self.network_secret = network_secret
@@ -113,10 +113,10 @@ class LobbyCodeGenerator:
         for i, ch in enumerate(cls.CHARS):
             cls._CHAR_TO_VALUE[ch] = i
             cls._CHAR_TO_VALUE[ch.lower()] = i
-        cls._CHAR_TO_VALUE['I'] = 1
-        cls._CHAR_TO_VALUE['i'] = 1
-        cls._CHAR_TO_VALUE['O'] = 0
-        cls._CHAR_TO_VALUE['o'] = 0
+        cls._CHAR_TO_VALUE["I"] = 1
+        cls._CHAR_TO_VALUE["i"] = 1
+        cls._CHAR_TO_VALUE["O"] = 0
+        cls._CHAR_TO_VALUE["o"] = 0
 
     @classmethod
     def generate(cls) -> LobbyInfo:
@@ -136,19 +136,18 @@ class LobbyCodeGenerator:
             temp_chars.append(cls.CHARS[val % cls.BASE_VAL])
             val //= cls.BASE_VAL
         payload = (
-            "".join(temp_chars[0:4]) + "-"
-            + "".join(temp_chars[4:8]) + "-"
-            + "".join(temp_chars[8:12]) + "-"
+            "".join(temp_chars[0:4])
+            + "-"
+            + "".join(temp_chars[4:8])
+            + "-"
+            + "".join(temp_chars[8:12])
+            + "-"
             + "".join(temp_chars[12:16])
         )
         full_code = cls.FULL_CODE_PREFIX + payload
         network_name = cls.NETWORK_NAME_PREFIX + payload[:9]
         network_secret = payload[10:]
-        return LobbyInfo(
-            full_code=full_code,
-            network_name=network_name,
-            network_secret=network_secret,
-        )
+        return LobbyInfo(full_code=full_code, network_name=network_name, network_secret=network_secret)
 
     @classmethod
     def try_parse(cls, input_str: str) -> Optional[LobbyInfo]:
@@ -158,10 +157,10 @@ class LobbyCodeGenerator:
         upper = input_str.upper()
         if len(upper) != cls.CODE_LENGTH:
             return None
-        payload = upper[len(cls.FULL_CODE_PREFIX):]
+        payload = upper[len(cls.FULL_CODE_PREFIX) :]
         values = []
         for i, ch in enumerate(payload):
-            if ch == '-':
+            if ch == "-":
                 if i not in (4, 9, 14):
                     return None
                 continue
@@ -177,11 +176,7 @@ class LobbyCodeGenerator:
             return None
         network_name = cls.NETWORK_NAME_PREFIX + payload[:9]
         network_secret = payload[10:]
-        return LobbyInfo(
-            full_code=upper,
-            network_name=network_name,
-            network_secret=network_secret,
-        )
+        return LobbyInfo(full_code=upper, network_name=network_name, network_secret=network_secret)
 
     @classmethod
     def try_parse_terracotta(cls, input_str: str) -> Optional[LobbyInfo]:
@@ -220,12 +215,7 @@ class LobbyCodeGenerator:
 
         network_name = "terracotta-mc-" + code_str[:15].lower()
         network_secret = code_str[15:25].lower()
-        return LobbyInfo(
-            full_code=code,
-            network_name=network_name,
-            network_secret=network_secret,
-            minecraft_port=port,
-        )
+        return LobbyInfo(full_code=code, network_name=network_name, network_secret=network_secret, minecraft_port=port)
 
 
 class ScaffoldingServer:
@@ -245,12 +235,7 @@ class ScaffoldingServer:
         self._guests_lock = threading.Lock()
         self._host_mid = _get_machine_id()
         vendor = _get_vendor()
-        self._host_profile = {
-            "name": player_name,
-            "machine_id": self._host_mid,
-            "vendor": vendor,
-            "kind": "HOST",
-        }
+        self._host_profile = {"name": player_name, "machine_id": self._host_mid, "vendor": vendor, "kind": "HOST"}
         self.on_profiles_changed: Optional[Callable[[list], None]] = None
 
     @property
@@ -304,11 +289,7 @@ class ScaffoldingServer:
             try:
                 self._server.settimeout(1.0)
                 client, addr = self._server.accept()
-                threading.Thread(
-                    target=self._handle_client,
-                    args=(client, addr),
-                    daemon=True,
-                ).start()
+                threading.Thread(target=self._handle_client, args=(client, addr), daemon=True).start()
             except socket.timeout:
                 continue
             except Exception:
@@ -333,10 +314,7 @@ class ScaffoldingServer:
 
                 if removed:
                     for guest in removed:
-                        logger.info(
-                            "ScaffoldingServer: player '%s' timed out and was removed",
-                            guest.get("name", "?"),
-                        )
+                        logger.info("ScaffoldingServer: player '%s' timed out and was removed", guest.get("name", "?"))
                     self._notify_profiles_changed()
             except Exception as e:
                 if self._running:
@@ -383,8 +361,8 @@ class ScaffoldingServer:
         header_size = 1 + type_len + 4
         if len(buf) < header_size:
             return False
-        type_str = buf[1:1 + type_len].decode("utf-8")
-        body_len = struct.unpack(">I", buf[1 + type_len:header_size])[0]
+        type_str = buf[1 : 1 + type_len].decode("utf-8")
+        body_len = struct.unpack(">I", buf[1 + type_len : header_size])[0]
         if body_len > 65536:
             return False
         total_size = header_size + body_len
@@ -443,10 +421,7 @@ class ScaffoldingServer:
                         }
                         self._guests[mid] = guest_info
                     if not mid_existed:
-                        logger.info(
-                            "ScaffoldingServer: new player '%s' connected",
-                            info.get("name", "?"),
-                        )
+                        logger.info("ScaffoldingServer: new player '%s' connected", info.get("name", "?"))
                         self._notify_profiles_changed()
         except Exception:
             pass
@@ -545,11 +520,7 @@ class ScaffoldingClient:
         return None
 
     def _send_ping(self):
-        body = {
-            "name": self._player_name,
-            "machine_id": self._machine_id,
-            "vendor": self._vendor,
-        }
+        body = {"name": self._player_name, "machine_id": self._machine_id, "vendor": self._vendor}
         self._send_request("c:player_ping", body)
 
     def _fetch_profiles(self):
@@ -665,9 +636,7 @@ class EasyTierManager:
 
     @property
     def is_installed(self) -> bool:
-        return (self._core_path.exists()
-                and self._cli_path.exists()
-                and self._packet_dll.exists())
+        return self._core_path.exists() and self._cli_path.exists() and self._packet_dll.exists()
 
     @property
     def is_running(self) -> bool:
@@ -764,14 +733,8 @@ class EasyTierManager:
         dynamic_nodes = self._fetch_dynamic_nodes()
         if dynamic_nodes:
             nodes.extend(dynamic_nodes)
-        nodes.extend([
-            "https://etnode.zkitefly.eu.org/node1",
-            "https://etnode.zkitefly.eu.org/node2",
-        ])
-        nodes.extend([
-            "tcp://public.easytier.top:11010",
-            "tcp://public2.easytier.cn:54321",
-        ])
+        nodes.extend(["https://etnode.zkitefly.eu.org/node1", "https://etnode.zkitefly.eu.org/node2"])
+        nodes.extend(["tcp://public.easytier.top:11010", "tcp://public2.easytier.cn:54321"])
         return nodes
 
     @staticmethod
@@ -796,9 +759,15 @@ class EasyTierManager:
             logger.debug(f"Failed to fetch dynamic relay nodes: {e}")
             return []
 
-    def launch(self, lobby: LobbyInfo, as_host: bool, on_output=None,
-               on_exited=None, player_name: str = "Host",
-               latency_first: bool = True) -> int:
+    def launch(
+        self,
+        lobby: LobbyInfo,
+        as_host: bool,
+        on_output=None,
+        on_exited=None,
+        player_name: str = "Host",
+        latency_first: bool = True,
+    ) -> int:
         if self._running:
             logger.warning("EasyTier is already running")
             return 1
@@ -817,14 +786,22 @@ class EasyTierManager:
             "--use-smoltcp",
             "--disable-sym-hole-punching",
             "--disable-ipv6",
-            "--encryption-algorithm", "aes-gcm",
-            "--default-protocol", "tcp",
-            "--compression", "zstd",
-            "--network-name", lobby.network_name,
-            "--network-secret", lobby.network_secret,
-            "--machine-id", _get_machine_id(),
-            "--rpc-portal", f"127.0.0.1:{self._rpc_port}",
-            "--private-mode", "true",
+            "--encryption-algorithm",
+            "aes-gcm",
+            "--default-protocol",
+            "tcp",
+            "--compression",
+            "zstd",
+            "--network-name",
+            lobby.network_name,
+            "--network-secret",
+            lobby.network_secret,
+            "--machine-id",
+            _get_machine_id(),
+            "--rpc-portal",
+            f"127.0.0.1:{self._rpc_port}",
+            "--private-mode",
+            "true",
             "--p2p-only",
         ]
 
@@ -838,35 +815,39 @@ class EasyTierManager:
                 logger.error("ScaffoldingServer failed to start, aborting")
                 return 1
             logger.info(f"ScaffoldingServer started on port {scf_port}")
-            args.extend([
-                "-i", HOST_VIRTUAL_IP,
-                "--hostname", f"scaffolding-mc-server-{scf_port}",
-            ])
+            args.extend(["-i", HOST_VIRTUAL_IP, "--hostname", f"scaffolding-mc-server-{scf_port}"])
             if lobby.minecraft_port > 0:
-                args.extend([
-                    "--tcp-whitelist", str(scf_port),
-                    "--udp-whitelist", str(scf_port),
-                    "--tcp-whitelist", str(lobby.minecraft_port),
-                    "--udp-whitelist", str(lobby.minecraft_port),
-                ])
+                args.extend(
+                    [
+                        "--tcp-whitelist",
+                        str(scf_port),
+                        "--udp-whitelist",
+                        str(scf_port),
+                        "--tcp-whitelist",
+                        str(lobby.minecraft_port),
+                        "--udp-whitelist",
+                        str(lobby.minecraft_port),
+                    ]
+                )
             else:
-                args.extend([
-                    "--tcp-whitelist", str(scf_port),
-                    "--udp-whitelist", str(scf_port),
-                ])
-            args.extend([
-                "-l", "tcp://0.0.0.0:0",
-                "-l", "udp://0.0.0.0:0",
-            ])
+                args.extend(["--tcp-whitelist", str(scf_port), "--udp-whitelist", str(scf_port)])
+            args.extend(["-l", "tcp://0.0.0.0:0", "-l", "udp://0.0.0.0:0"])
         else:
-            args.extend([
-                "-d",
-                "--hostname", secrets.token_hex(8),
-                "--tcp-whitelist", "0",
-                "--udp-whitelist", "0",
-                "-l", "tcp://0.0.0.0:0",
-                "-l", "udp://0.0.0.0:0",
-            ])
+            args.extend(
+                [
+                    "-d",
+                    "--hostname",
+                    secrets.token_hex(8),
+                    "--tcp-whitelist",
+                    "0",
+                    "--udp-whitelist",
+                    "0",
+                    "-l",
+                    "tcp://0.0.0.0:0",
+                    "-l",
+                    "udp://0.0.0.0:0",
+                ]
+            )
 
         relay_nodes = self._resolve_relay_nodes()
         for relay in relay_nodes:
@@ -883,11 +864,7 @@ class EasyTierManager:
             )
             self._running = True
             logger.info(f"EasyTier launched with PID {self._process.pid}")
-            self._reader_thread = threading.Thread(
-                target=self._read_output,
-                args=(on_output, on_exited),
-                daemon=True,
-            )
+            self._reader_thread = threading.Thread(target=self._read_output, args=(on_output, on_exited), daemon=True)
             self._reader_thread.start()
             return 0
         except Exception as e:
@@ -955,8 +932,10 @@ class EasyTierManager:
                     result = subprocess.run(
                         [
                             str(self._cli_path),
-                            "--rpc-portal", f"127.0.0.1:{self._rpc_port}",
-                            "port-forward", "add",
+                            "--rpc-portal",
+                            f"127.0.0.1:{self._rpc_port}",
+                            "port-forward",
+                            "add",
                             proto,
                             local_addr,
                             f"{target_ip}:{target_port}",
@@ -971,9 +950,7 @@ class EasyTierManager:
                         success_count += 1
                     else:
                         err_msg = result.stderr.strip() or result.stdout.strip()
-                        logger.warning(
-                            f"Port forward {proto} returned {result.returncode}: {err_msg}"
-                        )
+                        logger.warning(f"Port forward {proto} returned {result.returncode}: {err_msg}")
                 except subprocess.TimeoutExpired:
                     logger.warning(f"Port forward {proto} timed out")
                 except Exception as e:
@@ -986,15 +963,11 @@ class EasyTierManager:
                 )
                 return local_port
 
-            logger.warning(
-                f"Port forward retry {attempt + 1}/3: only {success_count}/4 rules succeeded"
-            )
+            logger.warning(f"Port forward retry {attempt + 1}/3: only {success_count}/4 rules succeeded")
             if attempt < 2:
                 time.sleep(3)
 
-        logger.error(
-            f"Port forward to {target_ip}:{target_port} failed after 3 attempts"
-        )
+        logger.error(f"Port forward to {target_ip}:{target_port} failed after 3 attempts")
         return None
 
     def discover_host(self, timeout: float = 25.0) -> Optional[Tuple[str, int]]:
@@ -1006,12 +979,7 @@ class EasyTierManager:
         while time.monotonic() - started < timeout:
             try:
                 proc = subprocess.run(
-                    [
-                        str(self._cli_path),
-                        "--rpc-portal", f"127.0.0.1:{self._rpc_port}",
-                        "-o", "json",
-                        "peer",
-                    ],
+                    [str(self._cli_path), "--rpc-portal", f"127.0.0.1:{self._rpc_port}", "-o", "json", "peer"],
                     capture_output=True,
                     text=True,
                     timeout=8,
@@ -1034,7 +1002,7 @@ class EasyTierManager:
                 for peer in peers:
                     hostname = peer.get("hostname", "")
                     if hostname.startswith("scaffolding-mc-server-"):
-                        port_str = hostname[len("scaffolding-mc-server-"):]
+                        port_str = hostname[len("scaffolding-mc-server-") :]
                         try:
                             scf_port = int(port_str)
                         except ValueError:
@@ -1071,11 +1039,7 @@ class McBroadcastSimulator:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._running = True
-            self._thread = threading.Thread(
-                target=self._broadcast_loop,
-                args=(packet,),
-                daemon=True,
-            )
+            self._thread = threading.Thread(target=self._broadcast_loop, args=(packet,), daemon=True)
             self._thread.start()
             logger.info(f"MC broadcast simulator started on port {local_port}")
         except Exception as e:
@@ -1199,8 +1163,7 @@ class BroadcastListener:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
             self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self._sock.bind(("0.0.0.0", MC_MULTICAST_GROUP[1]))
-            mreq = struct.pack("=4s4s", socket.inet_aton(MC_MULTICAST_GROUP[0]),
-                               socket.inet_aton("0.0.0.0"))
+            mreq = struct.pack("=4s4s", socket.inet_aton(MC_MULTICAST_GROUP[0]), socket.inet_aton("0.0.0.0"))
             self._sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
         except Exception:
             self._sock = None
@@ -1286,8 +1249,7 @@ class GameWatcher:
         if not self._running:
             return
         self._timer = threading.Timer(
-            self._CHECK_INTERVAL if hasattr(self, '_first_check_done') else self._INITIAL_DELAY,
-            self._check
+            self._CHECK_INTERVAL if hasattr(self, "_first_check_done") else self._INITIAL_DELAY, self._check
         )
         self._timer.daemon = True
         self._timer.start()
@@ -1372,7 +1334,9 @@ class TcpPortForwarder:
             self._running = True
             self._thread = threading.Thread(target=self._accept_loop, daemon=True)
             self._thread.start()
-            logger.info(f"TCP forwarder started: {LOOPBACK}:{self._listen_port} -> {self._target_host}:{self._target_port}")
+            logger.info(
+                f"TCP forwarder started: {LOOPBACK}:{self._listen_port} -> {self._target_host}:{self._target_port}"
+            )
         except Exception as e:
             logger.error(f"Failed to start TCP forwarder: {e}")
             self._running = False
@@ -1388,11 +1352,7 @@ class TcpPortForwarder:
                         client.close()
                         continue
                     self._connections.append(client)
-                threading.Thread(
-                    target=self._forward,
-                    args=(client,),
-                    daemon=True,
-                ).start()
+                threading.Thread(target=self._forward, args=(client,), daemon=True).start()
             except socket.timeout:
                 continue
             except Exception:
@@ -1561,9 +1521,7 @@ class OnlineTabMixin(object):
 
     def _build_online_control_panel(self, parent):
         self._online_control_frame = ctk.CTkScrollableFrame(
-            parent,
-            fg_color="transparent",
-            scrollbar_button_color=COLORS["bg_light"],
+            parent, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
         self._online_control_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
 
@@ -1578,7 +1536,9 @@ class OnlineTabMixin(object):
         self._theme_refs.append((self._online_control_frame, {"scrollbar_button_color": "bg_light"}))
 
     def _build_online_env_section(self, parent):
-        card = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
+        card = ctk.CTkFrame(
+            parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"]
+        )
         card.pack(fill=ctk.X, padx=5, pady=5)
 
         inner = ctk.CTkFrame(card, fg_color="transparent")
@@ -1603,12 +1563,9 @@ class OnlineTabMixin(object):
         et_row = ctk.CTkFrame(inner, fg_color="transparent")
         et_row.pack(fill=ctk.X, pady=(0, 8))
 
-        ctk.CTkLabel(
-            et_row,
-            text="📦",
-            font=ctk.CTkFont(size=14),
-            text_color=COLORS["text_secondary"],
-        ).pack(side=ctk.LEFT, padx=(0, 4))
+        ctk.CTkLabel(et_row, text="📦", font=ctk.CTkFont(size=14), text_color=COLORS["text_secondary"]).pack(
+            side=ctk.LEFT, padx=(0, 4)
+        )
 
         self._online_env_et_label = ctk.CTkLabel(
             et_row,
@@ -1634,7 +1591,9 @@ class OnlineTabMixin(object):
         self._theme_refs.append((self._online_env_setup_btn, {"fg_color": "accent", "hover_color": "accent_hover"}))
 
     def _build_online_discover_section(self, parent):
-        card = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
+        card = ctk.CTkFrame(
+            parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"]
+        )
         card.pack(fill=ctk.X, padx=5, pady=5)
 
         inner = ctk.CTkFrame(card, fg_color="transparent")
@@ -1676,7 +1635,7 @@ class OnlineTabMixin(object):
         self._theme_refs.append((self._online_discover_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
 
     def _set_lobby_state(self, new_state: LobbyState):
-        if not hasattr(self, '_lobby_state'):
+        if not hasattr(self, "_lobby_state"):
             self._lobby_state = LobbyState.IDLE
         old = self._lobby_state
         if old == new_state:
@@ -1723,10 +1682,13 @@ class OnlineTabMixin(object):
                 self._online_discover_list_label.configure(text=text)
             elif text not in current:
                 self._online_discover_list_label.configure(text=current + "\n" + text)
+
         self.after(0, _update)
 
     def _build_online_create_section(self, parent):
-        card = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
+        card = ctk.CTkFrame(
+            parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"]
+        )
         card.pack(fill=ctk.X, padx=5, pady=5)
 
         inner = ctk.CTkFrame(card, fg_color="transparent")
@@ -1782,7 +1744,9 @@ class OnlineTabMixin(object):
         self._theme_refs.append((self._online_create_btn, {"fg_color": "success"}))
 
     def _build_online_join_section(self, parent):
-        card = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
+        card = ctk.CTkFrame(
+            parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"]
+        )
         card.pack(fill=ctk.X, padx=5, pady=5)
 
         inner = ctk.CTkFrame(card, fg_color="transparent")
@@ -1833,11 +1797,15 @@ class OnlineTabMixin(object):
         self._online_join_btn.pack(fill=ctk.X, pady=(12, 0))
 
         self._theme_refs.append((card, {"fg_color": "card_bg", "border_color": "card_border"}))
-        self._theme_refs.append((self._online_lobby_code_entry, {"fg_color": "bg_medium", "border_color": "card_border"}))
+        self._theme_refs.append(
+            (self._online_lobby_code_entry, {"fg_color": "bg_medium", "border_color": "card_border"})
+        )
         self._theme_refs.append((self._online_join_btn, {"fg_color": "accent", "hover_color": "accent_hover"}))
 
     def _build_online_lobby_section(self, parent):
-        card = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
+        card = ctk.CTkFrame(
+            parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"]
+        )
         card.pack(fill=ctk.X, padx=5, pady=5)
 
         inner = ctk.CTkFrame(card, fg_color="transparent")
@@ -1860,10 +1828,7 @@ class OnlineTabMixin(object):
         self._online_lobby_code_display_label.pack(anchor=ctk.W, pady=(8, 0))
 
         self._online_lobby_status_label = ctk.CTkLabel(
-            inner,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_secondary"],
+            inner, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_secondary"]
         )
         self._online_lobby_status_label.pack(anchor=ctk.W, pady=(4, 0))
 
@@ -1911,7 +1876,9 @@ class OnlineTabMixin(object):
         self._theme_refs.append((self._online_leave_btn, {"fg_color": "error", "text_color": "text_primary"}))
 
     def _build_online_tips_section(self, parent):
-        card = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
+        card = ctk.CTkFrame(
+            parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"]
+        )
         card.pack(fill=ctk.X, padx=5, pady=5)
 
         inner = ctk.CTkFrame(card, fg_color="transparent")
@@ -1936,7 +1903,9 @@ class OnlineTabMixin(object):
         self._theme_refs.append((card, {"fg_color": "card_bg", "border_color": "card_border"}))
 
     def _build_online_compat_section(self, parent):
-        card = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
+        card = ctk.CTkFrame(
+            parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"]
+        )
         card.pack(fill=ctk.X, padx=5, pady=5)
 
         inner = ctk.CTkFrame(card, fg_color="transparent")
@@ -1961,7 +1930,9 @@ class OnlineTabMixin(object):
         self._theme_refs.append((card, {"fg_color": "card_bg", "border_color": "card_border"}))
 
     def _build_online_output_panel(self, parent):
-        self._online_output_frame = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"])
+        self._online_output_frame = ctk.CTkFrame(
+            parent, fg_color=COLORS["card_bg"], corner_radius=12, border_width=1, border_color=COLORS["card_border"]
+        )
         self._online_output_frame.pack(side=ctk.RIGHT, fill=ctk.BOTH, expand=True, padx=(0, 0))
 
         frame = self._online_output_frame
@@ -1992,9 +1963,7 @@ class OnlineTabMixin(object):
             text_color=COLORS["text_secondary"],
         ).pack(anchor=ctk.W, pady=(2, 0))
 
-        ctk.CTkFrame(frame, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(8, 5)
-        )
+        ctk.CTkFrame(frame, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=15, pady=(8, 5))
 
         self._online_log_text = ctk.CTkTextbox(
             frame,
@@ -2013,7 +1982,12 @@ class OnlineTabMixin(object):
 
         self._theme_refs.append((self._online_output_frame, {"fg_color": "card_bg", "border_color": "card_border"}))
         self._theme_refs.append((self._online_status_label, {"text_color": "text_secondary"}))
-        self._theme_refs.append((self._online_log_text, {"fg_color": "bg_dark", "border_color": "card_border", "text_color": "text_primary"}))
+        self._theme_refs.append(
+            (
+                self._online_log_text,
+                {"fg_color": "bg_dark", "border_color": "card_border", "text_color": "text_primary"},
+            )
+        )
 
     def _append_online_log(self, message: str):
         def _do_append():
@@ -2021,18 +1995,23 @@ class OnlineTabMixin(object):
             self._online_log_text.insert(ctk.END, message + "\n")
             self._online_log_text.see(ctk.END)
             self._online_log_text.configure(state=ctk.DISABLED)
+
         if self.winfo_exists():
             self.after(0, _do_append)
 
     def _set_online_status(self, message: str, color_key: str = "text_secondary"):
         def _do_set():
-            self._online_status_label.configure(text=message, text_color=COLORS.get(color_key, COLORS["text_secondary"]))
+            self._online_status_label.configure(
+                text=message, text_color=COLORS.get(color_key, COLORS["text_secondary"])
+            )
+
         if self.winfo_exists():
             self.after(0, _do_set)
 
     def _update_env_easytier_label(self, text: str, color_key: str = "text_secondary"):
         def _do():
             self._online_env_et_label.configure(text=text, text_color=COLORS.get(color_key, COLORS["text_secondary"]))
+
         if self.winfo_exists():
             self.after(0, _do)
 
@@ -2047,6 +2026,7 @@ class OnlineTabMixin(object):
                     self.after(0, lambda err=str(e): on_error(err))
                 else:
                     self.after(0, lambda err=str(e): self._append_online_log(f"[FMCL] Error: {err}"))
+
         threading.Thread(target=wrapper, daemon=True).start()
 
     def _get_display_name(self) -> str:
@@ -2120,9 +2100,7 @@ class OnlineTabMixin(object):
         if not self.winfo_exists():
             return
         self._append_online_log("[FMCL] " + _("online_forward_failed_et"))
-        self._online_lobby_status_label.configure(
-            text=_("online_forward_failed_et"), text_color=COLORS["error"]
-        )
+        self._online_lobby_status_label.configure(text=_("online_forward_failed_et"), text_color=COLORS["error"])
         self._on_leave_lobby()
 
     def _on_setup_environment(self):
@@ -2146,18 +2124,14 @@ class OnlineTabMixin(object):
             if ok:
                 self._update_env_easytier_label(_("online_et_ready"), "success")
                 self._online_env_setup_btn.configure(
-                    text="✅ " + _("online_env_setup_done"),
-                    state=ctk.DISABLED,
-                    fg_color=COLORS["success"],
+                    text="✅ " + _("online_env_setup_done"), state=ctk.DISABLED, fg_color=COLORS["success"]
                 )
                 self._append_online_log("[FMCL] " + _("online_env_setup_done"))
                 self.set_status(_("online_env_setup_done"), "success")
             else:
                 self._update_env_easytier_label(_("online_et_not_found"), "error")
                 self._online_env_setup_btn.configure(
-                    text=_("online_env_setup_retry"),
-                    state=ctk.NORMAL,
-                    fg_color=COLORS["accent"],
+                    text=_("online_env_setup_retry"), state=ctk.NORMAL, fg_color=COLORS["accent"]
                 )
                 self._append_online_log("[FMCL] " + _("online_env_setup_failed"))
                 self.set_status(_("online_env_setup_failed"), "warning")
@@ -2165,9 +2139,7 @@ class OnlineTabMixin(object):
         def on_error(err):
             self._update_env_easytier_label(_("online_et_not_found"), "error")
             self._online_env_setup_btn.configure(
-                text=_("online_env_setup_retry"),
-                state=ctk.NORMAL,
-                fg_color=COLORS["accent"],
+                text=_("online_env_setup_retry"), state=ctk.NORMAL, fg_color=COLORS["accent"]
             )
             self._append_online_log("[FMCL] " + str(err))
 
@@ -2218,9 +2190,7 @@ class OnlineTabMixin(object):
             self._is_host = True
             self._local_mc_port = mc_port
 
-            self._online_lobby_code_display_label.configure(
-                text=lobby.full_code, text_color=COLORS["success"]
-            )
+            self._online_lobby_code_display_label.configure(text=lobby.full_code, text_color=COLORS["success"])
             self._online_lobby_status_label.configure(text="")
             self._online_leave_btn.configure(state=ctk.NORMAL)
 
@@ -2235,14 +2205,10 @@ class OnlineTabMixin(object):
             if result == 0:
                 scf = self._et_manager._scf_server
                 if scf:
-                    scf.on_profiles_changed = lambda profiles: self.after(
-                        0, lambda: self._on_members_changed(profiles)
-                    )
+                    scf.on_profiles_changed = lambda profiles: self.after(0, lambda: self._on_members_changed(profiles))
                 self._set_lobby_state(LobbyState.CONNECTED)
                 self._game_watcher = GameWatcher(mc_port)
-                self._game_watcher.on_game_stopped = lambda: self.after(
-                    0, self._on_host_game_stopped
-                )
+                self._game_watcher.on_game_stopped = lambda: self.after(0, self._on_host_game_stopped)
                 self._game_watcher.start()
                 self._set_online_status(_("online_et_connecting"), "warning")
                 self._online_lobby_status_label.configure(
@@ -2275,9 +2241,7 @@ class OnlineTabMixin(object):
     def _on_host_network_ready(self):
         if not self._is_host or not self._et_manager or not self._et_manager.is_running:
             return
-        self._set_online_status(
-            _("online_et_running", pid=self._et_manager.pid), "success"
-        )
+        self._set_online_status(_("online_et_running", pid=self._et_manager.pid), "success")
         self._online_lobby_status_label.configure(text="")
         self._append_online_log("[FMCL] " + _("online_forward_complete", local_port=self._local_mc_port))
 
@@ -2285,9 +2249,7 @@ class OnlineTabMixin(object):
         if not self._is_host:
             return
         self._append_online_log("[FMCL] MC instance stopped, leaving lobby")
-        self._online_lobby_status_label.configure(
-            text="MC instance closed", text_color=COLORS["warning"]
-        )
+        self._online_lobby_status_label.configure(text="MC instance closed", text_color=COLORS["warning"])
         self._on_leave_lobby()
 
     def _on_join_lobby(self):
@@ -2343,9 +2305,7 @@ class OnlineTabMixin(object):
             if result == 0:
                 self._set_lobby_state(LobbyState.CONNECTED)
                 self._set_online_status(_("online_et_connecting"), "warning")
-                self._online_lobby_code_display_label.configure(
-                    text=lobby.full_code, text_color=COLORS["accent"]
-                )
+                self._online_lobby_code_display_label.configure(text=lobby.full_code, text_color=COLORS["accent"])
                 self._online_lobby_status_label.configure(
                     text=_("online_waiting_network"), text_color=COLORS["warning"]
                 )
@@ -2393,10 +2353,7 @@ class OnlineTabMixin(object):
             if scf_local_port is None:
                 return None
             self._scf_client = ScaffoldingClient(
-                "127.0.0.1", scf_local_port,
-                self._get_display_name(),
-                _get_machine_id(),
-                _get_vendor(),
+                "127.0.0.1", scf_local_port, self._get_display_name(), _get_machine_id(), _get_vendor()
             )
             if not self._scf_client.connect():
                 self._scf_client = None
@@ -2404,9 +2361,7 @@ class OnlineTabMixin(object):
             self._scf_client.on_player_list_changed = lambda profiles: self.after(
                 0, lambda: self._on_members_changed(profiles)
             )
-            self._scf_client.on_server_shutdown = lambda: self.after(
-                0, self._on_server_shutdown_detected
-            )
+            self._scf_client.on_server_shutdown = lambda: self.after(0, self._on_server_shutdown_detected)
             mc_port = self._scf_client.get_server_port()
             if mc_port is None or mc_port <= 0:
                 mc_port = 25565
@@ -2416,9 +2371,7 @@ class OnlineTabMixin(object):
         def on_done(local_port):
             if local_port is None:
                 self._append_online_log("[FMCL] " + _("online_forward_failed"))
-                self._online_lobby_status_label.configure(
-                    text=_("online_forward_failed"), text_color=COLORS["error"]
-                )
+                self._online_lobby_status_label.configure(text=_("online_forward_failed"), text_color=COLORS["error"])
                 return
 
             self._local_mc_port = local_port
@@ -2428,9 +2381,7 @@ class OnlineTabMixin(object):
             self._append_online_log("[FMCL] " + _("online_forward_ready", port=local_port))
 
             tcp_forward_port = _get_random_port()
-            self._tcp_forwarder = TcpPortForwarder(
-                tcp_forward_port, LOOPBACK, local_port
-            )
+            self._tcp_forwarder = TcpPortForwarder(tcp_forward_port, LOOPBACK, local_port)
             self._tcp_forwarder.start()
 
             desc = f"§eFMCL 大厅 - {self._get_display_name()}"
@@ -2439,9 +2390,7 @@ class OnlineTabMixin(object):
             self._broadcast_sim.start(desc, tcp_forward_port)
 
             self._set_online_status(_("online_et_running", pid=self._et_manager.pid), "success")
-            self._append_online_log(
-                "[FMCL] " + _("online_forward_complete", local_port=tcp_forward_port)
-            )
+            self._append_online_log("[FMCL] " + _("online_forward_complete", local_port=tcp_forward_port))
             self.set_status(_("online_forward_complete", local_port=tcp_forward_port), "success")
 
             self._start_member_poll()
@@ -2485,16 +2434,14 @@ class OnlineTabMixin(object):
             self._scf_client = None
         if self._et_manager and self._et_manager._scf_server:
             self._et_manager._scf_server.on_profiles_changed = None
-        if hasattr(self, '_game_watcher') and self._game_watcher:
+        if hasattr(self, "_game_watcher") and self._game_watcher:
             self._game_watcher.stop()
             self._game_watcher = None
         self._lobby_info = None
         self._is_host = False
         self._local_mc_port = 0
         self._public_address = None
-        self._online_lobby_code_display_label.configure(
-            text=_("online_no_lobby"), text_color=COLORS["accent"]
-        )
+        self._online_lobby_code_display_label.configure(text=_("online_no_lobby"), text_color=COLORS["accent"])
         self._online_lobby_status_label.configure(text="")
         self._online_leave_btn.configure(state=ctk.DISABLED)
         self._online_create_btn.configure(state=ctk.NORMAL)
@@ -2518,6 +2465,7 @@ class OnlineTabMixin(object):
             return
         try:
             import pyperclip
+
             pyperclip.copy(self._lobby_info.full_code)
             self.set_status(_("online_copy_success", code=self._lobby_info.full_code), "success")
         except Exception as e:

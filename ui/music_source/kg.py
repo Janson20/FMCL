@@ -1,4 +1,5 @@
 """酷狗音乐 音源插件"""
+
 import logging
 from typing import List, Optional
 
@@ -44,7 +45,7 @@ class KuGouMusicSource(BaseMusicSource):
     def _parse_search_result(self, raw_list) -> List[MusicInfo]:
         results = []
         seen = set()
-        for item in (raw_list or []):
+        for item in raw_list or []:
             try:
                 song_id = str(item.get("Audioid", ""))
                 file_hash = item.get("FileHash", "")
@@ -131,13 +132,7 @@ class KuGouMusicSource(BaseMusicSource):
             # 先获取 key
             key_resp = self.http_get(
                 "https://trackerc.kugou.com/i/",
-                params={
-                    "cmd": "4",
-                    "hash": hash_val,
-                    "key": info.songmid,
-                    "pid": "1",
-                    "acceptMp3": "1",
-                },
+                params={"cmd": "4", "hash": hash_val, "key": info.songmid, "pid": "1", "acceptMp3": "1"},
                 headers={"Referer": "https://www.kugou.com/"},
                 timeout=10,
             )
@@ -177,11 +172,7 @@ class KuGouMusicSource(BaseMusicSource):
             accesskey = first.get("accesskey") if isinstance(first, dict) else None
             if not lyric_id or not accesskey:
                 return None
-            lrc_resp = self.http_get(
-                KG_LYRIC_DOWNLOAD,
-                params={"id": lyric_id, "accesskey": accesskey},
-                timeout=10,
-            )
+            lrc_resp = self.http_get(KG_LYRIC_DOWNLOAD, params={"id": lyric_id, "accesskey": accesskey}, timeout=10)
             lrc_data = lrc_resp.json()
             content = lrc_data.get("content", "")
             if content:
@@ -198,12 +189,7 @@ class KuGouMusicSource(BaseMusicSource):
             return None
         try:
             img_resp = self.http_get(
-                "https://kugou.com/yy/index.php",
-                params={
-                    "r": "play/getdata",
-                    "hash": hash_val,
-                },
-                timeout=10,
+                "https://kugou.com/yy/index.php", params={"r": "play/getdata", "hash": hash_val}, timeout=10
             )
             data = img_resp.json()
             img_url = data.get("data", {}).get("img", "")

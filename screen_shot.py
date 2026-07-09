@@ -1,6 +1,6 @@
-import tkinter as tk
-from tkinter import Canvas, Button
 import threading
+import tkinter as tk
+from tkinter import Button, Canvas
 
 import keyboard
 
@@ -9,6 +9,7 @@ class ScreenshotTool:
     def __init__(self, root):
         # 延迟导入 pyautogui，避免启动时 0.08s+ 的导入开销
         import pyautogui
+
         self._pyautogui = pyautogui
 
         self.root = root
@@ -33,7 +34,9 @@ class ScreenshotTool:
     def on_button_press(self, event):
         self.start_x = event.x
         self.start_y = event.y
-        self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline="red", width=2)
+        self.rect = self.canvas.create_rectangle(
+            self.start_x, self.start_y, self.start_x, self.start_y, outline="red", width=2
+        )
 
     def on_mouse_drag(self, event):
         curX, curY = (event.x, event.y)
@@ -54,10 +57,12 @@ class ScreenshotTool:
             screenshot.save("screenshot.png")
             self.root.quit()
 
+
 def start_screenshot_tool():
     root = tk.Tk()
     app = ScreenshotTool(root)
     root.mainloop()
+
 
 def listen_for_hotkey():
     # 延迟导入 keyboard，避免启动时不必要的导入开销
@@ -67,6 +72,7 @@ def listen_for_hotkey():
     keyboard.add_hotkey("ctrl+alt+t", start_screenshot_tool)
     print("按下 Ctrl+Alt+T 启动截图工具...")
     keyboard.wait()  # 保持监听状态
+
 
 if __name__ == "__main__":
     # 在后台运行快捷键监听器

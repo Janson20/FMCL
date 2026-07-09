@@ -15,34 +15,37 @@ import os
 import re
 import zipfile
 from dataclasses import dataclass, field
-from typing import Dict, Optional, List, Tuple
 from pathlib import Path
-
+from typing import Dict, List, Optional, Tuple
 
 # ─── 整合包类型枚举 ────────────────────────────────────────────
+
 
 @dataclass
 class ModpackType:
     """整合包类型标识"""
-    CURSEFORGE = "curseforge"       # packType 0
-    HMCL = "hmcl"                   # packType 1
-    MULTIMC = "multimc"             # packType 2
-    MCBBS = "mcbbs"                 # packType 3
-    MODRINTH = "modrinth"           # packType 4
+
+    CURSEFORGE = "curseforge"  # packType 0
+    HMCL = "hmcl"  # packType 1
+    MULTIMC = "multimc"  # packType 2
+    MCBBS = "mcbbs"  # packType 3
+    MODRINTH = "modrinth"  # packType 4
     LAUNCHER_PACK = "launcher_pack"  # packType 9
-    GENERIC = "generic"             # default
+    GENERIC = "generic"  # default
 
 
 # ─── 检测结果 ──────────────────────────────────────────────────
 
+
 @dataclass
 class ModpackDetectionResult:
     """整合包检测结果"""
-    pack_type: str                                    # ModpackType 值
-    format_name: str                                  # 人类可读名称
-    archive_base_folder: str = ""                     # ZIP 内根目录前缀（如 "pack/"）
-    raw_json: Optional[Dict] = None                   # 主清单 JSON
-    description: str = ""                             # 详细描述
+
+    pack_type: str  # ModpackType 值
+    format_name: str  # 人类可读名称
+    archive_base_folder: str = ""  # ZIP 内根目录前缀（如 "pack/"）
+    raw_json: Optional[Dict] = None  # 主清单 JSON
+    description: str = ""  # 详细描述
 
 
 # ─── 标记文件表 ────────────────────────────────────────────────
@@ -58,10 +61,8 @@ _ROOT_MARKERS: List[Tuple[str, str]] = [
 # 需要额外检查 JSON 内容的标记文件
 _CONDITIONAL_MARKERS: List[Tuple[str, str, callable]] = [
     # (文件名, 类型, 条件函数：接收 JSON dict → bool)
-    ("manifest.json", ModpackType.CURSEFORGE, lambda j: j is not None and "addons" not in j)
-    if True else None,
-    ("manifest.json", ModpackType.MCBBS, lambda j: j is not None and "addons" in j)
-    if True else None,
+    ("manifest.json", ModpackType.CURSEFORGE, lambda j: j is not None and "addons" not in j) if True else None,
+    ("manifest.json", ModpackType.MCBBS, lambda j: j is not None and "addons" in j) if True else None,
 ]
 
 # 内嵌启动器标记文件
@@ -75,6 +76,7 @@ _CONDITIONAL_MARKERS: List[Tuple[str, str, callable]] = [
 
 
 # ─── 核心检测函数 ──────────────────────────────────────────────
+
 
 def detect_modpack_archive(pack_path: str) -> ModpackDetectionResult:
     """检测整合包 ZIP 文件的类型
@@ -168,7 +170,7 @@ def _detect_root(zf: zipfile.ZipFile, entries: set) -> Optional[ModpackDetection
             return ModpackDetectionResult(
                 pack_type=ModpackType.LAUNCHER_PACK,
                 format_name="带启动器的压缩包",
-                description=f"压缩包内包含 {marker}，将递归提取安装"
+                description=f"压缩包内包含 {marker}，将递归提取安装",
             )
 
     return None
@@ -224,7 +226,7 @@ def _detect_subdir(zf: zipfile.ZipFile, entries: set) -> Optional[ModpackDetecti
                     pack_type=ModpackType.LAUNCHER_PACK,
                     format_name="带启动器的压缩包 (一级目录)",
                     archive_base_folder=base_dir,
-                    description=f"压缩包内包含 {marker}，将递归提取安装"
+                    description=f"压缩包内包含 {marker}，将递归提取安装",
                 )
 
     return None
@@ -243,13 +245,14 @@ def _detect_generic(zf: zipfile.ZipFile, entries: set) -> Optional[ModpackDetect
                 pack_type=ModpackType.GENERIC,
                 format_name="通用压缩包 (.minecraft 结构)",
                 archive_base_folder=prefix,
-                description=f"检测到 .minecraft 目录结构，Minecraft 版本: {version_id}"
+                description=f"检测到 .minecraft 目录结构，Minecraft 版本: {version_id}",
             )
 
     return None
 
 
 # ─── 辅助函数 ──────────────────────────────────────────────────
+
 
 def _read_json(zf: zipfile.ZipFile, entry_name: str) -> Optional[Dict]:
     """读取 ZIP 内的 JSON 文件"""
@@ -268,11 +271,7 @@ def _read_json(zf: zipfile.ZipFile, entry_name: str) -> Optional[Dict]:
 
 
 def _build_result(
-    pack_type: str,
-    base_folder: str,
-    zf: zipfile.ZipFile,
-    entry_name: str,
-    raw_json: Optional[Dict] = None,
+    pack_type: str, base_folder: str, zf: zipfile.ZipFile, entry_name: str, raw_json: Optional[Dict] = None
 ) -> ModpackDetectionResult:
     """构建检测结果"""
     names = {

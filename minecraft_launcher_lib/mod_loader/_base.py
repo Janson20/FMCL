@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
 from abc import ABC, abstractmethod
+
 from ..types import CallbackDict
 
 
@@ -9,6 +10,7 @@ class ModLoaderBase(ABC):
     """
     This is a abstract base class for a mod loader
     """
+
     @abstractmethod
     def get_id(self) -> str:
         "Returns the ID of the mod loader"
@@ -40,6 +42,8 @@ class ModLoaderBase(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def install(self, minecraft_version: str, minecraft_directory: str, callback: CallbackDict, java: str, loader_version: str) -> None:
+    def install(
+        self, minecraft_version: str, minecraft_directory: str, callback: CallbackDict, java: str, loader_version: str
+    ) -> None:
         "Installs the mod loader"
         raise NotImplementedError()

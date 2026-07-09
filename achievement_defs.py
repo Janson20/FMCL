@@ -1,8 +1,8 @@
 """成就定义数据 - 8大类共43项成就的定义"""
 
-from typing import List
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import List
 
 
 class AchievementCategory(Enum):
@@ -104,7 +104,6 @@ ACHIEVEMENTS: List[AchievementDef] = [
         stage_names=["启动大师 I", "启动大师 II", "启动大师 III"],
         trigger_type="increment",
     ),
-
     # ═══════════ 🔧 模组玩家 ═══════════
     AchievementDef(
         achievement_id="modder_first_mod",
@@ -166,7 +165,6 @@ ACHIEVEMENTS: List[AchievementDef] = [
         stage_names=["依赖专家"],
         trigger_type="increment",
     ),
-
     # ═══════════ 🖥️ 服务器主 ═══════════
     AchievementDef(
         achievement_id="server_first_server",
@@ -218,7 +216,6 @@ ACHIEVEMENTS: List[AchievementDef] = [
         stage_names=["跨服连动"],
         trigger_type="increment",
     ),
-
     # ═══════════ 💾 备份习惯 ═══════════
     AchievementDef(
         achievement_id="backup_first_backup",
@@ -270,7 +267,6 @@ ACHIEVEMENTS: List[AchievementDef] = [
         stage_names=["导出分享"],
         trigger_type="increment",
     ),
-
     # ═══════════ 🌐 联机玩家 ═══════════
     AchievementDef(
         achievement_id="online_first_online",
@@ -302,7 +298,6 @@ ACHIEVEMENTS: List[AchievementDef] = [
         stage_names=["客人来访"],
         trigger_type="increment",
     ),
-
     # ═══════════ 🤖 AGENT 智能助手 ═══════════
     AchievementDef(
         achievement_id="agent_first_chat",
@@ -344,7 +339,6 @@ ACHIEVEMENTS: List[AchievementDef] = [
         stage_names=["终端勇士"],
         trigger_type="increment",
     ),
-
     # ═══════════ 🎨 个性化 ═══════════
     AchievementDef(
         achievement_id="personalize_skin",
@@ -406,7 +400,6 @@ ACHIEVEMENTS: List[AchievementDef] = [
         stage_names=["导入达人"],
         trigger_type="increment",
     ),
-
     # ═══════════ ⚡ 高级用户 ═══════════
     AchievementDef(
         achievement_id="advanced_mirror",
@@ -478,7 +471,6 @@ ACHIEVEMENTS: List[AchievementDef] = [
         stage_names=["签到达人 I", "签到达人 II", "签到达人 III"],
         trigger_type="increment",
     ),
-
     # ═══════════ 🎵 音乐生活 ═══════════
     AchievementDef(
         achievement_id="music_first_play",

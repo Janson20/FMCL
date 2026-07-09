@@ -1,8 +1,8 @@
 """ModernApp 成就 Mixin - 成就标签页 + 云同步"""
 
-import time
 import threading
-from typing import List, Dict, Any
+import time
+from typing import Any, Dict, List
 
 import customtkinter as ctk
 
@@ -33,26 +33,17 @@ class AchievementTabMixin(object):
         self.ach_stats_title.pack(side=ctk.LEFT, pady=(0, 4))
 
         self.ach_sync_status = ctk.CTkLabel(
-            stats_inner,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
+            stats_inner, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"]
         )
         self.ach_sync_status.pack(side=ctk.RIGHT, padx=(10, 0), pady=(0, 4))
 
         self.ach_stats_detail = ctk.CTkLabel(
-            stats_inner,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_secondary"],
+            stats_inner, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_secondary"]
         )
         self.ach_stats_detail.pack(side=ctk.RIGHT, pady=(0, 4))
 
         self.ach_last_sync_label = ctk.CTkLabel(
-            stats_frame,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
+            stats_frame, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"]
         )
         self.ach_last_sync_label.pack(fill=ctk.X, padx=20, pady=(0, 2))
 
@@ -126,10 +117,11 @@ class AchievementTabMixin(object):
 
     def _refresh_achievements(self):
         """刷新成就标签页"""
-        if not hasattr(self, 'ach_scroll') or not self.ach_scroll.winfo_exists():
+        if not hasattr(self, "ach_scroll") or not self.ach_scroll.winfo_exists():
             return
 
         from achievement_engine import get_achievement_engine
+
         engine = get_achievement_engine()
         if engine is None:
             return
@@ -207,21 +199,14 @@ class AchievementTabMixin(object):
         maxed = ach["progress_stage"] >= ach["max_stage"]
 
         card = ctk.CTkFrame(
-            self.ach_scroll,
-            fg_color=COLORS["card_bg"] if unlocked else COLORS["bg_medium"],
-            corner_radius=8,
+            self.ach_scroll, fg_color=COLORS["card_bg"] if unlocked else COLORS["bg_medium"], corner_radius=8
         )
         card.pack(fill=ctk.X, pady=3, padx=4)
 
         card_inner = ctk.CTkFrame(card, fg_color="transparent")
         card_inner.pack(fill=ctk.BOTH, padx=12, pady=10)
 
-        icon_label = ctk.CTkLabel(
-            card_inner,
-            text=ach["icon"],
-            font=ctk.CTkFont(size=22),
-            width=36,
-        )
+        icon_label = ctk.CTkLabel(card_inner, text=ach["icon"], font=ctk.CTkFont(size=22), width=36)
         icon_label.pack(side=ctk.LEFT, padx=(0, 10))
 
         info_frame = ctk.CTkFrame(card_inner, fg_color="transparent")
@@ -290,12 +275,7 @@ class AchievementTabMixin(object):
                 text_color=badge_color,
             ).pack()
         else:
-            ctk.CTkLabel(
-                stage_badge,
-                text="🔒",
-                font=ctk.CTkFont(size=14),
-                text_color=COLORS["text_secondary"],
-            ).pack()
+            ctk.CTkLabel(stage_badge, text="🔒", font=ctk.CTkFont(size=14), text_color=COLORS["text_secondary"]).pack()
 
     # ═══════════ Token 获取 ═══════════
 
@@ -319,6 +299,7 @@ class AchievementTabMixin(object):
         self._set_sync_status(_("ach_sync_status_syncing"))
 
         from achievement_engine import get_achievement_engine
+
         engine = get_achievement_engine()
         if not engine:
             self.ach_sync_btn.configure(state=ctk.NORMAL, text=_("ach_sync_btn"))
@@ -329,6 +310,7 @@ class AchievementTabMixin(object):
 
         def _run():
             from achievement_sync import run_sync
+
             ok = run_sync(token, db_path, engine=engine)
             if self.winfo_exists():
                 self.after(0, lambda: self._on_sync_done(ok))
@@ -353,9 +335,10 @@ class AchievementTabMixin(object):
     def _update_ach_last_sync_label(self):
         """从数据库加载上次同步时间并更新标签"""
         try:
-            if not hasattr(self, 'ach_last_sync_label') or not self.ach_last_sync_label.winfo_exists():
+            if not hasattr(self, "ach_last_sync_label") or not self.ach_last_sync_label.winfo_exists():
                 return
             from achievement_engine import get_achievement_engine
+
             engine = get_achievement_engine()
             if engine is None:
                 return
@@ -370,6 +353,7 @@ class AchievementTabMixin(object):
 
     def _show_sync_login_hint(self):
         import tkinter.messagebox as messagebox
+
         messagebox.showinfo(_("ach_sync_login_title"), _("ach_sync_login_hint"), parent=self)
 
     # ═══════════ 重置云存档（三次确认） ═══════════
@@ -380,8 +364,7 @@ class AchievementTabMixin(object):
             self._show_sync_login_hint()
             return
         self._triple_confirm(
-            confirm_key=_("ach_reset_cloud_confirm_key"),
-            on_confirm=lambda: self._do_reset_cloud(token),
+            confirm_key=_("ach_reset_cloud_confirm_key"), on_confirm=lambda: self._do_reset_cloud(token)
         )
 
     def _do_reset_cloud(self, token: str):
@@ -390,6 +373,7 @@ class AchievementTabMixin(object):
 
         def _run():
             from achievement_sync import reset_cloud_db
+
             ok = reset_cloud_db(token)
             if self.winfo_exists():
                 self.after(0, lambda: self._on_reset_cloud_done(ok))
@@ -403,13 +387,11 @@ class AchievementTabMixin(object):
     # ═══════════ 重置本地成就（三次确认） ═══════════
 
     def _on_ach_reset_local(self):
-        self._triple_confirm(
-            confirm_key=_("ach_reset_local_confirm_key"),
-            on_confirm=self._do_reset_local,
-        )
+        self._triple_confirm(confirm_key=_("ach_reset_local_confirm_key"), on_confirm=self._do_reset_local)
 
     def _do_reset_local(self):
         from achievement_engine import get_achievement_engine
+
         engine = get_achievement_engine()
         if engine:
             engine.reset_all()
@@ -423,10 +405,7 @@ class AchievementTabMixin(object):
         import tkinter as tk
         import tkinter.messagebox as messagebox
 
-        first = messagebox.askyesno(
-            _("ach_confirm_step1_title"), _("ach_confirm_step1_msg"),
-            parent=self,
-        )
+        first = messagebox.askyesno(_("ach_confirm_step1_title"), _("ach_confirm_step1_msg"), parent=self)
         if not first:
             return
 
@@ -450,28 +429,35 @@ class AchievementTabMixin(object):
         pad = 24
 
         tk.Label(
-            dialog, text=_("ach_confirm_step2_title"),
-            font=(FONT_FAMILY, 14, "bold"), fg=COLORS["error"], bg=COLORS["bg_dark"],
+            dialog,
+            text=_("ach_confirm_step2_title"),
+            font=(FONT_FAMILY, 14, "bold"),
+            fg=COLORS["error"],
+            bg=COLORS["bg_dark"],
         ).place(x=pad, y=pad)
 
         tk.Label(
-            dialog, text=_("ach_confirm_step2_msg", phrase=confirm_key),
-            font=(FONT_FAMILY, 11), fg=COLORS["text_secondary"], bg=COLORS["bg_dark"],
-            wraplength=370, justify="left",
+            dialog,
+            text=_("ach_confirm_step2_msg", phrase=confirm_key),
+            font=(FONT_FAMILY, 11),
+            fg=COLORS["text_secondary"],
+            bg=COLORS["bg_dark"],
+            wraplength=370,
+            justify="left",
         ).place(x=pad, y=pad + 35)
 
         entry = tk.Entry(
-            dialog, font=(FONT_FAMILY, 12),
-            bg=COLORS["bg_medium"], fg=COLORS["text_primary"],
+            dialog,
+            font=(FONT_FAMILY, 12),
+            bg=COLORS["bg_medium"],
+            fg=COLORS["text_primary"],
             insertbackground=COLORS["text_primary"],
-            relief="flat", bd=0,
+            relief="flat",
+            bd=0,
         )
         entry.place(x=pad, y=pad + 90, width=w - 2 * pad, height=30)
 
-        error_label = tk.Label(
-            dialog, text="", font=(FONT_FAMILY, 10),
-            fg=COLORS["error"], bg=COLORS["bg_dark"],
-        )
+        error_label = tk.Label(dialog, text="", font=(FONT_FAMILY, 10), fg=COLORS["error"], bg=COLORS["bg_dark"])
         error_label.place(x=pad, y=pad + 130)
 
         def _confirm():
@@ -483,16 +469,25 @@ class AchievementTabMixin(object):
                 error_label.configure(text=_("ach_confirm_mismatch"))
 
         tk.Button(
-            dialog, text=_("confirm"), width=10,
-            bg=COLORS["error"], fg="white", relief="flat",
-            activebackground="#c0392b", activeforeground="white",
+            dialog,
+            text=_("confirm"),
+            width=10,
+            bg=COLORS["error"],
+            fg="white",
+            relief="flat",
+            activebackground="#c0392b",
+            activeforeground="white",
             font=(FONT_FAMILY, 11),
             command=_confirm,
         ).place(x=w - pad - 100, y=pad + 135)
 
         tk.Button(
-            dialog, text=_("cancel"), width=10,
-            bg=COLORS["bg_medium"], fg=COLORS["text_primary"], relief="flat",
+            dialog,
+            text=_("cancel"),
+            width=10,
+            bg=COLORS["bg_medium"],
+            fg=COLORS["text_primary"],
+            relief="flat",
             activebackground=COLORS["card_border"],
             font=(FONT_FAMILY, 11),
             command=lambda: (dialog.grab_release(), dialog.destroy()),
@@ -518,9 +513,11 @@ class AchievementTabMixin(object):
             self.after(600, self._refresh_achievements)
 
             if token:
+
                 def _push_sync():
                     from achievement_engine import get_achievement_engine
                     from achievement_sync import run_sync
+
                     engine = get_achievement_engine()
                     if engine:
                         ok = run_sync(token, engine._db_path)
@@ -535,6 +532,6 @@ class AchievementTabMixin(object):
 
     def _refresh_ach_colors(self):
         """刷新成就标签页颜色（主题切换时调用）"""
-        if not hasattr(self, 'ach_scroll') or not self.ach_scroll.winfo_exists():
+        if not hasattr(self, "ach_scroll") or not self.ach_scroll.winfo_exists():
             return
         self._refresh_achievements()

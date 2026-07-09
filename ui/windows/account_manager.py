@@ -1,9 +1,9 @@
 """账号管理窗口"""
 
-import tkinter.messagebox as messagebox
 import threading
 import tkinter.filedialog as filedialog
-from typing import Dict, Optional, Callable, Any
+import tkinter.messagebox as messagebox
+from typing import Any, Callable, Dict, Optional
 
 import customtkinter as ctk
 from logzero import logger
@@ -43,7 +43,8 @@ class AddAccountDialog(ctk.CTkToplevel):
 
     def _build_microsoft_ui(self):
         info = ctk.CTkLabel(
-            self, text=_("account_ms_info"),
+            self,
+            text=_("account_ms_info"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
             wraplength=380,
@@ -51,9 +52,11 @@ class AddAccountDialog(ctk.CTkToplevel):
         info.pack(padx=20, pady=(20, 10))
 
         btn = ctk.CTkButton(
-            self, text=_("account_ms_login_btn"),
+            self,
+            text=_("account_ms_login_btn"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
             command=self._do_microsoft_login,
             height=40,
         )
@@ -61,72 +64,89 @@ class AddAccountDialog(ctk.CTkToplevel):
 
     def _build_offline_ui(self):
         ctk.CTkLabel(
-            self, text=_("account_offline_name"),
+            self,
+            text=_("account_offline_name"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["text_primary"],
         ).pack(padx=20, pady=(20, 5), anchor=ctk.W)
 
         self._name_entry = ctk.CTkEntry(
-            self, height=36,
+            self,
+            height=36,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            fg_color=COLORS["bg_medium"], border_color=COLORS["card_border"],
+            fg_color=COLORS["bg_medium"],
+            border_color=COLORS["card_border"],
             placeholder_text=_("account_offline_name_placeholder"),
         )
         self._name_entry.pack(fill=ctk.X, padx=20, pady=(0, 10))
 
         ctk.CTkButton(
-            self, text=_("account_add"),
+            self,
+            text=_("account_add"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
             command=self._do_offline_create,
             height=38,
         ).pack(padx=20, pady=(10, 20))
 
     def _build_yggdrasil_ui(self):
         ctk.CTkLabel(
-            self, text=_("account_ygg_server"),
+            self,
+            text=_("account_ygg_server"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["text_primary"],
         ).pack(padx=20, pady=(20, 5), anchor=ctk.W)
 
         self._server_entry = ctk.CTkEntry(
-            self, height=36,
+            self,
+            height=36,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            fg_color=COLORS["bg_medium"], border_color=COLORS["card_border"],
+            fg_color=COLORS["bg_medium"],
+            border_color=COLORS["card_border"],
             placeholder_text=_("account_ygg_server_placeholder"),
         )
         self._server_entry.pack(fill=ctk.X, padx=20, pady=(0, 8))
 
         ctk.CTkLabel(
-            self, text=_("account_ygg_username"),
+            self,
+            text=_("account_ygg_username"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["text_primary"],
         ).pack(padx=20, pady=(0, 5), anchor=ctk.W)
 
         self._ygg_user_entry = ctk.CTkEntry(
-            self, height=36,
+            self,
+            height=36,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            fg_color=COLORS["bg_medium"], border_color=COLORS["card_border"],
+            fg_color=COLORS["bg_medium"],
+            border_color=COLORS["card_border"],
         )
         self._ygg_user_entry.pack(fill=ctk.X, padx=20, pady=(0, 8))
 
         ctk.CTkLabel(
-            self, text=_("account_ygg_password"),
+            self,
+            text=_("account_ygg_password"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["text_primary"],
         ).pack(padx=20, pady=(0, 5), anchor=ctk.W)
 
         self._ygg_pass_entry = ctk.CTkEntry(
-            self, height=36, show="\u2022",
+            self,
+            height=36,
+            show="\u2022",
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            fg_color=COLORS["bg_medium"], border_color=COLORS["card_border"],
+            fg_color=COLORS["bg_medium"],
+            border_color=COLORS["card_border"],
         )
         self._ygg_pass_entry.pack(fill=ctk.X, padx=20, pady=(0, 10))
 
         ctk.CTkButton(
-            self, text=_("account_add"),
+            self,
+            text=_("account_add"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=14),
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
             command=self._do_yggdrasil_login,
             height=38,
         ).pack(padx=20, pady=(5, 20))
@@ -151,12 +171,7 @@ class AddAccountDialog(ctk.CTkToplevel):
             messagebox.showwarning(_("warning"), _("account_ygg_fields_required"), parent=self)
             return
         self.destroy()
-        self._on_done({
-            "type": "yggdrasil",
-            "server_url": server,
-            "username": username,
-            "password": password,
-        })
+        self._on_done({"type": "yggdrasil", "server_url": server, "username": username, "password": password})
 
 
 class AccountManagerWindow(ctk.CTkToplevel):
@@ -188,7 +203,8 @@ class AccountManagerWindow(ctk.CTkToplevel):
 
     def _build_ui(self):
         title = ctk.CTkLabel(
-            self, text=_("account_manager_title"),
+            self,
+            text=_("account_manager_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["text_primary"],
         )
@@ -196,7 +212,8 @@ class AccountManagerWindow(ctk.CTkToplevel):
         self._r(title, text_color="text_primary")
 
         desc = ctk.CTkLabel(
-            self, text=_("account_manager_desc"),
+            self,
+            text=_("account_manager_desc"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
             wraplength=540,
@@ -207,59 +224,74 @@ class AccountManagerWindow(ctk.CTkToplevel):
         btn_bar.pack(fill=ctk.X, padx=20, pady=(0, 10))
 
         self._add_ms_btn = ctk.CTkButton(
-            btn_bar, text=_("account_add_microsoft"),
+            btn_bar,
+            text=_("account_add_microsoft"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["success"], hover_color="#27ae60",
+            fg_color=COLORS["success"],
+            hover_color="#27ae60",
             command=self._on_add_microsoft,
-            height=32, width=100,
+            height=32,
+            width=100,
         )
         self._add_ms_btn.pack(side=ctk.LEFT, padx=(0, 5))
 
         self._add_offline_btn = ctk.CTkButton(
-            btn_bar, text=_("account_add_offline"),
+            btn_bar,
+            text=_("account_add_offline"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
             command=self._on_add_offline,
-            height=32, width=80,
+            height=32,
+            width=80,
         )
         self._add_offline_btn.pack(side=ctk.LEFT, padx=(0, 5))
 
         self._add_ygg_btn = ctk.CTkButton(
-            btn_bar, text=_("account_add_yggdrasil"),
+            btn_bar,
+            text=_("account_add_yggdrasil"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
             command=self._on_add_yggdrasil,
-            height=32, width=80,
+            height=32,
+            width=80,
         )
         self._add_ygg_btn.pack(side=ctk.LEFT, padx=(0, 5))
 
         import_btn = ctk.CTkButton(
-            btn_bar, text=_("account_import"),
+            btn_bar,
+            text=_("account_import"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
             command=self._on_import_accounts,
-            height=32, width=60,
+            height=32,
+            width=60,
         )
         import_btn.pack(side=ctk.RIGHT, padx=(5, 0))
 
         export_btn = ctk.CTkButton(
-            btn_bar, text=_("account_export"),
+            btn_bar,
+            text=_("account_export"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
             command=self._on_export_accounts,
-            height=32, width=60,
+            height=32,
+            width=60,
         )
         export_btn.pack(side=ctk.RIGHT)
 
-        self._account_scroll = ctk.CTkScrollableFrame(
-            self, fg_color="transparent", height=420,
-        )
+        self._account_scroll = ctk.CTkScrollableFrame(self, fg_color="transparent", height=420)
         self._account_scroll.pack(fill=ctk.BOTH, expand=True, padx=20, pady=(0, 10))
 
         close_btn = ctk.CTkButton(
-            self, text=_("settings_close"),
+            self,
+            text=_("settings_close"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
             command=self.destroy,
             height=34,
         )
@@ -278,7 +310,8 @@ class AccountManagerWindow(ctk.CTkToplevel):
 
         if not accounts:
             ctk.CTkLabel(
-                self._account_scroll, text=_("account_no_accounts"),
+                self._account_scroll,
+                text=_("account_no_accounts"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=13),
                 text_color=COLORS["text_secondary"],
             ).pack(pady=30)
@@ -289,14 +322,10 @@ class AccountManagerWindow(ctk.CTkToplevel):
             "offline": _("account_type_offline"),
             "yggdrasil": _("account_type_yggdrasil"),
         }
-        type_colors = {
-            "microsoft": COLORS["success"],
-            "offline": COLORS["warning"],
-            "yggdrasil": COLORS["accent"],
-        }
+        type_colors = {"microsoft": COLORS["success"], "offline": COLORS["warning"], "yggdrasil": COLORS["accent"]}
 
         for acc in accounts:
-            is_current = (acc.id == current_id)
+            is_current = acc.id == current_id
             card = ctk.CTkFrame(
                 self._account_scroll,
                 fg_color=COLORS["bg_medium"] if not is_current else COLORS["bg_light"],
@@ -313,11 +342,14 @@ class AccountManagerWindow(ctk.CTkToplevel):
 
             acc_type = acc.account_type.value
             type_label = ctk.CTkLabel(
-                line1, text=type_labels.get(acc_type, acc_type),
+                line1,
+                text=type_labels.get(acc_type, acc_type),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                 text_color=type_colors.get(acc_type, COLORS["text_secondary"]),
-                fg_color=COLORS["bg_dark"], corner_radius=4,
-                padx=6, pady=2,
+                fg_color=COLORS["bg_dark"],
+                corner_radius=4,
+                padx=6,
+                pady=2,
             )
             type_label.pack(side=ctk.LEFT, padx=(0, 8))
 
@@ -325,7 +357,8 @@ class AccountManagerWindow(ctk.CTkToplevel):
             if is_current:
                 name_display = f"\u2605 {acc.name}"
             name_label = ctk.CTkLabel(
-                line1, text=name_display,
+                line1,
+                text=name_display,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
                 text_color=COLORS["text_primary"],
             )
@@ -333,7 +366,8 @@ class AccountManagerWindow(ctk.CTkToplevel):
 
             if is_current:
                 current_tag = ctk.CTkLabel(
-                    line1, text=_("account_current"),
+                    line1,
+                    text=_("account_current"),
                     font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                     text_color=COLORS["accent"],
                 )
@@ -344,7 +378,8 @@ class AccountManagerWindow(ctk.CTkToplevel):
 
             uuid_text = acc.uuid or "-"
             ctk.CTkLabel(
-                line2, text=f"UUID: {uuid_text[:20]}...",
+                line2,
+                text=f"UUID: {uuid_text[:20]}...",
                 font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                 text_color=COLORS["text_secondary"],
             ).pack(side=ctk.LEFT)
@@ -354,17 +389,21 @@ class AccountManagerWindow(ctk.CTkToplevel):
 
             if not is_current:
                 ctk.CTkButton(
-                    btn_area, text=_("account_set_current"),
+                    btn_area,
+                    text=_("account_set_current"),
                     font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                    fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                    fg_color=COLORS["accent"],
+                    hover_color=COLORS["accent_hover"],
                     command=lambda aid=acc.id: self._on_set_current(aid),
                     height=26,
                 ).pack(side=ctk.LEFT, padx=(0, 5))
 
             ctk.CTkButton(
-                btn_area, text=_("account_delete"),
+                btn_area,
+                text=_("account_delete"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                fg_color=COLORS["error"], hover_color="#c0392b",
+                fg_color=COLORS["error"],
+                hover_color="#c0392b",
                 command=lambda aid=acc.id: self._on_delete_account(aid),
                 height=26,
             ).pack(side=ctk.LEFT)
@@ -374,18 +413,18 @@ class AccountManagerWindow(ctk.CTkToplevel):
                     btn_area,
                     text=_("account_refresh_token"),
                     font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                    fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+                    fg_color=COLORS["bg_light"],
+                    hover_color=COLORS["card_border"],
                     command=lambda a=acc: self._on_refresh_token(a),
-                    height=26, width=80,
+                    height=26,
+                    width=80,
                 ).pack(side=ctk.RIGHT)
 
     def _on_add_microsoft(self):
         def do_login(params):
             self._set_buttons_state(ctk.DISABLED)
             try:
-                account = self._account_system.microsoft_login(
-                    status_callback=lambda s: self._update_status(s)
-                )
+                account = self._account_system.microsoft_login(status_callback=lambda s: self._update_status(s))
                 self.after(0, lambda: self._on_login_complete(account, "microsoft"))
             except Exception as e:
                 logger.error(f"Microsoft 登录异常: {e}")
@@ -407,10 +446,7 @@ class AccountManagerWindow(ctk.CTkToplevel):
             def _login():
                 try:
                     account = self._account_system.yggdrasil_login(
-                        params["server_url"],
-                        params["username"],
-                        params["password"],
-                        status_callback=lambda s: None,
+                        params["server_url"], params["username"], params["password"], status_callback=lambda s: None
                     )
                     self.after(0, lambda: self._on_login_complete(account, "yggdrasil"))
                 except Exception as e:
@@ -425,15 +461,13 @@ class AccountManagerWindow(ctk.CTkToplevel):
         self._set_buttons_state(ctk.NORMAL)
         if account:
             logger_info = __import__("logzero", fromlist=["logger"]).logger
-            logger_info.info(f"{account_type} \u767B\u5F55\u6210\u529F: {account.name}")
+            logger_info.info(f"{account_type} \u767b\u5f55\u6210\u529f: {account.name}")
             if self._on_account_changed:
                 self._on_account_changed()
         else:
             logger_info = __import__("logzero", fromlist=["logger"]).logger
-            logger_info.error(f"{account_type} \u767B\u5F55\u5931\u8D25")
-            messagebox.showwarning(
-                _("warning"), _("account_login_failed", type=account_type), parent=self
-            )
+            logger_info.error(f"{account_type} \u767b\u5f55\u5931\u8d25")
+            messagebox.showwarning(_("warning"), _("account_login_failed", type=account_type), parent=self)
         self._refresh_account_list()
 
     def _on_set_current(self, account_id):
@@ -446,11 +480,7 @@ class AccountManagerWindow(ctk.CTkToplevel):
         acc = self._account_system.get_account(account_id)
         if not acc:
             return
-        ok = messagebox.askyesno(
-            _("confirm_delete"),
-            _("account_delete_confirm", name=acc.name),
-            parent=self,
-        )
+        ok = messagebox.askyesno(_("confirm_delete"), _("account_delete_confirm", name=acc.name), parent=self)
         if ok:
             self._account_system.remove_account(account_id)
             self._refresh_account_list()
@@ -460,13 +490,9 @@ class AccountManagerWindow(ctk.CTkToplevel):
     def _on_refresh_token(self, account):
         success = self._account_system.refresh_account_token(account)
         if success:
-            messagebox.showinfo(
-                _("account_refresh_token"), _("account_refresh_token_success"), parent=self
-            )
+            messagebox.showinfo(_("account_refresh_token"), _("account_refresh_token_success"), parent=self)
         else:
-            messagebox.showerror(
-                _("account_refresh_token"), _("account_refresh_token_failed"), parent=self
-            )
+            messagebox.showerror(_("account_refresh_token"), _("account_refresh_token_failed"), parent=self)
 
     def _on_import_accounts(self):
         filepath = filedialog.askopenfilename(
@@ -478,9 +504,7 @@ class AccountManagerWindow(ctk.CTkToplevel):
             return
 
         dialog = ctk.CTkInputDialog(
-            text=_("account_import_password_prompt"),
-            title=_("account_import_title"),
-            fg_color=COLORS["bg_dark"],
+            text=_("account_import_password_prompt"), title=_("account_import_title"), fg_color=COLORS["bg_dark"]
         )
         password = dialog.get_input()
         if not password:
@@ -495,37 +519,25 @@ class AccountManagerWindow(ctk.CTkToplevel):
 
         result = self._account_system.import_accounts(password, data)
         if result == -1:
-            messagebox.showerror(
-                _("account_import_title"), _("account_import_password_error"), parent=self
-            )
+            messagebox.showerror(_("account_import_title"), _("account_import_password_error"), parent=self)
         elif result > 0:
-            messagebox.showinfo(
-                _("account_import_title"),
-                _("account_import_success", count=result),
-                parent=self,
-            )
+            messagebox.showinfo(_("account_import_title"), _("account_import_success", count=result), parent=self)
         self._refresh_account_list()
 
     def _on_export_accounts(self):
         dialog = ctk.CTkInputDialog(
-            text=_("account_export_password_prompt"),
-            title=_("account_export_title"),
-            fg_color=COLORS["bg_dark"],
+            text=_("account_export_password_prompt"), title=_("account_export_title"), fg_color=COLORS["bg_dark"]
         )
         password = dialog.get_input()
         if not password:
             return
 
         confirm = ctk.CTkInputDialog(
-            text=_("account_export_password_confirm"),
-            title=_("account_export_title"),
-            fg_color=COLORS["bg_dark"],
+            text=_("account_export_password_confirm"), title=_("account_export_title"), fg_color=COLORS["bg_dark"]
         )
         password2 = confirm.get_input()
         if password != password2:
-            messagebox.showwarning(
-                _("warning"), _("account_export_password_mismatch"), parent=self
-            )
+            messagebox.showwarning(_("warning"), _("account_export_password_mismatch"), parent=self)
             return
 
         data = self._account_system.export_accounts(password)
@@ -543,9 +555,7 @@ class AccountManagerWindow(ctk.CTkToplevel):
             try:
                 with open(filepath, "wb") as f:
                     f.write(data)
-                messagebox.showinfo(
-                    _("account_export_title"), _("account_export_success"), parent=self
-                )
+                messagebox.showinfo(_("account_export_title"), _("account_export_success"), parent=self)
             except Exception as e:
                 messagebox.showerror(_("account_export_title"), str(e), parent=self)
 

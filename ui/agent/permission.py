@@ -14,9 +14,9 @@
 
 import json
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Literal
-from logzero import logger
+from typing import Dict, List, Literal, Optional
 
+from logzero import logger
 
 Effect = Literal["allow", "deny", "ask"]
 
@@ -24,8 +24,9 @@ Effect = Literal["allow", "deny", "ask"]
 @dataclass
 class PermissionRule:
     """单条权限规则"""
-    action: str     # 工具名或 "*"
-    resource: str   # 资源标识或 "*"
+
+    action: str  # 工具名或 "*"
+    resource: str  # 资源标识或 "*"
     effect: Effect  # "allow" | "deny" | "ask"
 
 
@@ -82,9 +83,7 @@ class PermissionManager:
 
     def to_config(self) -> dict:
         """导出为配置文件格式"""
-        return {
-            "agent_permissions": self.get_rules(),
-        }
+        return {"agent_permissions": self.get_rules()}
 
     @staticmethod
     def from_config(config_dict: dict) -> "PermissionManager":

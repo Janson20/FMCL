@@ -1,8 +1,9 @@
 """UI 窗口类 - 独立弹窗和对话框"""
+
 import os
 import threading
 import time
-from typing import List, Dict, Optional, Callable, Any, Literal
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 import customtkinter as ctk
 import requests
@@ -12,6 +13,7 @@ from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
 
 try:
     from tkinterdnd2 import DND_FILES
+
     HAS_DND: bool = True
 except ImportError:
     HAS_DND = False
@@ -33,9 +35,9 @@ def set_app_reference(app: ctk.CTk) -> None:
     _app_ref = app
 
 
-def show_notification(icon: str, title: str, subtitle: str = "",
-                      notify_type: NotifyType = "info",
-                      duration_ms: int = 4500) -> None:
+def show_notification(
+    icon: str, title: str, subtitle: str = "", notify_type: NotifyType = "info", duration_ms: int = 4500
+) -> None:
     border_color = NOTIFY_BORDER_COLORS.get(notify_type, NOTIFY_BORDER_COLORS["info"])
 
     if _app_ref is None:
@@ -49,11 +51,10 @@ def show_notification(icon: str, title: str, subtitle: str = "",
     app.after(0, lambda: _show_notification_impl(app, icon, title, subtitle, border_color, duration_ms))
 
 
-def _show_notification_impl(parent, icon: str, title: str, subtitle: str,
-                            border_color: str, duration_ms: int) -> None:
+def _show_notification_impl(parent, icon: str, title: str, subtitle: str, border_color: str, duration_ms: int) -> None:
     toast = ctk.CTkToplevel(parent)
     toast.overrideredirect(True)
-    toast.attributes('-topmost', True)
+    toast.attributes("-topmost", True)
     toast.configure(fg_color=COLORS["card_bg"])
     toast.transient(parent)
 
@@ -66,26 +67,23 @@ def _show_notification_impl(parent, icon: str, title: str, subtitle: str,
     inner = ctk.CTkFrame(border_frame, fg_color=COLORS["card_bg"], corner_radius=7)
     inner.pack(fill=ctk.BOTH, expand=True, padx=2, pady=2)
 
-    icon_label = ctk.CTkLabel(
-        inner, text=icon,
-        font=ctk.CTkFont(size=24),
-        text_color=COLORS["text_primary"],
-        width=40,
-    )
+    icon_label = ctk.CTkLabel(inner, text=icon, font=ctk.CTkFont(size=24), text_color=COLORS["text_primary"], width=40)
     icon_label.pack(side=ctk.LEFT, padx=(12, 4), pady=10)
 
     text_frame = ctk.CTkFrame(inner, fg_color="transparent")
     text_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 12), pady=8)
 
     ctk.CTkLabel(
-        text_frame, text=subtitle if subtitle else "",
+        text_frame,
+        text=subtitle if subtitle else "",
         font=ctk.CTkFont(family=FONT_FAMILY, size=10),
         text_color=border_color,
         anchor=ctk.W,
     ).pack(fill=ctk.X)
 
     ctk.CTkLabel(
-        text_frame, text=title,
+        text_frame,
+        text=title,
         font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
         text_color=COLORS["text_primary"],
         anchor=ctk.W,
@@ -118,7 +116,7 @@ def _show_notification_impl(parent, icon: str, title: str, subtitle: str,
             for alpha in range(100, -1, -5):
                 if not toast.winfo_exists():
                     break
-                toast.attributes('-alpha', alpha / 100.0)
+                toast.attributes("-alpha", alpha / 100.0)
                 toast.update()
                 time.sleep(0.015)
         except Exception:
@@ -176,21 +174,11 @@ def show_confirmation(message: str, title: str = "确认") -> bool:
         dialog.destroy()
 
     ctk.CTkButton(
-        btn_frame,
-        text="确认",
-        width=80,
-        fg_color=COLORS["accent"],
-        hover_color=COLORS["accent_hover"],
-        command=on_yes,
+        btn_frame, text="确认", width=80, fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"], command=on_yes
     ).pack(side=ctk.LEFT, padx=10)
 
     ctk.CTkButton(
-        btn_frame,
-        text="取消",
-        width=80,
-        fg_color=COLORS["bg_medium"],
-        hover_color=COLORS["card_border"],
-        command=on_no,
+        btn_frame, text="取消", width=80, fg_color=COLORS["bg_medium"], hover_color=COLORS["card_border"], command=on_no
     ).pack(side=ctk.LEFT, padx=10)
 
     dialog.wait_window()
@@ -434,10 +422,7 @@ class VersionSelectorDialog(ctk.CTkToplevel):
         if not keyword:
             filtered = self._versions
         else:
-            filtered = [
-                v for v in self._versions
-                if keyword in str(v.get("id", "")).lower()
-            ]
+            filtered = [v for v in self._versions if keyword in str(v.get("id", "")).lower()]
         self._render_versions(filtered)
 
     def _click_version(self, version_id: str):
@@ -473,6 +458,7 @@ def fetch_notice() -> Optional[str]:
 
 def show_notice_dialog(parent, content: str, on_dismiss=None) -> None:
     from ui.i18n import _
+
     dialog = ctk.CTkToplevel(parent)
     dialog.title(_("notice_title"))
     dialog.configure(fg_color=COLORS["bg_dark"])
@@ -502,10 +488,7 @@ def show_notice_dialog(parent, content: str, on_dismiss=None) -> None:
         text_color=COLORS["accent"],
     ).pack(pady=(20, 10))
 
-    text_frame = ctk.CTkScrollableFrame(
-        dialog,
-        fg_color=COLORS["bg_medium"],
-    )
+    text_frame = ctk.CTkScrollableFrame(dialog, fg_color=COLORS["bg_medium"])
     text_frame.pack(fill=ctk.BOTH, expand=True, padx=20, pady=(0, 10))
 
     ctk.CTkLabel(
@@ -544,8 +527,7 @@ def cleanup_toast_queue() -> None:
     _toast_queue.clear()
 
 
-def show_toast_notification(parent, icon: str, title: str, subtitle: str = "",
-                            duration_ms: int = 4500) -> None:
+def show_toast_notification(parent, icon: str, title: str, subtitle: str = "", duration_ms: int = 4500) -> None:
     """显示右下角 Toast 通知弹窗（成就解锁等）
 
     Args:
@@ -557,7 +539,7 @@ def show_toast_notification(parent, icon: str, title: str, subtitle: str = "",
     """
     toast = ctk.CTkToplevel(parent)
     toast.overrideredirect(True)
-    toast.attributes('-topmost', True)
+    toast.attributes("-topmost", True)
     toast.configure(fg_color=COLORS["card_bg"])
     toast.transient(parent)
 
@@ -570,26 +552,23 @@ def show_toast_notification(parent, icon: str, title: str, subtitle: str = "",
     inner = ctk.CTkFrame(border_frame, fg_color=COLORS["card_bg"], corner_radius=7)
     inner.pack(fill=ctk.BOTH, expand=True, padx=2, pady=2)
 
-    icon_label = ctk.CTkLabel(
-        inner, text=icon,
-        font=ctk.CTkFont(size=24),
-        text_color=COLORS["text_primary"],
-        width=40,
-    )
+    icon_label = ctk.CTkLabel(inner, text=icon, font=ctk.CTkFont(size=24), text_color=COLORS["text_primary"], width=40)
     icon_label.pack(side=ctk.LEFT, padx=(12, 4), pady=10)
 
     text_frame = ctk.CTkFrame(inner, fg_color="transparent")
     text_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 12), pady=8)
 
     ctk.CTkLabel(
-        text_frame, text=subtitle if subtitle else "",
+        text_frame,
+        text=subtitle if subtitle else "",
         font=ctk.CTkFont(family=FONT_FAMILY, size=10),
         text_color=COLORS["accent"],
         anchor=ctk.W,
     ).pack(fill=ctk.X)
 
     ctk.CTkLabel(
-        text_frame, text=title,
+        text_frame,
+        text=title,
         font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
         text_color=COLORS["text_primary"],
         anchor=ctk.W,
@@ -622,7 +601,7 @@ def show_toast_notification(parent, icon: str, title: str, subtitle: str = "",
             for alpha in range(100, -1, -5):
                 if not toast.winfo_exists():
                     break
-                toast.attributes('-alpha', alpha / 100.0)
+                toast.attributes("-alpha", alpha / 100.0)
                 toast.update()
                 time.sleep(0.015)
         except Exception:

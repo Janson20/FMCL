@@ -1,8 +1,9 @@
 """整合包开服窗口 - 选择 .mrpack 文件，安装为服务器"""
+
 import os
 import threading
 import tkinter.messagebox as messagebox
-from typing import List, Dict, Optional, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 
@@ -14,6 +15,7 @@ from ui.i18n import _
 def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
     try:
         from achievement_engine import get_achievement_engine
+
         engine = get_achievement_engine()
         if engine:
             engine.update_progress(achievement_id, value=value, trigger_type=trigger_type)
@@ -79,10 +81,12 @@ class ModpackServerWindow(ctk.CTkToplevel):
         file_frame.pack(fill=ctk.X, pady=(0, 12))
 
         self._file_label = ctk.CTkLabel(
-            file_frame, text=_("mp_no_file_selected"),
+            file_frame,
+            text=_("mp_no_file_selected"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
-            anchor=ctk.W, wraplength=440,
+            anchor=ctk.W,
+            wraplength=440,
         )
         self._file_label.pack(padx=15, pady=(12, 5), fill=ctk.X)
 
@@ -90,62 +94,76 @@ class ModpackServerWindow(ctk.CTkToplevel):
         btn_row.pack(fill=ctk.X, padx=15, pady=(0, 12))
 
         ctk.CTkButton(
-            btn_row, text=_("mp_select_file_btn"),
-            height=34, font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            btn_row,
+            text=_("mp_select_file_btn"),
+            height=34,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
             command=self._select_file,
         ).pack(side=ctk.LEFT, padx=(0, 8))
 
         ctk.CTkButton(
-            btn_row, text=_("mp_download_modrinth"),
-            height=34, font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["success"], hover_color="#27ae60",
+            btn_row,
+            text=_("mp_download_modrinth"),
+            height=34,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["success"],
+            hover_color="#27ae60",
             command=self._open_modrinth_browser,
         ).pack(side=ctk.LEFT)
 
         self._info_frame = ctk.CTkFrame(main_frame, fg_color=COLORS["card_bg"], corner_radius=10)
 
         self._info_name_label = ctk.CTkLabel(
-            self._info_frame, text="",
+            self._info_frame,
+            text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
-            text_color=COLORS["text_primary"], anchor=ctk.W,
+            text_color=COLORS["text_primary"],
+            anchor=ctk.W,
         )
         self._info_name_label.pack(padx=15, pady=(12, 2), fill=ctk.X)
 
         self._info_summary_label = ctk.CTkLabel(
-            self._info_frame, text="",
+            self._info_frame,
+            text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_secondary"], anchor=ctk.W, wraplength=480,
+            text_color=COLORS["text_secondary"],
+            anchor=ctk.W,
+            wraplength=480,
         )
         self._info_summary_label.pack(padx=15, pady=(0, 2), fill=ctk.X)
 
         self._info_version_label = ctk.CTkLabel(
-            self._info_frame, text="",
+            self._info_frame,
+            text="",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["success"], anchor=ctk.W,
+            text_color=COLORS["success"],
+            anchor=ctk.W,
         )
         self._info_version_label.pack(padx=15, pady=(0, 5), fill=ctk.X)
 
         self._optional_frame = ctk.CTkFrame(self._info_frame, fg_color="transparent")
         self._optional_frame.pack(padx=15, pady=(0, 5), fill=ctk.X)
 
-        ctk.CTkFrame(self._info_frame, fg_color=COLORS["card_border"], height=1).pack(
-            fill=ctk.X, padx=15, pady=(5, 0)
-        )
+        ctk.CTkFrame(self._info_frame, fg_color=COLORS["card_border"], height=1).pack(fill=ctk.X, padx=15, pady=(5, 0))
 
         name_row = ctk.CTkFrame(self._info_frame, fg_color="transparent")
         name_row.pack(fill=ctk.X, padx=15, pady=(8, 5))
 
         ctk.CTkLabel(
-            name_row, text=_("mp_server_name_label"),
+            name_row,
+            text=_("mp_server_name_label"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         ).pack(side=ctk.LEFT)
 
         self._server_name_entry = ctk.CTkEntry(
-            name_row, height=28,
+            name_row,
+            height=28,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            fg_color=COLORS["bg_medium"], border_color=COLORS["card_border"],
+            fg_color=COLORS["bg_medium"],
+            border_color=COLORS["card_border"],
             placeholder_text=_("mp_server_name_placeholder"),
         )
         self._server_name_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(8, 0))
@@ -154,41 +172,48 @@ class ModpackServerWindow(ctk.CTkToplevel):
             self._info_frame,
             text=_("mp_server_loader_hint"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"], anchor=ctk.W, wraplength=480,
+            text_color=COLORS["text_secondary"],
+            anchor=ctk.W,
+            wraplength=480,
         ).pack(padx=15, pady=(0, 12), fill=ctk.X)
 
         self._progress_frame = ctk.CTkFrame(main_frame, fg_color=COLORS["card_bg"], corner_radius=10)
 
         ctk.CTkLabel(
-            self._progress_frame, text=_("mp_install_progress_title"),
+            self._progress_frame,
+            text=_("mp_install_progress_title"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(padx=15, pady=(12, 8), anchor=ctk.W)
 
         self._mp_progress_label = ctk.CTkLabel(
-            self._progress_frame, text=_("mp_prog_mrpack_init"),
+            self._progress_frame,
+            text=_("mp_prog_mrpack_init"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_secondary"], anchor=ctk.W,
+            text_color=COLORS["text_secondary"],
+            anchor=ctk.W,
         )
         self._mp_progress_label.pack(padx=15, pady=(0, 2), fill=ctk.X)
 
         self._mc_progress_label = ctk.CTkLabel(
-            self._progress_frame, text=_("mp_prog_vanilla_init"),
+            self._progress_frame,
+            text=_("mp_prog_vanilla_init"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_secondary"], anchor=ctk.W,
+            text_color=COLORS["text_secondary"],
+            anchor=ctk.W,
         )
         self._mc_progress_label.pack(padx=15, pady=(0, 8), fill=ctk.X)
 
         self._progress_status = ctk.CTkLabel(
-            self._progress_frame, text=_("mp_installing"),
+            self._progress_frame,
+            text=_("mp_installing"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             text_color=COLORS["text_primary"],
         )
         self._progress_status.pack(padx=15, pady=(0, 5), fill=ctk.X)
 
         self._progress_bar = ctk.CTkProgressBar(
-            self._progress_frame, height=12,
-            fg_color=COLORS["bg_medium"], progress_color=COLORS["accent"],
+            self._progress_frame, height=12, fg_color=COLORS["bg_medium"], progress_color=COLORS["accent"]
         )
         self._progress_bar.pack(fill=ctk.X, padx=15, pady=(0, 12))
         self._progress_bar.set(0)
@@ -197,25 +222,32 @@ class ModpackServerWindow(ctk.CTkToplevel):
         self._bottom_frame.pack(fill=ctk.X, pady=(12, 0))
 
         self._install_btn = ctk.CTkButton(
-            self._bottom_frame, text=_("mp_server_start_install"),
-            height=40, font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            self._bottom_frame,
+            text=_("mp_server_start_install"),
+            height=40,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
             state=ctk.DISABLED,
             command=self._on_install,
         )
         self._install_btn.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
 
         self._close_btn = ctk.CTkButton(
-            self._bottom_frame, text=_("close"),
-            height=40, width=80,
+            self._bottom_frame,
+            text=_("close"),
+            height=40,
+            width=80,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13),
-            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
             command=self.destroy,
         )
         self._close_btn.pack(side=ctk.RIGHT, padx=(10, 0))
 
     def _select_file(self):
         from tkinter import filedialog
+
         path = filedialog.askopenfilename(
             parent=self,
             title=_("mp_select_dialog_title"),
@@ -230,14 +262,12 @@ class ModpackServerWindow(ctk.CTkToplevel):
 
     def _open_modrinth_browser(self):
         from ui.windows.modpack_browser import ModpackBrowserWindow
+
         ModpackBrowserWindow(self, on_modpack_selected=self._on_modrinth_downloaded)
 
     def _on_modrinth_downloaded(self, mrpack_path: str):
         self._mrpack_path = mrpack_path
-        self._file_label.configure(
-            text=os.path.basename(mrpack_path),
-            text_color=COLORS["text_primary"],
-        )
+        self._file_label.configure(text=os.path.basename(mrpack_path), text_color=COLORS["text_primary"])
         self._install_btn.configure(state=ctk.DISABLED, text=_("mp_reading_info"))
         self._run_in_thread(self._load_mrpack_info)
 
@@ -265,9 +295,11 @@ class ModpackServerWindow(ctk.CTkToplevel):
         optional_files = info.get("optionalFiles", [])
         if optional_files:
             ctk.CTkLabel(
-                self._optional_frame, text=_("mp_optional_components"),
+                self._optional_frame,
+                text=_("mp_optional_components"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLORS["text_secondary"], anchor=ctk.W,
+                text_color=COLORS["text_secondary"],
+                anchor=ctk.W,
             ).pack(fill=ctk.X, pady=(0, 3))
 
             self._optional_var_map.clear()
@@ -275,9 +307,12 @@ class ModpackServerWindow(ctk.CTkToplevel):
                 var = ctk.BooleanVar(value=False)
                 self._optional_var_map[opt_name] = var
                 ctk.CTkCheckBox(
-                    self._optional_frame, text=opt_name, variable=var,
+                    self._optional_frame,
+                    text=opt_name,
+                    variable=var,
                     font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-                    fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                    fg_color=COLORS["accent"],
+                    hover_color=COLORS["accent_hover"],
                     text_color=COLORS["text_primary"],
                 ).pack(anchor=ctk.W, pady=1)
 
@@ -306,9 +341,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
         self._run_in_thread(self._do_install, optional_files, custom_name)
 
     def _do_install(self, optional_files: list, server_name: Optional[str]):
-        self._launcher_instance = getattr(
-            self.callbacks.get("install_mrpack_server"), "__self__", None
-        )
+        self._launcher_instance = getattr(self.callbacks.get("install_mrpack_server"), "__self__", None)
         self._polling = True
 
         def _poll_progress():
@@ -326,12 +359,10 @@ class ModpackServerWindow(ctk.CTkToplevel):
                     mc_pct = (mc_data.get("current", 0) / max(mc_data.get("max", 1), 1)) * 100
 
                     self._mp_progress_label.configure(
-                        text=_("mp_prog_mrpack_label", pct=f"{mp_pct:.0f}",
-                               label=mp_data.get('label', ''))
+                        text=_("mp_prog_mrpack_label", pct=f"{mp_pct:.0f}", label=mp_data.get("label", ""))
                     )
                     self._mc_progress_label.configure(
-                        text=_("mp_prog_vanilla_label", pct=f"{mc_pct:.0f}",
-                               label=mc_data.get('label', ''))
+                        text=_("mp_prog_vanilla_label", pct=f"{mc_pct:.0f}", label=mc_data.get("label", ""))
                     )
 
                     overall = mp.get("overall", 0)
@@ -339,7 +370,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
 
                     if phase == "loader":
                         self._progress_status.configure(
-                            text=_("mp_server_loader_status", name=mp.get('loader_label', ''))
+                            text=_("mp_server_loader_status", name=mp.get("loader_label", ""))
                         )
                     elif phase == "done":
                         self._polling = False
@@ -357,9 +388,7 @@ class ModpackServerWindow(ctk.CTkToplevel):
 
         try:
             success, result = self.callbacks["install_mrpack_server"](
-                self._mrpack_path,
-                optional_files=optional_files,
-                server_name=server_name,
+                self._mrpack_path, optional_files=optional_files, server_name=server_name
             )
             self.after(0, lambda: self._on_install_done(success, result))
         except Exception as e:
@@ -375,16 +404,12 @@ class ModpackServerWindow(ctk.CTkToplevel):
         if success:
             self._progress_status.configure(text=_("mp_install_done"), text_color=COLORS["success"])
             self._install_btn.configure(
-                text=_("mp_server_install_done_btn", result=result),
-                fg_color=COLORS["success"],
-                state=ctk.DISABLED,
+                text=_("mp_server_install_done_btn", result=result), fg_color=COLORS["success"], state=ctk.DISABLED
             )
             show_notification("🖥", _("notify_modpack_server_installed"), result, notify_type="success")
             _trigger_ach("server_modpack_server")
             messagebox.showinfo(
-                _("mp_server_install_done_title"),
-                _("mp_server_install_done_msg", result=result),
-                parent=self,
+                _("mp_server_install_done_title"), _("mp_server_install_done_msg", result=result), parent=self
             )
             self._refresh_parent_server_list()
             self.destroy()

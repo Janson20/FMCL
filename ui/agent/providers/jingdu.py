@@ -14,14 +14,15 @@ API 端点: https://jingdu.qzz.io/api/deepseek/v1/chat/completions
 """
 
 import json
-import urllib.request
 import urllib.error
-from typing import Dict, List, Optional, Generator
+import urllib.request
+from typing import Dict, Generator, List, Optional
+
 from logzero import logger
 
-from ui.agent.provider import BaseProvider
 from ui.agent.models import get_model_by_id
-from ui.agent.stream import SSEParser, SSEEventType
+from ui.agent.provider import BaseProvider
+from ui.agent.stream import SSEEventType, SSEParser
 
 JDZ_DEFAULT_API_URL = "https://jingdu.qzz.io/api/deepseek/v1/chat/completions"
 JDZ_DEFAULT_MODEL = "deepseek-v4-flash"
@@ -40,10 +41,12 @@ class JingduProvider(BaseProvider):
         api_url: str = "",
         timeout: int = 120,
         extra_headers: Optional[Dict[str, str]] = None,
-        thinking_enabled: Optional[bool] = None,   # None = 模型默认
-        reasoning_effort: str = "high",             # "high" | "max"
+        thinking_enabled: Optional[bool] = None,  # None = 模型默认
+        reasoning_effort: str = "high",  # "high" | "max"
     ):
-        super().__init__(api_key=api_key, api_url=api_url or JDZ_DEFAULT_API_URL, timeout=timeout, extra_headers=extra_headers)
+        super().__init__(
+            api_key=api_key, api_url=api_url or JDZ_DEFAULT_API_URL, timeout=timeout, extra_headers=extra_headers
+        )
         self.thinking_enabled = thinking_enabled
         self.reasoning_effort = reasoning_effort
 
@@ -107,12 +110,7 @@ class JingduProvider(BaseProvider):
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                self.api_url,
-                data=req_data,
-                headers=self._build_headers(),
-                method="POST",
-            )
+            req = urllib.request.Request(self.api_url, data=req_data, headers=self._build_headers(), method="POST")
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
 
@@ -162,12 +160,7 @@ class JingduProvider(BaseProvider):
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                self.api_url,
-                data=req_data,
-                headers=self._build_headers(),
-                method="POST",
-            )
+            req = urllib.request.Request(self.api_url, data=req_data, headers=self._build_headers(), method="POST")
 
             parser = SSEParser()
             accumulated_text = ""
@@ -197,9 +190,17 @@ class JingduProvider(BaseProvider):
                     elif event.type == SSEEventType.TOOL_CALL_START:
                         yield {"type": "tool_call_start", "tool_call_id": event.tool_call_id}
                     elif event.type == SSEEventType.TOOL_CALL_NAME:
-                        yield {"type": "tool_call_name", "tool_call_id": event.tool_call_id, "tool_name": event.tool_name}
+                        yield {
+                            "type": "tool_call_name",
+                            "tool_call_id": event.tool_call_id,
+                            "tool_name": event.tool_name,
+                        }
                     elif event.type == SSEEventType.TOOL_CALL_ARGS:
-                        yield {"type": "tool_call_args", "tool_call_id": event.tool_call_id, "tool_args": event.tool_args}
+                        yield {
+                            "type": "tool_call_args",
+                            "tool_call_id": event.tool_call_id,
+                            "tool_args": event.tool_args,
+                        }
                     elif event.type == SSEEventType.USAGE:
                         yield {"type": "usage", "usage": event.usage}
                     elif event.type == SSEEventType.DONE:

@@ -11,26 +11,28 @@
 3. AI 调用 skill 工具加载特定技能
 """
 
-import os
 import glob
+import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+
 from logzero import logger
 
 
 @dataclass
 class SkillInfo:
     """技能元数据"""
-    name: str               # 技能名称（目录名）
-    description: str        # 简短描述（SKILL.md 第一行）
-    directory: str          # 技能目录路径
-    content: str            # SKILL.md 完整内容
+
+    name: str  # 技能名称（目录名）
+    description: str  # 简短描述（SKILL.md 第一行）
+    directory: str  # 技能目录路径
+    content: str  # SKILL.md 完整内容
     files: List[str] = field(default_factory=list)  # 技能目录下其他文件
 
     def to_prompt_text(self) -> str:
         """生成注入 prompt 的技能文本"""
         lines = [
-            f"<skill_content name=\"{self.name}\">",
+            f'<skill_content name="{self.name}">',
             f"# Skill: {self.name}",
             "",
             self.content.strip(),
@@ -89,13 +91,9 @@ def load_all_skills() -> List[SkillInfo]:
                     rel_path = os.path.relpath(os.path.join(root, fn), skill_dir)
                     files.append(rel_path)
 
-            skills.append(SkillInfo(
-                name=entry,
-                description=description,
-                directory=skill_dir,
-                content=content,
-                files=files,
-            ))
+            skills.append(
+                SkillInfo(name=entry, description=description, directory=skill_dir, content=content, files=files)
+            )
         except Exception as e:
             logger.error(f"[Skill] 加载技能 '{entry}' 失败: {e}")
 
@@ -129,13 +127,7 @@ def get_skill_by_name(name: str) -> Optional[SkillInfo]:
                 rel_path = os.path.relpath(os.path.join(root, fn), skill_dir)
                 files.append(rel_path)
 
-        return SkillInfo(
-            name=name,
-            description=description,
-            directory=skill_dir,
-            content=content,
-            files=files,
-        )
+        return SkillInfo(name=name, description=description, directory=skill_dir, content=content, files=files)
     except Exception as e:
         logger.error(f"[Skill] 加载技能 '{name}' 失败: {e}")
         return None

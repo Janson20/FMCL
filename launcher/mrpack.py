@@ -1,4 +1,5 @@
 """Minecraft启动器 - 整合包安装模块"""
+
 import json
 import os
 import re
@@ -9,7 +10,7 @@ import threading
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Callable, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from logzero import logger
 
@@ -27,17 +28,19 @@ class MrpackMixin:
 
     def _get_cached_java_runtimes_mrpack(self) -> List:
         import time
+
         now = time.time()
         if self._java_scan_cache is not None and (now - self._java_scan_cache_time) < 30:
             return self._java_scan_cache
         from launcher.java_scanner import scan_all
+
         self._java_scan_cache = scan_all(getattr(self, "minecraft_dir", ""))
         self._java_scan_cache_time = now
         return self._java_scan_cache
 
     def _resolve_java_for_version(self, version_id: str) -> str:
-        java_mode = getattr(self.config, 'java_mode', 'auto')
-        custom_path = getattr(self.config, 'java_custom_path', None)
+        java_mode = getattr(self.config, "java_mode", "auto")
+        custom_path = getattr(self.config, "java_custom_path", None)
 
         if java_mode == "custom" and custom_path and os.path.isfile(custom_path):
             logger.info(f"使用自定义 Java 路径: {custom_path}")
@@ -51,6 +54,7 @@ class MrpackMixin:
         if java_path == "java" or not os.path.isfile(java_path):
             try:
                 from launcher.java_scanner import recommend_for_mc
+
                 javas = self._get_cached_java_runtimes_mrpack()
                 if javas:
                     best = recommend_for_mc(javas, version_id)
@@ -64,8 +68,9 @@ class MrpackMixin:
     def _check_and_warn_missing_java(self, version_id: str, java_path: str) -> None:
         if java_path == "java" or not os.path.isfile(java_path):
             try:
-                from launcher.java_scanner import _min_java_for_mc
                 from launcher.java_install import get_java_install_guidance
+                from launcher.java_scanner import _min_java_for_mc
+
                 min_java = _min_java_for_mc(version_id)
                 guidance = get_java_install_guidance(min_java)
                 dl_url = guidance.get("download_url") or ""
@@ -75,22 +80,19 @@ class MrpackMixin:
                     f"请安装 JDK {min_java}。"
                     f"下载: {dl_url}  安装命令: {install_cmd}"
                 )
-                self._set_status(
-                    f"⚠ 未找到 Java {min_java}+，游戏可能无法启动。"
-                    f"请安装 JDK {min_java}"
-                )
+                self._set_status(f"⚠ 未找到 Java {min_java}+，游戏可能无法启动。" f"请安装 JDK {min_java}")
             except Exception:
                 pass
 
     def get_java_mode(self) -> str:
-        return getattr(self.config, 'java_mode', 'auto')
+        return getattr(self.config, "java_mode", "auto")
 
     def set_java_mode(self, mode: str) -> None:
         self.config.java_mode = mode
         self.config.save_config()
 
     def get_java_custom_path(self) -> Optional[str]:
-        return getattr(self.config, 'java_custom_path', None)
+        return getattr(self.config, "java_custom_path", None)
 
     def set_java_custom_path(self, path: Optional[str]) -> None:
         self.config.java_custom_path = path
@@ -106,9 +108,7 @@ class MrpackMixin:
             logger.info(f"版本 {version_id} 未安装，正在安装以获取 Java runtime...")
             self._set_status(f"正在安装 {version_id}（自动获取 Java runtime）...")
             self._mcllib.install.install_minecraft_version(
-                version_id,
-                getattr(self, "minecraft_dir", ""),
-                callback=self._get_callback()
+                version_id, getattr(self, "minecraft_dir", ""), callback=self._get_callback()
             )
 
         java_path = self._resolve_java_for_version(version_id)
@@ -133,6 +133,7 @@ class MrpackMixin:
             ValueError: 文件无效或解析失败
         """
         import minecraft_launcher_lib
+
         if not os.path.isfile(mrpack_path):
             raise ValueError(f"文件不存在: {mrpack_path}")
         try:
@@ -145,6 +146,7 @@ class MrpackMixin:
 
     def _read_mrpack_index(self, mrpack_path: str) -> Dict[str, Any]:
         import minecraft_launcher_lib as _mcllib
+
         with zipfile.ZipFile(mrpack_path, "r") as zf:
             with zf.open("modrinth.index.json", "r") as f:
                 return json.load(f)
@@ -157,7 +159,7 @@ class MrpackMixin:
         optional_files: List[str],
         callback: Dict,
     ):
-        from minecraft_launcher_lib._helper import download_file, check_path_inside_minecraft_directory
+        from minecraft_launcher_lib._helper import check_path_inside_minecraft_directory, download_file
 
         mp_dir_abs = os.path.abspath(modpack_directory)
 
@@ -233,14 +235,15 @@ class MrpackMixin:
         logger.info("解压 overrides...")
         with zipfile.ZipFile(mrpack_path, "r") as zf:
             for zip_name in zf.namelist():
-                if (not zip_name.startswith("overrides/") and not zip_name.startswith("client-overrides/")) \
-                        or zf.getinfo(zip_name).file_size == 0:
+                if (
+                    not zip_name.startswith("overrides/") and not zip_name.startswith("client-overrides/")
+                ) or zf.getinfo(zip_name).file_size == 0:
                     continue
 
                 if zip_name.startswith("client-overrides/"):
-                    file_name = zip_name[len("client-overrides/"):]
+                    file_name = zip_name[len("client-overrides/") :]
                 else:
-                    file_name = zip_name[len("overrides/"):]
+                    file_name = zip_name[len("overrides/") :]
 
                 full_path = os.path.abspath(os.path.join(mp_dir_abs, file_name))
                 check_path_inside_minecraft_directory(mp_dir_abs, full_path)
@@ -257,10 +260,7 @@ class MrpackMixin:
         return failed_files
 
     def install_mrpack(
-        self,
-        mrpack_path: str,
-        optional_files: Optional[List[str]] = None,
-        modpack_directory: Optional[str] = None,
+        self, mrpack_path: str, optional_files: Optional[List[str]] = None, modpack_directory: Optional[str] = None
     ) -> Tuple[bool, str]:
         """
         安装 .mrpack 整合包（默认启用版本隔离，并行下载优化）
@@ -311,12 +311,7 @@ class MrpackMixin:
             mp_state = {"current": 0, "max": 1, "label": "等待中"}
             mc_state = {"current": 0, "max": 1, "label": "等待中"}
 
-            self._mp_progress = {
-                "mrpack": mp_state,
-                "vanilla": mc_state,
-                "overall": 0,
-                "phase": "parallel",
-            }
+            self._mp_progress = {"mrpack": mp_state, "vanilla": mc_state, "overall": 0, "phase": "parallel"}
 
             def _update_overall():
                 mp_pct = (mp_state["current"] / mp_state["max"]) if mp_state["max"] > 0 else 0
@@ -351,13 +346,7 @@ class MrpackMixin:
                 nonlocal mrpack_error
                 try:
                     logger.info("并行任务 A: 并行下载整合包文件...")
-                    self._download_mrpack_files_parallel(
-                        mrpack_path,
-                        mc_dir,
-                        mp_dir,
-                        optional,
-                        mrpack_cb,
-                    )
+                    self._download_mrpack_files_parallel(mrpack_path, mc_dir, mp_dir, optional, mrpack_cb)
                     with progress_lock:
                         mp_state["current"] = mp_state["max"]
                         mp_state["label"] = "完成"
@@ -376,11 +365,7 @@ class MrpackMixin:
                     with progress_lock:
                         mc_state["label"] = f"安装 Minecraft {mc_version}"
                     _update_overall()
-                    _mcllib.install.install_minecraft_version(
-                        mc_version,
-                        mc_dir,
-                        callback=vanilla_cb,
-                    )
+                    _mcllib.install.install_minecraft_version(mc_version, mc_dir, callback=vanilla_cb)
                     with progress_lock:
                         mc_state["current"] = mc_state["max"]
                         mc_state["label"] = "完成"
@@ -458,7 +443,7 @@ class MrpackMixin:
             logger.error(f"整合包安装失败: {e}")
             # 清理部分下载的文件
             try:
-                if 'mp_dir' in locals() and os.path.isdir(mp_dir):
+                if "mp_dir" in locals() and os.path.isdir(mp_dir):
                     shutil.rmtree(mp_dir)
                     logger.info(f"已清理部分安装目录: {mp_dir}")
             except Exception as cleanup_err:
@@ -478,10 +463,7 @@ class MrpackMixin:
         return self._mcllib.mrpack.get_mrpack_launch_version(mrpack_path)
 
     def install_mrpack_server(
-        self,
-        mrpack_path: str,
-        optional_files: Optional[List[str]] = None,
-        server_name: Optional[str] = None,
+        self, mrpack_path: str, optional_files: Optional[List[str]] = None, server_name: Optional[str] = None
     ) -> Tuple[bool, str]:
         """
         安装整合包作为服务器（并行下载优化）
@@ -536,7 +518,7 @@ class MrpackMixin:
                 logger.info(f"检测到 mod loader: {loader_type} {loader_version}")
 
             if not server_name:
-                safe_name = re.sub(r'[<>:"/\\|?*]', '_', pack_name)
+                safe_name = re.sub(r'[<>:"/\\|?*]', "_", pack_name)
                 server_name = f"{safe_name}-{mc_version}"
 
             mc_dir = self.minecraft_dir
@@ -552,12 +534,7 @@ class MrpackMixin:
             mp_state = {"current": 0, "max": 1, "label": "等待中"}
             mc_state = {"current": 0, "max": 1, "label": "等待中"}
 
-            self._mp_progress = {
-                "mrpack": mp_state,
-                "vanilla": mc_state,
-                "overall": 0,
-                "phase": "parallel",
-            }
+            self._mp_progress = {"mrpack": mp_state, "vanilla": mc_state, "overall": 0, "phase": "parallel"}
 
             def _update_overall():
                 mp_pct = (mp_state["current"] / mp_state["max"]) if mp_state["max"] > 0 else 0
@@ -592,13 +569,7 @@ class MrpackMixin:
                 nonlocal mrpack_error
                 try:
                     logger.info("并行任务 A: 并行下载整合包服务器文件...")
-                    self._download_mrpack_files_parallel(
-                        mrpack_path,
-                        mc_dir,
-                        str(server_dir),
-                        optional,
-                        mrpack_cb,
-                    )
+                    self._download_mrpack_files_parallel(mrpack_path, mc_dir, str(server_dir), optional, mrpack_cb)
                     with progress_lock:
                         mp_state["current"] = mp_state["max"]
                         mp_state["label"] = "完成"
@@ -615,11 +586,7 @@ class MrpackMixin:
                     with progress_lock:
                         mc_state["label"] = f"安装 Minecraft {mc_version}"
                     _update_overall()
-                    _mcllib.install.install_minecraft_version(
-                        mc_version,
-                        mc_dir,
-                        callback=vanilla_cb,
-                    )
+                    _mcllib.install.install_minecraft_version(mc_version, mc_dir, callback=vanilla_cb)
                     with progress_lock:
                         mc_state["current"] = mc_state["max"]
                         mc_state["label"] = "完成"
@@ -647,7 +614,7 @@ class MrpackMixin:
                 logger.error(f"并行安装失败: {combined}")
                 # 清理部分下载的文件
                 try:
-                    if 'server_dir' in locals() and server_dir.exists():
+                    if "server_dir" in locals() and server_dir.exists():
                         shutil.rmtree(str(server_dir))
                         logger.info(f"已清理部分安装目录: {server_dir}")
                 except Exception as cleanup_err:
@@ -738,7 +705,7 @@ class MrpackMixin:
                     "spawn-protection=16\n"
                     "resource-pack-sha1=\n"
                     "max-world-size=29999984\n",
-                    encoding="utf-8"
+                    encoding="utf-8",
                 )
 
             self._mp_progress["phase"] = "done"
@@ -749,7 +716,7 @@ class MrpackMixin:
             logger.error(f"整合包服务器安装失败: {e}")
             # 清理部分下载的文件
             try:
-                if 'server_dir' in locals() and server_dir.exists():
+                if "server_dir" in locals() and server_dir.exists():
                     shutil.rmtree(str(server_dir))
                     logger.info(f"已清理部分安装目录: {server_dir}")
             except Exception as cleanup_err:
@@ -757,12 +724,7 @@ class MrpackMixin:
             return False, str(e)
 
     def _install_server_mod_loader(
-        self,
-        loader_type: str,
-        loader_version: str,
-        mc_version: str,
-        server_dir: Path,
-        java_path: str,
+        self, loader_type: str, loader_version: str, mc_version: str, server_dir: Path, java_path: str
     ) -> Tuple[bool, str]:
         """
         下载并安装服务端 mod loader
@@ -777,8 +739,9 @@ class MrpackMixin:
         Returns:
             (是否成功, 错误信息) 元组
         """
-        import requests as req
         import tempfile
+
+        import requests as req
 
         try:
             if loader_type == "fabric":
@@ -786,7 +749,9 @@ class MrpackMixin:
             elif loader_type == "quilt":
                 return self._install_quilt_server(loader_version, mc_version, server_dir, java_path)
             elif loader_type in ("forge", "neoforge"):
-                return self._install_forge_neoforge_server(loader_type, loader_version, mc_version, server_dir, java_path)
+                return self._install_forge_neoforge_server(
+                    loader_type, loader_version, mc_version, server_dir, java_path
+                )
             else:
                 return False, f"不支持的 mod loader: {loader_type}"
         except Exception as e:
@@ -794,11 +759,7 @@ class MrpackMixin:
             return False, str(e)
 
     def _install_fabric_server(
-        self,
-        loader_version: str,
-        mc_version: str,
-        server_dir: Path,
-        java_path: str,
+        self, loader_version: str, mc_version: str, server_dir: Path, java_path: str
     ) -> Tuple[bool, str]:
         """安装 Fabric 服务端"""
         import requests as req
@@ -827,16 +788,26 @@ class MrpackMixin:
 
         # 运行安装器
         self._set_status(f"正在安装 Fabric {loader_version} for {mc_version}...")
-        cmd = [java_path, "-jar", str(installer_path), "server", "install",
-               "-mcversion", mc_version, "-loader", loader_version, "-dir", str(server_dir)]
+        cmd = [
+            java_path,
+            "-jar",
+            str(installer_path),
+            "server",
+            "install",
+            "-mcversion",
+            mc_version,
+            "-loader",
+            loader_version,
+            "-dir",
+            str(server_dir),
+        ]
         logger.info(f"运行: {' '.join(cmd)}")
 
         popen_kwargs = dict(
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE, cwd=str(server_dir),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE, cwd=str(server_dir)
         )
-        if sys.platform == 'win32':
-            popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
         process = subprocess.run(cmd, **popen_kwargs, timeout=300)
         if process.returncode != 0:
@@ -861,6 +832,7 @@ class MrpackMixin:
         self._set_status("正在下载 Fabric API...")
         try:
             from modrinth import install_mod_with_deps
+
             api_ok, api_msg, api_names = install_mod_with_deps(
                 project_id="P7dR8mSH",  # Fabric API on Modrinth
                 game_version=mc_version,
@@ -881,11 +853,7 @@ class MrpackMixin:
         return True, ""
 
     def _install_quilt_server(
-        self,
-        loader_version: str,
-        mc_version: str,
-        server_dir: Path,
-        java_path: str,
+        self, loader_version: str, mc_version: str, server_dir: Path, java_path: str
     ) -> Tuple[bool, str]:
         """安装 Quilt 服务端"""
         import requests as req
@@ -913,17 +881,26 @@ class MrpackMixin:
 
         # 运行安装器
         self._set_status(f"正在安装 Quilt {loader_version} for {mc_version}...")
-        cmd = [java_path, "-jar", str(installer_path), "install", "server",
-               "--mc-version", mc_version, "--loader-version", loader_version,
-               "--install-dir", str(server_dir)]
+        cmd = [
+            java_path,
+            "-jar",
+            str(installer_path),
+            "install",
+            "server",
+            "--mc-version",
+            mc_version,
+            "--loader-version",
+            loader_version,
+            "--install-dir",
+            str(server_dir),
+        ]
         logger.info(f"运行: {' '.join(cmd)}")
 
         popen_kwargs = dict(
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE, cwd=str(server_dir),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE, cwd=str(server_dir)
         )
-        if sys.platform == 'win32':
-            popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
         process = subprocess.run(cmd, **popen_kwargs, timeout=300)
         if process.returncode != 0:
@@ -945,12 +922,7 @@ class MrpackMixin:
         return True, ""
 
     def _install_forge_neoforge_server(
-        self,
-        loader_type: str,
-        loader_version: str,
-        mc_version: str,
-        server_dir: Path,
-        java_path: str,
+        self, loader_type: str, loader_version: str, mc_version: str, server_dir: Path, java_path: str
     ) -> Tuple[bool, str]:
         """安装 Forge/NeoForge 服务端"""
         import requests as req
@@ -990,11 +962,10 @@ class MrpackMixin:
         logger.info(f"运行: {' '.join(cmd)}")
 
         popen_kwargs = dict(
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE, cwd=str(server_dir),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE, cwd=str(server_dir)
         )
-        if sys.platform == 'win32':
-            popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
         process = subprocess.run(cmd, **popen_kwargs, timeout=600)
         if process.returncode != 0:

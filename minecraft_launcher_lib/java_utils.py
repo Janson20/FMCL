@@ -2,12 +2,14 @@
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
 "java_utils contains some functions to help with Java"
-from ._helper import SUBPROCESS_STARTUP_INFO
-from .types import JavaInformation
-import subprocess
+
+import os
 import platform
 import re
-import os
+import subprocess
+
+from ._helper import SUBPROCESS_STARTUP_INFO
+from .types import JavaInformation
 
 
 def get_java_information(path: str | os.PathLike) -> JavaInformation:
@@ -38,7 +40,12 @@ def get_java_information(path: str | os.PathLike) -> JavaInformation:
         if not os.path.isfile(os.path.join(path, "bin", "java")):
             raise ValueError(os.path.abspath(os.path.join(path, "bin", "java")) + " was not found")
 
-    lines = subprocess.run([os.path.join(path, "bin", "java"), "-showversion"], capture_output=True, text=True, startupinfo=SUBPROCESS_STARTUP_INFO).stderr.splitlines()
+    lines = subprocess.run(
+        [os.path.join(path, "bin", "java"), "-showversion"],
+        capture_output=True,
+        text=True,
+        startupinfo=SUBPROCESS_STARTUP_INFO,
+    ).stderr.splitlines()
     information: JavaInformation = {}  # type: ignore
     information["path"] = str(path)
     information["name"] = os.path.basename(path)
@@ -68,7 +75,9 @@ def _search_java_directory(path: str | os.PathLike) -> list[str]:
         if os.path.isfile(current_entry) or os.path.islink(current_entry):
             continue
 
-        if os.path.isfile(os.path.join(current_entry, "bin", "java")) or os.path.isfile(os.path.join(current_entry, "bin", "java.exe")):
+        if os.path.isfile(os.path.join(current_entry, "bin", "java")) or os.path.isfile(
+            os.path.join(current_entry, "bin", "java.exe")
+        ):
             java_list.append(current_entry)
 
     return java_list
@@ -106,7 +115,9 @@ def find_system_java_versions(additional_directories: list[str | os.PathLike] | 
     return java_list
 
 
-def find_system_java_versions_information(additional_directories: list[str | os.PathLike] | None = None) -> list[JavaInformation]:
+def find_system_java_versions_information(
+    additional_directories: list[str | os.PathLike] | None = None,
+) -> list[JavaInformation]:
     """
     Same as :func:`find_system_java_version`, but uses :func:`get_java_information` to get some Information about the Installation instead of just proving a Path.
     macOS is not supported yet

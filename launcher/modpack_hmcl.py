@@ -33,7 +33,7 @@ class HMCLPackMixin:
         if not os.path.isfile(zip_path):
             raise ValueError(f"文件不存在: {zip_path}")
 
-        from launcher.modpack_types import detect_modpack_archive, ModpackType
+        from launcher.modpack_types import ModpackType, detect_modpack_archive
 
         detection = detect_modpack_archive(zip_path)
         if detection.pack_type != ModpackType.HMCL:
@@ -54,11 +54,7 @@ class HMCLPackMixin:
 
     # ─── 安装 ──────────────────────────────────────────────────
 
-    def install_hmcl_pack(
-        self,
-        zip_path: str,
-        instance_name: Optional[str] = None,
-    ) -> Tuple[bool, str]:
+    def install_hmcl_pack(self, zip_path: str, instance_name: Optional[str] = None) -> Tuple[bool, str]:
         """
         安装 HMCL 整合包
 
@@ -74,7 +70,7 @@ class HMCLPackMixin:
         Returns:
             (是否成功, 版本ID 或 错误信息)
         """
-        from launcher.modpack_types import detect_modpack_archive, ModpackType
+        from launcher.modpack_types import ModpackType, detect_modpack_archive
 
         if not os.path.isfile(zip_path):
             return False, f"文件不存在: {zip_path}"
@@ -112,9 +108,7 @@ class HMCLPackMixin:
             cb = self._get_callback()
 
             if not self._is_mc_installed(mc_version):
-                self._mcllib.install.install_minecraft_version(
-                    mc_version, mc_dir, callback=cb
-                )
+                self._mcllib.install.install_minecraft_version(mc_version, mc_dir, callback=cb)
             logger.info(f"Minecraft {mc_version} 安装完成")
 
             # HMCL 格式通常不指定 mod loader，版本 ID 就是实例名
@@ -124,7 +118,7 @@ class HMCLPackMixin:
         except Exception as e:
             logger.error(f"HMCL 整合包安装失败: {e}")
             try:
-                if 'version_dir' in locals() and os.path.isdir(version_dir):
+                if "version_dir" in locals() and os.path.isdir(version_dir):
                     shutil.rmtree(version_dir)
             except Exception:
                 pass
@@ -146,7 +140,7 @@ class HMCLPackMixin:
                 if info.file_size == 0 or info.is_dir():
                     continue
 
-                rel_path = normalized[len(override_prefix):]
+                rel_path = normalized[len(override_prefix) :]
                 if not rel_path:
                     continue
 
@@ -164,9 +158,7 @@ class HMCLPackMixin:
 
     def _is_mc_installed(self, mc_version: str) -> bool:
         """检查 Minecraft 原版是否已安装"""
-        version_json = os.path.join(
-            self.minecraft_dir, "versions", mc_version, f"{mc_version}.json"
-        )
+        version_json = os.path.join(self.minecraft_dir, "versions", mc_version, f"{mc_version}.json")
         return os.path.isfile(version_json)
 
     def _sanitize_name(self, name: str) -> str:

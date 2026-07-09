@@ -3,7 +3,7 @@
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from logzero import logger
 
@@ -73,6 +73,7 @@ class PluginManifest:
         imports: 依赖的其他插件 API 名称列表
         entry: 入口模块名 (不含 .py)，默认为 __init__
     """
+
     id: str
     name: str
     version: str
@@ -92,7 +93,7 @@ class PluginManifest:
     entry: str = "__init__"
 
     # 运行时字段（不由 plugin.json 设置）
-    install_path: Optional[Path] = None   # 插件安装路径
+    install_path: Optional[Path] = None  # 插件安装路径
 
     def validate(self) -> List[str]:
         """校验清单字段合法性，返回错误列表。空列表表示校验通过。"""
@@ -101,7 +102,7 @@ class PluginManifest:
         # 检查 ID 格式
         if not self.id or not self.id[0].isalpha():
             errors.append(f"插件 ID '{self.id}' 必须以字母开头")
-        if not all(c.isalnum() or c in '_-.' for c in self.id):
+        if not all(c.isalnum() or c in "_-." for c in self.id):
             errors.append(f"插件 ID '{self.id}' 包含非法字符")
 
         # 检查 SemVer 格式

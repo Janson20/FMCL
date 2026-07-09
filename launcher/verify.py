@@ -1,8 +1,9 @@
 """Minecraft启动器 - 文件校验模块"""
+
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Tuple, Optional, Callable
+from typing import Callable, List, Optional, Tuple
 
 from logzero import logger
 

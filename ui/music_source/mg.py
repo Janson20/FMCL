@@ -1,11 +1,12 @@
 """咪咕音乐 音源插件"""
+
 import json
 import logging
 import time
 from typing import List, Optional
 
 from ui.music_source.base import BaseMusicSource, MusicInfo
-from ui.music_source.utils import decode_name, format_singer, mg_create_sign, MG_DEVICE_ID
+from ui.music_source.utils import MG_DEVICE_ID, decode_name, format_singer, mg_create_sign
 
 logger = logging.getLogger("music_source.mg")
 
@@ -29,7 +30,9 @@ class MiGuMusicSource(BaseMusicSource):
             "text": keyword,
             "pageNo": str(page),
             "pageSize": str(limit),
-            "searchSwitch": json.dumps({"song": 1, "album": 0, "singer": 0, "tagSong": 0, "mvSong": 0, "songlist": 0, "bestShow": 1}),
+            "searchSwitch": json.dumps(
+                {"song": 1, "album": 0, "singer": 0, "tagSong": 0, "mvSong": 0, "songlist": 0, "bestShow": 1}
+            ),
             "isCopyright": "1",
             "isCorrect": "1",
             "sort": "0",
@@ -59,7 +62,7 @@ class MiGuMusicSource(BaseMusicSource):
     def _parse_search_result(self, raw_list) -> List[MusicInfo]:
         results = []
         seen = set()
-        for item in (raw_list or []):
+        for item in raw_list or []:
             song_id = str(item.get("id", item.get("songId", item.get("contentId", ""))))
             if not song_id or song_id in seen:
                 continue
@@ -83,7 +86,11 @@ class MiGuMusicSource(BaseMusicSource):
                     singer=singer,
                     source=self.source_id,
                     songmid=song_id,
-                    album_name=decode_name(item.get("albums", [{}])[0].get("name", "") if item.get("albums") else item.get("albumName", item.get("album", ""))),
+                    album_name=decode_name(
+                        item.get("albums", [{}])[0].get("name", "")
+                        if item.get("albums")
+                        else item.get("albumName", item.get("album", ""))
+                    ),
                     album_id=str(item.get("albumId", "")),
                     interval=duration,
                     img=img,
@@ -163,12 +170,7 @@ class MiGuMusicSource(BaseMusicSource):
         try:
             resp = self.http_get(
                 MG_LYRIC_URL,
-                params={
-                    "songId": info.songmid,
-                    "ua": "Android_migu",
-                    "version": "5.0.1",
-                    "formatType": "LRC",
-                },
+                params={"songId": info.songmid, "ua": "Android_migu", "version": "5.0.1", "formatType": "LRC"},
                 headers={
                     "appId": "yyapp2",
                     "mode": "android",
@@ -196,12 +198,7 @@ class MiGuMusicSource(BaseMusicSource):
         try:
             resp = self.http_get(
                 "https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/resourceinfo.do",
-                params={
-                    "ua": "Android_migu",
-                    "version": "5.0.1",
-                    "needImage": "1",
-                    "copyrightId": info.songmid,
-                },
+                params={"ua": "Android_migu", "version": "5.0.1", "needImage": "1", "copyrightId": info.songmid},
                 timeout=10,
             )
             data = resp.json()

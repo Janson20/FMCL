@@ -1,44 +1,82 @@
 """系统工具 - 版本资源列表、终端命令执行、启动器路径"""
 
 import json
+import os
 import subprocess
 import threading
-import os
 from pathlib import Path
-from typing import Dict, Callable, Optional
+from typing import Callable, Dict, Optional
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, CATEGORY_SYSTEM
+from ui.agent.tools.base import CATEGORY_SYSTEM, ToolInfo
 
 # 高危命令前缀列表
 DANGEROUS_PREFIXES = [
-    "rm -rf ", "rm -fr ", "rm --no-preserve-root ",
-    "del /s ", "del /q ", "del /f ", "rd /s ", "rd /q ",
-    "format ", "diskpart",
+    "rm -rf ",
+    "rm -fr ",
+    "rm --no-preserve-root ",
+    "del /s ",
+    "del /q ",
+    "del /f ",
+    "rd /s ",
+    "rd /q ",
+    "format ",
+    "diskpart",
     "mv /dev/null ",
-    "dd if=/dev/zero ", "dd of=/dev/sda",
-    "mkfs.", "fdisk ", "parted ", "gdisk ",
-    "shutdown ", "poweroff ", "halt ",
-    "shred ", "wipefs ", "blkdiscard ",
+    "dd if=/dev/zero ",
+    "dd of=/dev/sda",
+    "mkfs.",
+    "fdisk ",
+    "parted ",
+    "gdisk ",
+    "shutdown ",
+    "poweroff ",
+    "halt ",
+    "shred ",
+    "wipefs ",
+    "blkdiscard ",
     "cryptsetup luksFormat ",
-    ":(){ ", ":(){",
-    "curl | bash", "wget -O- | sh",
-    "sudo rm ", "sudo dd ", "sudo chmod ",
-    "chmod -R 777 ", "chmod -R 000 ", "chown -R /",
-    "iptables -F", "iptables -P DROP", "service iptables stop",
-    "DROP TABLE ", "DROP DATABASE ", "TRUNCATE TABLE ", "DELETE FROM ",
-    'psql -c "DROP ', 'mysql -e "DROP ',
-    "redis-cli FLUSHALL", "mongorestore --drop",
-    "git push --force", "git reset --hard",
+    ":(){ ",
+    ":(){",
+    "curl | bash",
+    "wget -O- | sh",
+    "sudo rm ",
+    "sudo dd ",
+    "sudo chmod ",
+    "chmod -R 777 ",
+    "chmod -R 000 ",
+    "chown -R /",
+    "iptables -F",
+    "iptables -P DROP",
+    "service iptables stop",
+    "DROP TABLE ",
+    "DROP DATABASE ",
+    "TRUNCATE TABLE ",
+    "DELETE FROM ",
+    'psql -c "DROP ',
+    'mysql -e "DROP ',
+    "redis-cli FLUSHALL",
+    "mongorestore --drop",
+    "git push --force",
+    "git reset --hard",
     "kubectl delete namespace ",
-    "terraform destroy", "aws s3 sync --delete",
-    "docker run --privileged ", "docker run -v /:/host",
+    "terraform destroy",
+    "aws s3 sync --delete",
+    "docker run --privileged ",
+    "docker run -v /:/host",
     "docker system prune -a --volumes",
-    "systemctl disable ", "crontab -r", "killall -9 ",
-    "mount ", "chattr +i ",
-    "$(rm ", "`rm ",
-    'bash -c "rm ', 'sh -c "rm ',
-    'cmd /c "del ', 'powershell -Command "Remove-Item',
+    "systemctl disable ",
+    "crontab -r",
+    "killall -9 ",
+    "mount ",
+    "chattr +i ",
+    "$(rm ",
+    "`rm ",
+    'bash -c "rm ',
+    'sh -c "rm ',
+    'cmd /c "del ',
+    'powershell -Command "Remove-Item',
 ]
 
 DANGEROUS_MARKER = "__DANGEROUS__"
@@ -80,10 +118,7 @@ def _build_system_tools() -> list:
                         "type": "string",
                         "description": "执行命令的工作目录（绝对路径），不填则在启动器所在目录执行",
                     },
-                    "command": {
-                        "type": "string",
-                        "description": "要执行的命令",
-                    },
+                    "command": {"type": "string", "description": "要执行的命令"},
                 },
                 "required": ["command"],
             },
@@ -118,7 +153,7 @@ def _list_version_resources(params: Dict[str, str], callbacks: Dict[str, Callabl
         return "错误: 无法获取游戏信息"
 
     installed = callbacks["get_installed_versions"]()
-    installed_ids = [v.folder_name if hasattr(v, 'folder_name') else v for v in installed]
+    installed_ids = [v.folder_name if hasattr(v, "folder_name") else v for v in installed]
     if version_id not in installed_ids:
         return f"错误: 版本 '{version_id}' 未安装。当前已安装: {', '.join(installed_ids) if installed_ids else '无'}"
 
@@ -198,14 +233,7 @@ def execute_dangerous_command(path: str, command: str) -> str:
 
 def _run_command(path: str, command: str) -> str:
     try:
-        result = subprocess.run(
-            command,
-            shell=True,
-            cwd=path,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
+        result = subprocess.run(command, shell=True, cwd=path, capture_output=True, text=True, timeout=300)
         output = ""
         if result.stdout:
             output += result.stdout

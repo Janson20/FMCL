@@ -1,4 +1,5 @@
 """输入验证模块 - 防止命令注入和路径穿越攻击"""
+
 import ipaddress
 import os
 import re
@@ -7,19 +8,18 @@ from typing import Optional
 
 from logzero import logger
 
-
 # 版本ID允许的字符：字母、数字、点、短横线、下划线
 # 参考 PCL-CE: RegexPatterns.ModIdMatch（类似限制）
-VERSION_ID_PATTERN = re.compile(r'^[a-zA-Z0-9._\-]+$')
+VERSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9._\-]+$")
 
 # 内存大小格式：数字 + G/M (大小写不敏感)
-MEMORY_PATTERN = re.compile(r'^\d+\s*[GgMm]$')
+MEMORY_PATTERN = re.compile(r"^\d+\s*[GgMm]$")
 
 # IP/域名格式
 IP_PATTERN = re.compile(
-    r'^(\d{1,3}\.){3}\d{1,3}$'
-    r'|'
-    r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$'
+    r"^(\d{1,3}\.){3}\d{1,3}$"
+    r"|"
+    r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$"
 )
 
 
@@ -34,9 +34,9 @@ def validate_version_id(version_id: str) -> bool:
     """
     if not version_id:
         return False
-    if '..' in version_id:
+    if ".." in version_id:
         return False
-    if version_id.startswith('/') or version_id.startswith('\\'):
+    if version_id.startswith("/") or version_id.startswith("\\"):
         return False
     if VERSION_ID_PATTERN.match(version_id):
         return True
@@ -117,6 +117,6 @@ def sanitize_filename(filename: str) -> str:
         清理后的文件名
     """
     unsafe_chars = r'[<>:"/\\|?*]'
-    sanitized = re.sub(unsafe_chars, '_', filename)
-    sanitized = sanitized.strip('. ')
-    return sanitized or '_'
+    sanitized = re.sub(unsafe_chars, "_", filename)
+    sanitized = sanitized.strip(". ")
+    return sanitized or "_"

@@ -5,8 +5,8 @@
     FMCL-Agent                    # 进入交互模式
 """
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

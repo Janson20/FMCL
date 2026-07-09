@@ -1,11 +1,12 @@
 """动态主题引擎 - 支持导入 .json 主题文件、自定义强调色、Minecraft 版本动态调色"""
+
+import copy
 import json
 import os
-import copy
 import random
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, Optional, List, Tuple
-from dataclasses import dataclass, field, asdict
+from typing import Dict, List, Optional, Tuple
 
 from ui.constants import COLORS
 
@@ -13,6 +14,7 @@ from ui.constants import COLORS
 @dataclass
 class Theme:
     """主题数据模型"""
+
     name: str
     author: str = ""
     description: str = ""
@@ -52,13 +54,7 @@ class ThemeEngine:
 
     def _load_preset_themes(self) -> List[Theme]:
         return [
-            Theme(
-                name="default",
-                author="FMCL",
-                description="FMCL 默认深色主题",
-                version="1.0",
-                colors={},
-            ),
+            Theme(name="default", author="FMCL", description="FMCL 默认深色主题", version="1.0", colors={}),
             Theme(
                 name="ocean",
                 author="FMCL",
@@ -255,81 +251,21 @@ class ThemeEngine:
     # ─── Minecraft 版本动态调色 ─────────────────────────────
 
     VERSION_COLOR_MAP: Dict[str, Dict[str, str]] = {
-        "1.21": {
-            "accent": "#6a0dad",
-            "accent_hover": "#8b2fc9",
-            "description": "1.21 深紫色调",
-        },
-        "1.20": {
-            "accent": "#c9a84c",
-            "accent_hover": "#dbbf6e",
-            "description": "1.20 樱花金",
-        },
-        "1.19": {
-            "accent": "#2d7d46",
-            "accent_hover": "#3da85e",
-            "description": "1.19 深绿色调",
-        },
-        "1.18": {
-            "accent": "#4a8fbf",
-            "accent_hover": "#6aaadf",
-            "description": "1.18 天空蓝",
-        },
-        "1.17": {
-            "accent": "#6ba35a",
-            "accent_hover": "#8cc47a",
-            "description": "1.17 铜绿色",
-        },
-        "1.16": {
-            "accent": "#8b4513",
-            "accent_hover": "#a05a2a",
-            "description": "1.16 下界红",
-        },
-        "1.15": {
-            "accent": "#e8a87c",
-            "accent_hover": "#f0c4a4",
-            "description": "1.15 蜂蜜黄",
-        },
-        "1.14": {
-            "accent": "#f7d794",
-            "accent_hover": "#fae3b4",
-            "description": "1.14 竹绿",
-        },
-        "1.13": {
-            "accent": "#4aa3df",
-            "accent_hover": "#6db8e8",
-            "description": "1.13 海洋蓝",
-        },
-        "1.12": {
-            "accent": "#b07d5a",
-            "accent_hover": "#c89770",
-            "description": "1.12 黏土棕",
-        },
-        "1.11": {
-            "accent": "#7f8c8d",
-            "accent_hover": "#95a5a6",
-            "description": "1.11 探险者灰",
-        },
-        "1.10": {
-            "accent": "#e67e22",
-            "accent_hover": "#f0933b",
-            "description": "1.10 霜灼橙",
-        },
-        "1.9": {
-            "accent": "#3498db",
-            "accent_hover": "#5dade2",
-            "description": "1.9 战斗更新蓝",
-        },
-        "1.8": {
-            "accent": "#9b59b6",
-            "accent_hover": "#af7ac5",
-            "description": "1.8 末影紫",
-        },
-        "1.7": {
-            "accent": "#e74c3c",
-            "accent_hover": "#ec7063",
-            "description": "1.7 更新红",
-        },
+        "1.21": {"accent": "#6a0dad", "accent_hover": "#8b2fc9", "description": "1.21 深紫色调"},
+        "1.20": {"accent": "#c9a84c", "accent_hover": "#dbbf6e", "description": "1.20 樱花金"},
+        "1.19": {"accent": "#2d7d46", "accent_hover": "#3da85e", "description": "1.19 深绿色调"},
+        "1.18": {"accent": "#4a8fbf", "accent_hover": "#6aaadf", "description": "1.18 天空蓝"},
+        "1.17": {"accent": "#6ba35a", "accent_hover": "#8cc47a", "description": "1.17 铜绿色"},
+        "1.16": {"accent": "#8b4513", "accent_hover": "#a05a2a", "description": "1.16 下界红"},
+        "1.15": {"accent": "#e8a87c", "accent_hover": "#f0c4a4", "description": "1.15 蜂蜜黄"},
+        "1.14": {"accent": "#f7d794", "accent_hover": "#fae3b4", "description": "1.14 竹绿"},
+        "1.13": {"accent": "#4aa3df", "accent_hover": "#6db8e8", "description": "1.13 海洋蓝"},
+        "1.12": {"accent": "#b07d5a", "accent_hover": "#c89770", "description": "1.12 黏土棕"},
+        "1.11": {"accent": "#7f8c8d", "accent_hover": "#95a5a6", "description": "1.11 探险者灰"},
+        "1.10": {"accent": "#e67e22", "accent_hover": "#f0933b", "description": "1.10 霜灼橙"},
+        "1.9": {"accent": "#3498db", "accent_hover": "#5dade2", "description": "1.9 战斗更新蓝"},
+        "1.8": {"accent": "#9b59b6", "accent_hover": "#af7ac5", "description": "1.8 末影紫"},
+        "1.7": {"accent": "#e74c3c", "accent_hover": "#ec7063", "description": "1.7 更新红"},
     }
 
     def get_version_accent(self, version_id: str) -> Optional[Dict[str, str]]:

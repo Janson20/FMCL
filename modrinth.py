@@ -15,8 +15,8 @@ API 文档: https://docs.modrinth.com/api/
 
 import hashlib
 import time
-from typing import List, Dict, Optional, Set, Tuple
 from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 import requests
 from logzero import logger
@@ -24,14 +24,10 @@ from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
 from structured_logger import slog
-from version_utils import (
-    is_new_version_format as _vu_is_new_format,
-    parse_mod_loader_from_version as _vu_parse_mod_loader,
-    parse_mc_version_from_id as _vu_parse_mc_version,
-    is_pre_release,
-    is_snapshot,
-)
-
+from version_utils import is_new_version_format as _vu_is_new_format
+from version_utils import is_pre_release, is_snapshot
+from version_utils import parse_mc_version_from_id as _vu_parse_mc_version
+from version_utils import parse_mod_loader_from_version as _vu_parse_mod_loader
 
 MODRINTH_API_BASE = "https://api.modrinth.com/v2"
 MODRINTH_USER_AGENT = "FMCL-MinecraftLauncher/1.0 (github.com/Janson20/FMCL)"
@@ -77,22 +73,14 @@ def _get_session() -> requests.Session:
             allowed_methods=["GET", "HEAD"],
             raise_on_status=False,
         )
-        adapter = HTTPAdapter(
-            max_retries=retry_strategy,
-            pool_connections=20,
-            pool_maxsize=50,
-        )
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=20, pool_maxsize=50)
         _shared_session.mount("https://", adapter)
         _shared_session.mount("http://", adapter)
         _shared_session.headers.update(_get_headers())
     return _shared_session
 
 
-def _download_with_resume(
-    url: str,
-    file_path: Path,
-    timeout: int = 120,
-) -> bool:
+def _download_with_resume(url: str, file_path: Path, timeout: int = 120) -> bool:
     """支持断点续传和重试的文件下载
 
     流程：
@@ -144,16 +132,18 @@ def _download_with_resume(
             logger.info(f"下载完成: {file_path.name} ({total_size} bytes)")
             return True
 
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
-                requests.exceptions.ChunkedEncodingError) as e:
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+        ) as e:
             last_error = e
             if file_path.exists():
                 downloaded = file_path.stat().st_size
             if attempt <= MAX_RETRIES:
-                wait = RETRY_BACKOFF_FACTOR ** attempt
+                wait = RETRY_BACKOFF_FACTOR**attempt
                 logger.warning(
-                    f"下载中断 (尝试 {attempt}/{MAX_RETRIES + 1}): {e}，"
-                    f"{wait} 秒后重试 (已下载 {downloaded} bytes)"
+                    f"下载中断 (尝试 {attempt}/{MAX_RETRIES + 1}): {e}，" f"{wait} 秒后重试 (已下载 {downloaded} bytes)"
                 )
                 time.sleep(wait)
             else:
@@ -163,11 +153,8 @@ def _download_with_resume(
         except requests.exceptions.RequestException as e:
             last_error = e
             if attempt <= MAX_RETRIES:
-                wait = RETRY_BACKOFF_FACTOR ** attempt
-                logger.warning(
-                    f"下载请求异常 (尝试 {attempt}/{MAX_RETRIES + 1}): {e}，"
-                    f"{wait} 秒后重试"
-                )
+                wait = RETRY_BACKOFF_FACTOR**attempt
+                logger.warning(f"下载请求异常 (尝试 {attempt}/{MAX_RETRIES + 1}): {e}，" f"{wait} 秒后重试")
                 time.sleep(wait)
             else:
                 logger.error(f"下载失败，已达最大重试次数: {e}")
@@ -215,15 +202,12 @@ def search_mods(
     if mod_loader:
         facets.append([f"categories:{mod_loader}"])
 
-    params: Dict = {
-        "offset": offset,
-        "limit": limit,
-        "index": "relevance",  # 排序方式：相关度
-    }
+    params: Dict = {"offset": offset, "limit": limit, "index": "relevance"}  # 排序方式：相关度
 
     if facets:
         # facets 是嵌套数组的 JSON 字符串
         import json
+
         params["facets"] = json.dumps(facets)
 
     if query:
@@ -236,11 +220,7 @@ def search_mods(
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{MODRINTH_API_BASE}/search",
-            params=params,
-            timeout=15,
-        )
+        resp = session.get(f"{MODRINTH_API_BASE}/search", params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
 
@@ -292,14 +272,11 @@ def search_server_mods(
 
     facets.append(["server_side:required", "server_side:optional"])
 
-    params: Dict = {
-        "offset": offset,
-        "limit": limit,
-        "index": "relevance",
-    }
+    params: Dict = {"offset": offset, "limit": limit, "index": "relevance"}
 
     if facets:
         import json
+
         params["facets"] = json.dumps(facets)
 
     if query:
@@ -312,11 +289,7 @@ def search_server_mods(
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{MODRINTH_API_BASE}/search",
-            params=params,
-            timeout=15,
-        )
+        resp = session.get(f"{MODRINTH_API_BASE}/search", params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
 
@@ -332,10 +305,7 @@ def search_server_mods(
 
 
 def search_resource_packs(
-    query: str = "",
-    game_version: Optional[str] = None,
-    offset: int = 0,
-    limit: int = 20,
+    query: str = "", game_version: Optional[str] = None, offset: int = 0, limit: int = 20
 ) -> Dict:
     """
     搜索 Modrinth 上的资源包
@@ -361,31 +331,21 @@ def search_resource_packs(
     if game_version:
         facets.append([f"versions:{game_version}"])
 
-    params: Dict = {
-        "offset": offset,
-        "limit": limit,
-        "index": "relevance",
-    }
+    params: Dict = {"offset": offset, "limit": limit, "index": "relevance"}
 
     if facets:
         import json
+
         params["facets"] = json.dumps(facets)
 
     if query:
         params["query"] = query
 
-    logger.debug(
-        f"Modrinth 资源包搜索: query='{query}', version={game_version}, "
-        f"offset={offset}, facets={facets}"
-    )
+    logger.debug(f"Modrinth 资源包搜索: query='{query}', version={game_version}, " f"offset={offset}, facets={facets}")
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{MODRINTH_API_BASE}/search",
-            params=params,
-            timeout=15,
-        )
+        resp = session.get(f"{MODRINTH_API_BASE}/search", params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
 
@@ -400,12 +360,7 @@ def search_resource_packs(
         return {"hits": [], "offset": offset, "limit": limit, "total_hits": 0}
 
 
-def search_shaders(
-    query: str = "",
-    game_version: Optional[str] = None,
-    offset: int = 0,
-    limit: int = 20,
-) -> Dict:
+def search_shaders(query: str = "", game_version: Optional[str] = None, offset: int = 0, limit: int = 20) -> Dict:
     """
     搜索 Modrinth 上的光影
 
@@ -430,31 +385,21 @@ def search_shaders(
     if game_version:
         facets.append([f"versions:{game_version}"])
 
-    params: Dict = {
-        "offset": offset,
-        "limit": limit,
-        "index": "relevance",
-    }
+    params: Dict = {"offset": offset, "limit": limit, "index": "relevance"}
 
     if facets:
         import json
+
         params["facets"] = json.dumps(facets)
 
     if query:
         params["query"] = query
 
-    logger.debug(
-        f"Modrinth 光影搜索: query='{query}', version={game_version}, "
-        f"offset={offset}, facets={facets}"
-    )
+    logger.debug(f"Modrinth 光影搜索: query='{query}', version={game_version}, " f"offset={offset}, facets={facets}")
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{MODRINTH_API_BASE}/search",
-            params=params,
-            timeout=15,
-        )
+        resp = session.get(f"{MODRINTH_API_BASE}/search", params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
 
@@ -470,9 +415,7 @@ def search_shaders(
 
 
 def get_mod_versions(
-    project_id: str,
-    game_version: Optional[str] = None,
-    mod_loader: Optional[str] = None,
+    project_id: str, game_version: Optional[str] = None, mod_loader: Optional[str] = None
 ) -> List[Dict]:
     """
     获取模组的版本列表
@@ -497,17 +440,12 @@ def get_mod_versions(
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{MODRINTH_API_BASE}/project/{project_id}/version",
-            params=params,
-            timeout=15,
-        )
+        resp = session.get(f"{MODRINTH_API_BASE}/project/{project_id}/version", params=params, timeout=15)
         resp.raise_for_status()
         versions = resp.json()
 
         logger.info(
-            f"获取模组 {project_id} 版本列表: {len(versions)} 个 "
-            f"(game_version={game_version}, loader={mod_loader})"
+            f"获取模组 {project_id} 版本列表: {len(versions)} 个 " f"(game_version={game_version}, loader={mod_loader})"
         )
         return versions
 
@@ -517,10 +455,7 @@ def get_mod_versions(
 
 
 def download_mod(
-    download_url: str,
-    save_path: str,
-    filename: str,
-    expected_hashes: Optional[Dict[str, str]] = None,
+    download_url: str, save_path: str, filename: str, expected_hashes: Optional[Dict[str, str]] = None
 ) -> Tuple[bool, str]:
     """
     下载模组文件，可选地校验文件哈希
@@ -610,10 +545,7 @@ def get_project_info(project_id: str) -> Optional[Dict]:
     """
     try:
         session = _get_session()
-        resp = session.get(
-            f"{MODRINTH_API_BASE}/project/{project_id}",
-            timeout=15,
-        )
+        resp = session.get(f"{MODRINTH_API_BASE}/project/{project_id}", timeout=15)
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.RequestException as e:
@@ -666,16 +598,17 @@ def install_mod_with_deps(
     mod_title = project_info.get("title", project_id) if project_info else project_id
 
     # 获取兼容版本
-    versions = get_mod_versions(
-        project_id,
-        game_version=game_version,
-        mod_loader=mod_loader,
-    )
+    versions = get_mod_versions(project_id, game_version=game_version, mod_loader=mod_loader)
 
     if not versions:
         logger.warning(f"模组 {mod_title} 没有兼容的版本 ({game_version}+{mod_loader})")
-        slog.warning("mod_no_compatible_version", mod_id=project_id, mod_title=mod_title,
-                     game_version=game_version, loader=mod_loader)
+        slog.warning(
+            "mod_no_compatible_version",
+            mod_id=project_id,
+            mod_title=mod_title,
+            game_version=game_version,
+            loader=mod_loader,
+        )
         return False, f"{mod_title} 没有兼容的版本", []
 
     version = versions[0]
@@ -743,9 +676,7 @@ def install_mod_with_deps(
             dep_info = get_project_info(dep_project_id)
             dep_name = dep_info.get("title", dep_project_id) if dep_info else dep_project_id
             skipped_deps.append(dep_name)
-            logger.warning(
-                f"跳过依赖 {dep_name}: {dep_msg}"
-            )
+            logger.warning(f"跳过依赖 {dep_name}: {dep_msg}")
 
     # 下载模组本身
     if status_callback:
@@ -759,22 +690,27 @@ def install_mod_with_deps(
         msg = f"{mod_title} 安装成功"
         if skipped_deps:
             msg += f"（跳过不兼容依赖: {', '.join(skipped_deps)}）"
-        slog.info("mod_install_decision", mod_id=project_id, mod_title=mod_title,
-                  mod_version=mod_version_number, game_version=game_version, loader=mod_loader,
-                  decision_reason="auto_match" if not skipped_deps else "auto_match_with_skipped_deps",
-                  fallback_used=False, dependencies=[d.get("project_id", "") for d in dependencies if d.get("dependency_type") == "required"])
+        slog.info(
+            "mod_install_decision",
+            mod_id=project_id,
+            mod_title=mod_title,
+            mod_version=mod_version_number,
+            game_version=game_version,
+            loader=mod_loader,
+            decision_reason="auto_match" if not skipped_deps else "auto_match_with_skipped_deps",
+            fallback_used=False,
+            dependencies=[d.get("project_id", "") for d in dependencies if d.get("dependency_type") == "required"],
+        )
         return True, msg, installed_names
     else:
-        slog.error("mod_install_failed", mod_id=project_id, mod_title=mod_title,
-                   mod_version=mod_version_number, error=result)
+        slog.error(
+            "mod_install_failed", mod_id=project_id, mod_title=mod_title, mod_version=mod_version_number, error=result
+        )
         return False, f"{mod_title} 安装失败: {result}", installed_names
 
 
 def install_resource_pack(
-    project_id: str,
-    game_version: str,
-    resourcepacks_dir: str,
-    status_callback=None,
+    project_id: str, game_version: str, resourcepacks_dir: str, status_callback=None
 ) -> Tuple[bool, str]:
     """
     安装资源包（下载到 resourcepacks 目录）
@@ -791,10 +727,7 @@ def install_resource_pack(
     project_info = get_project_info(project_id)
     title = project_info.get("title", project_id) if project_info else project_id
 
-    versions = get_mod_versions(
-        project_id,
-        game_version=game_version,
-    )
+    versions = get_mod_versions(project_id, game_version=game_version)
 
     if not versions:
         logger.warning(f"资源包 {title} 没有兼容的版本 ({game_version})")
@@ -835,12 +768,7 @@ def install_resource_pack(
         return False, f"{title} 安装失败: {result}"
 
 
-def install_shader(
-    project_id: str,
-    game_version: str,
-    shaderpacks_dir: str,
-    status_callback=None,
-) -> Tuple[bool, str]:
+def install_shader(project_id: str, game_version: str, shaderpacks_dir: str, status_callback=None) -> Tuple[bool, str]:
     """
     安装光影（下载到 shaderpacks 目录）
 
@@ -856,10 +784,7 @@ def install_shader(
     project_info = get_project_info(project_id)
     title = project_info.get("title", project_id) if project_info else project_id
 
-    versions = get_mod_versions(
-        project_id,
-        game_version=game_version,
-    )
+    versions = get_mod_versions(project_id, game_version=game_version)
 
     if not versions:
         logger.warning(f"光影 {title} 没有兼容的版本 ({game_version})")
@@ -924,10 +849,7 @@ def _fetch_all_game_versions() -> Dict[int, Set[int]]:
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{MODRINTH_API_BASE}/tag/game_version",
-            timeout=15,
-        )
+        resp = session.get(f"{MODRINTH_API_BASE}/tag/game_version", timeout=15)
         resp.raise_for_status()
         data = resp.json()
 
@@ -964,8 +886,7 @@ def _fetch_all_game_versions() -> Dict[int, Set[int]]:
         _legacy_versions_cache = legacy_cache
         _new_versions_cache = new_cache
         logger.debug(
-            f"已缓存游戏版本列表: {len(legacy_cache)} 个旧格式 major 版本, "
-            f"{len(new_cache)} 个新格式年份版本"
+            f"已缓存游戏版本列表: {len(legacy_cache)} 个旧格式 major 版本, " f"{len(new_cache)} 个新格式年份版本"
         )
         return legacy_cache
 
@@ -1221,12 +1142,8 @@ def compress_game_versions(versions: List[str]) -> str:
 # 整合包 (Modpack) API
 # ═══════════════════════════════════════════════════════════════
 
-def search_modpacks(
-    query: str = "",
-    game_version: Optional[str] = None,
-    offset: int = 0,
-    limit: int = 20,
-) -> Dict:
+
+def search_modpacks(query: str = "", game_version: Optional[str] = None, offset: int = 0, limit: int = 20) -> Dict:
     """
     搜索 Modrinth 上的整合包
 
@@ -1251,31 +1168,21 @@ def search_modpacks(
     if game_version:
         facets.append([f"versions:{game_version}"])
 
-    params: Dict = {
-        "offset": offset,
-        "limit": limit,
-        "index": "relevance",
-    }
+    params: Dict = {"offset": offset, "limit": limit, "index": "relevance"}
 
     if facets:
         import json
+
         params["facets"] = json.dumps(facets)
 
     if query:
         params["query"] = query
 
-    logger.debug(
-        f"Modrinth 整合包搜索: query='{query}', version={game_version}, "
-        f"offset={offset}"
-    )
+    logger.debug(f"Modrinth 整合包搜索: query='{query}', version={game_version}, " f"offset={offset}")
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{MODRINTH_API_BASE}/search",
-            params=params,
-            timeout=15,
-        )
+        resp = session.get(f"{MODRINTH_API_BASE}/search", params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
 
@@ -1290,10 +1197,7 @@ def search_modpacks(
         return {"hits": [], "offset": offset, "limit": limit, "total_hits": 0}
 
 
-def get_modpack_versions(
-    project_id: str,
-    game_version: Optional[str] = None,
-) -> List[Dict]:
+def get_modpack_versions(project_id: str, game_version: Optional[str] = None) -> List[Dict]:
     """
     获取整合包的版本列表
 
@@ -1315,18 +1219,11 @@ def get_modpack_versions(
 
     try:
         session = _get_session()
-        resp = session.get(
-            f"{MODRINTH_API_BASE}/project/{project_id}/version",
-            params=params,
-            timeout=15,
-        )
+        resp = session.get(f"{MODRINTH_API_BASE}/project/{project_id}/version", params=params, timeout=15)
         resp.raise_for_status()
         versions = resp.json()
 
-        logger.info(
-            f"获取整合包 {project_id} 版本列表: {len(versions)} 个 "
-            f"(game_version={game_version})"
-        )
+        logger.info(f"获取整合包 {project_id} 版本列表: {len(versions)} 个 " f"(game_version={game_version})")
         return versions
 
     except requests.exceptions.RequestException as e:
@@ -1491,9 +1388,9 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
     Returns:
         包含 name, modid, version, author, description, icon_base64 的字典，或 None
     """
+    import base64
     import json as _json_module
     import zipfile
-    import base64
 
     try:
         import tomllib
@@ -1670,8 +1567,15 @@ def extract_all_mods_metadata(mods_dir: Path, status_callback=None) -> List[Dict
         return results
 
     entries = sorted(mods_dir.iterdir())
-    total = len([e for e in entries if e.is_file() and e.suffix.lower() in {".jar", ".zip"} or
-                 (e.suffix.lower() == ".disabled" and len(e.suffixes) >= 2 and e.suffixes[-2].lower() in {".jar", ".zip"})])
+    total = len(
+        [
+            e
+            for e in entries
+            if e.is_file()
+            and e.suffix.lower() in {".jar", ".zip"}
+            or (e.suffix.lower() == ".disabled" and len(e.suffixes) >= 2 and e.suffixes[-2].lower() in {".jar", ".zip"})
+        ]
+    )
 
     processed = 0
     for entry in entries:
@@ -1727,10 +1631,7 @@ def search_project_by_slug(slug: str) -> Optional[Dict]:
     """
     try:
         session = _get_session()
-        resp = session.get(
-            f"{MODRINTH_API_BASE}/project/{slug}",
-            timeout=15,
-        )
+        resp = session.get(f"{MODRINTH_API_BASE}/project/{slug}", timeout=15)
         if resp.status_code == 404:
             logger.debug(f"未找到 slug={slug} 的 Modrinth 项目")
             return None
@@ -1742,10 +1643,7 @@ def search_project_by_slug(slug: str) -> Optional[Dict]:
 
 
 def get_project_latest_version(
-    project_id: str,
-    game_version: Optional[str] = None,
-    mod_loader: Optional[str] = None,
-    version_type: str = "release",
+    project_id: str, game_version: Optional[str] = None, mod_loader: Optional[str] = None, version_type: str = "release"
 ) -> Optional[Dict]:
     """
     获取项目的最佳兼容版本信息（PCL-CE 风格多策略回退）
@@ -1771,11 +1669,7 @@ def get_project_latest_version(
     def _fetch_versions(filters: Dict) -> Optional[list]:
         try:
             session = _get_session()
-            resp = session.get(
-                f"{MODRINTH_API_BASE}/project/{project_id}/version",
-                params=filters,
-                timeout=15,
-            )
+            resp = session.get(f"{MODRINTH_API_BASE}/project/{project_id}/version", params=filters, timeout=15)
             resp.raise_for_status()
             data = resp.json()
             return data if data else None
@@ -1819,8 +1713,7 @@ def get_project_latest_version(
             result = _pick_best(versions)
             if result:
                 logger.debug(
-                    f"项目 {project_id}: 回退到仅 game_version={game_version} 的版本 "
-                    f"(loader={mod_loader} 无匹配)"
+                    f"项目 {project_id}: 回退到仅 game_version={game_version} 的版本 " f"(loader={mod_loader} 无匹配)"
                 )
                 return result
 
@@ -1830,20 +1723,14 @@ def get_project_latest_version(
         if versions:
             result = _pick_best(versions)
             if result:
-                logger.debug(
-                    f"项目 {project_id}: 回退到最新版本 "
-                    f"(game={game_version}, loader={mod_loader} 无匹配)"
-                )
+                logger.debug(f"项目 {project_id}: 回退到最新版本 " f"(game={game_version}, loader={mod_loader} 无匹配)")
                 return result
 
     return None
 
 
 def get_latest_version_by_slug(
-    slug: str,
-    game_version: Optional[str] = None,
-    mod_loader: Optional[str] = None,
-    version_type: str = "release",
+    slug: str, game_version: Optional[str] = None, mod_loader: Optional[str] = None, version_type: str = "release"
 ) -> Optional[Tuple[str, Optional[Dict]]]:
     """
     通过 slug 一步到位获取最新版本（优化版：免去 project 查询）
@@ -1863,10 +1750,7 @@ def get_latest_version_by_slug(
         (project_id, version_info_dict) 或 None
     """
     result = get_project_latest_version(
-        project_id=slug,
-        game_version=game_version,
-        mod_loader=mod_loader,
-        version_type=version_type,
+        project_id=slug, game_version=game_version, mod_loader=mod_loader, version_type=version_type
     )
     if result:
         # slug 就是 project_id（Modrinth API 兼容）
@@ -1902,7 +1786,8 @@ def compare_mod_versions(current: str, latest: str) -> int:
     if current == latest:
         return 0
 
-    from version_utils import parse_semver, compare_versions as _cmp
+    from version_utils import compare_versions as _cmp
+    from version_utils import parse_semver
 
     # 优先用 SemVer 解析（支持 pre-release 语义: 1.0.0-beta.1 < 1.0.0）
     cur_sv = parse_semver(current)
@@ -1923,7 +1808,7 @@ def compare_mod_versions(current: str, latest: str) -> int:
         if not cur_pre and not lat_pre:
             return 0
         if not cur_pre and lat_pre:
-            return 1   # 当前正式版 > 最新预发布 → 无需更新
+            return 1  # 当前正式版 > 最新预发布 → 无需更新
         if cur_pre and not lat_pre:
             return -1  # 当前预发布 < 最新正式版 → 需更新
         # 两个都是预发布，按标签字母序比较
@@ -2003,10 +1888,7 @@ def extract_zip_thumbnail(zip_path: Path, max_size: int = 64) -> Optional[str]:
                         continue
 
             # 回退：查找根目录下的任意 .png 文件
-            root_pngs = sorted([
-                n for n in namelist
-                if n.lower().endswith(".png") and "/" not in n.rstrip("/")
-            ])
+            root_pngs = sorted([n for n in namelist if n.lower().endswith(".png") and "/" not in n.rstrip("/")])
             for png_name in root_pngs:
                 try:
                     with zf.open(png_name) as img_f:
@@ -2056,19 +1938,15 @@ def ai_expand_search_keywords(query: str, token: str) -> List[str]:
 
     try:
         provider = AIProvider(api_key=token)
-        response_dict = provider.chat([
-            {"role": "user", "content": prompt}
-        ])
+        response_dict = provider.chat([{"role": "user", "content": prompt}])
         response = (response_dict.get("content") or "").strip()
 
         if response.startswith("```"):
             lines = response.split("\n")
-            response = "\n".join(
-                l for l in lines
-                if not l.startswith("```")
-            ).strip()
+            response = "\n".join(l for l in lines if not l.startswith("```")).strip()
 
         import json as _json
+
         try:
             keywords = _json.loads(response)
             if isinstance(keywords, list) and len(keywords) > 0:
@@ -2080,7 +1958,8 @@ def ai_expand_search_keywords(query: str, token: str) -> List[str]:
             pass
 
         import re
-        cleaned = re.sub(r'[\[\]"\']', '', response)
+
+        cleaned = re.sub(r'[\[\]"\']', "", response)
         keywords = [k.strip() for k in cleaned.split(",") if k.strip()]
         if keywords:
             logger.info(f"AI 搜索词扩展(fallback): '{query}' -> {keywords}")
@@ -2128,33 +2007,14 @@ def ai_merged_search(
         try:
             if search_type == "mods":
                 result = search_mods(
-                    query=kw,
-                    game_version=game_version,
-                    mod_loader=mod_loader,
-                    offset=0,
-                    limit=max_per_keyword,
+                    query=kw, game_version=game_version, mod_loader=mod_loader, offset=0, limit=max_per_keyword
                 )
             elif search_type == "resourcepacks":
-                result = search_resource_packs(
-                    query=kw,
-                    game_version=game_version,
-                    offset=0,
-                    limit=max_per_keyword,
-                )
+                result = search_resource_packs(query=kw, game_version=game_version, offset=0, limit=max_per_keyword)
             elif search_type == "shaders":
-                result = search_shaders(
-                    query=kw,
-                    game_version=game_version,
-                    offset=0,
-                    limit=max_per_keyword,
-                )
+                result = search_shaders(query=kw, game_version=game_version, offset=0, limit=max_per_keyword)
             elif search_type == "modpacks":
-                result = search_modpacks(
-                    query=kw,
-                    game_version=game_version,
-                    offset=0,
-                    limit=max_per_keyword,
-                )
+                result = search_modpacks(query=kw, game_version=game_version, offset=0, limit=max_per_keyword)
             else:
                 continue
 
@@ -2169,12 +2029,5 @@ def ai_merged_search(
 
     merged.sort(key=lambda h: h.get("downloads", 0), reverse=True)
 
-    logger.info(
-        f"AI 合并搜索完成: query='{query}', keywords={keywords}, "
-        f"去重结果={len(merged)}"
-    )
-    return {
-        "hits": merged,
-        "total_hits": len(merged),
-        "keywords": keywords,
-    }
+    logger.info(f"AI 合并搜索完成: query='{query}', keywords={keywords}, " f"去重结果={len(merged)}")
+    return {"hits": merged, "total_hits": len(merged), "keywords": keywords}

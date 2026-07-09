@@ -4,7 +4,7 @@ import abc
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Optional, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from plugin_manager.manifest import PluginManifest
 from plugin_manager.permissions import PluginPermissionState
@@ -15,14 +15,15 @@ if TYPE_CHECKING:
 
 class PluginState(str, Enum):
     """插件状态"""
-    SCANNED = "scanned"         # 已发现，尚未加载
-    LOADING = "loading"         # 正在加载模块
-    LOADED = "loaded"           # 模块已 import，Plugin 实例已创建
-    ENABLED = "enabled"         # on_enable() 已执行
-    INIT_ERROR = "init_error"   # 初始化阶段出错
-    RUNNING = "running"         # 正常运行中
-    DISABLED = "disabled"       # 用户主动禁用
-    ERROR = "error"             # 运行中出错
+
+    SCANNED = "scanned"  # 已发现，尚未加载
+    LOADING = "loading"  # 正在加载模块
+    LOADED = "loaded"  # 模块已 import，Plugin 实例已创建
+    ENABLED = "enabled"  # on_enable() 已执行
+    INIT_ERROR = "init_error"  # 初始化阶段出错
+    RUNNING = "running"  # 正常运行中
+    DISABLED = "disabled"  # 用户主动禁用
+    ERROR = "error"  # 运行中出错
     INCOMPATIBLE = "incompatible"  # 版本不兼容
     UNINSTALLING = "uninstalling"
 
@@ -32,34 +33,35 @@ class HookPoint(str, Enum):
 
     命名规范: domain.event 形式
     """
+
     # ── 应用生命周期 ──
-    APP_STARTUP = "app.startup"             # 启动器初始化完成
-    APP_SHUTDOWN = "app.shutdown"           # 启动器关闭前
+    APP_STARTUP = "app.startup"  # 启动器初始化完成
+    APP_SHUTDOWN = "app.shutdown"  # 启动器关闭前
 
     # ── 游戏生命周期 ──
-    GAME_PRE_LAUNCH = "game.pre_launch"     # 游戏启动前 (可修改启动参数)
-    GAME_POST_LAUNCH = "game.post_launch"   # 游戏启动后 (参数: pid, process)
-    GAME_STOPPED = "game.stopped"           # 游戏进程停止 (参数: exit_code)
-    GAME_CRASHED = "game.crashed"           # 游戏崩溃后 (参数: crash_report)
+    GAME_PRE_LAUNCH = "game.pre_launch"  # 游戏启动前 (可修改启动参数)
+    GAME_POST_LAUNCH = "game.post_launch"  # 游戏启动后 (参数: pid, process)
+    GAME_STOPPED = "game.stopped"  # 游戏进程停止 (参数: exit_code)
+    GAME_CRASHED = "game.crashed"  # 游戏崩溃后 (参数: crash_report)
 
     # ── 版本生命周期 ──
-    VERSION_PRE_INSTALL = "version.pre_install"     # 版本安装前 (参数: version_id)
-    VERSION_POST_INSTALL = "version.post_install"   # 版本安装后 (参数: version_id, success)
-    VERSION_PRE_REMOVE = "version.pre_remove"       # 版本删除前 (参数: version_id)
+    VERSION_PRE_INSTALL = "version.pre_install"  # 版本安装前 (参数: version_id)
+    VERSION_POST_INSTALL = "version.post_install"  # 版本安装后 (参数: version_id, success)
+    VERSION_PRE_REMOVE = "version.pre_remove"  # 版本删除前 (参数: version_id)
 
     # ── 服务器生命周期 ──
-    SERVER_PRE_START = "server.pre_start"   # 服务器启动前 (参数: server_name)
-    SERVER_POST_START = "server.post_start" # 服务器启动后 (参数: server_name, process)
-    SERVER_STOPPED = "server.stopped"       # 服务器停止 (参数: server_name, exit_code)
+    SERVER_PRE_START = "server.pre_start"  # 服务器启动前 (参数: server_name)
+    SERVER_POST_START = "server.post_start"  # 服务器启动后 (参数: server_name, process)
+    SERVER_STOPPED = "server.stopped"  # 服务器停止 (参数: server_name, exit_code)
 
     # ── UI 扩展 ──
-    UI_TAB_REGISTER = "ui.tab.register"         # 注册主界面标签页
+    UI_TAB_REGISTER = "ui.tab.register"  # 注册主界面标签页
     UI_SIDEBAR_REGISTER = "ui.sidebar.register"  # 注册侧边栏项目
     UI_SETTINGS_REGISTER = "ui.settings.register"  # 注册设置条目
 
     # ── 下载生命周期 ──
-    DOWNLOAD_PRE_DOWNLOAD = "download.pre_download"     # 文件下载前 (可修改 URL)
-    DOWNLOAD_POST_DOWNLOAD = "download.post_download"   # 文件下载完成
+    DOWNLOAD_PRE_DOWNLOAD = "download.pre_download"  # 文件下载前 (可修改 URL)
+    DOWNLOAD_POST_DOWNLOAD = "download.post_download"  # 文件下载完成
 
 
 class PluginBase(abc.ABC):
@@ -169,6 +171,7 @@ class PluginBase(abc.ABC):
     def log(self, message: str, level: str = "info"):
         """通过启动器日志系统记录"""
         from logzero import logger
+
         log_func = getattr(logger, level, logger.info)
         log_func(f"[Plugin:{self.manifest.id}] {message}")
 
@@ -181,6 +184,7 @@ class PluginBase(abc.ABC):
             level: info / warning / error
         """
         from plugin_manager.permissions import PluginPermission
+
         if not self._perm_state.is_granted(PluginPermission.UI_NOTIFICATION):
             self.log(f"通知被拦截 (权限不足): {title} - {message}", "warning")
             return

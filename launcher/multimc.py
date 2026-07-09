@@ -12,26 +12,26 @@ import shutil
 import threading
 import zipfile
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests as req
 from logzero import logger
 
 from launcher.multimc_types import (
-    MultiMCManifest,
-    MultiMCManifestComponent,
+    FileInfo,
+    ModpackConfiguration,
     MultiMCInstanceConfig,
     MultiMCInstancePatch,
-    ModpackConfiguration,
-    FileInfo,
+    MultiMCManifest,
+    MultiMCManifestComponent,
+    compute_file_sha1,
     detect_multimc_format,
     find_root_entry,
-    read_mmc_pack_json,
-    read_instance_cfg,
-    get_meta_url,
     get_component_loader,
+    get_meta_url,
     is_minecraft_component,
-    compute_file_sha1,
+    read_instance_cfg,
+    read_mmc_pack_json,
 )
 
 DEFAULT_UA = "FMCL-MultiMC-Installer/1.0 (compatible; Minecraft Launcher)"
@@ -85,12 +85,14 @@ class MultiMCMixin:
         components_info = []
         for comp in mmc_manifest.components:
             if not comp.dependency_only:
-                components_info.append({
-                    "uid": comp.uid,
-                    "version": comp.version,
-                    "name": comp.cached_name or comp.uid,
-                    "important": comp.important,
-                })
+                components_info.append(
+                    {
+                        "uid": comp.uid,
+                        "version": comp.version,
+                        "name": comp.cached_name or comp.uid,
+                        "important": comp.important,
+                    }
+                )
 
         return {
             "name": instance_cfg.name,
@@ -106,11 +108,7 @@ class MultiMCMixin:
     # ─── Patch 加载 ──────────────────────────────────────────
 
     def _load_component_patches(
-        self,
-        zip_path: str,
-        components: List[MultiMCManifestComponent],
-        mc_version: str,
-        root_entry: str = "",
+        self, zip_path: str, components: List[MultiMCManifestComponent], mc_version: str, root_entry: str = ""
     ) -> List[MultiMCInstancePatch]:
         """加载所有组件的 JSON Patch（本地优先，远端兜底）。"""
         patches: List[MultiMCInstancePatch] = []
@@ -180,9 +178,7 @@ class MultiMCMixin:
 
         return list(existed.values())
 
-    def _merge_patches_to_version_json(
-        self, patches: List[MultiMCInstancePatch], version_id: str
-    ) -> Dict[str, Any]:
+    def _merge_patches_to_version_json(self, patches: List[MultiMCInstancePatch], version_id: str) -> Dict[str, Any]:
         """将多个组件 Patches 合并为标准 version.json。
 
         参考 HMCL MultiMCInstancePatch.resolveArtifact() 的合并逻辑。
@@ -192,9 +188,7 @@ class MultiMCMixin:
 
         for p in patches:
             if p.format_version != 1:
-                raise ValueError(
-                    f"不支持的 patch 格式版本: {p.uid} formatVersion={p.format_version}"
-                )
+                raise ValueError(f"不支持的 patch 格式版本: {p.uid} formatVersion={p.format_version}")
 
         last = patches[-1]
         minecraft_args = last.minecraft_arguments or ""
@@ -260,6 +254,7 @@ class MultiMCMixin:
         for trait in traits:
             if trait == "FirstThreadOnMacOS":
                 import platform
+
                 if platform.system() == "Darwin":
                     jvm_args.append("-XstartOnFirstThread")
             elif trait in ("XR:Initial", "texturepacks", "no-texturepacks"):
@@ -287,10 +282,7 @@ class MultiMCMixin:
             # 优先选择标准 JRE 版本号（8, 11, 16, 17, 21）
             for major in sorted_majors:
                 if major >= 8:
-                    version_json["javaVersion"] = {
-                        "majorVersion": major,
-                        "component": _java_major_to_component(major),
-                    }
+                    version_json["javaVersion"] = {"majorVersion": major, "component": _java_major_to_component(major)}
                     logger.warning(
                         f"========== Java 版本要求: {major}+ ==========\n"
                         f"整合包要求 Java {major}+。请在「设置 → Java 运行时」中\n"
@@ -303,9 +295,7 @@ class MultiMCMixin:
         if not version_json.get("javaVersion"):
             _default_major = 8
             for _arg in jvm_arg_objects:
-                if isinstance(_arg, str) and (
-                    _arg.startswith("--add-opens") or _arg.startswith("--add-exports")
-                ):
+                if isinstance(_arg, str) and (_arg.startswith("--add-opens") or _arg.startswith("--add-exports")):
                     _default_major = max(_default_major, 17)
                     break
             if _default_major > 8:
@@ -320,9 +310,7 @@ class MultiMCMixin:
         if asset_index:
             version_json["assetIndex"] = asset_index
         if main_jar:
-            version_json["downloads"] = {
-                "client": main_jar.get("downloads", {}).get("artifact", main_jar),
-            }
+            version_json["downloads"] = {"client": main_jar.get("downloads", {}).get("artifact", main_jar)}
 
         game_version = None
         for patch in patches:
@@ -334,18 +322,14 @@ class MultiMCMixin:
             "version_json": version_json,
             "game_version": game_version,
             "main_jar": main_jar,
-            "jar_mod_file_names": [
-                jm.get("name", "") for jm in jar_mods
-            ],
+            "jar_mod_file_names": [jm.get("name", "") for jm in jar_mods],
             "maven_files": maven_files,
             "libraries": libraries,
         }
 
     # ─── 文件操作 ────────────────────────────────────────────
 
-    def _extract_minecraft_overlay(
-        self, zip_path: str, version_dir: str, root_entry: str = ""
-    ) -> List[FileInfo]:
+    def _extract_minecraft_overlay(self, zip_path: str, version_dir: str, root_entry: str = "") -> List[FileInfo]:
         """解压 .minecraft/ 覆盖文件并计算 SHA-1 哈希。"""
         overlay_prefix = f"{root_entry}.minecraft/"
         file_infos: List[FileInfo] = []
@@ -355,7 +339,7 @@ class MultiMCMixin:
             for name in zf.namelist():
                 if not name.startswith(overlay_prefix) or name.endswith("/"):
                     continue
-                rel_path = name[len(overlay_prefix):]
+                rel_path = name[len(overlay_prefix) :]
                 if not rel_path:
                     continue
 
@@ -371,24 +355,19 @@ class MultiMCMixin:
         logger.info(f"解压覆盖文件完成: {len(file_infos)} 个文件 -> {version_dir}")
         return file_infos
 
-    def _copy_embedded_libraries(
-        self, zip_path: str, version_dir: str, root_entry: str = ""
-    ) -> None:
+    def _copy_embedded_libraries(self, zip_path: str, version_dir: str, root_entry: str = "") -> None:
         """复制内嵌 libraries/ 目录。"""
         lib_prefix = f"{root_entry}libraries/"
         target_lib_dir = os.path.join(version_dir, "libraries")
 
         with zipfile.ZipFile(zip_path, "r") as zf:
-            lib_names = [
-                n for n in zf.namelist()
-                if n.startswith(lib_prefix) and not n.endswith("/")
-            ]
+            lib_names = [n for n in zf.namelist() if n.startswith(lib_prefix) and not n.endswith("/")]
             if not lib_names:
                 return
 
             os.makedirs(target_lib_dir, exist_ok=True)
             for name in lib_names:
-                rel_path = name[len(lib_prefix):]
+                rel_path = name[len(lib_prefix) :]
                 target_path = os.path.join(target_lib_dir, rel_path)
                 os.makedirs(os.path.dirname(target_path), exist_ok=True)
                 with zf.open(name) as src, open(target_path, "wb") as dst:
@@ -396,10 +375,7 @@ class MultiMCMixin:
 
         logger.info(f"复制内嵌库完成: {len(lib_names)} 个文件")
 
-    def _copy_icon(
-        self, zip_path: str, version_dir: str,
-        icon_key: Optional[str], root_entry: str = "",
-    ) -> None:
+    def _copy_icon(self, zip_path: str, version_dir: str, icon_key: Optional[str], root_entry: str = "") -> None:
         """复制图标文件。"""
         if not icon_key:
             return
@@ -412,25 +388,19 @@ class MultiMCMixin:
                 dst.write(src.read())
         logger.info(f"图标已复制: {icon_key}")
 
-    def _apply_jar_mods(
-        self, zip_path: str, version_dir: str,
-        jar_mod_names: List[str], root_entry: str = "",
-    ) -> bool:
+    def _apply_jar_mods(self, zip_path: str, version_dir: str, jar_mod_names: List[str], root_entry: str = "") -> bool:
         """将 jarmods/ 合并到客户端主 JAR。"""
         if not jar_mod_names:
             return True
 
         jar_mod_prefix = f"{root_entry}jarmods/"
-        version_jar = os.path.join(
-            version_dir, f"{os.path.basename(version_dir)}.jar"
-        )
+        version_jar = os.path.join(version_dir, f"{os.path.basename(version_dir)}.jar")
         if not os.path.isfile(version_jar):
             logger.warning(f"主 JAR 不存在: {version_jar}")
             return False
 
         try:
-            with zipfile.ZipFile(zip_path, "r") as src_zip, \
-                 zipfile.ZipFile(version_jar, "a") as dst_zip:
+            with zipfile.ZipFile(zip_path, "r") as src_zip, zipfile.ZipFile(version_jar, "a") as dst_zip:
                 for jm_name in jar_mod_names:
                     jm_path = f"{jar_mod_prefix}{jm_name}"
                     if jm_path not in src_zip.namelist():
@@ -439,6 +409,7 @@ class MultiMCMixin:
                     jm_content = src_zip.read(jm_path)
                     try:
                         import io
+
                         with zipfile.ZipFile(io.BytesIO(jm_content), "r") as jm_zip:
                             dst_names = set(dst_zip.namelist())
                             for en in jm_zip.namelist():
@@ -454,9 +425,7 @@ class MultiMCMixin:
 
     # ─── 配置应用 ────────────────────────────────────────────
 
-    def _apply_instance_config_to_settings(
-        self, instance_cfg: MultiMCInstanceConfig, version_id: str
-    ) -> None:
+    def _apply_instance_config_to_settings(self, instance_cfg: MultiMCInstanceConfig, version_id: str) -> None:
         """记录 instance.cfg 配置供启动时使用。"""
         if not hasattr(self, "_mmc_instance_configs"):
             self._mmc_instance_configs = {}
@@ -499,24 +468,22 @@ class MultiMCMixin:
     # ─── ModpackConfiguration 持久化 ─────────────────────────
 
     def _save_modpack_configuration(
-        self, version_id: str, instance_cfg: MultiMCInstanceConfig,
-        file_infos: List[FileInfo],
+        self, version_id: str, instance_cfg: MultiMCInstanceConfig, file_infos: List[FileInfo]
     ) -> None:
         """保存 ModpackConfiguration 供增量更新。"""
         mc_dir = getattr(self, "minecraft_dir", "")
         config = ModpackConfiguration(
             manifest=instance_cfg.to_dict(),
-            type="MultiMC", name=version_id,
-            version=getattr(instance_cfg, 'game_version', '') or "",
+            type="MultiMC",
+            name=version_id,
+            version=getattr(instance_cfg, "game_version", "") or "",
             overrides=file_infos,
         )
         config_path = os.path.join(mc_dir, "versions", version_id, "mmc_config.json")
         config.save_to_file(config_path)
         logger.info(f"ModpackConfiguration 已保存: {config_path}")
 
-    def _load_modpack_configuration(
-        self, version_id: str
-    ) -> Optional[ModpackConfiguration]:
+    def _load_modpack_configuration(self, version_id: str) -> Optional[ModpackConfiguration]:
         """加载 ModpackConfiguration。"""
         mc_dir = getattr(self, "minecraft_dir", "")
         config_path = os.path.join(mc_dir, "versions", version_id, "mmc_config.json")
@@ -525,8 +492,7 @@ class MultiMCMixin:
     # ================== 客户端安装 ==================
 
     def _install_mc_and_loader_from_patches(
-        self, game_version: str, loader_type: Optional[str],
-        loader_version: Optional[str], merged: Dict[str, Any],
+        self, game_version: str, loader_type: Optional[str], loader_version: Optional[str], merged: Dict[str, Any]
     ) -> Tuple[bool, str]:
         """安装 Minecraft 原版。
 
@@ -544,6 +510,7 @@ class MultiMCMixin:
             (成功, 版本ID)
         """
         import minecraft_launcher_lib as _mcllib
+
         mc_dir = getattr(self, "minecraft_dir", "")
         callback = self._get_callback() if hasattr(self, "_get_callback") else {}
 
@@ -563,9 +530,7 @@ class MultiMCMixin:
         version_id = version_json.get("id", game_version)
         return True, version_id
 
-    def install_multimc_pack(
-        self, zip_path: str, optional_files: Optional[List[str]] = None,
-    ) -> Tuple[bool, str]:
+    def install_multimc_pack(self, zip_path: str, optional_files: Optional[List[str]] = None) -> Tuple[bool, str]:
         if not os.path.isfile(zip_path):
             return False, f"file not found: {zip_path}"
 
@@ -579,8 +544,9 @@ class MultiMCMixin:
         try:
             root_entry = find_root_entry(zip_path)
             mmc_manifest = read_mmc_pack_json(zip_path, root_entry)
-            instance_cfg = read_instance_cfg(zip_path, root_entry,
-                default_name=os.path.splitext(os.path.basename(zip_path))[0])
+            instance_cfg = read_instance_cfg(
+                zip_path, root_entry, default_name=os.path.splitext(os.path.basename(zip_path))[0]
+            )
 
             mc_version = mmc_manifest.get_minecraft_version()
             if not mc_version:
@@ -631,8 +597,10 @@ class MultiMCMixin:
 
             t_a = threading.Thread(target=_do_overlay, daemon=True)
             t_b = threading.Thread(target=_do_install, daemon=True)
-            t_a.start(); t_b.start()
-            t_a.join(); t_b.join()
+            t_a.start()
+            t_b.start()
+            t_a.join()
+            t_b.join()
 
             if overlay_error:
                 self._cleanup_version_dir(version_dir)
@@ -752,12 +720,9 @@ class MultiMCMixin:
         except Exception as e:
             logger.warning(f"补充 version.json 失败: {e}")
 
-
     # ================== server install ==================
 
-    def install_multimc_pack_server(
-        self, zip_path: str, server_name: Optional[str] = None,
-    ) -> Tuple[bool, str]:
+    def install_multimc_pack_server(self, zip_path: str, server_name: Optional[str] = None) -> Tuple[bool, str]:
         if not os.path.isfile(zip_path):
             return False, f"file not found: {zip_path}"
 
@@ -768,8 +733,9 @@ class MultiMCMixin:
         try:
             root_entry = find_root_entry(zip_path)
             mmc_manifest = read_mmc_pack_json(zip_path, root_entry)
-            instance_cfg = read_instance_cfg(zip_path, root_entry,
-                default_name=os.path.splitext(os.path.basename(zip_path))[0])
+            instance_cfg = read_instance_cfg(
+                zip_path, root_entry, default_name=os.path.splitext(os.path.basename(zip_path))[0]
+            )
 
             mc_version = mmc_manifest.get_minecraft_version()
             if not mc_version:
@@ -780,7 +746,7 @@ class MultiMCMixin:
             loader_version = loader_info[1] if loader_info else None
 
             if not server_name:
-                safe_name = re.sub(r'[<>:"/\\|?*]', '_', instance_cfg.name)
+                safe_name = re.sub(r'[<>:"/\\|?*]', "_", instance_cfg.name)
                 server_name = f"{safe_name}-{mc_version}"
 
             mc_dir = getattr(self, "minecraft_dir", "")
@@ -790,6 +756,7 @@ class MultiMCMixin:
             self._extract_minecraft_overlay(zip_path, server_dir, root_entry)
 
             import minecraft_launcher_lib as _mcllib
+
             callback = self._get_callback() if hasattr(self, "_get_callback") else {}
             try:
                 _mcllib.install.install_minecraft_version(mc_version, mc_dir, callback=callback)
@@ -858,7 +825,7 @@ class MultiMCMixin:
                 for name in zf.namelist():
                     if not name.startswith(overlay_prefix) or name.endswith("/"):
                         continue
-                    rel = name[len(overlay_prefix):]
+                    rel = name[len(overlay_prefix) :]
                     if not rel:
                         continue
                     target = os.path.join(version_dir, rel)

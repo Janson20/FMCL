@@ -1,10 +1,11 @@
 """服务器管理工具 - 获取/安装/启动/删除 Minecraft 服务器"""
 
 import threading
-from typing import Dict, Callable
+from typing import Callable, Dict
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, CATEGORY_SERVER
+from ui.agent.tools.base import CATEGORY_SERVER, ToolInfo
 
 
 def _build_server_tools() -> list:
@@ -25,14 +26,8 @@ def _build_server_tools() -> list:
             parameters={
                 "type": "object",
                 "properties": {
-                    "version_id": {
-                        "type": "string",
-                        "description": "服务器版本号，如 1.21.4 或 1.20.1-forge-xxx 等",
-                    },
-                    "max_memory": {
-                        "type": "string",
-                        "description": "最大内存，如 2G、4G、8G，默认 2G",
-                    },
+                    "version_id": {"type": "string", "description": "服务器版本号，如 1.21.4 或 1.20.1-forge-xxx 等"},
+                    "max_memory": {"type": "string", "description": "最大内存，如 2G、4G、8G，默认 2G"},
                 },
                 "required": ["version_id"],
             },
@@ -46,12 +41,7 @@ def _build_server_tools() -> list:
             description="删除本地已安装的 Minecraft 服务器版本",
             parameters={
                 "type": "object",
-                "properties": {
-                    "version_id": {
-                        "type": "string",
-                        "description": "要删除的服务器版本号，如 1.21.4",
-                    },
-                },
+                "properties": {"version_id": {"type": "string", "description": "要删除的服务器版本号，如 1.21.4"}},
                 "required": ["version_id"],
             },
             category=CATEGORY_SERVER,
@@ -93,12 +83,14 @@ def _start_server(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str
 
     if success:
         if process and process.stdout:
+
             def _drain_pipe():
                 try:
                     for _ in process.stdout:
                         pass
                 except Exception:
                     pass
+
             threading.Thread(target=_drain_pipe, daemon=True, name="AgentServerStdoutDrain").start()
         return f"🚀 服务器 {version_id} 已启动！内存: {max_memory}，端口: 25565"
     else:

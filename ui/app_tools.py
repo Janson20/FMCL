@@ -1,9 +1,10 @@
 """ModernApp 工具 Mixin - 工具标签页相关方法"""
+
 import base64
+import hashlib
 import io
 import json
 import os
-import hashlib
 import socket
 import struct
 import threading
@@ -13,8 +14,8 @@ from pathlib import Path
 from tkinter import filedialog
 from typing import Any, Dict, List, Optional
 
-import requests
 import customtkinter as ctk
+import requests
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY
@@ -103,10 +104,7 @@ class ToolsTabMixin(object):
         card = self._make_tool_card(parent, _("tool_clean_junk_title"), _("tool_clean_junk_desc"))
 
         self._clean_junk_status = ctk.CTkLabel(
-            card,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            text_color=COLORS["text_secondary"],
+            card, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_secondary"]
         )
 
         btn_row = ctk.CTkFrame(card, fg_color="transparent")
@@ -148,8 +146,7 @@ class ToolsTabMixin(object):
                 def _update_ui():
                     if not junk_files:
                         self._clean_junk_status.configure(
-                            text=_("tool_clean_junk_none"),
-                            text_color=COLORS["text_secondary"],
+                            text=_("tool_clean_junk_none"), text_color=COLORS["text_secondary"]
                         )
                         btn.configure(state=ctk.NORMAL, text=_("tool_clean_junk_scan"))
                         self._clean_junk_status.pack(anchor=ctk.W, padx=16, pady=(0, 8))
@@ -168,6 +165,7 @@ class ToolsTabMixin(object):
                         )
                         self._clean_junk__files = junk_files
                         self._clean_junk__total_size = total_size
+
                 self.after(0, _update_ui)
             except Exception as e:
                 logger.error(f"扫描垃圾文件失败: {e}")
@@ -176,10 +174,10 @@ class ToolsTabMixin(object):
                 def _error_ui():
                     btn.configure(state=ctk.NORMAL, text=_("tool_clean_junk_scan"))
                     self._clean_junk_status.configure(
-                        text=_("tool_clean_junk_error", error=_scan_err),
-                        text_color=COLORS["text_secondary"],
+                        text=_("tool_clean_junk_error", error=_scan_err), text_color=COLORS["text_secondary"]
                     )
                     self._clean_junk_status.pack(anchor=ctk.W, padx=16, pady=(0, 8))
+
                 self.after(0, _error_ui)
 
         threading.Thread(target=_task, daemon=True).start()
@@ -233,10 +231,7 @@ class ToolsTabMixin(object):
         self._quiz_next_btn.pack(side=ctk.LEFT)
 
         self._quiz_remaining_label = ctk.CTkLabel(
-            btn_row,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
+            btn_row, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"]
         )
         self._quiz_remaining_label.pack(side=ctk.LEFT, padx=(15, 0))
 
@@ -300,6 +295,7 @@ class ToolsTabMixin(object):
             pass
         try:
             from config import config
+
             return config.jdz_token or ""
         except Exception:
             pass
@@ -360,6 +356,7 @@ class ToolsTabMixin(object):
                     def _done():
                         self._quiz_update_remaining()
                         self.set_status(_("tool_quiz_auto_refilled", count=len(reindexed)), "success")
+
                     self.after(0, _done)
             except Exception as e:
                 logger.error(f"自动补充题目失败: {e}")
@@ -374,6 +371,7 @@ class ToolsTabMixin(object):
             raise ValueError(_("tool_quiz_not_logged_in"))
 
         from ui.agent.provider import AIProvider
+
         provider = AIProvider(api_key=token)
         messages = [
             {"role": "system", "content": self._QUIZ_SYSTEM_PROMPT},
@@ -477,9 +475,7 @@ class ToolsTabMixin(object):
             self._quiz_submit_btn = btn
 
         self._quiz_result_label = ctk.CTkLabel(
-            self._quiz_content_frame,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+            self._quiz_content_frame, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=13)
         )
 
     def _on_quiz_select(self, index: int):
@@ -586,6 +582,7 @@ class ToolsTabMixin(object):
                     self._quiz_show_current()
                     self._quiz_update_remaining()
                     self.set_status(_("tool_quiz_generated", count=len(questions)), "success")
+
                 self.after(0, _done)
             except Exception as e:
                 logger.error(f"生成题目失败: {e}")
@@ -596,6 +593,7 @@ class ToolsTabMixin(object):
                     self._quiz_next_btn.configure(state=ctk.NORMAL)
                     self.set_status(_("tool_quiz_gen_error", error=_quiz_err), "error")
                     self._quiz_show_empty()
+
                 self.after(0, _error)
 
         threading.Thread(target=_task, daemon=True).start()
@@ -713,6 +711,7 @@ class ToolsTabMixin(object):
 
     def _on_random_fact(self):
         import random as _random
+
         index = _random.randint(0, len(self._MC_FACTS) - 1)
         self._show_fact(index, _("tool_fact_random_title"))
 
@@ -745,13 +744,7 @@ class ToolsTabMixin(object):
 
     # ═══════════ 端口检测器 ═══════════
 
-    _PORT_PRESETS = [
-        ("", 0),
-        ("localhost", 25565),
-        ("localhost", 19132),
-        ("localhost", 80),
-        ("localhost", 443),
-    ]
+    _PORT_PRESETS = [("", 0), ("localhost", 25565), ("localhost", 19132), ("localhost", 80), ("localhost", 443)]
 
     def _build_tool_port_checker(self, parent):
         card = self._make_tool_card(parent, _("tool_port_title"), _("tool_port_desc"))
@@ -805,12 +798,7 @@ class ToolsTabMixin(object):
             text_color=COLORS["text_secondary"],
         ).pack(side=ctk.LEFT, padx=(0, 8))
 
-        presets = [
-            ("MC Java", "25565"),
-            ("MC Bedrock", "19132"),
-            ("HTTP", "80"),
-            ("HTTPS", "443"),
-        ]
+        presets = [("MC Java", "25565"), ("MC Bedrock", "19132"), ("HTTP", "80"), ("HTTPS", "443")]
         for name, port in presets:
             ctk.CTkButton(
                 preset_row,
@@ -938,6 +926,7 @@ class ToolsTabMixin(object):
                     ).pack(side=ctk.LEFT)
 
                 btn.configure(state=ctk.NORMAL, text=_("tool_port_test"))
+
             self.after(0, _update)
 
         threading.Thread(target=_task, daemon=True).start()
@@ -961,18 +950,22 @@ class ToolsTabMixin(object):
         if favicon:
             try:
                 img_data = base64.b64decode(favicon.split(",", 1)[-1] if "," in favicon else favicon)
-                from PIL import Image as PILImage, ImageTk
+                from PIL import Image as PILImage
+                from PIL import ImageTk
+
                 img = PILImage.open(io.BytesIO(img_data))
                 img = img.resize((48, 48), PILImage.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
                 icon_label = ctk.CTkLabel(info_frame, image=photo, text="")
                 icon_label.image = photo
             except Exception:
-                icon_label = ctk.CTkLabel(info_frame, text="🖥", font=ctk.CTkFont(size=36),
-                                          text_color=COLORS["text_secondary"])
+                icon_label = ctk.CTkLabel(
+                    info_frame, text="🖥", font=ctk.CTkFont(size=36), text_color=COLORS["text_secondary"]
+                )
         else:
-            icon_label = ctk.CTkLabel(info_frame, text="🖥", font=ctk.CTkFont(size=36),
-                                      text_color=COLORS["text_secondary"])
+            icon_label = ctk.CTkLabel(
+                info_frame, text="🖥", font=ctk.CTkFont(size=36), text_color=COLORS["text_secondary"]
+            )
         icon_label.pack(side=ctk.LEFT, padx=(10, 12), pady=10)
 
         text_col = ctk.CTkFrame(info_frame, fg_color="transparent")
@@ -1132,6 +1125,7 @@ class ToolsTabMixin(object):
                     self._display_server_info(info, int(elapsed))
                 peek_btn.configure(state=ctk.NORMAL, text=_("tool_port_peek"))
                 test_btn.configure(state=ctk.NORMAL, text=_("tool_port_test"))
+
             self.after(0, _update)
 
         threading.Thread(target=_task, daemon=True).start()
@@ -1150,10 +1144,7 @@ class ToolsTabMixin(object):
             sub = ctk.CTkFrame(inp_frame, fg_color="transparent")
             sub.pack(side=ctk.LEFT, padx=(0, 8) if col < 2 else (0, 0))
             ctk.CTkLabel(
-                sub,
-                text=lbl_text,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-                text_color=COLORS["text_secondary"],
+                sub, text=lbl_text, font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_secondary"]
             ).pack(side=ctk.LEFT, padx=(0, 4))
             entry = ctk.CTkEntry(
                 sub,
@@ -1303,10 +1294,7 @@ class ToolsTabMixin(object):
         self._hash_result_frame = ctk.CTkFrame(card, fg_color="transparent")
 
     def _on_browse_hash_file(self):
-        path = filedialog.askopenfilename(
-            title=_("tool_hash_select_file"),
-            parent=self,
-        )
+        path = filedialog.askopenfilename(title=_("tool_hash_select_file"), parent=self)
         if path:
             self._hash_file_entry.delete(0, "end")
             self._hash_file_entry.insert(0, path)
@@ -1357,6 +1345,7 @@ class ToolsTabMixin(object):
                         text_color=COLORS["text_secondary"],
                     ).pack(anchor=ctk.W)
                     btn.configure(state=ctk.NORMAL, text=_("tool_hash_calculate"))
+
                 self.after(0, _done)
             except Exception as e:
                 logger.error(f"Hash 计算失败: {e}")
@@ -1365,6 +1354,7 @@ class ToolsTabMixin(object):
                 def _error():
                     btn.configure(state=ctk.NORMAL, text=_("tool_hash_calculate"))
                     self.set_status(_("tool_hash_calc_error", error=_hash_err), "error")
+
                 self.after(0, _error)
 
         threading.Thread(target=_task, daemon=True).start()
@@ -1395,10 +1385,16 @@ class ToolsTabMixin(object):
                     text_color=COLORS["accent"] if failed == 0 else COLORS["text_secondary"],
                 )
                 self._clean_junk_status.pack(anchor=ctk.W, padx=16, pady=(0, 8))
-                btn.configure(state=ctk.NORMAL, text=_("tool_clean_junk_scan"), fg_color=COLORS["bg_light"],
-                              hover_color=COLORS["card_border"], command=self._on_clean_junk)
+                btn.configure(
+                    state=ctk.NORMAL,
+                    text=_("tool_clean_junk_scan"),
+                    fg_color=COLORS["bg_light"],
+                    hover_color=COLORS["card_border"],
+                    command=self._on_clean_junk,
+                )
                 self._clean_junk__files = []
                 self._clean_junk__total_size = 0
+
             self.after(0, _update_ui)
 
         threading.Thread(target=_task, daemon=True).start()
@@ -1574,10 +1570,7 @@ class ToolsTabMixin(object):
         self._dl_progress_frame = ctk.CTkFrame(card, fg_color="transparent")
 
     def _on_browse_save_path(self):
-        path = filedialog.asksaveasfilename(
-            title=_("tool_download_save_title"),
-            parent=self,
-        )
+        path = filedialog.asksaveasfilename(title=_("tool_download_save_title"), parent=self)
         if path:
             self._dl_save_entry.delete(0, "end")
             self._dl_save_entry.insert(0, path)
@@ -1590,6 +1583,7 @@ class ToolsTabMixin(object):
             pass
         try:
             from config import config
+
             return config.minecraft_dir
         except Exception:
             pass
@@ -1603,6 +1597,7 @@ class ToolsTabMixin(object):
             pass
         try:
             from config import config
+
             return config.download_threads
         except Exception:
             pass
@@ -1617,10 +1612,7 @@ class ToolsTabMixin(object):
             self.set_status(_("tool_download_no_url"), "error")
             return
         if not save_path:
-            save_dir = filedialog.askdirectory(
-                title=_("tool_download_save_title"),
-                parent=self,
-            )
+            save_dir = filedialog.askdirectory(title=_("tool_download_save_title"), parent=self)
             if not save_dir:
                 return
         else:
@@ -1652,11 +1644,7 @@ class ToolsTabMixin(object):
         self._dl_status_label.pack(anchor=ctk.W, pady=(0, 4))
 
         self._dl_progress_bar = ctk.CTkProgressBar(
-            self._dl_progress_frame,
-            width=400,
-            height=12,
-            fg_color=COLORS["bg_light"],
-            progress_color=COLORS["accent"],
+            self._dl_progress_frame, width=400, height=12, fg_color=COLORS["bg_light"], progress_color=COLORS["accent"]
         )
         self._dl_progress_bar.pack(fill=ctk.X, pady=(0, 4))
         self._dl_progress_bar.set(0)
@@ -1709,10 +1697,10 @@ class ToolsTabMixin(object):
                         self._dl_progress_bar.set(1)
                         self._dl_speed_label.configure(text="")
                         self._dl_status_label.configure(
-                            text=_("tool_download_success", path=filename),
-                            text_color=COLORS["accent"],
+                            text=_("tool_download_success", path=filename), text_color=COLORS["accent"]
                         )
                         self._dl_start_btn.configure(state=ctk.NORMAL, text=_("tool_download_start"))
+
                     self.after(0, _single_done)
                     return
 
@@ -1731,10 +1719,7 @@ class ToolsTabMixin(object):
 
                 def _dl_part(start: int, end: int, idx: int):
                     nonlocal downloaded
-                    headers = {
-                        "User-Agent": ua,
-                        "Range": f"bytes={start}-{end}",
-                    }
+                    headers = {"User-Agent": ua, "Range": f"bytes={start}-{end}"}
                     part_file = f"{filename}.part{idx}"
                     try:
                         r = requests.get(url, headers=headers, stream=True, timeout=60)
@@ -1763,6 +1748,7 @@ class ToolsTabMixin(object):
                                                         total=_format_size(total_size),
                                                     )
                                                 )
+
                                             self.after(0, _update)
                     except Exception as e:
                         logger.error(f"分段下载 {idx} 失败: {e}")
@@ -1788,11 +1774,11 @@ class ToolsTabMixin(object):
 
                     def _cancel_ui():
                         self._dl_status_label.configure(
-                            text=_("tool_download_cancelled"),
-                            text_color=COLORS["text_secondary"],
+                            text=_("tool_download_cancelled"), text_color=COLORS["text_secondary"]
                         )
                         self._dl_speed_label.configure(text="")
                         self._dl_start_btn.configure(state=ctk.NORMAL, text=_("tool_download_start"))
+
                     self.after(0, _cancel_ui)
                     return
 
@@ -1808,10 +1794,10 @@ class ToolsTabMixin(object):
                     self._dl_progress_bar.set(1)
                     self._dl_speed_label.configure(text="")
                     self._dl_status_label.configure(
-                        text=_("tool_download_success", path=filename),
-                        text_color=COLORS["accent"],
+                        text=_("tool_download_success", path=filename), text_color=COLORS["accent"]
                     )
                     self._dl_start_btn.configure(state=ctk.NORMAL, text=_("tool_download_start"))
+
                 self.after(0, _done_ui)
 
             except Exception as e:
@@ -1821,12 +1807,10 @@ class ToolsTabMixin(object):
                 _dl_err = str(e)
 
                 def _error_ui():
-                    self._dl_status_label.configure(
-                        text=_("tool_download_error", error=_dl_err),
-                        text_color="#cd5c5c",
-                    )
+                    self._dl_status_label.configure(text=_("tool_download_error", error=_dl_err), text_color="#cd5c5c")
                     self._dl_speed_label.configure(text="")
                     self._dl_start_btn.configure(state=ctk.NORMAL, text=_("tool_download_start"))
+
                 self.after(0, _error_ui)
 
         threading.Thread(target=_task, daemon=True).start()

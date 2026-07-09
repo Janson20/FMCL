@@ -1,15 +1,15 @@
 # This file is part of minecraft-launcher-lib (https://codeberg.org/JakobDev/minecraft-launcher-lib)
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
-from ..vanilla_launcher import do_vanilla_launcher_profiles_exists, create_empty_vanilla_launcher_profiles_file
-from .._helper import get_requests_response_cache, download_file, empty, SUBPROCESS_STARTUP_INFO
-from ._base import ModLoaderBase
-from ..types import CallbackDict
+import os
+import re
 import subprocess
 import tempfile
-import re
-import os
 
+from .._helper import SUBPROCESS_STARTUP_INFO, download_file, empty, get_requests_response_cache
+from ..types import CallbackDict
+from ..vanilla_launcher import create_empty_vanilla_launcher_profiles_file, do_vanilla_launcher_profiles_exists
+from ._base import ModLoaderBase
 
 _API_URL = "https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge"
 _VERSION_REG_EX = re.compile(r"^\d+\.\d+")
@@ -17,6 +17,7 @@ _VERSION_REG_EX = re.compile(r"^\d+\.\d+")
 
 class Neoforge(ModLoaderBase):
     "Implements the mod loader class for NeoForge"
+
     def get_id(self) -> str:
         "Implements get_id() for NeoForge"
         return "neoforge"
@@ -66,7 +67,9 @@ class Neoforge(ModLoaderBase):
         "Implements get_installed_versions() for NeoForge"
         return f"neoforge-{loader_version}"
 
-    def install(self, minecraft_version: str, minecraft_directory: str, callback: CallbackDict, java: str, loader_version: str) -> None:
+    def install(
+        self, minecraft_version: str, minecraft_directory: str, callback: CallbackDict, java: str, loader_version: str
+    ) -> None:
         "Implements install() for NeoForge"
         if not do_vanilla_launcher_profiles_exists(minecraft_directory):
             create_empty_vanilla_launcher_profiles_file(minecraft_directory)
@@ -83,5 +86,5 @@ class Neoforge(ModLoaderBase):
                 stderr=subprocess.PIPE,
                 cwd=tempdir,
                 check=True,
-                startupinfo=SUBPROCESS_STARTUP_INFO
+                startupinfo=SUBPROCESS_STARTUP_INFO,
             )

@@ -5,11 +5,12 @@
 """
 
 import json
-from typing import Dict, List, Optional, Callable, Any
+from typing import Any, Callable, Dict, List, Optional
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, ToolResult
 from ui.agent.tools import get_all_builtin_tools
+from ui.agent.tools.base import ToolInfo, ToolResult
 from ui.agent.tools.system import DANGEROUS_MARKER, execute_dangerous_command
 from ui.agent.tools.user import ASK_USER_MARKER
 
@@ -126,7 +127,7 @@ class ToolRegistry:
                 )
 
         if result_text.startswith(ASK_USER_MARKER):
-            rest = result_text[len(ASK_USER_MARKER) + 1:]
+            rest = result_text[len(ASK_USER_MARKER) + 1 :]
             try:
                 # 新版格式: __ASK_USER__|questions_json
                 questions = json.loads(rest)
@@ -153,22 +154,21 @@ class ToolRegistry:
                 text=result_text,
                 needs_user_confirm="ask_user",
                 confirm_data={
-                    "questions": [{
-                        "question": question,
-                        "header": "选择",
-                        "options": [{"label": o, "description": o} for o in options] if options else [],
-                        "multiSelect": False,
-                        "custom": True,
-                    }],
+                    "questions": [
+                        {
+                            "question": question,
+                            "header": "选择",
+                            "options": [{"label": o, "description": o} for o in options] if options else [],
+                            "multiSelect": False,
+                            "custom": True,
+                        }
+                    ]
                 },
             )
 
         # 判断是否成功
         is_success = not result_text.startswith("❌") and not result_text.startswith("错误")
-        return ToolResult(
-            success=is_success,
-            text=result_text,
-        )
+        return ToolResult(success=is_success, text=result_text)
 
 
 # 便捷访问

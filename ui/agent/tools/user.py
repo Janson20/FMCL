@@ -9,10 +9,11 @@
 """
 
 import json
-from typing import Dict, List, Callable, Optional
+from typing import Callable, Dict, List, Optional
+
 from logzero import logger
 
-from ui.agent.tools.base import ToolInfo, CATEGORY_USER
+from ui.agent.tools.base import CATEGORY_USER, ToolInfo
 
 ASK_USER_MARKER = "__ASK_USER__"
 
@@ -41,10 +42,7 @@ def _build_user_tools() -> list:
                         "items": {
                             "type": "object",
                             "properties": {
-                                "question": {
-                                    "type": "string",
-                                    "description": "要向用户提出的问题，应清晰具体",
-                                },
+                                "question": {"type": "string", "description": "要向用户提出的问题，应清晰具体"},
                                 "header": {
                                     "type": "string",
                                     "description": "简短的问题标签（最多 12 字符），用于 UI 显示",
@@ -58,37 +56,28 @@ def _build_user_tools() -> list:
                                                 "type": "string",
                                                 "description": "选项的显示标签（1-5 词，简洁）。如果是推荐选项，在末尾加 ' (Recommended)'",
                                             },
-                                            "description": {
-                                                "type": "string",
-                                                "description": "选项的详细说明",
-                                            },
+                                            "description": {"type": "string", "description": "选项的详细说明"},
                                         },
                                         "required": ["label", "description"],
                                     },
                                     "description": "可选的候选项列表（2-4 个）",
                                 },
-                                "multiSelect": {
-                                    "type": "boolean",
-                                    "description": "是否允许选择多个选项（默认 false）",
-                                },
-                                "custom": {
-                                    "type": "boolean",
-                                    "description": "是否允许用户输入自定义答案（默认 true）",
-                                },
+                                "multiSelect": {"type": "boolean", "description": "是否允许选择多个选项（默认 false）"},
+                                "custom": {"type": "boolean", "description": "是否允许用户输入自定义答案（默认 true）"},
                             },
                             "required": ["question", "header", "options"],
                         },
                         "description": "要问的问题列表（1-4 个问题）",
                         "minItems": 1,
                         "maxItems": 4,
-                    },
+                    }
                 },
                 "required": ["questions"],
             },
             category=CATEGORY_USER,
             execute=_ask_user,
             permission_action="ask_user",
-        ),
+        )
     ]
 
 
@@ -109,13 +98,7 @@ def _ask_user(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
             opts = [{"label": o, "description": o} for o in options_list]
         else:
             opts = []
-        questions = [{
-            "question": question,
-            "header": "选择",
-            "options": opts,
-            "multiSelect": False,
-            "custom": True,
-        }]
+        questions = [{"question": question, "header": "选择", "options": opts, "multiSelect": False, "custom": True}]
 
     # 验证问题数量
     if len(questions) > 4:

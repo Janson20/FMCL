@@ -1,18 +1,21 @@
 """插件管理窗口 - 查看/启用/禁用/卸载已安装插件"""
 
 import threading
-from typing import Dict, Optional, Callable
+from typing import Callable, Dict, Optional
 
 import customtkinter as ctk
 from logzero import logger
 
+from plugin_manager.permissions import (
+    PermissionRiskLevel,
+    PluginPermission,
+    classify_permissions,
+    get_permission_display_key,
+    get_permission_risk,
+)
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
 from ui.windows.plugin_permission_dialog import PluginPermissionDialog
-from plugin_manager.permissions import (
-    PluginPermission, PermissionRiskLevel, get_permission_risk,
-    classify_permissions, get_permission_display_key,
-)
 
 # 状态显示映射
 _STATE_DISPLAY = {
@@ -142,23 +145,16 @@ class PluginManagerWindow(ctk.CTkToplevel):
         self._refresh_btn.pack(side=ctk.RIGHT, padx=(0, 5))
 
         # 分隔线
-        ctk.CTkFrame(
-            self, height=1, fg_color=COLORS["card_border"],
-        ).pack(fill=ctk.X, padx=20)
+        ctk.CTkFrame(self, height=1, fg_color=COLORS["card_border"]).pack(fill=ctk.X, padx=20)
 
         # 状态栏
         self._status_label = ctk.CTkLabel(
-            self,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
+            self, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"]
         )
         self._status_label.pack(anchor=ctk.W, padx=20, pady=(4, 0))
 
         # 可滚动列表
-        self._list_frame = ctk.CTkScrollableFrame(
-            self, fg_color="transparent",
-        )
+        self._list_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self._list_frame.pack(fill=ctk.BOTH, expand=True, padx=20, pady=(0, 16))
 
     def _refresh(self):
@@ -175,6 +171,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
 
     def _check_updates_async(self):
         """异步检查更新"""
+
         def _check():
             try:
                 market = self._pm.init_market()
@@ -230,11 +227,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
         permissions_list = manifest_data.get("permissions", [])
 
         # 卡片框架
-        card = ctk.CTkFrame(
-            self._list_frame,
-            fg_color=COLORS["card_bg"],
-            corner_radius=8,
-        )
+        card = ctk.CTkFrame(self._list_frame, fg_color=COLORS["card_bg"], corner_radius=8)
         card.pack(fill=ctk.X, pady=4)
 
         # 顶部行: 名称 + 状态
@@ -252,10 +245,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
         state_key = _STATE_DISPLAY.get(state, state)
 
         ctk.CTkLabel(
-            top_row,
-            text=_(state_key),
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=state_color,
+            top_row, text=_(state_key), font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=state_color
         ).pack(side=ctk.RIGHT, padx=(0, 4))
 
         # 版本 + 作者
@@ -271,18 +261,12 @@ class PluginManagerWindow(ctk.CTkToplevel):
             ver_text = f"v{version}"
             ver_color = COLORS["accent"]
 
-        ctk.CTkLabel(
-            meta_row,
-            text=ver_text,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=ver_color,
-        ).pack(side=ctk.LEFT)
+        ctk.CTkLabel(meta_row, text=ver_text, font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=ver_color).pack(
+            side=ctk.LEFT
+        )
 
         ctk.CTkLabel(
-            meta_row,
-            text=author,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
+            meta_row, text=author, font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"]
         ).pack(side=ctk.RIGHT)
 
         # 描述
@@ -398,11 +382,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
         uninstall_btn.pack(side=ctk.RIGHT)
 
         # 存储引用
-        self._plugin_cards[plugin_id] = {
-            "card": card,
-            "state": state,
-            "info": info,
-        }
+        self._plugin_cards[plugin_id] = {"card": card, "state": state, "info": info}
 
     def _on_toggle(self, plugin_id: str):
         """切换启用/禁用"""
@@ -424,9 +404,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
                         # 需要用户确认
                         manifest_data = meta.get("manifest", {})
                         dialog = PluginPermissionDialog(
-                            self,
-                            plugin_name=manifest_data.get("name", plugin_id),
-                            permissions=perms,
+                            self, plugin_name=manifest_data.get("name", plugin_id), permissions=perms
                         )
                         if not dialog.get_result():
                             self._set_status(_("plugin_permission_denied"))
@@ -445,10 +423,8 @@ class PluginManagerWindow(ctk.CTkToplevel):
     def _on_uninstall(self, plugin_id: str, name: str):
         """卸载插件"""
         from ui.dialogs import show_confirmation
-        if not show_confirmation(
-            _("plugin_uninstall_confirm", name=name),
-            title=_("confirm_delete"),
-        ):
+
+        if not show_confirmation(_("plugin_uninstall_confirm", name=name), title=_("confirm_delete")):
             return
 
         try:
@@ -475,10 +451,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
             self._set_status(_("plugin_no_permissions"))
             return
         dialog = PluginPermissionDialog(
-            self,
-            plugin_name=plugin_id,
-            permissions=permissions,
-            title=_("plugin_permissions_manage"),
+            self, plugin_name=plugin_id, permissions=permissions, title=_("plugin_permissions_manage")
         )
         if dialog.get_result():
             self._pm.grant_all_permissions(plugin_id)
@@ -494,25 +467,25 @@ class PluginManagerWindow(ctk.CTkToplevel):
             self._set_status(_("plugin_market_unavailable"))
             return
         from ui.windows.plugin_browser import PluginBrowserWindow
+
         PluginBrowserWindow(self, self._pm, market)
 
     def _on_install_from_file(self):
         """从文件安装插件"""
         from tkinter import filedialog
+
         filepath = filedialog.askopenfilename(
             parent=self,
             title=_("plugin_install_from_file"),
-            filetypes=[
-                (_("plugin_file_type"), "*.fmpl"),
-                (_("all_files"), "*.*"),
-            ],
+            filetypes=[(_("plugin_file_type"), "*.fmpl"), (_("all_files"), "*.*")],
         )
         if not filepath:
             return
 
         # 先读取 manifest 获取插件 ID
-        import zipfile
         import json
+        import zipfile
+
         try:
             with zipfile.ZipFile(filepath, "r") as zf:
                 if "plugin.json" not in zf.namelist():
@@ -528,9 +501,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
                 permissions = data.get("permissions", [])
                 if permissions:
                     dialog = PluginPermissionDialog(
-                        self,
-                        plugin_name=data.get("name", plugin_id),
-                        permissions=permissions,
+                        self, plugin_name=data.get("name", plugin_id), permissions=permissions
                     )
                     if not dialog.get_result():
                         self._set_status(_("plugin_permission_denied"))
@@ -553,5 +524,5 @@ class PluginManagerWindow(ctk.CTkToplevel):
 
     def _set_status(self, text: str):
         """设置状态栏文字"""
-        if hasattr(self, '_status_label') and self._status_label.winfo_exists():
+        if hasattr(self, "_status_label") and self._status_label.winfo_exists():
             self._status_label.configure(text=text)

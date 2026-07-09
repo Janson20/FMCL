@@ -29,8 +29,8 @@ from config import config
 
 def _get_icon_path():
     """获取图标路径（兼容开发环境和 PyInstaller 打包）"""
-    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_path, 'icon.ico')
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, "icon.ico")
 
 
 def _create_splash(ctk):
@@ -39,8 +39,8 @@ def _create_splash(ctk):
 
     splash = ctk.CTkToplevel()
     splash.overrideredirect(True)
-    splash.attributes('-topmost', True)
-    splash.configure(fg_color='#1a1a2e')
+    splash.attributes("-topmost", True)
+    splash.configure(fg_color="#1a1a2e")
 
     # 窗口尺寸
     w, h = 320, 320
@@ -59,24 +59,23 @@ def _create_splash(ctk):
     if os.path.exists(icon_path):
         try:
             from PIL import Image as PILImage
+
             icon_img = ctk.CTkImage(PILImage.open(icon_path), size=(128, 128))
-            ctk.CTkLabel(splash, image=icon_img, text='').place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
+            ctk.CTkLabel(splash, image=icon_img, text="").place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
         except Exception:
-            ctk.CTkLabel(splash, text='\u26cf', font=ctk.CTkFont(size=64)).place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
+            ctk.CTkLabel(splash, text="\u26cf", font=ctk.CTkFont(size=64)).place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
     else:
-        ctk.CTkLabel(splash, text='\u26cf', font=ctk.CTkFont(size=64)).place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
+        ctk.CTkLabel(splash, text="\u26cf", font=ctk.CTkFont(size=64)).place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
 
     # 标题文字
     ctk.CTkLabel(
-        splash, text='FMCL', font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight='bold'),
-        text_color='#a0a0b0',
+        splash, text="FMCL", font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"), text_color="#a0a0b0"
     ).place(relx=0.5, rely=0.65, anchor=ctk.CENTER)
 
     # 加载提示
-    ctk.CTkLabel(
-        splash, text='Loading...', font=ctk.CTkFont(size=12),
-        text_color='#666680',
-    ).place(relx=0.5, rely=0.76, anchor=ctk.CENTER)
+    ctk.CTkLabel(splash, text="Loading...", font=ctk.CTkFont(size=12), text_color="#666680").place(
+        relx=0.5, rely=0.76, anchor=ctk.CENTER
+    )
 
     return splash
 
@@ -133,6 +132,7 @@ def setup_logging():
 
     # 初始化结构化日志路径
     from structured_logger import slog
+
     structured_log_path = str(config.base_dir / "latest_structured.log")
     slog._log_path = structured_log_path
 
@@ -187,9 +187,13 @@ def _auto_refresh_tokens(account_system):
     try:
         count = account_system.auto_refresh_all_tokens()
         if count > 0:
-            logger.info(f"\u542F\u52A8\u65F6\u81EA\u52A8\u5237\u65B0\u4E86 {count} \u4E2A\u5FAE\u8F6F\u8D26\u53F7\u7684 Token")
+            logger.info(
+                f"\u542f\u52a8\u65f6\u81ea\u52a8\u5237\u65b0\u4e86 {count} \u4e2a\u5fae\u8f6f\u8d26\u53f7\u7684 Token"
+            )
     except Exception as e:
-        logger.warning(f"\u542F\u52A8\u65F6\u81EA\u52A8\u5237\u65B0 Token \u5931\u8D25 (\u4E0D\u5F71\u54CD\u6B63\u5E38\u4F7F\u7528): {e}")
+        logger.warning(
+            f"\u542f\u52a8\u65f6\u81ea\u52a8\u5237\u65b0 Token \u5931\u8d25 (\u4e0d\u5f71\u54cd\u6b63\u5e38\u4f7f\u7528): {e}"
+        )
 
 
 def main():
@@ -209,11 +213,12 @@ def main():
         try:
             config.migrate_accounts()
         except Exception as e:
-            logger.warning(f"\u8D26\u53F7\u8FC1\u79FB\u5931\u8D25 (\u4E0D\u5F71\u54CD\u542F\u52A8): {e}")
+            logger.warning(f"\u8d26\u53f7\u8fc1\u79fb\u5931\u8d25 (\u4e0d\u5f71\u54cd\u542f\u52a8): {e}")
 
         # 初始化国际化（必须在加载 UI 之前）
         from ui.i18n import init_i18n
-        current_lang = init_i18n(getattr(config, 'language', None))
+
+        current_lang = init_i18n(getattr(config, "language", None))
         logger.info(f"界面语言: {current_lang}")
 
         # 设置游戏语言为中文
@@ -224,6 +229,7 @@ def main():
         # customtkinter (~0.14s) 和 launcher/minecraft_launcher_lib (~0.16s)
         # 延迟导入 launcher 模块，避免模块加载阶段就触发 minecraft_launcher_lib 的导入
         import customtkinter as ctk
+
         logger.info("customtkinter 加载完成")
 
         # 设置CustomTkinter主题
@@ -233,6 +239,7 @@ def main():
         logger.info("正在加载 UI 模块...")
         # 延迟导入 UI 模块
         from ui import ModernApp
+
         logger.info("ModernApp 导入完成")
 
         logger.info("正在创建主窗口...")
@@ -242,6 +249,7 @@ def main():
         logger.info("主窗口创建完成")
 
         from ui.dialogs import set_app_reference
+
         set_app_reference(app)
 
         app.withdraw()  # 先隐藏主窗口，等启动画面结束后再显示
@@ -259,11 +267,13 @@ def main():
 
         # ── 提前初始化成就系统（仅创建引擎，快速完成） ──
         _ach_engine_result = {}
+
         def _init_achievements():
             try:
                 from achievement_engine import init_achievement_engine
+
                 ach_engine = init_achievement_engine(config.base_dir)
-                _ach_engine_result['engine'] = ach_engine
+                _ach_engine_result["engine"] = ach_engine
             except Exception as e:
                 logger.error(f"成就引擎初始化失败: {e}")
             finally:
@@ -276,17 +286,18 @@ def main():
             try:
                 logger.info("_init_launcher: 1. 正在导入 MinecraftLauncher...")
                 from launcher import MinecraftLauncher
+
                 logger.info("_init_launcher: 2. 正在创建 MinecraftLauncher 实例...")
                 launcher = MinecraftLauncher(config)
                 logger.info("_init_launcher: 3. MinecraftLauncher 创建完成")
-                _launcher_result['launcher'] = launcher
+                _launcher_result["launcher"] = launcher
                 _launcher_ready.set()
                 logger.info("_init_launcher: 4. 正在调度 splash 关闭回调...")
                 app.after(0, _try_dismiss_splash)
                 logger.info("_init_launcher: 5. 初始化完成，后台线程即将退出")
             except Exception as e:
                 logger.error(f"_init_launcher: 启动器初始化失败: {e}", exc_info=True)
-                _launcher_result['error'] = str(e)
+                _launcher_result["error"] = str(e)
                 _launcher_ready.set()
                 app.after(0, lambda err=str(e): _show_init_error(app, f"启动器核心初始化失败:\n{err}"))
 
@@ -312,19 +323,20 @@ def main():
                 logger.info("_dismiss_splash: splash.destroy() 成功")
             except Exception as e:
                 logger.error(f"_dismiss_splash: splash.destroy() 失败: {e}")
-            if 'launcher' not in _launcher_result or _launcher_result['launcher'] is None:
+            if "launcher" not in _launcher_result or _launcher_result["launcher"] is None:
                 # 启动器初始化失败，显示主窗口但状态栏提示错误
                 app.deiconify()
-                error_msg = _launcher_result.get('error', '未知错误')
+                error_msg = _launcher_result.get("error", "未知错误")
                 app.set_status(f"启动器初始化失败: {error_msg}", "error")
                 logger.error(f"启动器初始化失败，无法继续: {error_msg}")
                 return
-            _on_launcher_ready(_launcher_result['launcher'])
+            _on_launcher_ready(_launcher_result["launcher"])
             threading.Thread(target=_post_init_achievements, daemon=True).start()
 
         def _show_init_error(app_ref, message):
             """显示初始化失败错误弹窗"""
             import tkinter.messagebox
+
             try:
                 splash.destroy()
             except Exception:
@@ -336,6 +348,7 @@ def main():
         def _post_init_achievements():
             """启动后后台执行：成就同步 + 签到（不阻塞 UI）"""
             from achievement_engine import get_achievement_engine
+
             ach_engine = get_achievement_engine()
             if not ach_engine:
                 return
@@ -343,6 +356,7 @@ def main():
             if token:
                 try:
                     from achievement_sync import run_sync
+
                     app.after(0, lambda: app.set_status("正在同步成就云存档...", "loading"))
                     run_sync(token, ach_engine._db_path, engine=ach_engine)
                     app.after(0, lambda: app.set_status("成就云存档同步完成", "success"))
@@ -366,12 +380,15 @@ def main():
             # 注册配置错误回调（弹出错误弹窗）
             def _config_error_handler(title, message):
                 import tkinter.messagebox
+
                 app.after(0, lambda: tkinter.messagebox.showerror(title, message, parent=app))
+
             config.set_error_callback(_config_error_handler)
 
             # 注册安全存储错误回调
             try:
                 from secure_storage import set_error_callback as set_sec_error_cb
+
                 set_sec_error_cb(_config_error_handler)
             except ImportError:
                 pass
@@ -382,14 +399,17 @@ def main():
             # ── 插件系统初始化 ──
             try:
                 from plugin_manager import PluginManager
+
                 plugins_root = config.base_dir / "plugins"
                 plugin_manager = PluginManager(plugins_root)
                 app.callbacks["get_plugin_manager"] = lambda pm=plugin_manager: pm
                 # 将 plugin_manager 注入 launcher 以便发射钩子
                 launcher._plugin_manager = plugin_manager
+
                 # 设置通知回调：将插件通知显示到主界面状态栏
                 def _plugin_notify(plugin_id, title, message, level):
                     app.set_status(f"[Plugin:{plugin_id}] {title}: {message}", level)
+
                 plugin_manager.set_notify_callback(_plugin_notify)
                 # 扫描已安装插件（内部自动恢复持久化状态并启用）
                 discovered = plugin_manager.scan()
@@ -397,6 +417,7 @@ def main():
                     logger.info(f"发现 {len(discovered)} 个插件: {discovered}")
                 # 触发启动完成钩子
                 from plugin_manager.base import HookPoint
+
                 plugin_manager.emit(HookPoint.APP_STARTUP)
 
                 # 注册插件标签页
@@ -409,6 +430,7 @@ def main():
 
             # ── 成就系统 wiring（引擎已在 splash 期间初始化） ──
             from achievement_engine import get_achievement_engine
+
             ach_engine = get_achievement_engine()
             if ach_engine:
                 ach_engine.register_unlock_callback(app._on_achievement_unlock)
@@ -416,21 +438,19 @@ def main():
             # ── 账号系统注入 ──
             try:
                 from launcher.account import get_account_system
+
                 account_system = get_account_system()
                 if account_system:
                     launcher.set_account_system(account_system)
                     logger.info("账号系统已注入启动器")
                     app._update_sidebar_account()
-                    threading.Thread(
-                        target=lambda: _auto_refresh_tokens(account_system),
-                        daemon=True,
-                    ).start()
+                    threading.Thread(target=lambda: _auto_refresh_tokens(account_system), daemon=True).start()
             except Exception as e:
                 logger.warning(f"账号系统注入失败: {e}")
                 app.set_status(f"账号系统加载失败: {e}", "warning")
 
             # 重新应用保存的主题颜色（UI 创建时用的是默认主题，需要刷新）
-            if hasattr(app, '_reapply_theme'):
+            if hasattr(app, "_reapply_theme"):
                 app._reapply_theme()
 
             # 连接安装进度回调，使右下角进度条能实时反映安装进度
@@ -445,9 +465,9 @@ def main():
                 app.minimize_var.set(callbacks["get_minimize_on_game_launch"]())
 
             # 同步备份自动备份开关状态
-            if hasattr(app, 'backup_auto_launch_var'):
+            if hasattr(app, "backup_auto_launch_var"):
                 app.backup_auto_launch_var.set(config.backup_auto_launch)
-            if hasattr(app, 'backup_auto_exit_var'):
+            if hasattr(app, "backup_auto_exit_var"):
                 app.backup_auto_exit_var.set(config.backup_auto_exit)
 
             app.set_status("启动器就绪", "success")
@@ -456,7 +476,7 @@ def main():
             app._on_app_ready(on_agreement_complete=lambda: _show_notice_then_predownload(app))
 
             # 更新 AGENT 助手的回调和 Token
-            if hasattr(app, '_update_agent_callbacks'):
+            if hasattr(app, "_update_agent_callbacks"):
                 app._update_agent_callbacks()
 
             # 启动时自动检查更新（后台静默）
@@ -491,6 +511,7 @@ def main():
         # 关闭结构化日志
         try:
             from structured_logger import slog
+
             slog.close()
         except Exception:
             pass
@@ -499,20 +520,24 @@ def main():
 
 def _show_notice_then_predownload(app):
     """公告展示 → 确认后预下载检查"""
+
     def _do_fetch():
         from ui.dialogs import fetch_notice, show_notice_dialog
+
         content = fetch_notice()
         if content:
             app.after(0, lambda: show_notice_dialog(app, content, on_dismiss=lambda: _do_predownload_check(app)))
         else:
             app.after(0, lambda: _do_predownload_check(app))
+
     threading.Thread(target=_do_fetch, daemon=True).start()
 
 
 def _do_predownload_check(app):
     """预下载检查"""
-    from ui.i18n import _
     from launcher.predownload import run_predownload_check
+    from ui.i18n import _
+
     run_predownload_check(app, config.minecraft_dir, _)
     app.lift()
     app.focus_force()
@@ -575,6 +600,7 @@ def _attach_console():
     if sys.platform != "win32":
         return
     import ctypes
+
     try:
         kernel32 = ctypes.windll.kernel32
         if not kernel32.AttachConsole(-1):
@@ -590,6 +616,7 @@ def run_agent_cli_mode(instruction=None):
     """以 CLI Agent 模式运行（无 GUI 依赖）"""
     _attach_console()
     from cli_agent import run_agent_cli
+
     try:
         run_agent_cli(instruction=instruction)
     except Exception as e:
@@ -601,6 +628,7 @@ def run_agent_cli_mode(instruction=None):
 def run_login_mode(username: str, password: str | None):
     """以 CLI 模式登录净读 AI"""
     from cli_agent import run_login
+
     try:
         run_login(username, password)
     except Exception as e:
@@ -614,8 +642,9 @@ def run_login_mode(username: str, password: str | None):
 
 def _build_plugin_tabs(app, plugin_manager, registrations):
     """根据 UI_TAB_REGISTER 钩子结果，在 tabview 中创建插件标签页"""
-    from logzero import logger
     import customtkinter as ctk
+    from logzero import logger
+
     for plugin_id, tab_info in registrations:
         if not isinstance(tab_info, dict):
             continue

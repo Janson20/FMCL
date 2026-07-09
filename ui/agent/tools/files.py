@@ -6,12 +6,13 @@
 - Read/Search 类直接 allow
 """
 
-import os
 import glob
-import re
 import json
+import os
+import re
 from pathlib import Path
-from typing import Dict, Callable, Optional, List
+from typing import Callable, Dict, List, Optional
+
 from logzero import logger
 
 from ui.agent.tools.base import ToolInfo
@@ -46,7 +47,7 @@ def _safe_resolve(file_path: str) -> Optional[Path]:
     cwd = Path(os.getcwd()).resolve()
     target = Path(file_path)
     if not target.is_absolute():
-        target = (cwd / target)
+        target = cwd / target
     try:
         # strict=False：Windows 下非存在路径也能正常解析
         resolved = target.resolve(strict=False)
@@ -138,9 +139,9 @@ def _read_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
         limit = None
 
     if limit is not None and limit > 0:
-        selected = lines[offset - 1:offset - 1 + limit]
+        selected = lines[offset - 1 : offset - 1 + limit]
     else:
-        selected = lines[offset - 1:]
+        selected = lines[offset - 1 :]
 
     result_lines = []
     for i, line in enumerate(selected):
@@ -182,20 +183,11 @@ def _write_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     diff = _diff_preview(old_text, content)
 
     # 返回确认标记，让 agent_chat 拦截
-    confirm_data = {
-        "filePath": str(resolved),
-        "oldText": old_text,
-        "newText": content,
-        "existed": existed,
-    }
+    confirm_data = {"filePath": str(resolved), "oldText": old_text, "newText": content, "existed": existed}
     operation = "覆盖" if existed else "创建"
     summary = f"将在 {str(resolved)} {operation}文件:\n```diff\n{diff}\n```"
 
-    payload = json.dumps({
-        "op": "write",
-        "data": confirm_data,
-        "summary": summary,
-    }, ensure_ascii=False)
+    payload = json.dumps({"op": "write", "data": confirm_data, "summary": summary}, ensure_ascii=False)
     return f"{FILE_EDIT_MARKER}|{payload}"
 
 
@@ -251,11 +243,7 @@ def _replace_in_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> 
     }
 
     summary = f"将在 {file_path} 中替换 {replacements} 处:\n```diff\n{diff_text}\n```"
-    payload = json.dumps({
-        "op": "replace",
-        "data": confirm_data,
-        "summary": summary,
-    }, ensure_ascii=False)
+    payload = json.dumps({"op": "replace", "data": confirm_data, "summary": summary}, ensure_ascii=False)
     return f"{FILE_EDIT_MARKER}|{payload}"
 
 
@@ -285,16 +273,10 @@ def _delete_file(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     elif size >= 1024:
         size_str = f"{size / 1024:.1f} KB"
 
-    confirm_data = {
-        "filePath": str(resolved),
-    }
+    confirm_data = {"filePath": str(resolved)}
 
     summary = f"将删除文件: {file_path}\n大小: {size_str}\n内容预览:\n{preview[:500]}"
-    payload = json.dumps({
-        "op": "delete",
-        "data": confirm_data,
-        "summary": summary,
-    }, ensure_ascii=False)
+    payload = json.dumps({"op": "delete", "data": confirm_data, "summary": summary}, ensure_ascii=False)
     return f"{FILE_EDIT_MARKER}|{payload}"
 
 
@@ -374,11 +356,7 @@ def _search_files_by_content(params: Dict[str, str], callbacks: Dict[str, Callab
                     for line_num, line in enumerate(f, 1):
                         if compiled.search(line):
                             rel_path = os.path.relpath(str(resolved), os.getcwd())
-                            results.append({
-                                "file": rel_path,
-                                "line": line_num,
-                                "text": line.strip()[:200],
-                            })
+                            results.append({"file": rel_path, "line": line_num, "text": line.strip()[:200]})
                             if len(results) >= limit:
                                 break
             except Exception:
@@ -467,18 +445,9 @@ def _build_file_tools() -> List[ToolInfo]:
             parameters={
                 "type": "object",
                 "properties": {
-                    "filePath": {
-                        "type": "string",
-                        "description": "要读取的文件路径（相对于启动器工作目录）",
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "起始行号（1-based），不填则从第 1 行开始",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "读取的最大行数，不填则读取全部",
-                    },
+                    "filePath": {"type": "string", "description": "要读取的文件路径（相对于启动器工作目录）"},
+                    "offset": {"type": "integer", "description": "起始行号（1-based），不填则从第 1 行开始"},
+                    "limit": {"type": "integer", "description": "读取的最大行数，不填则读取全部"},
                 },
                 "required": ["filePath"],
             },
@@ -493,14 +462,8 @@ def _build_file_tools() -> List[ToolInfo]:
             parameters={
                 "type": "object",
                 "properties": {
-                    "filePath": {
-                        "type": "string",
-                        "description": "要写入的文件路径（相对于启动器工作目录）",
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "要写入的文件内容",
-                    },
+                    "filePath": {"type": "string", "description": "要写入的文件路径（相对于启动器工作目录）"},
+                    "content": {"type": "string", "description": "要写入的文件内容"},
                 },
                 "required": ["filePath", "content"],
             },
@@ -515,22 +478,13 @@ def _build_file_tools() -> List[ToolInfo]:
             parameters={
                 "type": "object",
                 "properties": {
-                    "filePath": {
-                        "type": "string",
-                        "description": "要修改的文件路径（相对于启动器工作目录）",
-                    },
+                    "filePath": {"type": "string", "description": "要修改的文件路径（相对于启动器工作目录）"},
                     "oldStr": {
                         "type": "string",
                         "description": "要被替换的精确文本（必须和文件中完全一致，含空白和缩进）",
                     },
-                    "newStr": {
-                        "type": "string",
-                        "description": "替换后的新文本（必须与 oldStr 不同）",
-                    },
-                    "replaceAll": {
-                        "type": "boolean",
-                        "description": "是否替换所有匹配项（默认 false，仅替换第一个）",
-                    },
+                    "newStr": {"type": "string", "description": "替换后的新文本（必须与 oldStr 不同）"},
+                    "replaceAll": {"type": "boolean", "description": "是否替换所有匹配项（默认 false，仅替换第一个）"},
                 },
                 "required": ["filePath", "oldStr", "newStr"],
             },
@@ -545,10 +499,7 @@ def _build_file_tools() -> List[ToolInfo]:
             parameters={
                 "type": "object",
                 "properties": {
-                    "filePath": {
-                        "type": "string",
-                        "description": "要删除的文件路径（相对于启动器工作目录）",
-                    },
+                    "filePath": {"type": "string", "description": "要删除的文件路径（相对于启动器工作目录）"}
                 },
                 "required": ["filePath"],
             },
@@ -563,18 +514,9 @@ def _build_file_tools() -> List[ToolInfo]:
             parameters={
                 "type": "object",
                 "properties": {
-                    "pattern": {
-                        "type": "string",
-                        "description": "Glob 模式，如 '*.py'、'**/*.json'",
-                    },
-                    "rootDir": {
-                        "type": "string",
-                        "description": "搜索根目录，不填则默认为启动器工作目录",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "最大返回结果数（默认 50，最大 500）",
-                    },
+                    "pattern": {"type": "string", "description": "Glob 模式，如 '*.py'、'**/*.json'"},
+                    "rootDir": {"type": "string", "description": "搜索根目录，不填则默认为启动器工作目录"},
+                    "limit": {"type": "integer", "description": "最大返回结果数（默认 50，最大 500）"},
                 },
                 "required": ["pattern"],
             },
@@ -589,22 +531,10 @@ def _build_file_tools() -> List[ToolInfo]:
             parameters={
                 "type": "object",
                 "properties": {
-                    "regex": {
-                        "type": "string",
-                        "description": "正则表达式，如 'class.*App'、'import.*os'",
-                    },
-                    "filePattern": {
-                        "type": "string",
-                        "description": "文件过滤 glob，如 '*.py'、'**/*.ts'，默认 '*'",
-                    },
-                    "rootDir": {
-                        "type": "string",
-                        "description": "搜索根目录，不填则默认为启动器工作目录",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "最大返回结果数（默认 100，最大 500）",
-                    },
+                    "regex": {"type": "string", "description": "正则表达式，如 'class.*App'、'import.*os'"},
+                    "filePattern": {"type": "string", "description": "文件过滤 glob，如 '*.py'、'**/*.ts'，默认 '*'"},
+                    "rootDir": {"type": "string", "description": "搜索根目录，不填则默认为启动器工作目录"},
+                    "limit": {"type": "integer", "description": "最大返回结果数（默认 100，最大 500）"},
                 },
                 "required": ["regex"],
             },
@@ -619,14 +549,8 @@ def _build_file_tools() -> List[ToolInfo]:
             parameters={
                 "type": "object",
                 "properties": {
-                    "dirPath": {
-                        "type": "string",
-                        "description": "要列举的目录路径，不填则默认为启动器工作目录",
-                    },
-                    "recursive": {
-                        "type": "boolean",
-                        "description": "是否递归列出所有子目录（默认 false）",
-                    },
+                    "dirPath": {"type": "string", "description": "要列举的目录路径，不填则默认为启动器工作目录"},
+                    "recursive": {"type": "boolean", "description": "是否递归列出所有子目录（默认 false）"},
                 },
                 "required": [],
             },

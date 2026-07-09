@@ -1,29 +1,26 @@
 """工具基础定义 - ToolInfo 数据类 + ToolResult"""
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Optional, Any
+from typing import Any, Callable, Dict, Optional
 
 
 @dataclass
 class ToolInfo:
     """单个工具的自描述元数据"""
-    name: str                              # 工具唯一标识
-    description: str                       # 工具描述（供 AI 理解）
-    parameters: dict                       # JSON Schema 参数定义
-    category: str                          # "version" | "mod" | "server" | "modpack" | "resource" | "system" | "user" | "web"
-    permission_action: str                 # 权限标识（默认同 name）
-    execute: Callable[..., str]            # 执行函数 (params, callbacks) -> str
-    display_name: str = ""                 # 用户友好显示名称
+
+    name: str  # 工具唯一标识
+    description: str  # 工具描述（供 AI 理解）
+    parameters: dict  # JSON Schema 参数定义
+    category: str  # "version" | "mod" | "server" | "modpack" | "resource" | "system" | "user" | "web"
+    permission_action: str  # 权限标识（默认同 name）
+    execute: Callable[..., str]  # 执行函数 (params, callbacks) -> str
+    display_name: str = ""  # 用户友好显示名称
 
     def to_openai_function(self) -> dict:
         """转换为 OpenAI function calling 格式"""
         return {
             "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-            },
+            "function": {"name": self.name, "description": self.description, "parameters": self.parameters},
         }
 
     def __post_init__(self):
@@ -36,17 +33,19 @@ class ToolInfo:
 @dataclass
 class ToolResult:
     """工具执行结果"""
+
     success: bool = True
     text: str = ""
     error: str = ""
     # 需要用户确认的类型
-    needs_user_confirm: str = ""            # "dangerous_command" | "ask_user"
-    confirm_data: Optional[dict] = None     # 确认相关的附加数据
+    needs_user_confirm: str = ""  # "dangerous_command" | "ask_user"
+    confirm_data: Optional[dict] = None  # 确认相关的附加数据
 
 
 @dataclass
 class CallbackContext:
     """工具执行所需的回调上下文"""
+
     get_available_versions: Callable[[], list] = field(default_factory=lambda: lambda: [])
     get_installed_versions: Callable[[], list] = field(default_factory=lambda: lambda: [])
     install_version: Callable[[str, str], tuple] = field(default_factory=lambda: lambda a, b: (False, ""))

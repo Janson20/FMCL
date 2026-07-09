@@ -1,13 +1,14 @@
 """UI 包 - 向后兼容导出"""
-from ui.constants import COLORS, FONT_FAMILY, RESOURCE_TYPES
-from ui.dialogs import show_confirmation, show_alert, VersionSelectorDialog
+
 from ui.app import ModernApp
+from ui.constants import COLORS, FONT_FAMILY, RESOURCE_TYPES
+from ui.dialogs import VersionSelectorDialog, show_alert, show_confirmation
 from ui.windows import (
-    ResourceManagerWindow,
     LauncherSettingsWindow,
+    ModBrowserWindow,
     ModpackInstallWindow,
     ModpackServerWindow,
-    ModBrowserWindow,
+    ResourceManagerWindow,
 )
 
 __all__ = [

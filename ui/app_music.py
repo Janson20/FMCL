@@ -1,28 +1,39 @@
 """ModernApp 音乐播放器 Mixin - 音乐标签页相关方法"""
-import os
-import sys
-import json
-import time
-import tempfile
-import shutil
-from collections import OrderedDict
-import platform
-import threading
-import tkinter.filedialog as filedialog
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple
 
-import requests
+import json
+import os
+import platform
+import shutil
+import sys
+import tempfile
+import threading
+import time
+import tkinter.filedialog as filedialog
+from collections import OrderedDict
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
 import customtkinter as ctk
+import requests
 from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
+from ui.music_desktop_lyric import DesktopLyricWindow
+from ui.music_effects import (
+    EQ_FREQS,
+    EQ_GAIN_MAX,
+    EQ_GAIN_MIN,
+    PITCH_MAX,
+    PITCH_MIN,
+    SPEED_MAX,
+    SPEED_MIN,
+    AudioEffectProcessor,
+    EffectSettings,
+)
+from ui.music_lyrics import LyricLine, LyricParser
 from ui.music_source import MUSIC_SOURCES, SOURCE_META, search_all
 from ui.music_source.base import MusicInfo as OnlineMusicInfo
-from ui.music_lyrics import LyricParser, LyricLine
-from ui.music_desktop_lyric import DesktopLyricWindow
-from ui.music_effects import AudioEffectProcessor, EffectSettings, EQ_FREQS, EQ_GAIN_MIN, EQ_GAIN_MAX, PITCH_MIN, PITCH_MAX, SPEED_MIN, SPEED_MAX
 
 _pygame_import_error = None
 try:
@@ -34,11 +45,11 @@ except ImportError as e:
 _mutagen_import_error = None
 try:
     from mutagen import File as MutagenFile
-    from mutagen.mp3 import MP3
     from mutagen.flac import FLAC
-    from mutagen.oggvorbis import OggVorbis
-    from mutagen.mp4 import MP4
     from mutagen.id3 import ID3
+    from mutagen.mp3 import MP3
+    from mutagen.mp4 import MP4
+    from mutagen.oggvorbis import OggVorbis
 except ImportError as e:
     _mutagen_import_error = e
 
@@ -46,11 +57,15 @@ _winsdk_import_error = None
 if platform.system().lower() == "windows":
     try:
         import asyncio as _asyncio_for_smtc
-        from winsdk.windows.media import SystemMediaTransportControls
-        from winsdk.windows.media import SystemMediaTransportControlsButton
-        from winsdk.windows.media import SystemMediaTransportControlsDisplayUpdater
-        from winsdk.windows.media import MediaPlaybackStatus
-        from winsdk.windows.storage.streams import RandomAccessStreamReference, InMemoryRandomAccessStream, DataWriter
+
+        from winsdk.windows.media import (
+            MediaPlaybackStatus,
+            SystemMediaTransportControls,
+            SystemMediaTransportControlsButton,
+            SystemMediaTransportControlsDisplayUpdater,
+        )
+        from winsdk.windows.storage.streams import DataWriter, InMemoryRandomAccessStream, RandomAccessStreamReference
+
         _winsdk_available = True
     except ImportError as e:
         _winsdk_import_error = e
@@ -59,7 +74,7 @@ else:
     _winsdk_available = False
     _winsdk_import_error = "非 Windows 平台"
 
-AUDIO_EXTENSIONS = {'.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.wma', '.opus', '.aiff'}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus", ".aiff"}
 
 PLAY_MODE_SEQUENTIAL = 0
 PLAY_MODE_LOOP_LIST = 1
@@ -91,6 +106,7 @@ MUSIC_METADATA_CACHE_MAX = 200
 _hotkey_import_error = None
 try:
     import keyboard as _keyboard
+
     _keyboard_available = True
 except ImportError as e:
     _keyboard_import_error = e
@@ -114,58 +130,58 @@ def _extract_audio_metadata(filepath: str) -> Dict[str, any]:
             return result
         ext = os.path.splitext(filepath)[1].lower()
 
-        if ext == '.mp3':
-            if hasattr(audio, 'info') and hasattr(audio.info, 'length'):
+        if ext == ".mp3":
+            if hasattr(audio, "info") and hasattr(audio.info, "length"):
                 result["duration"] = audio.info.length
-            if hasattr(audio, 'tags'):
+            if hasattr(audio, "tags"):
                 tags = audio.tags
                 if tags:
-                    result["title"] = _get_tag(tags, 'TIT2') or result["title"]
-                    result["artist"] = _get_tag(tags, 'TPE1') or ""
-                    result["album"] = _get_tag(tags, 'TALB') or ""
+                    result["title"] = _get_tag(tags, "TIT2") or result["title"]
+                    result["artist"] = _get_tag(tags, "TPE1") or ""
+                    result["album"] = _get_tag(tags, "TALB") or ""
                     for tag_name in tags.keys():
-                        if tag_name.startswith('APIC:'):
+                        if tag_name.startswith("APIC:"):
                             result["has_cover"] = True
                             result["cover_data"] = tags[tag_name].data
                             break
-        elif ext == '.flac':
+        elif ext == ".flac":
             flac = FLAC(filepath)
-            if hasattr(flac, 'info') and hasattr(flac.info, 'length'):
+            if hasattr(flac, "info") and hasattr(flac.info, "length"):
                 result["duration"] = flac.info.length
             if flac.tags:
-                result["title"] = flac.tags.get('title', [result["title"]])[0] or result["title"]
-                result["artist"] = flac.tags.get('artist', [""])[0]
-                result["album"] = flac.tags.get('album', [""])[0]
+                result["title"] = flac.tags.get("title", [result["title"]])[0] or result["title"]
+                result["artist"] = flac.tags.get("artist", [""])[0]
+                result["album"] = flac.tags.get("album", [""])[0]
             if flac.pictures:
                 result["has_cover"] = True
                 result["cover_data"] = flac.pictures[0].data
-        elif ext == '.ogg':
+        elif ext == ".ogg":
             ogg = OggVorbis(filepath)
-            if hasattr(ogg, 'info') and hasattr(ogg.info, 'length'):
+            if hasattr(ogg, "info") and hasattr(ogg.info, "length"):
                 result["duration"] = ogg.info.length
             if ogg.tags:
-                result["title"] = ogg.tags.get('title', [result["title"]])[0] or result["title"]
-                result["artist"] = ogg.tags.get('artist', [""])[0]
-                result["album"] = ogg.tags.get('album', [""])[0]
+                result["title"] = ogg.tags.get("title", [result["title"]])[0] or result["title"]
+                result["artist"] = ogg.tags.get("artist", [""])[0]
+                result["album"] = ogg.tags.get("album", [""])[0]
             for key in ogg:
-                if key.startswith('cover') or key.startswith('metadata_block_picture'):
+                if key.startswith("cover") or key.startswith("metadata_block_picture"):
                     result["has_cover"] = True
                     result["cover_data"] = ogg[key][0] if isinstance(ogg[key], list) else ogg[key]
                     break
-        elif ext == '.m4a' or ext == '.mp4':
+        elif ext == ".m4a" or ext == ".mp4":
             mp4 = MP4(filepath)
-            if hasattr(mp4, 'info') and hasattr(mp4.info, 'length'):
+            if hasattr(mp4, "info") and hasattr(mp4.info, "length"):
                 result["duration"] = mp4.info.length
             if mp4.tags:
-                result["title"] = mp4.tags.get('\xa9nam', [result["title"]])[0] or result["title"]
-                result["artist"] = mp4.tags.get('\xa9ART', [""])[0]
-                result["album"] = mp4.tags.get('\xa9alb', [""])[0]
-            if hasattr(mp4, 'covr') and mp4.covr:
+                result["title"] = mp4.tags.get("\xa9nam", [result["title"]])[0] or result["title"]
+                result["artist"] = mp4.tags.get("\xa9ART", [""])[0]
+                result["album"] = mp4.tags.get("\xa9alb", [""])[0]
+            if hasattr(mp4, "covr") and mp4.covr:
                 result["has_cover"] = True
                 result["cover_data"] = bytes(mp4.covr[0])
         else:
             try:
-                if hasattr(audio, 'info') and hasattr(audio.info, 'length'):
+                if hasattr(audio, "info") and hasattr(audio.info, "length"):
                     result["duration"] = audio.info.length
             except Exception:
                 pass
@@ -178,7 +194,7 @@ def _get_tag(tags, tag_id: str) -> Optional[str]:
     try:
         frame = tags.get(tag_id)
         if frame:
-            return str(frame.text[0]) if hasattr(frame, 'text') else str(frame)
+            return str(frame.text[0]) if hasattr(frame, "text") else str(frame)
     except Exception:
         pass
     return None
@@ -217,6 +233,7 @@ class _SMTCController:
     def _update_now_playing_main(self, title: str, artist: str, album: str, cover_data: Optional[bytes] = None):
         try:
             import asyncio
+
             async def _update():
                 smtc = SystemMediaTransportControls.get_for_current_view()
                 updater = smtc.display_updater
@@ -239,6 +256,7 @@ class _SMTCController:
                 smtc.is_next_enabled = True
                 smtc.is_previous_enabled = True
                 smtc.is_stop_enabled = True
+
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
@@ -253,7 +271,9 @@ class _SMTCController:
     async def _create_thumbnail_stream(self, cover_data: bytes):
         try:
             from io import BytesIO
+
             from PIL import Image
+
             image = Image.open(BytesIO(cover_data))
             image = image.resize((300, 300), Image.LANCZOS)
             buf = BytesIO()
@@ -290,9 +310,11 @@ class _SMTCController:
     def _set_status_main(self, status: int):
         try:
             import asyncio
+
             async def _update():
                 smtc = SystemMediaTransportControls.get_for_current_view()
                 smtc.playback_status = status
+
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
@@ -312,10 +334,12 @@ class _SMTCController:
     def _clear_main(self):
         try:
             import asyncio
+
             async def _clear():
                 smtc = SystemMediaTransportControls.get_for_current_view()
                 smtc.display_updater.clear_all()
                 smtc.playback_status = 0
+
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
@@ -354,7 +378,7 @@ class MusicPlayerMixin(object):
         self._music_fade_out_target: Optional[str] = None
         self._music_modes_used: set = set()
         # ── 在线搜索状态 ──
-        self._music_tab_mode: str = "local"          # "local" | "online"
+        self._music_tab_mode: str = "local"  # "local" | "online"
         self._music_search_results: List[OnlineMusicInfo] = []
         self._music_search_widgets: List[dict] = []
         self._music_search_thread_id = None
@@ -362,7 +386,7 @@ class MusicPlayerMixin(object):
         self._music_search_keyword: str = ""
         self._music_current_online_info: Optional[OnlineMusicInfo] = None
         self._music_is_online_playing: bool = False
-        self._music_temp_files: List[str] = []       # 缓存的临时文件列表
+        self._music_temp_files: List[str] = []  # 缓存的临时文件列表
         # ── 歌词状态 ──
         self._music_lyric_parser: LyricParser = LyricParser()
         self._music_lyric_lines: List[LyricLine] = []
@@ -469,10 +493,7 @@ class MusicPlayerMixin(object):
         self._music_mini_toggle_btn.pack(side=ctk.RIGHT, padx=(5, 0))
 
         self._music_song_count_label = ctk.CTkLabel(
-            top_row,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_secondary"],
+            top_row, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"]
         )
         self._music_song_count_label.pack(side=ctk.RIGHT, padx=(10, 0))
 
@@ -484,7 +505,13 @@ class MusicPlayerMixin(object):
         play_btns = ctk.CTkFrame(ctrl_row, fg_color="transparent")
         play_btns.pack(side=ctk.LEFT)
 
-        btn_cfg = {"width": 36, "height": 30, "font": ctk.CTkFont(size=14), "fg_color": COLORS["bg_light"], "hover_color": COLORS["accent"]}
+        btn_cfg = {
+            "width": 36,
+            "height": 30,
+            "font": ctk.CTkFont(size=14),
+            "fg_color": COLORS["bg_light"],
+            "hover_color": COLORS["accent"],
+        }
 
         self._music_prev_btn = ctk.CTkButton(play_btns, text="⏮", command=self._music_prev, **btn_cfg)
         self._music_prev_btn.pack(side=ctk.LEFT, padx=2)
@@ -499,8 +526,10 @@ class MusicPlayerMixin(object):
         self._music_stop_btn.pack(side=ctk.LEFT, padx=2)
 
         self._music_mode_btn = ctk.CTkButton(
-            ctrl_row, text="🔁",
-            width=36, height=30,
+            ctrl_row,
+            text="🔁",
+            width=36,
+            height=30,
             font=ctk.CTkFont(size=13),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
@@ -511,8 +540,10 @@ class MusicPlayerMixin(object):
 
         # 音效按钮
         self._music_fx_btn = ctk.CTkButton(
-            ctrl_row, text="🎛",
-            width=36, height=30,
+            ctrl_row,
+            text="🎛",
+            width=36,
+            height=30,
             font=ctk.CTkFont(size=13),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
@@ -524,8 +555,10 @@ class MusicPlayerMixin(object):
         vol_frame.pack(side=ctk.RIGHT)
 
         self._music_mute_btn = ctk.CTkButton(
-            vol_frame, text="🔊",
-            width=30, height=30,
+            vol_frame,
+            text="🔊",
+            width=30,
+            height=30,
             font=ctk.CTkFont(size=14),
             fg_color="transparent",
             hover_color=COLORS["bg_light"],
@@ -535,7 +568,8 @@ class MusicPlayerMixin(object):
 
         self._music_vol_slider = ctk.CTkSlider(
             vol_frame,
-            from_=0, to=100,
+            from_=0,
+            to=100,
             width=100,
             command=self._music_set_volume,
             fg_color=COLORS["bg_light"],
@@ -550,7 +584,8 @@ class MusicPlayerMixin(object):
         progress_frame.pack(fill=ctk.X, padx=12, pady=(0, 8))
 
         self._music_cur_label = ctk.CTkLabel(
-            progress_frame, text="0:00",
+            progress_frame,
+            text="0:00",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLORS["text_secondary"],
             width=40,
@@ -559,7 +594,8 @@ class MusicPlayerMixin(object):
 
         self._music_progress_bar = ctk.CTkSlider(
             progress_frame,
-            from_=0, to=100,
+            from_=0,
+            to=100,
             command=self._music_seek,
             fg_color=COLORS["bg_light"],
             progress_color=COLORS["accent"],
@@ -570,7 +606,8 @@ class MusicPlayerMixin(object):
         self._music_progress_bar.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=5)
 
         self._music_end_label = ctk.CTkLabel(
-            progress_frame, text="0:00",
+            progress_frame,
+            text="0:00",
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLORS["text_secondary"],
             width=40,
@@ -586,10 +623,7 @@ class MusicPlayerMixin(object):
         self._music_now_label_top.pack(padx=12, anchor=ctk.W, pady=(0, 2))
 
         self._music_now_label_sub = ctk.CTkLabel(
-            panel,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=COLORS["text_secondary"],
+            panel, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=10), text_color=COLORS["text_secondary"]
         )
         self._music_now_label_sub.pack(padx=12, anchor=ctk.W, pady=(0, 8))
 
@@ -598,10 +632,28 @@ class MusicPlayerMixin(object):
         self._theme_refs.append((self._music_next_btn, {"fg_color": "bg_light", "hover_color": "accent"}))
         self._theme_refs.append((self._music_stop_btn, {"fg_color": "bg_light", "hover_color": "accent"}))
         self._theme_refs.append((self._music_mode_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
-        self._theme_refs.append((self._music_vol_slider, {"fg_color": "bg_light", "progress_color": "accent",
-                                  "button_color": "text_primary", "button_hover_color": "accent_hover"}))
-        self._theme_refs.append((self._music_progress_bar, {"fg_color": "bg_light", "progress_color": "accent",
-                                  "button_color": "text_primary", "button_hover_color": "accent_hover"}))
+        self._theme_refs.append(
+            (
+                self._music_vol_slider,
+                {
+                    "fg_color": "bg_light",
+                    "progress_color": "accent",
+                    "button_color": "text_primary",
+                    "button_hover_color": "accent_hover",
+                },
+            )
+        )
+        self._theme_refs.append(
+            (
+                self._music_progress_bar,
+                {
+                    "fg_color": "bg_light",
+                    "progress_color": "accent",
+                    "button_color": "text_primary",
+                    "button_hover_color": "accent_hover",
+                },
+            )
+        )
         self._theme_refs.append((self._music_now_label_top, {"text_color": "text_primary"}))
         self._theme_refs.append((self._music_now_label_sub, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._music_cur_label, {"text_color": "text_secondary"}))
@@ -630,28 +682,20 @@ class MusicPlayerMixin(object):
         ).pack(side=ctk.LEFT)
 
         self._music_scroll = ctk.CTkScrollableFrame(
-            list_frame,
-            fg_color="transparent",
-            scrollbar_button_color=COLORS["bg_light"],
+            list_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
         self._music_scroll.pack(fill=ctk.BOTH, expand=True, padx=8, pady=(5, 10))
         self._theme_refs.append((self._music_scroll, {"scrollbar_button_color": "bg_light"}))
 
     def _build_music_now_playing(self):
         self._music_cover_frame = ctk.CTkFrame(
-            self._music_main_frame,
-            fg_color=COLORS["card_bg"],
-            corner_radius=12,
-            width=200,
+            self._music_main_frame, fg_color=COLORS["card_bg"], corner_radius=12, width=200
         )
         self._music_cover_frame.pack(side=ctk.RIGHT, fill=ctk.Y, padx=(10, 0))
         self._music_cover_frame.pack_propagate(False)
 
         self._music_cover_label = ctk.CTkLabel(
-            self._music_cover_frame,
-            text="🎵",
-            font=ctk.CTkFont(size=60),
-            text_color=COLORS["text_secondary"],
+            self._music_cover_frame, text="🎵", font=ctk.CTkFont(size=60), text_color=COLORS["text_secondary"]
         )
         self._music_cover_label.pack(pady=(30, 10))
 
@@ -699,7 +743,9 @@ class MusicPlayerMixin(object):
         self._theme_refs.append((self._lyric_trans_label, {"text_color": "text_secondary"}))
 
     def _build_music_mini_bar(self):
-        self._music_mini_bar = ctk.CTkFrame(self._music_tab_content, fg_color=COLORS["card_bg"], corner_radius=8, height=55)
+        self._music_mini_bar = ctk.CTkFrame(
+            self._music_tab_content, fg_color=COLORS["card_bg"], corner_radius=8, height=55
+        )
         self._music_mini_bar.pack_propagate(False)
 
         inner = ctk.CTkFrame(self._music_mini_bar, fg_color="transparent")
@@ -713,7 +759,13 @@ class MusicPlayerMixin(object):
         )
         self._music_mini_title.pack(side=ctk.LEFT, padx=(0, 10))
 
-        btn_cfg = {"width": 30, "height": 28, "font": ctk.CTkFont(size=12), "fg_color": COLORS["bg_light"], "hover_color": COLORS["accent"]}
+        btn_cfg = {
+            "width": 30,
+            "height": 28,
+            "font": ctk.CTkFont(size=12),
+            "fg_color": COLORS["bg_light"],
+            "hover_color": COLORS["accent"],
+        }
 
         self._music_mini_prev = ctk.CTkButton(inner, text="⏮", command=self._music_prev, **btn_cfg)
         self._music_mini_prev.pack(side=ctk.LEFT, padx=1)
@@ -726,7 +778,8 @@ class MusicPlayerMixin(object):
 
         self._music_mini_vol = ctk.CTkSlider(
             inner,
-            from_=0, to=100,
+            from_=0,
+            to=100,
             width=80,
             command=self._music_set_volume,
             fg_color=COLORS["bg_light"],
@@ -753,8 +806,17 @@ class MusicPlayerMixin(object):
         self._theme_refs.append((self._music_mini_prev, {"fg_color": "bg_light", "hover_color": "accent"}))
         self._theme_refs.append((self._music_mini_play, {"fg_color": "bg_light", "hover_color": "accent"}))
         self._theme_refs.append((self._music_mini_next, {"fg_color": "bg_light", "hover_color": "accent"}))
-        self._theme_refs.append((self._music_mini_vol, {"fg_color": "bg_light", "progress_color": "accent",
-                                  "button_color": "text_primary", "button_hover_color": "accent_hover"}))
+        self._theme_refs.append(
+            (
+                self._music_mini_vol,
+                {
+                    "fg_color": "bg_light",
+                    "progress_color": "accent",
+                    "button_color": "text_primary",
+                    "button_hover_color": "accent_hover",
+                },
+            )
+        )
 
     # ═══════════════ 子标签页切换栏 ═══════════════
 
@@ -764,18 +826,20 @@ class MusicPlayerMixin(object):
         tab_bar.pack_propagate(False)
         self._music_source_tab_bar = tab_bar
 
-        btn_cfg = {"height": 28, "font": ctk.CTkFont(family=FONT_FAMILY, size=12),
-                    "fg_color": COLORS["bg_light"], "hover_color": COLORS["accent"]}
+        btn_cfg = {
+            "height": 28,
+            "font": ctk.CTkFont(family=FONT_FAMILY, size=12),
+            "fg_color": COLORS["bg_light"],
+            "hover_color": COLORS["accent"],
+        }
 
         self._music_local_tab_btn = ctk.CTkButton(
-            tab_bar, text=_("music_tab_local"), width=100,
-            command=self._music_switch_to_local, **btn_cfg,
+            tab_bar, text=_("music_tab_local"), width=100, command=self._music_switch_to_local, **btn_cfg
         )
         self._music_local_tab_btn.pack(side=ctk.LEFT, padx=(0, 4))
 
         self._music_online_tab_btn = ctk.CTkButton(
-            tab_bar, text=_("music_tab_online"), width=100,
-            command=self._music_switch_to_online, **btn_cfg,
+            tab_bar, text=_("music_tab_online"), width=100, command=self._music_switch_to_online, **btn_cfg
         )
         self._music_online_tab_btn.pack(side=ctk.LEFT)
 
@@ -823,9 +887,13 @@ class MusicPlayerMixin(object):
         self._music_search_entry.bind("<Return>", lambda e: self._music_do_search())
 
         self._music_search_btn = ctk.CTkButton(
-            search_inner, text=_("music_search_btn"), width=80, height=30,
+            search_inner,
+            text=_("music_search_btn"),
+            width=80,
+            height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
             command=self._music_do_search,
         )
         self._music_search_btn.pack(side=ctk.LEFT)
@@ -835,7 +903,8 @@ class MusicPlayerMixin(object):
         source_row.pack(fill=ctk.X, padx=12, pady=(0, 8))
 
         ctk.CTkLabel(
-            source_row, text=_("music_source_select") + ": ",
+            source_row,
+            text=_("music_source_select") + ": ",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
         ).pack(side=ctk.LEFT)
@@ -843,9 +912,13 @@ class MusicPlayerMixin(object):
         self._music_source_buttons = {}
         for meta in SOURCE_META:
             btn = ctk.CTkButton(
-                source_row, text=meta["name"], width=70, height=24,
+                source_row,
+                text=meta["name"],
+                width=70,
+                height=24,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                fg_color=COLORS["bg_light"], hover_color=COLORS["accent"],
+                fg_color=COLORS["bg_light"],
+                hover_color=COLORS["accent"],
                 command=lambda s=meta["id"]: self._music_select_source(s),
             )
             btn.pack(side=ctk.LEFT, padx=(4, 0))
@@ -859,7 +932,8 @@ class MusicPlayerMixin(object):
         quality_row.pack(fill=ctk.X, padx=12, pady=(0, 8))
 
         ctk.CTkLabel(
-            quality_row, text=_("music_quality_label") + ": ",
+            quality_row,
+            text=_("music_quality_label") + ": ",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_secondary"],
         ).pack(side=ctk.LEFT)
@@ -867,17 +941,25 @@ class MusicPlayerMixin(object):
         self._music_quality_var = ctk.StringVar(value="128k")
         for q_text, q_val in [("128K", "128k"), ("320K", "320k"), ("FLAC", "flac")]:
             ctk.CTkRadioButton(
-                quality_row, text=q_text, variable=self._music_quality_var, value=q_val,
+                quality_row,
+                text=q_text,
+                variable=self._music_quality_var,
+                value=q_val,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
                 text_color=COLORS["text_primary"],
             ).pack(side=ctk.LEFT, padx=(8, 0))
 
         # 桌面歌词按钮
         self._music_dlrc_btn = ctk.CTkButton(
-            quality_row, text=_("music_desktop_lyric"), width=80, height=24,
+            quality_row,
+            text=_("music_desktop_lyric"),
+            width=80,
+            height=24,
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
             command=self._music_toggle_desktop_lyric,
         )
         self._music_dlrc_btn.pack(side=ctk.RIGHT)
@@ -902,17 +984,12 @@ class MusicPlayerMixin(object):
         ).pack(side=ctk.LEFT)
 
         self._music_search_status = ctk.CTkLabel(
-            result_header,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            text_color=COLORS["text_secondary"],
+            result_header, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=10), text_color=COLORS["text_secondary"]
         )
         self._music_search_status.pack(side=ctk.RIGHT)
 
         self._music_online_scroll = ctk.CTkScrollableFrame(
-            result_frame,
-            fg_color="transparent",
-            scrollbar_button_color=COLORS["bg_light"],
+            result_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
         self._music_online_scroll.pack(fill=ctk.BOTH, expand=True, padx=8, pady=(5, 10))
         self._theme_refs.append((self._music_online_scroll, {"scrollbar_button_color": "bg_light"}))
@@ -930,7 +1007,7 @@ class MusicPlayerMixin(object):
             PLAY_MODE_LOOP_SINGLE: "🔂",
             PLAY_MODE_RANDOM: "🔀",
         }
-        if hasattr(self, '_music_mode_btn') and self._music_mode_btn.winfo_exists():
+        if hasattr(self, "_music_mode_btn") and self._music_mode_btn.winfo_exists():
             self._music_mode_btn.configure(text=mode_texts.get(self._music_play_mode, "🔁"))
 
     def _update_now_playing_info(self):
@@ -1000,6 +1077,7 @@ class MusicPlayerMixin(object):
     def _fetch_and_display_online_cover(self, url: str):
         """异步获取在线封面图并显示"""
         app = self
+
         def _fetch():
             try:
                 resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
@@ -1007,12 +1085,15 @@ class MusicPlayerMixin(object):
                     app.after(0, lambda d=resp.content: app._display_cover(d))
             except Exception:
                 pass
+
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _display_cover(self, cover_data: bytes):
         try:
-            from PIL import Image
             import io
+
+            from PIL import Image
+
             image = Image.open(io.BytesIO(cover_data))
             cover_size = (150, 150)
             ctk_image = ctk.CTkImage(light_image=image, dark_image=image, size=cover_size)
@@ -1167,7 +1248,7 @@ class MusicPlayerMixin(object):
     def _music_execute_fade_out_target(self):
         target = self._music_fade_out_target
         self._music_fade_out_target = None
-        if target == 'pause':
+        if target == "pause":
             try:
                 mixer.music.pause()
             except Exception:
@@ -1180,7 +1261,7 @@ class MusicPlayerMixin(object):
                 mixer.music.set_volume(self._music_volume)
             except Exception:
                 pass
-        elif target == 'stop':
+        elif target == "stop":
             try:
                 mixer.music.stop()
                 mixer.music.unload()
@@ -1211,7 +1292,9 @@ class MusicPlayerMixin(object):
                 if self._music_is_online_playing:
                     return
                 self._music_current_index = 0
-            self._play_file(self._music_playlist[self._music_current_index], self._music_progress if self._music_progress > 0 else 0)
+            self._play_file(
+                self._music_playlist[self._music_current_index], self._music_progress if self._music_progress > 0 else 0
+            )
         elif self._music_is_paused:
             if self._music_is_fading:
                 return
@@ -1230,7 +1313,7 @@ class MusicPlayerMixin(object):
         elif self._music_is_playing:
             if self._music_is_fading:
                 return
-            self._music_fade_out_target = 'pause'
+            self._music_fade_out_target = "pause"
             self._stop_progress_poll()
             self._stop_lyric_poll()
             self._music_fade_out()
@@ -1240,7 +1323,7 @@ class MusicPlayerMixin(object):
             return
         self._music_cancel_fade()
         if not instant and self._music_is_playing and not self._music_is_paused:
-            self._music_fade_out_target = 'stop'
+            self._music_fade_out_target = "stop"
             self._stop_progress_poll()
             self._stop_lyric_poll()
             self._music_fade_out()
@@ -1268,6 +1351,7 @@ class MusicPlayerMixin(object):
             return
         if self._music_play_mode == PLAY_MODE_RANDOM:
             import random
+
             random.seed()
             new_idx = random.randrange(len(self._music_playlist))
             if len(self._music_playlist) > 1 and new_idx == self._music_current_index:
@@ -1283,6 +1367,7 @@ class MusicPlayerMixin(object):
             return
         if self._music_play_mode == PLAY_MODE_RANDOM:
             import random
+
             random.seed()
             new_idx = random.randrange(len(self._music_playlist))
             if len(self._music_playlist) > 1 and new_idx == self._music_current_index:
@@ -1335,7 +1420,7 @@ class MusicPlayerMixin(object):
             self._music_vol_slider.set(0)
             self._music_mini_vol.set(0)
         else:
-            self._music_volume = getattr(self, '_music_vol_before_mute', 0.7)
+            self._music_volume = getattr(self, "_music_vol_before_mute", 0.7)
             self._music_vol_slider.set(int(self._music_volume * 100))
             self._music_mini_vol.set(int(self._music_volume * 100))
         if _pygame_import_error is None and not self._music_is_fading:
@@ -1409,9 +1494,7 @@ class MusicPlayerMixin(object):
         if not self._music_is_playing or self._music_is_paused:
             self._stop_lyric_poll()
             return
-        if not self._is_music_tab_active() and not (
-            self._music_desktop_lyric and self._music_desktop_lyric.is_visible
-        ):
+        if not self._is_music_tab_active() and not (self._music_desktop_lyric and self._music_desktop_lyric.is_visible):
             self._music_lyric_poll_id = self.after(300, self._poll_lyric_progress)
             return
         try:
@@ -1425,12 +1508,12 @@ class MusicPlayerMixin(object):
 
     def _update_lyric_display(self, elapsed_ms: int):
         """更新内嵌歌词显示"""
-        if not hasattr(self, '_lyric_current_label') or not self._lyric_current_label:
+        if not hasattr(self, "_lyric_current_label") or not self._lyric_current_label:
             return
         current = self._music_lyric_parser.get_line_at(elapsed_ms)
         if current is None:
             self._lyric_current_label.configure(text="")
-            if hasattr(self, '_lyric_trans_label'):
+            if hasattr(self, "_lyric_trans_label"):
                 self._lyric_trans_label.configure(text="")
             return
         self._lyric_current_label.configure(text=current.text)
@@ -1439,12 +1522,13 @@ class MusicPlayerMixin(object):
             trans = current.translation
         elif self._music_show_lyric_roma and current.roma:
             trans = current.roma
-        if hasattr(self, '_lyric_trans_label'):
+        if hasattr(self, "_lyric_trans_label"):
             self._lyric_trans_label.configure(text=trans)
 
     def _fetch_and_start_lyric(self, online_info: OnlineMusicInfo):
         """获取歌词并开始解析"""
         app = self
+
         def _fetch():
             try:
                 src = MUSIC_SOURCES.get(online_info.source)
@@ -1458,6 +1542,7 @@ class MusicPlayerMixin(object):
                 app.after(0, app._start_lyric_poll)
             except Exception:
                 pass
+
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _is_music_tab_active(self):
@@ -1500,6 +1585,7 @@ class MusicPlayerMixin(object):
             self._play_file(self._music_playlist[self._music_current_index])
         elif self._music_play_mode == PLAY_MODE_RANDOM:
             import random
+
             random.seed()
             new_idx = random.randrange(len(self._music_playlist))
             if len(self._music_playlist) > 1 and new_idx == self._music_current_index:
@@ -1586,7 +1672,8 @@ class MusicPlayerMixin(object):
         row.pack(fill=ctk.X, pady=1)
 
         index_label = ctk.CTkLabel(
-            row, text=str(idx + 1),
+            row,
+            text=str(idx + 1),
             width=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLORS["text_secondary"],
@@ -1598,7 +1685,8 @@ class MusicPlayerMixin(object):
             arts = f" - {meta['artist']}"
         t = title if len(title) <= 50 else title[:47] + "..."
         name_label = ctk.CTkLabel(
-            row, text=f"{t}{arts}",
+            row,
+            text=f"{t}{arts}",
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_primary"],
             anchor="w",
@@ -1607,7 +1695,8 @@ class MusicPlayerMixin(object):
 
         if dur_text:
             dur_label = ctk.CTkLabel(
-                row, text=dur_text,
+                row,
+                text=dur_text,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=9),
                 text_color=COLORS["text_secondary"],
                 width=35,
@@ -1618,11 +1707,7 @@ class MusicPlayerMixin(object):
             child.bind("<Button-1>", lambda e, i=idx: self._play_from_index(i))
             child.bind("<Double-Button-1>", lambda e, i=idx: self._play_from_index(i))
 
-        self._music_playlist_widgets.append({
-            "frame": row,
-            "name_label": name_label,
-            "index": idx,
-        })
+        self._music_playlist_widgets.append({"frame": row, "name_label": name_label, "index": idx})
 
     def _play_from_index(self, idx: int):
         if idx < 0 or idx >= len(self._music_playlist):
@@ -1725,7 +1810,7 @@ class MusicPlayerMixin(object):
         new_vol = max(0, min(100, int(self._music_volume * 100) + delta))
         self._music_volume = new_vol / 100.0
         self._music_vol_slider.set(new_vol)
-        if hasattr(self, '_music_mini_vol'):
+        if hasattr(self, "_music_mini_vol"):
             self._music_mini_vol.set(new_vol)
         if _pygame_import_error is None and not self._music_is_fading:
             try:
@@ -1739,7 +1824,7 @@ class MusicPlayerMixin(object):
         self.after(500, self._save_music_state)
 
     def _save_music_state(self):
-        if not hasattr(self, '_music_init_done') or not self._music_init_done:
+        if not hasattr(self, "_music_init_done") or not self._music_init_done:
             return
         try:
             state = {
@@ -1750,13 +1835,13 @@ class MusicPlayerMixin(object):
                 "music_play_mode": PLAY_MODE_NAMES.get(self._music_play_mode, "loop_list"),
                 "music_mini_mode": self._music_mini_mode,
             }
-            if hasattr(self, 'callbacks') and "save_music_state" in self.callbacks:
+            if hasattr(self, "callbacks") and "save_music_state" in self.callbacks:
                 self.callbacks["save_music_state"](state)
         except Exception as e:
             logger.debug(f"保存音乐状态失败: {e}")
 
     def _load_music_state(self, _retry_count: int = 0):
-        if not hasattr(self, 'callbacks'):
+        if not hasattr(self, "callbacks"):
             return
         load_fn = self.callbacks.get("load_music_state")
         if not load_fn:
@@ -1781,9 +1866,9 @@ class MusicPlayerMixin(object):
             self._music_play_mode = mode_map.get(mode, PLAY_MODE_LOOP_LIST)
             self._update_mode_btn_text()
 
-            if hasattr(self, '_music_vol_slider') and self._music_vol_slider.winfo_exists():
+            if hasattr(self, "_music_vol_slider") and self._music_vol_slider.winfo_exists():
                 self._music_vol_slider.set(int(self._music_volume * 100))
-            if hasattr(self, '_music_mini_vol') and self._music_mini_vol.winfo_exists():
+            if hasattr(self, "_music_mini_vol") and self._music_mini_vol.winfo_exists():
                 self._music_mini_vol.set(int(self._music_volume * 100))
             self._update_mute_btn_ui()
 
@@ -1819,7 +1904,7 @@ class MusicPlayerMixin(object):
         if self._music_mini_mode:
             self._music_main_frame.pack_forget()
             self._music_mini_bar.pack(fill=ctk.X, padx=15, pady=(0, 15))
-            if hasattr(self, '_music_mini_toggle_btn') and self._music_mini_toggle_btn.winfo_exists():
+            if hasattr(self, "_music_mini_toggle_btn") and self._music_mini_toggle_btn.winfo_exists():
                 self._music_mini_toggle_btn.configure(text=_("music_expand"))
 
     # ═══════════════ 在线搜索逻辑 ═══════════════
@@ -1871,7 +1956,9 @@ class MusicPlayerMixin(object):
         row.pack(fill=ctk.X, pady=1)
 
         index_label = ctk.CTkLabel(
-            row, text=str(idx + 1), width=30,
+            row,
+            text=str(idx + 1),
+            width=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLORS["text_secondary"],
         )
@@ -1881,24 +1968,30 @@ class MusicPlayerMixin(object):
         quality_badge = " ".join(t.get("type", "") for t in info.types[:2])
         display = f"{name_text} - {info.singer}" if info.singer else name_text
         name_label = ctk.CTkLabel(
-            row, text=display,
+            row,
+            text=display,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["text_primary"], anchor="w",
+            text_color=COLORS["text_primary"],
+            anchor="w",
         )
         name_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(5, 5))
 
         dur_text = _format_time(info.interval) if info.interval else ""
         if dur_text:
             ctk.CTkLabel(
-                row, text=dur_text,
+                row,
+                text=dur_text,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=9),
-                text_color=COLORS["text_secondary"], width=40,
+                text_color=COLORS["text_secondary"],
+                width=40,
             ).pack(side=ctk.RIGHT)
 
         source_label = ctk.CTkLabel(
-            row, text=info.source.upper(),
+            row,
+            text=info.source.upper(),
             font=ctk.CTkFont(family=FONT_FAMILY, size=8),
-            text_color=COLORS["accent"], width=28,
+            text_color=COLORS["accent"],
+            width=28,
         )
         source_label.pack(side=ctk.RIGHT, padx=(0, 4))
 
@@ -1961,8 +2054,12 @@ class MusicPlayerMixin(object):
     def _music_download_to_temp(self, url: str, name_hint: str = "") -> Optional[str]:
         """下载在线音频流到临时文件"""
         try:
-            resp = requests.get(url, timeout=30, stream=True,
-                              headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+            resp = requests.get(
+                url,
+                timeout=30,
+                stream=True,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            )
             resp.raise_for_status()
             ext = ".mp3"
             content_type = resp.headers.get("Content-Type", "")
@@ -2007,9 +2104,9 @@ class MusicPlayerMixin(object):
 
     def _stop_search_loading(self):
         """停止搜索加载状态"""
-        if hasattr(self, '_music_search_btn') and self._music_search_btn.winfo_exists():
+        if hasattr(self, "_music_search_btn") and self._music_search_btn.winfo_exists():
             self._music_search_btn.configure(state="normal", text=_("music_search_btn"))
-        if hasattr(self, '_music_search_status') and self._music_search_status.winfo_exists():
+        if hasattr(self, "_music_search_status") and self._music_search_status.winfo_exists():
             self._music_search_status.configure(text="")
 
     # ═══════════════ 桌面歌词管理 ═══════════════
@@ -2048,7 +2145,7 @@ class MusicPlayerMixin(object):
 
     def _music_open_fx_panel(self):
         """打开音效设置面板"""
-        if hasattr(self, '_music_fx_window') and self._music_fx_window and self._music_fx_window.winfo_exists():
+        if hasattr(self, "_music_fx_window") and self._music_fx_window and self._music_fx_window.winfo_exists():
             self._music_fx_window.lift()
             self._music_fx_window.focus_force()
             return
@@ -2070,16 +2167,20 @@ class MusicPlayerMixin(object):
 
         # 底部: 重置按钮
         ctk.CTkButton(
-            main, text=_("music_cache_clear"), width=100, height=30,
+            main,
+            text=_("music_cache_clear"),
+            width=100,
+            height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            fg_color=COLORS["bg_light"], hover_color=COLORS["accent"],
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["accent"],
             command=self._music_reset_fx,
         ).pack(pady=(15, 0))
 
         self._music_fx_window.after(100, lambda: self._music_fx_window.focus_force())
 
     def _music_close_fx_panel(self):
-        if hasattr(self, '_music_fx_window') and self._music_fx_window:
+        if hasattr(self, "_music_fx_window") and self._music_fx_window:
             try:
                 self._music_fx_window.grab_release()
                 self._music_fx_window.destroy()
@@ -2099,17 +2200,19 @@ class MusicPlayerMixin(object):
 
         eq_enable_var = ctk.BooleanVar(value=s.eq_enabled)
         ctk.CTkCheckBox(
-            header, text=_("music_eq_enable"), variable=eq_enable_var,
+            header,
+            text=_("music_eq_enable"),
+            variable=eq_enable_var,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_primary"],
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
             command=lambda: self._music_on_eq_toggle(eq_enable_var.get()),
         ).pack(side=ctk.LEFT)
 
-        ctk.CTkLabel(
-            header, text=_("music_eq"),
-            font=label_font, text_color=COLORS["text_primary"],
-        ).pack(side=ctk.LEFT, padx=(10, 0))
+        ctk.CTkLabel(header, text=_("music_eq"), font=label_font, text_color=COLORS["text_primary"]).pack(
+            side=ctk.LEFT, padx=(10, 0)
+        )
 
         # EQ 滑块
         eq_sliders_frame = ctk.CTkFrame(eq_frame, fg_color="transparent")
@@ -2121,10 +2224,15 @@ class MusicPlayerMixin(object):
             col_frame.pack(side=ctk.LEFT, expand=True, padx=1)
 
             slider = ctk.CTkSlider(
-                col_frame, from_=EQ_GAIN_MIN, to=EQ_GAIN_MAX,
-                width=16, height=120, orientation="vertical",
+                col_frame,
+                from_=EQ_GAIN_MIN,
+                to=EQ_GAIN_MAX,
+                width=16,
+                height=120,
+                orientation="vertical",
                 command=lambda v, idx=i: self._music_on_eq_change(idx, v),
-                fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+                fg_color=COLORS["bg_light"],
+                progress_color=COLORS["accent"],
                 button_color=COLORS["text_primary"],
             )
             slider.set(s.eq_gains[i])
@@ -2132,13 +2240,15 @@ class MusicPlayerMixin(object):
             self._music_eq_sliders.append(slider)
 
             ctk.CTkLabel(
-                col_frame, text=str(freq) if freq >= 1000 else f"{freq}",
+                col_frame,
+                text=str(freq) if freq >= 1000 else f"{freq}",
                 font=ctk.CTkFont(family=FONT_FAMILY, size=7),
                 text_color=COLORS["text_secondary"],
             ).pack()
 
             ctk.CTkLabel(
-                col_frame, text=f"{s.eq_gains[i]:+.0f}",
+                col_frame,
+                text=f"{s.eq_gains[i]:+.0f}",
                 font=ctk.CTkFont(family=FONT_FAMILY, size=7),
                 text_color=COLORS["text_secondary"],
             ).pack()
@@ -2155,10 +2265,13 @@ class MusicPlayerMixin(object):
 
         rv_enable_var = ctk.BooleanVar(value=s.reverb_enabled)
         ctk.CTkCheckBox(
-            header, text=_("music_reverb"), variable=rv_enable_var,
+            header,
+            text=_("music_reverb"),
+            variable=rv_enable_var,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_primary"],
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
             command=lambda: self._music_on_reverb_toggle(rv_enable_var.get()),
         ).pack(side=ctk.LEFT)
 
@@ -2167,14 +2280,17 @@ class MusicPlayerMixin(object):
         row1.pack(fill=ctk.X, padx=10, pady=(0, 3))
         ctk.CTkLabel(row1, text="Delay", font=label_font, text_color=COLORS["text_secondary"]).pack(side=ctk.LEFT)
         self._music_reverb_delay_label = ctk.CTkLabel(
-            row1, text=f"{s.reverb_delay_ms:.0f}ms",
-            font=label_font, text_color=COLORS["text_secondary"],
+            row1, text=f"{s.reverb_delay_ms:.0f}ms", font=label_font, text_color=COLORS["text_secondary"]
         )
         self._music_reverb_delay_label.pack(side=ctk.RIGHT)
         delay_slider = ctk.CTkSlider(
-            rv_frame, from_=10, to=200, height=14,
+            rv_frame,
+            from_=10,
+            to=200,
+            height=14,
             command=lambda v: self._music_on_reverb_delay(v),
-            fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+            fg_color=COLORS["bg_light"],
+            progress_color=COLORS["accent"],
         )
         delay_slider.set(s.reverb_delay_ms)
         delay_slider.pack(fill=ctk.X, padx=10, pady=(0, 3))
@@ -2185,14 +2301,17 @@ class MusicPlayerMixin(object):
         row2.pack(fill=ctk.X, padx=10, pady=(0, 3))
         ctk.CTkLabel(row2, text="Decay", font=label_font, text_color=COLORS["text_secondary"]).pack(side=ctk.LEFT)
         self._music_reverb_decay_label = ctk.CTkLabel(
-            row2, text=f"{s.reverb_decay:.1f}",
-            font=label_font, text_color=COLORS["text_secondary"],
+            row2, text=f"{s.reverb_decay:.1f}", font=label_font, text_color=COLORS["text_secondary"]
         )
         self._music_reverb_decay_label.pack(side=ctk.RIGHT)
         decay_slider = ctk.CTkSlider(
-            rv_frame, from_=0.1, to=0.9, height=14,
+            rv_frame,
+            from_=0.1,
+            to=0.9,
+            height=14,
             command=lambda v: self._music_on_reverb_decay(v),
-            fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+            fg_color=COLORS["bg_light"],
+            progress_color=COLORS["accent"],
         )
         decay_slider.set(s.reverb_decay)
         decay_slider.pack(fill=ctk.X, padx=10, pady=(0, 3))
@@ -2203,14 +2322,17 @@ class MusicPlayerMixin(object):
         row3.pack(fill=ctk.X, padx=10, pady=(0, 8))
         ctk.CTkLabel(row3, text="Wet", font=label_font, text_color=COLORS["text_secondary"]).pack(side=ctk.LEFT)
         self._music_reverb_wet_label = ctk.CTkLabel(
-            row3, text=f"{s.reverb_wet_level:.1f}",
-            font=label_font, text_color=COLORS["text_secondary"],
+            row3, text=f"{s.reverb_wet_level:.1f}", font=label_font, text_color=COLORS["text_secondary"]
         )
         self._music_reverb_wet_label.pack(side=ctk.RIGHT)
         wet_slider = ctk.CTkSlider(
-            rv_frame, from_=0.0, to=1.0, height=14,
+            rv_frame,
+            from_=0.0,
+            to=1.0,
+            height=14,
             command=lambda v: self._music_on_reverb_wet(v),
-            fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+            fg_color=COLORS["bg_light"],
+            progress_color=COLORS["accent"],
         )
         wet_slider.set(s.reverb_wet_level)
         wet_slider.pack(fill=ctk.X, padx=10, pady=(0, 3))
@@ -2228,23 +2350,29 @@ class MusicPlayerMixin(object):
 
         pt_enable_var = ctk.BooleanVar(value=s.pitch_enabled)
         ctk.CTkCheckBox(
-            header, text=_("music_pitch"), variable=pt_enable_var,
+            header,
+            text=_("music_pitch"),
+            variable=pt_enable_var,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_primary"],
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
             command=lambda: self._music_on_pitch_toggle(pt_enable_var.get()),
         ).pack(side=ctk.LEFT)
 
         self._music_pitch_label = ctk.CTkLabel(
-            header, text=f"{s.pitch_semitones:+.1f} semitones",
-            font=label_font, text_color=COLORS["text_secondary"],
+            header, text=f"{s.pitch_semitones:+.1f} semitones", font=label_font, text_color=COLORS["text_secondary"]
         )
         self._music_pitch_label.pack(side=ctk.RIGHT)
 
         pitch_slider = ctk.CTkSlider(
-            pitch_frame, from_=PITCH_MIN, to=PITCH_MAX, height=14,
+            pitch_frame,
+            from_=PITCH_MIN,
+            to=PITCH_MAX,
+            height=14,
             command=lambda v: self._music_on_pitch_change(v),
-            fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+            fg_color=COLORS["bg_light"],
+            progress_color=COLORS["accent"],
         )
         pitch_slider.set(s.pitch_semitones)
         pitch_slider.pack(fill=ctk.X, padx=10, pady=(0, 8))
@@ -2262,23 +2390,29 @@ class MusicPlayerMixin(object):
 
         sp_enable_var = ctk.BooleanVar(value=s.speed_enabled)
         ctk.CTkCheckBox(
-            header, text=_("music_pitch_label"), variable=sp_enable_var,
+            header,
+            text=_("music_pitch_label"),
+            variable=sp_enable_var,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_primary"],
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
             command=lambda: self._music_on_speed_toggle(sp_enable_var.get()),
         ).pack(side=ctk.LEFT)
 
         self._music_speed_label = ctk.CTkLabel(
-            header, text=f"{s.speed_rate:.2f}x",
-            font=label_font, text_color=COLORS["text_secondary"],
+            header, text=f"{s.speed_rate:.2f}x", font=label_font, text_color=COLORS["text_secondary"]
         )
         self._music_speed_label.pack(side=ctk.RIGHT)
 
         speed_slider = ctk.CTkSlider(
-            speed_frame, from_=SPEED_MIN, to=SPEED_MAX, height=14,
+            speed_frame,
+            from_=SPEED_MIN,
+            to=SPEED_MAX,
+            height=14,
             command=lambda v: self._music_on_speed_change(v),
-            fg_color=COLORS["bg_light"], progress_color=COLORS["accent"],
+            fg_color=COLORS["bg_light"],
+            progress_color=COLORS["accent"],
         )
         speed_slider.set(s.speed_rate)
         speed_slider.pack(fill=ctk.X, padx=10, pady=(0, 8))
@@ -2297,17 +2431,17 @@ class MusicPlayerMixin(object):
 
     def _music_on_reverb_delay(self, value: float):
         self._music_effects.settings.reverb_delay_ms = value
-        if hasattr(self, '_music_reverb_delay_label'):
+        if hasattr(self, "_music_reverb_delay_label"):
             self._music_reverb_delay_label.configure(text=f"{value:.0f}ms")
 
     def _music_on_reverb_decay(self, value: float):
         self._music_effects.settings.reverb_decay = value
-        if hasattr(self, '_music_reverb_decay_label'):
+        if hasattr(self, "_music_reverb_decay_label"):
             self._music_reverb_decay_label.configure(text=f"{value:.1f}")
 
     def _music_on_reverb_wet(self, value: float):
         self._music_effects.settings.reverb_wet_level = value
-        if hasattr(self, '_music_reverb_wet_label'):
+        if hasattr(self, "_music_reverb_wet_label"):
             self._music_reverb_wet_label.configure(text=f"{value:.1f}")
 
     def _music_on_pitch_toggle(self, enabled: bool):
@@ -2315,7 +2449,7 @@ class MusicPlayerMixin(object):
 
     def _music_on_pitch_change(self, value: float):
         self._music_effects.settings.pitch_semitones = value
-        if hasattr(self, '_music_pitch_label'):
+        if hasattr(self, "_music_pitch_label"):
             self._music_pitch_label.configure(text=f"{value:+.1f} semitones")
 
     def _music_on_speed_toggle(self, enabled: bool):
@@ -2323,7 +2457,7 @@ class MusicPlayerMixin(object):
 
     def _music_on_speed_change(self, value: float):
         self._music_effects.settings.speed_rate = value
-        if hasattr(self, '_music_speed_label'):
+        if hasattr(self, "_music_speed_label"):
             self._music_speed_label.configure(text=f"{value:.2f}x")
 
     def _music_reset_fx(self):
@@ -2341,18 +2475,18 @@ class MusicPlayerMixin(object):
         s.speed_rate = 1.0
 
         # 更新UI滑块
-        if hasattr(self, '_music_eq_sliders'):
+        if hasattr(self, "_music_eq_sliders"):
             for sl in self._music_eq_sliders:
                 sl.set(0)
-        if hasattr(self, '_music_reverb_delay_slider'):
+        if hasattr(self, "_music_reverb_delay_slider"):
             self._music_reverb_delay_slider.set(60)
-        if hasattr(self, '_music_reverb_decay_slider'):
+        if hasattr(self, "_music_reverb_decay_slider"):
             self._music_reverb_decay_slider.set(0.4)
-        if hasattr(self, '_music_reverb_wet_slider'):
+        if hasattr(self, "_music_reverb_wet_slider"):
             self._music_reverb_wet_slider.set(0.3)
-        if hasattr(self, '_music_pitch_slider'):
+        if hasattr(self, "_music_pitch_slider"):
             self._music_pitch_slider.set(0)
-        if hasattr(self, '_music_speed_slider'):
+        if hasattr(self, "_music_speed_slider"):
             self._music_speed_slider.set(1.0)
 
     def _music_cleanup_fx_files(self):
@@ -2379,7 +2513,7 @@ class MusicPlayerMixin(object):
         self._music_destroy_desktop_lyric()
 
     def _update_music_footer(self):
-        if not hasattr(self, '_music_footer_frame'):
+        if not hasattr(self, "_music_footer_frame"):
             return
         path = self._get_current_file()
         if (path or self._music_is_online_playing) and (self._music_is_playing or self._music_is_paused):
@@ -2409,8 +2543,13 @@ class MusicPlayerMixin(object):
             self._music_footer_play.configure(text="⏸" if self._music_is_playing else "▶")
         else:
             try:
-                for _w in [self._music_footer_frame, self._music_footer_label,
-                            self._music_footer_prev, self._music_footer_play, self._music_footer_next]:
+                for _w in [
+                    self._music_footer_frame,
+                    self._music_footer_label,
+                    self._music_footer_prev,
+                    self._music_footer_play,
+                    self._music_footer_next,
+                ]:
                     _w.pack_forget()
             except Exception:
                 pass

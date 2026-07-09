@@ -1,4 +1,5 @@
 """音乐源通用工具 - 加密/签名/HTTP会话"""
+
 import hashlib
 import random
 import string
@@ -39,6 +40,7 @@ def create_session(headers: Optional[Dict] = None, use_mobile_ua: bool = False) 
 
 # ─── 通用哈希 ────────────────────────────────────────
 
+
 def md5(text: str) -> str:
     """MD5 哈希 (小写hex)"""
     return hashlib.md5(text.encode()).hexdigest()
@@ -56,6 +58,7 @@ def sha256(text: str) -> str:
 
 # ─── AES 加密 (网易云音乐) ────────────────────────────
 
+
 def aes_encrypt_ecb(data: bytes, key: bytes) -> bytes:
     """AES-128-ECB 加密 (NoPadding)"""
     try:
@@ -63,6 +66,7 @@ def aes_encrypt_ecb(data: bytes, key: bytes) -> bytes:
     except ImportError:
         # 回退到 pycryptodome
         from Crypto.Cipher import AES
+
         cipher = AES.new(key, AES.MODE_ECB)
         return cipher.encrypt(_pad(data, 16))
     cipher = Cipher(algorithms.AES(key), modes.ECB())
@@ -76,6 +80,7 @@ def aes_encrypt_cbc(data: bytes, key: bytes, iv: bytes) -> bytes:
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
     except ImportError:
         from Crypto.Cipher import AES
+
         cipher = AES.new(key, AES.MODE_CBC, iv)
         return cipher.encrypt(_pad(data, 16))
     cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
@@ -102,14 +107,16 @@ ncaTWz7OBGLbCiK45wIDAQAB
 def rsa_encrypt(data: bytes) -> bytes:
     """RSA 公钥加密 (NoPadding, 128字节块)"""
     try:
-        from cryptography.hazmat.primitives import serialization, hashes
-        from cryptography.hazmat.primitives.asymmetric import padding
         from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+
         pub_key = serialization.load_pem_public_key(WY_PUBLIC_KEY.encode(), backend=default_backend())
         return pub_key.encrypt(data, padding.PKCS1v15())
     except ImportError:
-        from Crypto.PublicKey import RSA
         from Crypto.Cipher import PKCS1_v1_5
+        from Crypto.PublicKey import RSA
+
         key = RSA.import_key(WY_PUBLIC_KEY)
         cipher = PKCS1_v1_5.new(key)
         return cipher.encrypt(data)
@@ -131,20 +138,19 @@ def _random_hex(n: int) -> str:
 def wy_weapi(data: dict) -> Dict[str, str]:
     """网易云 weapi 加密"""
     import json
+
     text = json.dumps(data)
     secret_key = "".join(random.choices(_BASE62, k=16)).encode()
     first = aes_encrypt_cbc(text.encode(), WY_PRESET_KEY, WY_IV)
     second = aes_encrypt_cbc(first, secret_key, WY_IV)
     enc_sec_key = rsa_encrypt(secret_key[::-1]).hex()
-    return {
-        "params": _base64_encode(second),
-        "encSecKey": enc_sec_key,
-    }
+    return {"params": _base64_encode(second), "encSecKey": enc_sec_key}
 
 
 def wy_eapi(url: str, data: dict) -> Dict[str, str]:
     """网易云 eapi 加密"""
     import json
+
     text = json.dumps(data)
     message = f"nobody{url}use{text}md5forencrypt"
     digest = md5(message)
@@ -156,6 +162,7 @@ def wy_eapi(url: str, data: dict) -> Dict[str, str]:
 def wy_linuxapi(data: dict) -> Dict[str, str]:
     """网易云 linuxapi 加密"""
     import json
+
     text = json.dumps(data)
     encrypted = aes_encrypt_ecb(text.encode(), WY_LINUXAPI_KEY)
     return {"eparams": encrypted.hex().upper()}
@@ -173,7 +180,7 @@ def tx_zzc_sign(text: str) -> str:
     h = sha1(text)
     part1 = "".join(h[i] if i < len(h) else "" for i in _PART1_IDX)
     part2 = "".join(h[i] if i < len(h) else "" for i in _PART2_IDX)
-    part3 = bytes(_SCRAMBLE[i] ^ int(h[i * 2:i * 2 + 2], 16) for i in range(20))
+    part3 = bytes(_SCRAMBLE[i] ^ int(h[i * 2 : i * 2 + 2], 16) for i in range(20))
     b64part = _base64_encode(part3).replace("/", "").replace("+", "").replace("=", "")
     return f"zzc{part1}{b64part}{part2}".lower()
 
@@ -191,13 +198,16 @@ def mg_create_sign(timestamp: int, keyword: str) -> str:
 
 # ─── Base64 ──────────────────────────────────────────
 
+
 def _base64_encode(data: bytes) -> str:
     """标准 Base64 编码"""
     import base64
+
     return base64.b64encode(data).decode()
 
 
 # ─── 文本处理 ────────────────────────────────────────
+
 
 def decode_name(raw: str) -> str:
     """解码可能被编码的名称"""
@@ -206,6 +216,7 @@ def decode_name(raw: str) -> str:
     try:
         if raw.startswith("&#"):
             import html
+
             return html.unescape(raw)
     except Exception:
         pass

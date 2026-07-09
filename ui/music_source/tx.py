@@ -1,4 +1,5 @@
 """QQ音乐 音源插件"""
+
 import json
 import logging
 import random
@@ -67,10 +68,7 @@ class QQMusicSource(BaseMusicSource):
                 "sem": 0,
             },
         }
-        payload = {
-            "comm": comm,
-            "req": req_data,
-        }
+        payload = {"comm": comm, "req": req_data}
         try:
             signed = self._sign_request(payload)
             resp = self._session.post(TX_SIGN_URL, data=signed, timeout=15)
@@ -98,7 +96,7 @@ class QQMusicSource(BaseMusicSource):
 
     def _parse_search_result(self, raw_list) -> List[MusicInfo]:
         results = []
-        for item in (raw_list or []):
+        for item in raw_list or []:
             try:
                 file_info = item.get("file", {})
                 media_mid = file_info.get("media_mid", "")
@@ -117,8 +115,16 @@ class QQMusicSource(BaseMusicSource):
                     singer=singer,
                     source=self.source_id,
                     songmid=media_mid,
-                    album_name=decode_name(item.get("album", {}).get("name", "") if isinstance(item.get("album"), dict) else item.get("albumname", "")),
-                    album_id=str(item.get("album", {}).get("mid", "") if isinstance(item.get("album"), dict) else item.get("albummid", "")),
+                    album_name=decode_name(
+                        item.get("album", {}).get("name", "")
+                        if isinstance(item.get("album"), dict)
+                        else item.get("albumname", "")
+                    ),
+                    album_id=str(
+                        item.get("album", {}).get("mid", "")
+                        if isinstance(item.get("album"), dict)
+                        else item.get("albummid", "")
+                    ),
                     interval=interval,
                     types=types,
                     _types=_types,
@@ -204,11 +210,7 @@ class QQMusicSource(BaseMusicSource):
         req_data = {
             "module": "music.musichallSong.PlayLyricInfo",
             "method": "GetPlayLyricInfo",
-            "param": {
-                "songMID": info.songmid,
-                "plain": 1,
-                "charset": "utf-8",
-            },
+            "param": {"songMID": info.songmid, "plain": 1, "charset": "utf-8"},
         }
         payload = {"comm": comm, "req": req_data}
         try:

@@ -5,14 +5,16 @@
 mrpack allows you to install Modpacks from the `Mrpack Format <https://support.modrinth.com/en/articles/8802351-modrinth-modpack-format-mrpack>`_.
 You should also take a look at the :doc:`complete example </examples/Mrpack>`.
 """
-from ._helper import download_file, empty, check_path_inside_minecraft_directory
-from .types import MrpackInformation, MrpackInstallOptions, CallbackDict
-from ._internal_types.mrpack_types import MrpackIndex, MrpackFile
-from .install import install_minecraft_version
-from .mod_loader import get_mod_loader
-import zipfile
+
 import json
 import os
+import zipfile
+
+from ._helper import check_path_inside_minecraft_directory, download_file, empty
+from ._internal_types.mrpack_types import MrpackFile, MrpackIndex
+from .install import install_minecraft_version
+from .mod_loader import get_mod_loader
+from .types import CallbackDict, MrpackInformation, MrpackInstallOptions
 
 
 def _filter_mrpack_files(file_list: list[MrpackFile], mrpack_install_options: MrpackInstallOptions) -> list[MrpackFile]:
@@ -72,7 +74,13 @@ def get_mrpack_information(path: str | os.PathLike) -> MrpackInformation:
             return information
 
 
-def install_mrpack(path: str | os.PathLike, minecraft_directory: str | os.PathLike, modpack_directory: str | os.PathLike | None = None, callback: CallbackDict | None = None, mrpack_install_options: MrpackInstallOptions | None = None) -> None:
+def install_mrpack(
+    path: str | os.PathLike,
+    minecraft_directory: str | os.PathLike,
+    modpack_directory: str | os.PathLike | None = None,
+    callback: CallbackDict | None = None,
+    mrpack_install_options: MrpackInstallOptions | None = None,
+) -> None:
     """
     Installs a .mrpack file
 
@@ -135,15 +143,17 @@ def install_mrpack(path: str | os.PathLike, minecraft_directory: str | os.PathLi
         callback.get("setStatus", empty)("Extract overrides")
         for zip_name in zf.namelist():
             # Check if the entry is in the overrides and if it is a file
-            if (not zip_name.startswith("overrides/") and not zip_name.startswith("client-overrides/")) or zf.getinfo(zip_name).file_size == 0:
+            if (not zip_name.startswith("overrides/") and not zip_name.startswith("client-overrides/")) or zf.getinfo(
+                zip_name
+            ).file_size == 0:
                 continue
 
             # Remove the overrides at the start of the Name
             # We don't have removeprefix() in Python 3.8
             if zip_name.startswith("client-overrides/"):
-                file_name = zip_name[len("client-overrides/"):]
+                file_name = zip_name[len("client-overrides/") :]
             else:
-                file_name = zip_name[len("overrides/"):]
+                file_name = zip_name[len("overrides/") :]
 
             # Constructs the full Path
             full_path = os.path.abspath(os.path.join(modpack_directory, file_name))
@@ -168,24 +178,64 @@ def install_mrpack(path: str | os.PathLike, minecraft_directory: str | os.PathLi
         install_minecraft_version(index["dependencies"]["minecraft"], minecraft_directory, callback=callback)
 
         if "forge" in index["dependencies"]:
-            callback.get("setStatus", empty)("Installing Forge " + index["dependencies"]["forge"] + " for Minecraft " + index["dependencies"]["minecraft"])
+            callback.get("setStatus", empty)(
+                "Installing Forge "
+                + index["dependencies"]["forge"]
+                + " for Minecraft "
+                + index["dependencies"]["minecraft"]
+            )
             forge = get_mod_loader("forge")
-            forge.install(index["dependencies"]["minecraft"], minecraft_directory, loader_version=index["dependencies"]["forge"], callback=callback)
+            forge.install(
+                index["dependencies"]["minecraft"],
+                minecraft_directory,
+                loader_version=index["dependencies"]["forge"],
+                callback=callback,
+            )
 
         if "neoforge" in index["dependencies"]:
-            callback.get("setStatus", empty)("Installing Neoforge " + index["dependencies"]["neoforge"] + " for Minecraft " + index["dependencies"]["minecraft"])
+            callback.get("setStatus", empty)(
+                "Installing Neoforge "
+                + index["dependencies"]["neoforge"]
+                + " for Minecraft "
+                + index["dependencies"]["minecraft"]
+            )
             neoforge = get_mod_loader("neoforge")
-            neoforge.install(index["dependencies"]["minecraft"], minecraft_directory, loader_version=index["dependencies"]["neoforge"], callback=callback)
+            neoforge.install(
+                index["dependencies"]["minecraft"],
+                minecraft_directory,
+                loader_version=index["dependencies"]["neoforge"],
+                callback=callback,
+            )
 
         if "fabric-loader" in index["dependencies"]:
-            callback.get("setStatus", empty)("Installing Fabric " + index["dependencies"]["fabric-loader"] + " for Minecraft " + index["dependencies"]["minecraft"])
+            callback.get("setStatus", empty)(
+                "Installing Fabric "
+                + index["dependencies"]["fabric-loader"]
+                + " for Minecraft "
+                + index["dependencies"]["minecraft"]
+            )
             fabric = get_mod_loader("fabric")
-            fabric.install(index["dependencies"]["minecraft"], minecraft_directory, loader_version=index["dependencies"]["fabric-loader"], callback=callback)
+            fabric.install(
+                index["dependencies"]["minecraft"],
+                minecraft_directory,
+                loader_version=index["dependencies"]["fabric-loader"],
+                callback=callback,
+            )
 
         if "quilt-loader" in index["dependencies"]:
-            callback.get("setStatus", empty)("Installing Quilt " + index["dependencies"]["quilt-loader"] + " for Minecraft " + index["dependencies"]["minecraft"])
+            callback.get("setStatus", empty)(
+                "Installing Quilt "
+                + index["dependencies"]["quilt-loader"]
+                + " for Minecraft "
+                + index["dependencies"]["minecraft"]
+            )
             quilt = get_mod_loader("quilt")
-            quilt.install(index["dependencies"]["minecraft"], minecraft_directory, loader_version=index["dependencies"]["quilt-loader"], callback=callback)
+            quilt.install(
+                index["dependencies"]["minecraft"],
+                minecraft_directory,
+                loader_version=index["dependencies"]["quilt-loader"],
+                callback=callback,
+            )
 
 
 def get_mrpack_launch_version(path: str | os.PathLike) -> str:
@@ -211,8 +261,12 @@ def get_mrpack_launch_version(path: str | os.PathLike) -> str:
             elif "neoforge" in index["dependencies"]:
                 return "neoforge-" + index["dependencies"]["neoforge"]
             elif "fabric-loader" in index["dependencies"]:
-                return "fabric-loader-" + index["dependencies"]["fabric-loader"] + "-" + index["dependencies"]["minecraft"]
+                return (
+                    "fabric-loader-" + index["dependencies"]["fabric-loader"] + "-" + index["dependencies"]["minecraft"]
+                )
             elif "quilt-loader" in index["dependencies"]:
-                return "quilt-loader-" + index["dependencies"]["quilt-loader"] + "-" + index["dependencies"]["minecraft"]
+                return (
+                    "quilt-loader-" + index["dependencies"]["quilt-loader"] + "-" + index["dependencies"]["minecraft"]
+                )
             else:
                 return index["dependencies"]["minecraft"]

@@ -15,8 +15,8 @@
 """
 
 from ui.music_source.base import BaseMusicSource, MusicInfo, QualityLevel
-from ui.music_source.kw import KuWoMusicSource
 from ui.music_source.kg import KuGouMusicSource
+from ui.music_source.kw import KuWoMusicSource
 from ui.music_source.mg import MiGuMusicSource
 from ui.music_source.tx import QQMusicSource
 from ui.music_source.wy import NetEaseMusicSource
@@ -50,6 +50,7 @@ def search_all(keyword: str, page: int = 1, limit: int = 30):
         list of dict: [{"source": "kw", "results": [...]}, ...]
     """
     import concurrent.futures
+
     results = []
 
     def _search_one(source_id):
@@ -76,8 +77,15 @@ def search_all(keyword: str, page: int = 1, limit: int = 30):
 
 
 __all__ = [
-    "BaseMusicSource", "MusicInfo", "QualityLevel",
-    "KuWoMusicSource", "KuGouMusicSource", "MiGuMusicSource",
-    "QQMusicSource", "NetEaseMusicSource",
-    "MUSIC_SOURCES", "SOURCE_META", "search_all",
+    "BaseMusicSource",
+    "MusicInfo",
+    "QualityLevel",
+    "KuWoMusicSource",
+    "KuGouMusicSource",
+    "MiGuMusicSource",
+    "QQMusicSource",
+    "NetEaseMusicSource",
+    "MUSIC_SOURCES",
+    "SOURCE_META",
+    "search_all",
 ]

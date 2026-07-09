@@ -3,6 +3,7 @@
 提供 Minecraft 存档的备份、恢复、删除等功能。
 支持手动备份/恢复、自动备份（游戏启动前/退出后）、备份索引管理等。
 """
+
 import json
 import os
 import shutil
@@ -11,16 +12,17 @@ import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Any, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from uuid import uuid4
+
 from version_utils import has_mod_loader, has_mod_loader_from_json
 
 # zipfile.ZIP_DEFLATE = 8，直接使用整数值避免某些环境导入异常
-_ZIP_DEFLATE = getattr(zipfile, 'ZIP_DEFLATE', 8)
+_ZIP_DEFLATE = getattr(zipfile, "ZIP_DEFLATE", 8)
 
 from logzero import logger
 
-from config import Config, _json_loads, _json_dumps
+from config import Config, _json_dumps, _json_loads
 from structured_logger import slog
 
 
@@ -57,9 +59,9 @@ class BackupEntry:
     @property
     def size_display(self) -> str:
         b = self.size_bytes
-        if b >= 1024 ** 3:
+        if b >= 1024**3:
             return f"{b / (1024 ** 3):.1f} GB"
-        if b >= 1024 ** 2:
+        if b >= 1024**2:
             return f"{b / (1024 ** 2):.1f} MB"
         if b >= 1024:
             return f"{b / 1024:.1f} KB"
@@ -195,12 +197,14 @@ class BackupManager:
                     name = d.name
                     if name not in seen:
                         seen.add(name)
-                        worlds.append({
-                            "name": name,
-                            "path": d,
-                            "is_isolated": False,
-                            "last_modified": d.stat().st_mtime if d.exists() else 0,
-                        })
+                        worlds.append(
+                            {
+                                "name": name,
+                                "path": d,
+                                "is_isolated": False,
+                                "last_modified": d.stat().st_mtime if d.exists() else 0,
+                            }
+                        )
 
         # 扫描版本隔离目录
         versions_dir = mc_dir / "versions"
@@ -214,12 +218,14 @@ class BackupManager:
                                 name = d.name
                                 if name not in seen:
                                     seen.add(name)
-                                    worlds.append({
-                                        "name": name,
-                                        "path": d,
-                                        "is_isolated": True,
-                                        "last_modified": d.stat().st_mtime if d.exists() else 0,
-                                    })
+                                    worlds.append(
+                                        {
+                                            "name": name,
+                                            "path": d,
+                                            "is_isolated": True,
+                                            "last_modified": d.stat().st_mtime if d.exists() else 0,
+                                        }
+                                    )
 
         # 按修改时间降序排列
         worlds.sort(key=lambda w: w.get("last_modified", 0), reverse=True)
@@ -245,12 +251,12 @@ class BackupManager:
         """检查磁盘空间是否足够"""
         try:
             import platform as _platform
+
             if _platform.system() == "Windows":
                 import ctypes
+
                 free_bytes = ctypes.c_ulonglong(0)
-                ctypes.windll.kernel32.GetDiskFreeSpaceExW(
-                    str(target_dir), None, None, ctypes.pointer(free_bytes)
-                )
+                ctypes.windll.kernel32.GetDiskFreeSpaceExW(str(target_dir), None, None, ctypes.pointer(free_bytes))
                 available = free_bytes.value
             else:
                 stat = os.statvfs(str(target_dir))
@@ -265,10 +271,7 @@ class BackupManager:
     # ─── 备份操作 ───────────────────────────────────────────
 
     def create_backup(
-        self,
-        world_name: str,
-        note: str = "",
-        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        self, world_name: str, note: str = "", progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> Tuple[bool, str]:
         """
         创建存档备份
@@ -295,8 +298,7 @@ class BackupManager:
         target = self._world_backup_dir(world_name)
         ok, msg = self._check_disk_space(needed, target)
         if not ok:
-            slog.error("backup_failed", world_name=world_name, reason="disk_full",
-                       required_bytes=needed)
+            slog.error("backup_failed", world_name=world_name, reason="disk_full", required_bytes=needed)
             return False, msg
 
         # 收集文件列表
@@ -332,8 +334,7 @@ class BackupManager:
 
             processed = 0
             with zipfile.ZipFile(
-                tmp_path, "w", _ZIP_DEFLATE,
-                compresslevel=getattr(self.config, "backup_compress_level", 6),
+                tmp_path, "w", _ZIP_DEFLATE, compresslevel=getattr(self.config, "backup_compress_level", 6)
             ) as zf:
                 for f in files:
                     try:
@@ -355,15 +356,17 @@ class BackupManager:
             actual_size = dest.stat().st_size
 
             # 更新索引
-            entry = BackupEntry({
-                "id": str(uuid4()),
-                "world_name": world_name,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "size_bytes": actual_size,
-                "game_version": game_version,
-                "note": note,
-                "file_name": file_name,
-            })
+            entry = BackupEntry(
+                {
+                    "id": str(uuid4()),
+                    "world_name": world_name,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "size_bytes": actual_size,
+                    "game_version": game_version,
+                    "note": note,
+                    "file_name": file_name,
+                }
+            )
             self._get_index(world_name).add(entry)
 
             # 自动清理旧备份
@@ -372,8 +375,13 @@ class BackupManager:
             if progress_callback:
                 progress_callback(total_size, total_size, "备份完成")
 
-            slog.info("backup_start", world_name=world_name, backup_name=file_name,
-                      size_bytes=actual_size, compress_level=getattr(self.config, "backup_compress_level", 6))
+            slog.info(
+                "backup_start",
+                world_name=world_name,
+                backup_name=file_name,
+                size_bytes=actual_size,
+                compress_level=getattr(self.config, "backup_compress_level", 6),
+            )
             return True, f"备份成功: {file_name}"
 
         except Exception as e:
@@ -388,10 +396,7 @@ class BackupManager:
             return False, f"备份失败: {e}"
 
     def restore_backup(
-        self,
-        entry_id: str,
-        world_name: str,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        self, entry_id: str, world_name: str, progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> Tuple[bool, str]:
         """
         恢复存档备份
@@ -484,14 +489,12 @@ class BackupManager:
                 progress_callback(total_files, total_files, "恢复完成")
 
             logger.info(f"存档 {world_name} 已从备份恢复")
-            slog.info("backup_restored", world_name=world_name, backup_entry=entry_id,
-                      size_bytes=entry.size_bytes)
+            slog.info("backup_restored", world_name=world_name, backup_entry=entry_id, size_bytes=entry.size_bytes)
             return True, f"恢复成功: {world_name}"
 
         except Exception as e:
             logger.error(f"恢复失败: {e}")
-            slog.error("backup_restore_failed", world_name=world_name,
-                       reason=str(e)[:200])
+            slog.error("backup_restore_failed", world_name=world_name, reason=str(e)[:200])
             # 回滚
             try:
                 if target_dir.exists():
@@ -615,14 +618,15 @@ class BackupManager:
 def _sanitize_filename(name: str) -> str:
     """清理文件名中的非法字符"""
     import re
-    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name)
+
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)
 
 
 def _format_size(size_bytes: int) -> str:
     """格式化文件大小"""
-    if size_bytes >= 1024 ** 3:
+    if size_bytes >= 1024**3:
         return f"{size_bytes / (1024 ** 3):.1f} GB"
-    if size_bytes >= 1024 ** 2:
+    if size_bytes >= 1024**2:
         return f"{size_bytes / (1024 ** 2):.1f} MB"
     if size_bytes >= 1024:
         return f"{size_bytes / 1024:.1f} KB"

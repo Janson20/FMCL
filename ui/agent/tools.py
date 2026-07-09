@@ -1,6 +1,7 @@
 """AGENT 工具定义 - 封装启动器功能供 AI 调用"""
 
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 from logzero import logger
 
 
@@ -12,11 +13,7 @@ def get_tool_definitions() -> List[Dict]:
             "function": {
                 "name": "get_available_versions",
                 "description": "获取所有可安装的 Minecraft 版本列表（包括正式版和快照版）",
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
+                "parameters": {"type": "object", "properties": {}, "required": []},
             },
         },
         {
@@ -24,11 +21,7 @@ def get_tool_definitions() -> List[Dict]:
             "function": {
                 "name": "get_installed_versions",
                 "description": "获取本地已安装的 Minecraft 版本列表",
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
+                "parameters": {"type": "object", "properties": {}, "required": []},
             },
         },
         {
@@ -39,10 +32,7 @@ def get_tool_definitions() -> List[Dict]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "version_id": {
-                            "type": "string",
-                            "description": "Minecraft 版本号，如 1.20.1、1.20.4、26.1",
-                        },
+                        "version_id": {"type": "string", "description": "Minecraft 版本号，如 1.20.1、1.20.4、26.1"},
                         "mod_loader": {
                             "type": "string",
                             "enum": ["无", "Forge", "Fabric", "NeoForge"],
@@ -64,7 +54,7 @@ def get_tool_definitions() -> List[Dict]:
                         "version_id": {
                             "type": "string",
                             "description": "要启动的版本ID，如 1.20.1、1.20.1-forge-49.0.26 等",
-                        },
+                        }
                     },
                     "required": ["version_id"],
                 },
@@ -78,14 +68,8 @@ def get_tool_definitions() -> List[Dict]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "搜索关键词，如 sodium、jei 等。留空则返回热门模组",
-                        },
-                        "game_version": {
-                            "type": "string",
-                            "description": "Minecraft 版本号，如 1.20.1",
-                        },
+                        "query": {"type": "string", "description": "搜索关键词，如 sodium、jei 等。留空则返回热门模组"},
+                        "game_version": {"type": "string", "description": "Minecraft 版本号，如 1.20.1"},
                         "mod_loader": {
                             "type": "string",
                             "enum": ["fabric", "forge", "neoforge"],
@@ -113,14 +97,8 @@ def get_tool_definitions() -> List[Dict]:
                             "enum": ["fabric", "forge", "neoforge"],
                             "description": "模组加载器",
                         },
-                        "mod_name": {
-                            "type": "string",
-                            "description": "模组名称，如 Sodium、JEI 等",
-                        },
-                        "mod_project_id": {
-                            "type": "string",
-                            "description": "Modrinth 项目ID（如果已知）",
-                        },
+                        "mod_name": {"type": "string", "description": "模组名称，如 Sodium、JEI 等"},
+                        "mod_project_id": {"type": "string", "description": "Modrinth 项目ID（如果已知）"},
                     },
                     "required": ["version_id", "mod_loader", "mod_name"],
                 },
@@ -137,7 +115,7 @@ def get_tool_definitions() -> List[Dict]:
                         "version_id": {
                             "type": "string",
                             "description": "要删除的版本ID，如 1.20.1、1.20.1-forge-49.0.26 等",
-                        },
+                        }
                     },
                     "required": ["version_id"],
                 },
@@ -148,11 +126,7 @@ def get_tool_definitions() -> List[Dict]:
             "function": {
                 "name": "get_installed_servers",
                 "description": "获取本地已安装的服务器版本列表",
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
+                "parameters": {"type": "object", "properties": {}, "required": []},
             },
         },
         {
@@ -167,10 +141,7 @@ def get_tool_definitions() -> List[Dict]:
                             "type": "string",
                             "description": "服务器版本号，如 1.21.4 或 1.20.1-forge-xxx 等",
                         },
-                        "max_memory": {
-                            "type": "string",
-                            "description": "最大内存，如 2G、4G、8G，默认 2G",
-                        },
+                        "max_memory": {"type": "string", "description": "最大内存，如 2G、4G、8G，默认 2G"},
                     },
                     "required": ["version_id"],
                 },
@@ -183,12 +154,7 @@ def get_tool_definitions() -> List[Dict]:
                 "description": "删除本地已安装的 Minecraft 服务器版本",
                 "parameters": {
                     "type": "object",
-                    "properties": {
-                        "version_id": {
-                            "type": "string",
-                            "description": "要删除的服务器版本号，如 1.21.4",
-                        },
-                    },
+                    "properties": {"version_id": {"type": "string", "description": "要删除的服务器版本号，如 1.21.4"}},
                     "required": ["version_id"],
                 },
             },
@@ -200,12 +166,7 @@ def get_tool_definitions() -> List[Dict]:
                 "description": "安装 .mrpack 整合包文件",
                 "parameters": {
                     "type": "object",
-                    "properties": {
-                        "mrpack_path": {
-                            "type": "string",
-                            "description": ".mrpack 整合包文件的绝对路径",
-                        },
-                    },
+                    "properties": {"mrpack_path": {"type": "string", "description": ".mrpack 整合包文件的绝对路径"}},
                     "required": ["mrpack_path"],
                 },
             },
@@ -217,12 +178,7 @@ def get_tool_definitions() -> List[Dict]:
                 "description": "安装 .mrpack 整合包作为服务器",
                 "parameters": {
                     "type": "object",
-                    "properties": {
-                        "mrpack_path": {
-                            "type": "string",
-                            "description": ".mrpack 整合包文件的绝对路径",
-                        },
-                    },
+                    "properties": {"mrpack_path": {"type": "string", "description": ".mrpack 整合包文件的绝对路径"}},
                     "required": ["mrpack_path"],
                 },
             },
@@ -239,10 +195,7 @@ def get_tool_definitions() -> List[Dict]:
                             "type": "string",
                             "description": "搜索关键词，如 skyblock、RLCraft 等。留空则返回热门整合包",
                         },
-                        "game_version": {
-                            "type": "string",
-                            "description": "Minecraft 版本号，如 1.20.1",
-                        },
+                        "game_version": {"type": "string", "description": "Minecraft 版本号，如 1.20.1"},
                     },
                     "required": [],
                 },
@@ -260,10 +213,7 @@ def get_tool_definitions() -> List[Dict]:
                             "type": "string",
                             "description": "Modrinth 整合包项目ID（从 search_modpack 结果中获得）",
                         },
-                        "game_version": {
-                            "type": "string",
-                            "description": "Minecraft 版本号筛选，如 1.20.1",
-                        },
+                        "game_version": {"type": "string", "description": "Minecraft 版本号筛选，如 1.20.1"},
                     },
                     "required": ["project_id"],
                 },
@@ -281,10 +231,7 @@ def get_tool_definitions() -> List[Dict]:
                             "type": "string",
                             "description": "搜索关键词，如 Faithful、Default等。留空则返回热门资源包",
                         },
-                        "game_version": {
-                            "type": "string",
-                            "description": "Minecraft 版本号，如 1.20.1",
-                        },
+                        "game_version": {"type": "string", "description": "Minecraft 版本号，如 1.20.1"},
                     },
                     "required": [],
                 },
@@ -302,14 +249,8 @@ def get_tool_definitions() -> List[Dict]:
                             "type": "string",
                             "description": "Minecraft 版本文件夹/实例名称，如 1.20.1、1.20.1-forge-49.0.26。资源包将安装到该版本的 resourcepacks 目录",
                         },
-                        "pack_name": {
-                            "type": "string",
-                            "description": "资源包名称，如 Faithful、Default 3D 等",
-                        },
-                        "project_id": {
-                            "type": "string",
-                            "description": "Modrinth 项目ID（如果已知）",
-                        },
+                        "pack_name": {"type": "string", "description": "资源包名称，如 Faithful、Default 3D 等"},
+                        "project_id": {"type": "string", "description": "Modrinth 项目ID（如果已知）"},
                     },
                     "required": ["version_id", "pack_name"],
                 },
@@ -327,10 +268,7 @@ def get_tool_definitions() -> List[Dict]:
                             "type": "string",
                             "description": "搜索关键词，如 BSL、Complementary 等。留空则返回热门光影",
                         },
-                        "game_version": {
-                            "type": "string",
-                            "description": "Minecraft 版本号，如 1.20.1",
-                        },
+                        "game_version": {"type": "string", "description": "Minecraft 版本号，如 1.20.1"},
                     },
                     "required": [],
                 },
@@ -348,14 +286,8 @@ def get_tool_definitions() -> List[Dict]:
                             "type": "string",
                             "description": "Minecraft 版本文件夹/实例名称，如 1.20.1、1.20.1-forge-49.0.26。光影将安装到该版本的 shaderpacks 目录",
                         },
-                        "shader_name": {
-                            "type": "string",
-                            "description": "光影名称，如 BSL、Complementary Shaders 等",
-                        },
-                        "project_id": {
-                            "type": "string",
-                            "description": "Modrinth 项目ID（如果已知）",
-                        },
+                        "shader_name": {"type": "string", "description": "光影名称，如 BSL、Complementary Shaders 等"},
+                        "project_id": {"type": "string", "description": "Modrinth 项目ID（如果已知）"},
                     },
                     "required": ["version_id", "shader_name"],
                 },
@@ -395,10 +327,7 @@ def get_tool_definitions() -> List[Dict]:
                             "type": "string",
                             "description": "执行命令的工作目录（绝对路径），不填则在启动器所在目录执行",
                         },
-                        "command": {
-                            "type": "string",
-                            "description": "要执行的命令",
-                        },
+                        "command": {"type": "string", "description": "要执行的命令"},
                     },
                     "required": ["command"],
                 },
@@ -409,11 +338,7 @@ def get_tool_definitions() -> List[Dict]:
             "function": {
                 "name": "get_launcher_path",
                 "description": "获取启动器所在的目录路径",
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
+                "parameters": {"type": "object", "properties": {}, "required": []},
             },
         },
         {
@@ -424,14 +349,11 @@ def get_tool_definitions() -> List[Dict]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "question": {
-                            "type": "string",
-                            "description": "向用户提出的问题，应该清晰具体",
-                        },
+                        "question": {"type": "string", "description": "向用户提出的问题，应该清晰具体"},
                         "options": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "可选的候选项列表，如 [\"选项A\", \"选项B\"]。如果不提供则用户自由输入",
+                            "description": '可选的候选项列表，如 ["选项A", "选项B"]。如果不提供则用户自由输入',
                         },
                     },
                     "required": ["question"],

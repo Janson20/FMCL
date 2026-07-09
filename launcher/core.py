@@ -1,4 +1,5 @@
 """Minecraft启动器核心模块"""
+
 import gc
 import hashlib
 import json
@@ -12,25 +13,25 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Dict, Optional, Callable, Any, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from logzero import logger
 
 from config import Config
-from structured_logger import slog
 from mirror import MirrorSource
-from validation import validate_version_id, validate_server_ip, validate_server_port
+from structured_logger import slog
+from ui.constants import USER_AGENT
+from ui.theme_engine import Theme, get_theme_engine, init_theme_engine
+from validation import validate_server_ip, validate_server_port, validate_version_id
 from version_utils import (
-    parse_mc_version_from_id,
-    parse_mc_version_from_dir,
-    parse_instance_from_json,
     InstanceInfo,
     has_mod_loader_from_json,
+    parse_instance_from_json,
+    parse_mc_version_from_dir,
+    parse_mc_version_from_id,
     parse_mod_loader_from_version,
     resolve_version_jar_path,
 )
-from ui.theme_engine import init_theme_engine, get_theme_engine, Theme
-from ui.constants import USER_AGENT
 
 
 def concurrent_file_verify(
@@ -99,6 +100,7 @@ def _read_project_version(pyproject_path: Path) -> str:
         logger.warning(f"toml 解析失败，改用正则提取版本号: {e}")
         try:
             import re
+
             text = Path(pyproject_path).read_text(encoding="utf-8")
             # 仅在 [project] 段内匹配 version 字段，避免误取其他段的 version
             section = re.search(r"(?ms)^\[project\]\s*(.*?)(?=^\[|\Z)", text)
@@ -123,6 +125,7 @@ class MinecraftLauncher:
 
         logger.info("MinecraftLauncher.__init__: 1. 正在导入 minecraft_launcher_lib...")
         import minecraft_launcher_lib
+
         logger.info("MinecraftLauncher.__init__: 2. minecraft_launcher_lib 导入完成")
         self._mcllib = minecraft_launcher_lib
         self.options = minecraft_launcher_lib.utils.generate_test_options()
@@ -163,17 +166,19 @@ class MinecraftLauncher:
 
     def _get_cached_java_runtimes(self) -> List:
         import time
+
         now = time.time()
         if self._java_scan_cache is not None and (now - self._java_scan_cache_time) < 30:
             return self._java_scan_cache
         from launcher.java_scanner import scan_all
+
         self._java_scan_cache = scan_all(self.minecraft_dir)
         self._java_scan_cache_time = now
         return self._java_scan_cache
 
     def _resolve_java_executable(self, target_version: str, current_java: str) -> str:
-        java_mode = getattr(self.config, 'java_mode', 'auto')
-        custom_path = getattr(self.config, 'java_custom_path', None)
+        java_mode = getattr(self.config, "java_mode", "auto")
+        custom_path = getattr(self.config, "java_custom_path", None)
 
         if java_mode == "custom" and custom_path and os.path.isfile(custom_path):
             logger.info(f"使用自定义 Java 路径: {custom_path}")
@@ -190,6 +195,7 @@ class MinecraftLauncher:
 
         try:
             from launcher.java_scanner import recommend_for_mc
+
             javas = self._get_cached_java_runtimes()
             # 提前检测加载器类型，Minecraft runtime 查找也需要
             _loader_type = self._detect_mod_loader_type(target_version)
@@ -246,16 +252,23 @@ class MinecraftLauncher:
                         if _min_java > 0:
                             try:
                                 import re as _re
-                                result = subprocess.run([java_path, "-version"], capture_output=True, text=True, timeout=10)
+
+                                result = subprocess.run(
+                                    [java_path, "-version"], capture_output=True, text=True, timeout=10
+                                )
                                 _ver_output = result.stderr or result.stdout
                                 _m = _re.search(r'version "(\d+)', _ver_output)
                                 if _m:
                                     _runtime_major = int(_m.group(1))
                                     if _runtime_major < _min_java:
-                                        logger.warning(f"Minecraft runtime Java ({component}) 版本 {_runtime_major} < {_min_java}，不满足 Cleanroom 要求，跳过")
+                                        logger.warning(
+                                            f"Minecraft runtime Java ({component}) 版本 {_runtime_major} < {_min_java}，不满足 Cleanroom 要求，跳过"
+                                        )
                                         component = ""  # 不满足，清空以继续后续逻辑
                                     else:
-                                        logger.info(f"Minecraft runtime Java ({component}) 版本 {_runtime_major} 满足 Cleanroom 要求")
+                                        logger.info(
+                                            f"Minecraft runtime Java ({component}) 版本 {_runtime_major} 满足 Cleanroom 要求"
+                                        )
                             except Exception:
                                 pass
                         if component:
@@ -283,8 +296,7 @@ class MinecraftLauncher:
             logger.info(f"Cleanroom: 安装 JVM 运行时 {_jvm_component} (Java {_min_java})")
             try:
                 self._mcllib.runtime.install_jvm_runtime(
-                    _jvm_component, self.minecraft_dir,
-                    callback=self._get_callback()
+                    _jvm_component, self.minecraft_dir, callback=self._get_callback()
                 )
                 # 安装完成，重新解析 Java 路径
                 current = self._resolve_java_executable(version_id, "java")
@@ -300,11 +312,7 @@ class MinecraftLauncher:
         if not version_json_path.exists():
             logger.info(f"版本 {mc_base} 未安装，正在安装以获取 Java runtime...")
             self._set_status(f"正在安装 {mc_base}（自动获取 Java runtime）...")
-            self._mcllib.install.install_minecraft_version(
-                mc_base,
-                self.minecraft_dir,
-                callback=self._get_callback()
-            )
+            self._mcllib.install.install_minecraft_version(mc_base, self.minecraft_dir, callback=self._get_callback())
 
         current = self._resolve_java_executable(version_id, "java")
         if current != "java" and os.path.isfile(current):
@@ -327,12 +335,13 @@ class MinecraftLauncher:
 
     def scan_system_java(self) -> List[Dict]:
         from launcher.java_scanner import get_java_summary
+
         javas = self._get_cached_java_runtimes()
         return get_java_summary(javas)
 
     def get_java_suggestion(self, version_id: str) -> Optional[Dict]:
-        from launcher.java_scanner import recommend_for_mc, _min_java_for_mc
         from launcher.java_install import get_java_install_guidance
+        from launcher.java_scanner import _min_java_for_mc, recommend_for_mc
 
         javas = self._get_cached_java_runtimes()
         best = recommend_for_mc(javas, version_id)
@@ -355,7 +364,7 @@ class MinecraftLauncher:
         }
 
     def get_java_mode(self) -> str:
-        return getattr(self.config, 'java_mode', 'auto')
+        return getattr(self.config, "java_mode", "auto")
 
     def set_java_mode(self, mode: str) -> None:
         self.config.java_mode = mode
@@ -363,7 +372,7 @@ class MinecraftLauncher:
         logger.info(f"Java 选择模式已切换为: {mode}")
 
     def get_java_custom_path(self) -> Optional[str]:
-        return getattr(self.config, 'java_custom_path', None)
+        return getattr(self.config, "java_custom_path", None)
 
     def set_java_custom_path(self, path: Optional[str]) -> None:
         self.config.java_custom_path = path
@@ -388,7 +397,7 @@ class MinecraftLauncher:
         """进度回调（节流：大量文件下载时避免高频回调导致UI卡死）"""
         if self.current_max != 0:
             now = time.time()
-            last = getattr(self, '_last_progress_time', 0)
+            last = getattr(self, "_last_progress_time", 0)
             if progress != self.current_max and now - last < 0.1:
                 return
             self._last_progress_time = now
@@ -403,11 +412,7 @@ class MinecraftLauncher:
 
     def _get_callback(self) -> Dict[str, Callable]:
         """获取回调函数字典"""
-        return {
-            "setStatus": self._set_status,
-            "setProgress": self._set_progress,
-            "setMax": self._set_max
-        }
+        return {"setStatus": self._set_status, "setProgress": self._set_progress, "setMax": self._set_max}
 
     def check_and_setup_environment(self) -> None:
         """检查并设置环境"""
@@ -434,9 +439,7 @@ class MinecraftLauncher:
                     latest_release = self._mcllib.utils.get_latest_version()["release"]
 
                 self._mcllib.install.install_minecraft_version(
-                    latest_release,
-                    self.minecraft_dir,
-                    callback=self._get_callback()
+                    latest_release, self.minecraft_dir, callback=self._get_callback()
                 )
                 logger.info("正式版下载成功")
             except Exception as e:
@@ -462,14 +465,14 @@ class MinecraftLauncher:
     def _get_available_versions_safe(self) -> List[Dict[str, str]]:
         """安全版获取可用版本列表 — 过滤缺失 releaseTime 的异常条目"""
         try:
-            from datetime import datetime
             import json
+            from datetime import datetime
+
             import requests as _req
 
             # 直接从 Mojang API 获取版本清单，不使用上游缓存（避开破损缓存）
             manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
-            resp = _req.get(manifest_url, timeout=30,
-                          headers={"User-Agent": USER_AGENT})
+            resp = _req.get(manifest_url, timeout=30, headers={"User-Agent": USER_AGENT})
             if resp.status_code != 200:
                 logger.warning(f"获取版本清单失败 HTTP {resp.status_code}")
                 return []
@@ -479,12 +482,14 @@ class MinecraftLauncher:
             skipped = 0
             for entry in vlist.get("versions", []):
                 try:
-                    version_list.append({
-                        "id": entry["id"],
-                        "type": entry.get("type", "release"),
-                        "releaseTime": datetime.fromisoformat(entry["releaseTime"]),
-                        "complianceLevel": entry.get("complianceLevel", 0),
-                    })
+                    version_list.append(
+                        {
+                            "id": entry["id"],
+                            "type": entry.get("type", "release"),
+                            "releaseTime": datetime.fromisoformat(entry["releaseTime"]),
+                            "complianceLevel": entry.get("complianceLevel", 0),
+                        }
+                    )
                 except (KeyError, TypeError, ValueError):
                     skipped += 1
 
@@ -519,7 +524,7 @@ class MinecraftLauncher:
             current_folders = set()
             for v in os.listdir(str(versions_dir)):
                 vp = versions_dir / v
-                if vp.is_dir() and v not in ('jre_manifest.json', 'version_manifest_v2.json'):
+                if vp.is_dir() and v not in ("jre_manifest.json", "version_manifest_v2.json"):
                     current_folders.add(v)
 
             # 缓存校验：检查缓存是否与当前目录一致
@@ -581,11 +586,7 @@ class MinecraftLauncher:
 
         try:
             json_text = json_path.read_text(encoding="utf-8")
-            return parse_instance_from_json(
-                json_text,
-                folder_name,
-                self.minecraft_dir,
-            )
+            return parse_instance_from_json(json_text, folder_name, self.minecraft_dir)
         except Exception as e:
             logger.debug(f"解析实例 JSON 失败 ({folder_name}): {e}")
             return None
@@ -659,7 +660,7 @@ class MinecraftLauncher:
             return False, "rename_instance_invalid"
 
         # 验证新名称合法性（只允许字母数字下划线短横线点号）
-        if not re.match(r'^[a-zA-Z0-9_.\-+]+$', new_name):
+        if not re.match(r"^[a-zA-Z0-9_.\-+]+$", new_name):
             return False, "rename_instance_invalid"
 
         versions_dir = self.config.get_versions_dir()
@@ -778,10 +779,7 @@ class MinecraftLauncher:
         try:
             # 检查版本是否有效 — 用 set 实现 O(1) 查找
             available_versions = self.get_available_versions()
-            version_ids = {
-                v["id"].split()[0] if isinstance(v["id"], str) else v["id"]
-                for v in available_versions
-            }
+            version_ids = {v["id"].split()[0] if isinstance(v["id"], str) else v["id"] for v in available_versions}
 
             if version_id not in version_ids:
                 logger.error(f"无效的版本ID: {version_id}")
@@ -798,9 +796,7 @@ class MinecraftLauncher:
                 def _install_vanilla():
                     try:
                         self._mcllib.install.install_minecraft_version(
-                            version_id,
-                            self.minecraft_dir,
-                            callback=self._get_callback(),
+                            version_id, self.minecraft_dir, callback=self._get_callback()
                         )
                         vanilla_done.set()
                     except Exception as e:
@@ -845,8 +841,13 @@ class MinecraftLauncher:
                     logger.warning(f"原版安装失败（模组加载器安装已自行处理）: {vanilla_error[0]}")
 
                 logger.info(f"安装完成: {installed_version_id} (Loader: {mod_loader} {loader_version})")
-                slog.info("version_installed", version=version_id, loader=mod_loader,
-                          installed_version_id=installed_version_id, loader_version=loader_version)
+                slog.info(
+                    "version_installed",
+                    version=version_id,
+                    loader=mod_loader,
+                    installed_version_id=installed_version_id,
+                    loader_version=loader_version,
+                )
                 self._emit_plugin_hook("version.post_install", version_id=installed_version_id, success=True)
                 self.invalidate_instance_cache()
                 return True, installed_version_id
@@ -854,25 +855,28 @@ class MinecraftLauncher:
                 # 仅安装原版 Minecraft
                 logger.info(f"正在安装 Minecraft {version_id}")
                 self._mcllib.install.install_minecraft_version(
-                    version_id,
-                    self.minecraft_dir,
-                    callback=self._get_callback()
+                    version_id, self.minecraft_dir, callback=self._get_callback()
                 )
                 logger.info(f"Minecraft {version_id} 安装成功")
-                slog.info("version_installed", version=version_id, loader="vanilla",
-                          installed_version_id=version_id)
+                slog.info("version_installed", version=version_id, loader="vanilla", installed_version_id=version_id)
                 self._emit_plugin_hook("version.post_install", version_id=version_id, success=True)
                 self.invalidate_instance_cache()
                 return True, version_id
 
         except Exception as e:
             logger.error(f"安装版本失败: {str(e)}")
-            slog.error("version_install_failed", version=version_id, loader=mod_loader if mod_loader != "无" else "vanilla",
-                       error=str(e)[:200])
+            slog.error(
+                "version_install_failed",
+                version=version_id,
+                loader=mod_loader if mod_loader != "无" else "vanilla",
+                error=str(e)[:200],
+            )
             self._emit_plugin_hook("version.post_install", version_id=version_id, success=False)
             return False, version_id
 
-    def launch_game(self, version_id: str, minimize_after: bool = False, server_ip: str | None = None, server_port: int = 25565) -> bool:
+    def launch_game(
+        self, version_id: str, minimize_after: bool = False, server_ip: str | None = None, server_port: int = 25565
+    ) -> bool:
         """
         启动游戏
 
@@ -915,7 +919,8 @@ class MinecraftLauncher:
                 # 使用 "-" 做边界避免新格式下 "26.1" 错误匹配 "26.1.1"
                 all_names = [v.folder_name for v in installed_versions]
                 matches = [
-                    name for name in all_names
+                    name
+                    for name in all_names
                     if name == version_id or name.startswith(version_id + "-") or name.endswith("-" + version_id)
                 ]
                 if len(matches) == 1:
@@ -939,8 +944,16 @@ class MinecraftLauncher:
             if self._has_mod_loader(target_version):
                 version_game_dir = os.path.join(self.minecraft_dir, "versions", target_version)
                 os.makedirs(version_game_dir, exist_ok=True)
-                for subdir in ("mods", "config", "saves", "resourcepacks", "shaderpacks",
-                               "screenshots", "crash-reports", "logs"):
+                for subdir in (
+                    "mods",
+                    "config",
+                    "saves",
+                    "resourcepacks",
+                    "shaderpacks",
+                    "screenshots",
+                    "crash-reports",
+                    "logs",
+                ):
                     os.makedirs(os.path.join(version_game_dir, subdir), exist_ok=True)
                 options["gameDirectory"] = version_game_dir
                 logger.info(f"版本隔离已启用: gameDirectory={version_game_dir}")
@@ -971,9 +984,11 @@ class MinecraftLauncher:
                     logger.info(f"{_display_name} 未找到，正在自动下载...")
                     try:
                         from modrinth import install_mod_with_deps
+
                         mc_version = self._extract_mc_version(target_version)
                         if mc_version == target_version:
                             from modrinth import parse_game_version_from_version
+
                             mc_version = parse_game_version_from_version(target_version)
                         ok, msg, names = install_mod_with_deps(
                             project_id=_project_id,
@@ -1014,6 +1029,7 @@ class MinecraftLauncher:
             # 皮肤：版本隔离时将皮肤复制到版本目录，确保游戏能找到
             if self.config.skin_path and os.path.exists(self.config.skin_path):
                 import shutil
+
                 game_dir = options.get("gameDirectory", self.minecraft_dir)
                 skin_dir = os.path.join(game_dir, "skins")
                 os.makedirs(skin_dir, exist_ok=True)
@@ -1041,13 +1057,18 @@ class MinecraftLauncher:
                 if _loader_type != "cleanroom":
                     parent_natives = None
                     try:
-                        version_json_path = Path(self.minecraft_dir) / "versions" / target_version / f"{target_version}.json"
+                        version_json_path = (
+                            Path(self.minecraft_dir) / "versions" / target_version / f"{target_version}.json"
+                        )
                         if version_json_path.exists():
                             import json as _json
+
                             obj = _json.loads(version_json_path.read_text(encoding="utf-8"))
                             inherits_from = obj.get("inheritsFrom")
                             if inherits_from:
-                                parent_natives_path = Path(self.minecraft_dir) / "versions" / str(inherits_from).strip() / "natives"
+                                parent_natives_path = (
+                                    Path(self.minecraft_dir) / "versions" / str(inherits_from).strip() / "natives"
+                                )
                                 if parent_natives_path.exists() and any(parent_natives_path.iterdir()):
                                     parent_natives = str(parent_natives_path)
                     except Exception:
@@ -1096,9 +1117,7 @@ class MinecraftLauncher:
                     )
             else:
                 minecraft_command = self._mcllib.command.get_minecraft_command(
-                    target_version,
-                    self.minecraft_dir,
-                    options
+                    target_version, self.minecraft_dir, options
                 )
 
             # Cleanroom classpath 过滤：移除与 Cleanroom 冲突的旧版库
@@ -1108,9 +1127,7 @@ class MinecraftLauncher:
 
             # 使用 java_scanner 解析最佳 Java 可执行文件
             if minecraft_command:
-                resolved_java = self._resolve_java_executable(
-                    target_version, minecraft_command[0]
-                )
+                resolved_java = self._resolve_java_executable(target_version, minecraft_command[0])
                 if resolved_java != minecraft_command[0]:
                     logger.info(f"Java 可执行文件已替换: {minecraft_command[0]} -> {resolved_java}")
                     minecraft_command[0] = resolved_java
@@ -1150,7 +1167,12 @@ class MinecraftLauncher:
                         if not _new_java:
                             _new_java = self._ensure_java_runtime(target_version)
 
-                        if _new_java and _new_java != "java" and os.path.isfile(_new_java) and self._verify_java_version(_new_java, _min_java):
+                        if (
+                            _new_java
+                            and _new_java != "java"
+                            and os.path.isfile(_new_java)
+                            and self._verify_java_version(_new_java, _min_java)
+                        ):
                             minecraft_command[0] = _new_java
                             logger.info(f"Java 已修正为: {_new_java}")
                         else:
@@ -1167,6 +1189,7 @@ class MinecraftLauncher:
             if self._is_gtnh_instance(target_version):
                 try:
                     import tkinter.messagebox as _mb
+
                     _mb.showwarning(
                         "GTNH 兼容性提示",
                         "检测到 GT New Horizons 整合包。\n\n"
@@ -1175,7 +1198,7 @@ class MinecraftLauncher:
                         "建议使用以下启动器之一：\n"
                         "  - HMCL (Hello Minecraft! Launcher)\n"
                         "  - Prism Launcher (官方推荐)\n\n"
-                        "游戏仍会尝试启动，但可能会崩溃。"
+                        "游戏仍会尝试启动，但可能会崩溃。",
                     )
                 except Exception:
                     pass
@@ -1188,8 +1211,14 @@ class MinecraftLauncher:
             _jvm_args = [a for a in minecraft_command[1:] if a.startswith("-")]
             _game_args = [a for a in minecraft_command[1:] if not a.startswith("-")]
             _loader = self._detect_mod_loader_type(target_version)
-            slog.info("game_launch_command_generated", version=target_version, loader=_loader,
-                      java_cmd=_java_cmd, jvm_args=_jvm_args[:10], game_args_count=len(_game_args))
+            slog.info(
+                "game_launch_command_generated",
+                version=target_version,
+                loader=_loader,
+                java_cmd=_java_cmd,
+                jvm_args=_jvm_args[:10],
+                game_args_count=len(_game_args),
+            )
 
             # ── 设置启动器名称 ──
             # 替换 --versionType 参数值，使游戏标题界面左下角显示 "Minecraft x.x.x/FMCL"
@@ -1198,28 +1227,24 @@ class MinecraftLauncher:
             logger.info("正在启动游戏...")
             # 使用 PIPE 捕获 + 同步输出到终端
             import sys as _sys
-            popen_kwargs = dict(
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                bufsize=1,
-            )
-            if sys.platform == 'win32':
-                popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+
+            popen_kwargs = dict(stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1)
+            if sys.platform == "win32":
+                popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
             # ── Windows 命令行长度限制绕过 ──
             # cmd.exe 限制为 8191 字符，classpath 可能超限。
             # 使用 Java @参数文件 绕过限制（Java 9+ 原生支持）。
             _args_file = None
-            if sys.platform == 'win32':
+            if sys.platform == "win32":
                 # java.exe 本身不算在命令长度内（通过 Popen 列表传递）
                 # 但 classpath 作为单个参数可能接近或超过限制，统一用 @file
                 if any(len(a) > 2000 for a in minecraft_command):
                     import tempfile
-                    _args_file = tempfile.NamedTemporaryFile(
-                        mode='w', suffix='.txt', delete=False, encoding='utf-8'
-                    )
+
+                    _args_file = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
                     for a in minecraft_command[1:]:  # 跳过 java.exe
-                        _args_file.write(a + '\n')
+                        _args_file.write(a + "\n")
                     _args_file.flush()
                     _args_file.close()
                     _args_path = _args_file.name
@@ -1235,7 +1260,9 @@ class MinecraftLauncher:
                 popen_kwargs["env"] = env
                 logger.info("已设置 INST_CLEANROOM=1 环境变量")
             # ── 插件钩子: game.pre_launch ──
-            pre_launch_results = self._emit_plugin_hook("game.pre_launch", version_id=target_version, command=minecraft_command)
+            pre_launch_results = self._emit_plugin_hook(
+                "game.pre_launch", version_id=target_version, command=minecraft_command
+            )
             if pre_launch_results:
                 for _, mod in pre_launch_results:
                     if isinstance(mod, list):
@@ -1246,10 +1273,7 @@ class MinecraftLauncher:
                         if additions:
                             minecraft_command.extend(additions)
 
-            self._game_process = subprocess.Popen(
-                minecraft_command,
-                **popen_kwargs,
-            )
+            self._game_process = subprocess.Popen(minecraft_command, **popen_kwargs)
 
             # ── 启动子进程输出采集线程 ──
             _early_output_lines: List[str] = []
@@ -1263,7 +1287,7 @@ class MinecraftLauncher:
                         line = line_bytes.decode("utf-8", errors="replace").rstrip()
                         if line:
                             _early_output_lines.append(line)
-                            _sys.stdout.write(line + '\n')
+                            _sys.stdout.write(line + "\n")
                             _sys.stdout.flush()
                 except (ValueError, OSError):
                     pass
@@ -1285,7 +1309,7 @@ class MinecraftLauncher:
                             line = line.rstrip()
                             if line:
                                 _early_output_lines.append(line)
-                                _sys.stdout.write(line + '\n')
+                                _sys.stdout.write(line + "\n")
                 except Exception:
                     pass
                 _sys.stdout.flush()
@@ -1352,6 +1376,7 @@ class MinecraftLauncher:
         """
         try:
             from version_utils import parse_loader_version_from_json
+
             json_path = os.path.join(self.minecraft_dir, "versions", version_id, f"{version_id}.json")
             if os.path.isfile(json_path):
                 with open(json_path, "r", encoding="utf-8") as f:
@@ -1388,17 +1413,13 @@ class MinecraftLauncher:
             True 如果该版本是 MMC 整合包安装的实例
         """
         # 1. mmc_config.json
-        config_path = os.path.join(
-            self.minecraft_dir, "versions", version_id, "mmc_config.json"
-        )
+        config_path = os.path.join(self.minecraft_dir, "versions", version_id, "mmc_config.json")
         if os.path.isfile(config_path):
             return True
 
         # 2. inheritsFrom 兜底（MMC 实例克隆自原版版本）
         try:
-            json_path = os.path.join(
-                self.minecraft_dir, "versions", version_id, f"{version_id}.json"
-            )
+            json_path = os.path.join(self.minecraft_dir, "versions", version_id, f"{version_id}.json")
             logger.info(f"[MMC-minJava] 检查: {json_path}, exists={os.path.isfile(json_path)}")
             if os.path.isfile(json_path):
                 with open(json_path, "r", encoding="utf-8") as f:
@@ -1427,9 +1448,7 @@ class MinecraftLauncher:
             True 如果该版本是 GTNH 实例
         """
         try:
-            json_path = os.path.join(
-                self.minecraft_dir, "versions", version_id, f"{version_id}.json"
-            )
+            json_path = os.path.join(self.minecraft_dir, "versions", version_id, f"{version_id}.json")
             if not os.path.isfile(json_path):
                 return False
             with open(json_path, "r", encoding="utf-8") as f:
@@ -1457,9 +1476,7 @@ class MinecraftLauncher:
             最低 Java 主版本号，或 None（无特殊要求）
         """
         try:
-            json_path = os.path.join(
-                self.minecraft_dir, "versions", version_id, f"{version_id}.json"
-            )
+            json_path = os.path.join(self.minecraft_dir, "versions", version_id, f"{version_id}.json")
             if os.path.isfile(json_path):
                 with open(json_path, "r", encoding="utf-8") as f:
                     obj = json.loads(f.read())
@@ -1470,8 +1487,7 @@ class MinecraftLauncher:
                         # GTNH 用 Java 17 更稳定，cap 到 17
                         if major > 17:
                             logger.info(
-                                f"MMC 实例 {version_id} 要求 Java {major}+，"
-                                f"使用 Java 17（GTNH 兼容性更好）"
+                                f"MMC 实例 {version_id} 要求 Java {major}+，" f"使用 Java 17（GTNH 兼容性更好）"
                             )
                             major = 17
                         logger.info(f"MMC 实例 {version_id} 需要 Java {major}+")
@@ -1506,9 +1522,7 @@ class MinecraftLauncher:
             Java 可执行文件路径，或 None
         """
         try:
-            json_path = os.path.join(
-                self.minecraft_dir, "versions", version_id, f"{version_id}.json"
-            )
+            json_path = os.path.join(self.minecraft_dir, "versions", version_id, f"{version_id}.json")
             if not os.path.isfile(json_path):
                 return None
 
@@ -1544,8 +1558,11 @@ class MinecraftLauncher:
             self._set_status(f"正在安装 Java {min_java} 运行时 ({component})...")
             logger.info(f"MMC: 安装 JVM 运行时 {component} (Java {min_java})")
             try:
-                self._mcllib.runtime.install_jvm_runtime(component, self.minecraft_dir,
-                    callback=self._get_callback() if hasattr(self, "_get_callback") else {})
+                self._mcllib.runtime.install_jvm_runtime(
+                    component,
+                    self.minecraft_dir,
+                    callback=self._get_callback() if hasattr(self, "_get_callback") else {},
+                )
             except Exception as e:
                 logger.warning(f"JVM 运行时安装 ({component}) 失败: {e}")
                 return None
@@ -1580,9 +1597,8 @@ class MinecraftLauncher:
             return False
         try:
             import re as _re
-            result = subprocess.run(
-                [java_path, "-version"], capture_output=True, text=True, timeout=10
-            )
+
+            result = subprocess.run([java_path, "-version"], capture_output=True, text=True, timeout=10)
             _ver_output = result.stderr or result.stdout
             _m = _re.search(r'version "(\d+)', _ver_output)
             if _m:
@@ -1602,9 +1618,7 @@ class MinecraftLauncher:
         Args:
             version_id: 版本 ID
         """
-        json_path = os.path.join(
-            self.minecraft_dir, "versions", version_id, f"{version_id}.json"
-        )
+        json_path = os.path.join(self.minecraft_dir, "versions", version_id, f"{version_id}.json")
         if not os.path.isfile(json_path):
             return
 
@@ -1636,7 +1650,7 @@ class MinecraftLauncher:
         rfb_ver = "1.0.12"
         for part in rfb_jar.replace("\\", "/").split("/"):
             if part.startswith("retrofuturabootstrap-") and part.endswith(".jar"):
-                rfb_ver = part[len("retrofuturabootstrap-"):-len(".jar")]
+                rfb_ver = part[len("retrofuturabootstrap-") : -len(".jar")]
                 break
         lib_name = f"com.gtnewhorizons:retrofuturabootstrap:{rfb_ver}"
         maven_path = f"com/gtnewhorizons/retrofuturabootstrap/{rfb_ver}/retrofuturabootstrap-{rfb_ver}.jar"
@@ -1709,9 +1723,7 @@ class MinecraftLauncher:
             if arg.startswith("-Xbootclasspath/a:") and "retrofuturabootstrap" in arg.lower():
                 return None
 
-        json_path = os.path.join(
-            self.minecraft_dir, "versions", version_id, f"{version_id}.json"
-        )
+        json_path = os.path.join(self.minecraft_dir, "versions", version_id, f"{version_id}.json")
         if not os.path.isfile(json_path):
             return None
 
@@ -1735,9 +1747,7 @@ class MinecraftLauncher:
 
         # 目标：Maven 标准路径（Forge/mclib 可从 libraries 解析）
         # .minecraft/libraries/com/gtnewhorizons/retrofuturabootstrap/<ver>/
-        maven_dir = os.path.join(
-            self.minecraft_dir, "libraries", "com", "gtnewhorizons", "retrofuturabootstrap"
-        )
+        maven_dir = os.path.join(self.minecraft_dir, "libraries", "com", "gtnewhorizons", "retrofuturabootstrap")
         os.makedirs(maven_dir, exist_ok=True)
 
         # 检查 Maven 路径是否已存在
@@ -1756,11 +1766,14 @@ class MinecraftLauncher:
                     jar_path = os.path.join(old_lib_dir, existing)
                     logger.info(f"retrofuturabootstrap 已存在于实例目录: {jar_path}")
                     # 复制到 Maven 路径
-                    dest_dir = os.path.join(maven_dir, existing.replace("retrofuturabootstrap-", "").replace(".jar", ""))
+                    dest_dir = os.path.join(
+                        maven_dir, existing.replace("retrofuturabootstrap-", "").replace(".jar", "")
+                    )
                     os.makedirs(dest_dir, exist_ok=True)
                     dest_path = os.path.join(dest_dir, existing)
                     if not os.path.isfile(dest_path):
                         import shutil
+
                         shutil.copy2(jar_path, dest_path)
                         logger.info(f"retrofuturabootstrap 已复制到 Maven 路径: {dest_path}")
                     return dest_path
@@ -1774,6 +1787,7 @@ class MinecraftLauncher:
         )
 
         import requests as _req
+
         for ver in versions_to_try:
             url = base_url.format(ver=ver)
             # Maven 标准路径：libraries/com/gtnewhorizons/retrofuturabootstrap/<ver>/<jar>
@@ -1782,11 +1796,7 @@ class MinecraftLauncher:
             target_path = os.path.join(target_dir, f"retrofuturabootstrap-{ver}.jar")
             try:
                 logger.info(f"下载 retrofuturabootstrap {ver}: {url}")
-                resp = _req.get(
-                    url,
-                    headers={"User-Agent": "FMCL/2.0"},
-                    timeout=60,
-                )
+                resp = _req.get(url, headers={"User-Agent": "FMCL/2.0"}, timeout=60)
                 resp.raise_for_status()
                 with open(target_path, "wb") as f:
                     f.write(resp.content)
@@ -1813,9 +1823,7 @@ class MinecraftLauncher:
             version_id: 版本 ID
             jar_path: JAR 文件的绝对路径
         """
-        json_path = os.path.join(
-            self.minecraft_dir, "versions", version_id, f"{version_id}.json"
-        )
+        json_path = os.path.join(self.minecraft_dir, "versions", version_id, f"{version_id}.json")
         if not os.path.isfile(json_path):
             return
         try:
@@ -1826,15 +1834,7 @@ class MinecraftLauncher:
 
         lib_name = "com.gtnewhorizons:retrofuturabootstrap:1.0.0"
         jar_url = f"file:///{jar_path.replace(os.sep, '/')}"
-        new_lib = {
-            "name": lib_name,
-            "downloads": {
-                "artifact": {
-                    "path": jar_path,
-                    "url": jar_url,
-                }
-            },
-        }
+        new_lib = {"name": lib_name, "downloads": {"artifact": {"path": jar_path, "url": jar_url}}}
 
         libraries = vj.get("libraries", [])
         existing_names = {lib.get("name", "") for lib in libraries}
@@ -1878,6 +1878,7 @@ class MinecraftLauncher:
                 return False
 
             import json as _json
+
             try:
                 obj = _json.loads(version_json_path.read_text(encoding="utf-8"))
             except Exception:
@@ -1898,6 +1899,7 @@ class MinecraftLauncher:
             # 复制父版本 JAR 到当前版本目录
             jar_path.parent.mkdir(parents=True, exist_ok=True)
             import shutil
+
             shutil.copy2(str(parent_jar), str(jar_path))
             logger.info(f"已从父版本 {parent_id} 复制 JAR 到 {jar_path}")
             return True
@@ -1954,7 +1956,7 @@ class MinecraftLauncher:
                 break
 
         jvm_opts = []
-        is_cleanroom = (loader_type == "cleanroom")
+        is_cleanroom = loader_type == "cleanroom"
 
         # ── FML 兼容性参数（Forge/NeoForge/Cleanroom） ──
         # 参考 HMCL DefaultLauncher: 无条件添加以下 FML 参数以兼容旧版 Forge 模块验证
@@ -1970,7 +1972,9 @@ class MinecraftLauncher:
         # 添加到 bootstrap classloader 路径，使所有 classloader（包括 LaunchClassLoader）可访问。
         # 参考 HMCL MaintainTask / Forge CoreMod 的处理方式。
         if loader_type == "liteloader":
-            asm_jar_path = os.path.join(self.minecraft_dir, "libraries", "org", "ow2", "asm", "asm-all", "5.2", "asm-all-5.2.jar")
+            asm_jar_path = os.path.join(
+                self.minecraft_dir, "libraries", "org", "ow2", "asm", "asm-all", "5.2", "asm-all-5.2.jar"
+            )
             if os.path.isfile(asm_jar_path):
                 jvm_opts.append(f"-Xbootclasspath/a:{asm_jar_path}")
                 logger.info(f"LiteLoader ASM 兼容: 已添加 -Xbootclasspath/a:{asm_jar_path}")
@@ -2017,10 +2021,7 @@ class MinecraftLauncher:
                             jvm_opts.append("-Xms1G")
                         break
 
-            jvm_opts.extend([
-                "-XX:+ParallelRefProcEnabled",
-                "-XX:MaxGCPauseMillis=200",
-            ])
+            jvm_opts.extend(["-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200"])
 
         if jvm_opts:
             for opt in reversed(jvm_opts):
@@ -2092,13 +2093,17 @@ class MinecraftLauncher:
             if arg in ("-cp", "-classpath") and i + 1 < len(command):
                 entries = command[i + 1].split(path_sep)
                 filtered = [
-                    e for e in entries
-                    if not any(conflict in e for conflict in (
-                        "2.9.4-nightly-20150209",
-                        "lwjgl:lwjgl:2.9.4",
-                        "jna:platform:3.4.0",
-                        "icu4j-core-mojang:51.2",
-                    ))
+                    e
+                    for e in entries
+                    if not any(
+                        conflict in e
+                        for conflict in (
+                            "2.9.4-nightly-20150209",
+                            "lwjgl:lwjgl:2.9.4",
+                            "jna:platform:3.4.0",
+                            "icu4j-core-mojang:51.2",
+                        )
+                    )
                 ]
                 if len(filtered) != len(entries):
                     removed = len(entries) - len(filtered)
@@ -2161,6 +2166,7 @@ class MinecraftLauncher:
             if pm is None:
                 return
             from plugin_manager.base import HookPoint
+
             hook_map = {
                 "game.pre_launch": HookPoint.GAME_PRE_LAUNCH,
                 "game.post_launch": HookPoint.GAME_POST_LAUNCH,
@@ -2180,6 +2186,7 @@ class MinecraftLauncher:
                 return pm.emit(hook_point, **kwargs)
         except Exception as e:
             from logzero import logger
+
             logger.warning(f"插件钩子发射异常 ({hook_name}): {e}")
 
     def get_callbacks(self) -> Dict[str, Callable]:
@@ -2325,6 +2332,7 @@ class MinecraftLauncher:
             return None
         try:
             import requests
+
             resp = requests.get(
                 "https://jingdu.qzz.io/api/user/info",
                 headers={
@@ -2340,9 +2348,10 @@ class MinecraftLauncher:
             return info
         except Exception as e:
             from logzero import logger
+
             detail = str(e)
             try:
-                if hasattr(e, 'response') and e.response is not None:
+                if hasattr(e, "response") and e.response is not None:
                     detail = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
             except Exception:
                 pass
@@ -2351,7 +2360,7 @@ class MinecraftLauncher:
 
     def get_language(self) -> str:
         """获取界面语言"""
-        return getattr(self.config, 'language', 'zh_CN')
+        return getattr(self.config, "language", "zh_CN")
 
     def set_language(self, language: str) -> None:
         """设置界面语言"""
@@ -2419,6 +2428,7 @@ class MinecraftLauncher:
                 engine.apply_theme(modified_theme, version_colors["accent"])
                 try:
                     from achievement_engine import get_achievement_engine
+
                     ach_engine = get_achievement_engine()
                     if ach_engine:
                         ach_engine.update_progress("personalize_version_theme")
@@ -2455,9 +2465,11 @@ class MinecraftLauncher:
             # 高性能 JSON 解析
             try:
                 import orjson
+
                 version_data = orjson.loads(version_json.read_bytes())
             except ImportError:
                 import json
+
                 with open(str(version_json), "r", encoding="utf-8") as f:
                     version_data = json.load(f)
 

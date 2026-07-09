@@ -2,16 +2,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
 "command contains the function for creating the minecraft command"
-from ._helper import parse_rule_list, inherit_json, get_classpath_separator, get_library_path
-from ._internal_types.shared_types import ClientJson, ClientJsonArgumentRule
-from .runtime import get_executable_path
-from .exceptions import VersionNotFound
-from .utils import get_library_version
-from .types import MinecraftOptions
-from .natives import get_natives
-import json
+
 import copy
+import json
 import os
+
+from ._helper import get_classpath_separator, get_library_path, inherit_json, parse_rule_list
+from ._internal_types.shared_types import ClientJson, ClientJsonArgumentRule
+from .exceptions import VersionNotFound
+from .natives import get_natives
+from .runtime import get_executable_path
+from .types import MinecraftOptions
+from .utils import get_library_version
 
 __all__ = ["get_minecraft_command"]
 
@@ -42,7 +44,9 @@ def get_libraries(data: ClientJson, path: str) -> str:
     return libstr
 
 
-def replace_arguments(argstr: str, versionData: ClientJson, path: str, options: MinecraftOptions, classpath: str) -> str:
+def replace_arguments(
+    argstr: str, versionData: ClientJson, path: str, options: MinecraftOptions, classpath: str
+) -> str:
     """
     Replace all placeholder in arguments with the needed value
     """
@@ -67,7 +71,9 @@ def replace_arguments(argstr: str, versionData: ClientJson, path: str, options: 
     argstr = argstr.replace("${library_directory}", os.path.join(path, "libraries"))
     argstr = argstr.replace("${classpath_separator}", get_classpath_separator())
     argstr = argstr.replace("${quickPlayPath}", options.get("quickPlayPath") or "{quickPlayPath}")
-    argstr = argstr.replace("${quickPlaySingleplayer}", options.get("quickPlaySingleplayer") or "{quickPlaySingleplayer}")
+    argstr = argstr.replace(
+        "${quickPlaySingleplayer}", options.get("quickPlaySingleplayer") or "{quickPlaySingleplayer}"
+    )
     argstr = argstr.replace("${quickPlayMultiplayer}", options.get("quickPlayMultiplayer") or "{quickPlayMultiplayer}")
     argstr = argstr.replace("${quickPlayRealms}", options.get("quickPlayRealms") or "{quickPlayRealms}")
     return argstr
@@ -96,7 +102,13 @@ def get_arguments_string(versionData: ClientJson, path: str, options: MinecraftO
     return arglist
 
 
-def get_arguments(data: list[str | ClientJsonArgumentRule], versionData: ClientJson, path: str, options: MinecraftOptions, classpath: str) -> list[str]:
+def get_arguments(
+    data: list[str | ClientJsonArgumentRule],
+    versionData: ClientJson,
+    path: str,
+    options: MinecraftOptions,
+    classpath: str,
+) -> list[str]:
     """
     Returns all arguments from the client.json
     """

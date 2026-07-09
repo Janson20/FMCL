@@ -1,16 +1,17 @@
 """启动器设置窗口"""
+
 import subprocess
 import sys
 import threading
 import tkinter.messagebox as messagebox
-from typing import Dict, Optional, Callable, Any
+from tkinter import filedialog
+from typing import Any, Callable, Dict, Optional
 
 import customtkinter as ctk
 from logzero import logger
-from tkinter import filedialog
 
 from ui.constants import COLORS, FONT_FAMILY
-from ui.i18n import _, get_available_languages, set_language, get_current_language
+from ui.i18n import _, get_available_languages, get_current_language, set_language
 
 
 class LauncherSettingsWindow(ctk.CTkToplevel):
@@ -42,9 +43,9 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
     def destroy(self):
         """销毁窗口，先处理 CTkSlider 的 bug"""
-        if hasattr(self, '_threads_slider'):
+        if hasattr(self, "_threads_slider"):
             try:
-                if hasattr(self._threads_slider, '_variable'):
+                if hasattr(self._threads_slider, "_variable"):
                     self._threads_slider._variable = None
             except Exception:
                 pass
@@ -57,12 +58,12 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         # 获取当前脚本路径
         script = sys.executable
         try:
-            if getattr(sys, 'frozen', False):
+            if getattr(sys, "frozen", False):
                 # PyInstaller 打包环境下
                 subprocess.Popen([script])
             else:
                 # 开发环境下
-                subprocess.Popen([script, 'main.py'])
+                subprocess.Popen([script, "main.py"])
         except Exception as e:
             logger.error(f"重启启动器失败: {e}")
             messagebox.showerror("重启失败", f"无法启动新进程:\n{e}\n请手动重启启动器。", parent=self.parent)
@@ -81,15 +82,23 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         title.pack(anchor=ctk.W, padx=20, pady=(20, 0))
 
         # 标签页
-        tabview = ctk.CTkTabview(self, fg_color=COLORS["bg_dark"], segmented_button_fg_color=COLORS["bg_medium"],
-                                 segmented_button_selected_color=COLORS["accent"],
-                                 segmented_button_unselected_color=COLORS["bg_medium"],
-                                 segmented_button_selected_hover_color=COLORS["accent_hover"])
+        tabview = ctk.CTkTabview(
+            self,
+            fg_color=COLORS["bg_dark"],
+            segmented_button_fg_color=COLORS["bg_medium"],
+            segmented_button_selected_color=COLORS["accent"],
+            segmented_button_unselected_color=COLORS["bg_medium"],
+            segmented_button_selected_hover_color=COLORS["accent_hover"],
+        )
         tabview.pack(fill=ctk.BOTH, expand=True, padx=20, pady=(10, 5))
-        self._r(tabview, fg_color="bg_dark", segmented_button_fg_color="bg_medium",
-                segmented_button_selected_color="accent",
-                segmented_button_unselected_color="bg_medium",
-                segmented_button_selected_hover_color="accent_hover")
+        self._r(
+            tabview,
+            fg_color="bg_dark",
+            segmented_button_fg_color="bg_medium",
+            segmented_button_selected_color="accent",
+            segmented_button_unselected_color="bg_medium",
+            segmented_button_selected_hover_color="accent_hover",
+        )
 
         tab_launcher = tabview.add(_("settings_tab_launcher"))
         tab_account = tabview.add(_("settings_tab_account"))
@@ -127,8 +136,13 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             command=self._on_minimize_toggle,
         )
         self.minimize_switch.pack(side=ctk.RIGHT)
-        self._r(self.minimize_switch, fg_color="accent", button_color="text_primary",
-                button_hover_color="text_secondary", progress_color="accent_hover")
+        self._r(
+            self.minimize_switch,
+            fg_color="accent",
+            button_color="text_primary",
+            button_hover_color="text_secondary",
+            progress_color="accent_hover",
+        )
 
         # 国内镜像源开关
         mirror_frame = ctk.CTkFrame(container, fg_color="transparent")
@@ -157,8 +171,13 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             command=self._on_mirror_toggle,
         )
         self.mirror_switch.pack(side=ctk.RIGHT)
-        self._r(self.mirror_switch, fg_color="accent", button_color="text_primary",
-                button_hover_color="text_secondary", progress_color="accent_hover")
+        self._r(
+            self.mirror_switch,
+            fg_color="accent",
+            button_color="text_primary",
+            button_hover_color="text_secondary",
+            progress_color="accent_hover",
+        )
 
         # ── Java 运行时设置 ──
         java_section = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
@@ -197,9 +216,9 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         current_mode = self.callbacks.get("get_java_mode", lambda: "auto")()
         current_mode_display = (
-            _("settings_java_mode_scan") if current_mode == "scan"
-            else _("settings_java_mode_custom") if current_mode == "custom"
-            else _("settings_java_mode_auto")
+            _("settings_java_mode_scan")
+            if current_mode == "scan"
+            else _("settings_java_mode_custom") if current_mode == "custom" else _("settings_java_mode_auto")
         )
 
         self.java_mode_var = ctk.StringVar(value=current_mode_display)
@@ -251,11 +270,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             self._java_custom_frame.pack_forget()
 
         # 扫描列表区域（仅 scan 模式可见）
-        self._java_scan_frame = ctk.CTkScrollableFrame(
-            java_section,
-            fg_color=COLORS["bg_dark"],
-            height=140,
-        )
+        self._java_scan_frame = ctk.CTkScrollableFrame(java_section, fg_color=COLORS["bg_dark"], height=140)
 
         self._java_scan_list_label = ctk.CTkLabel(
             self._java_scan_frame,
@@ -290,11 +305,15 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self._r(java_section, fg_color="bg_medium")
         self._r(java_title, text_color="text_primary")
         self._r(java_mode_label, text_color="text_primary")
-        self._r(self.java_mode_menu, fg_color="bg_dark", button_color="bg_light",
-                button_hover_color="card_border", dropdown_fg_color="bg_medium",
-                dropdown_hover_color="bg_light")
-        self._r(self.java_custom_entry, fg_color="bg_dark", border_color="card_border",
-                text_color="text_primary")
+        self._r(
+            self.java_mode_menu,
+            fg_color="bg_dark",
+            button_color="bg_light",
+            button_hover_color="card_border",
+            dropdown_fg_color="bg_medium",
+            dropdown_hover_color="bg_light",
+        )
+        self._r(self.java_custom_entry, fg_color="bg_dark", border_color="card_border", text_color="text_primary")
         self._r(self.java_custom_browse_btn, fg_color="bg_light", hover_color="card_border")
         self._r(self._java_scan_frame, fg_color="bg_dark")
         self._r(self._java_scan_list_label, text_color="text_secondary")
@@ -574,10 +593,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self._r(mc_account_desc, text_color="text_secondary")
 
         self._mc_account_quick_info = ctk.CTkLabel(
-            mc_account_section,
-            text="",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color=COLORS["accent"],
+            mc_account_section, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["accent"]
         )
         self._mc_account_quick_info.pack(anchor=ctk.W, padx=12, pady=(0, 5))
         self._r(self._mc_account_quick_info, text_color="accent")
@@ -708,10 +724,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             self._account_info_label_widgets.append(key_label)
             self._r(key_label, text_color="text_secondary")
             value_label = ctk.CTkLabel(
-                row,
-                text="-",
-                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                text_color=COLORS["text_primary"],
+                row, text="-", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_primary"]
             )
             value_label.pack(side=ctk.LEFT, padx=(5, 0))
             self._account_info_labels[key] = value_label
@@ -745,6 +758,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
         # 注册链接
         import webbrowser
+
         register_btn = ctk.CTkButton(
             jdz_section,
             text=_("netread_register"),
@@ -797,40 +811,57 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         # 注册所有主题依赖组件
         self._r(title, text_color="text_primary")
         self._r(language_label, text_color="text_primary")
-        self._r(language_menu, fg_color="bg_medium", button_color="bg_light",
-                button_hover_color="card_border", dropdown_fg_color="bg_medium",
-                dropdown_hover_color="bg_light")
+        self._r(
+            language_menu,
+            fg_color="bg_medium",
+            button_color="bg_light",
+            button_hover_color="card_border",
+            dropdown_fg_color="bg_medium",
+            dropdown_hover_color="bg_light",
+        )
         self._r(theme_section, fg_color="bg_medium")
         self._r(theme_title, text_color="text_primary")
         self._r(theme_label, text_color="text_primary")
         self._r(import_theme_btn, fg_color="bg_light", hover_color="card_border")
-        self._r(self.theme_menu, fg_color="bg_dark", button_color="bg_light",
-                button_hover_color="card_border", dropdown_fg_color="bg_medium",
-                dropdown_hover_color="bg_light")
+        self._r(
+            self.theme_menu,
+            fg_color="bg_dark",
+            button_color="bg_light",
+            button_hover_color="card_border",
+            dropdown_fg_color="bg_medium",
+            dropdown_hover_color="bg_light",
+        )
         self._r(accent_label, text_color="text_primary")
         self._r(accent_entry, fg_color="bg_dark", border_color="card_border")
         self._r(accent_apply_btn, fg_color="accent", hover_color="accent_hover")
         self._r(random_accent_btn, fg_color="bg_light", hover_color="card_border")
         self._r(dynamic_label, text_color="text_primary")
-        self._r(dynamic_switch, fg_color="accent", button_color="text_primary",
-                button_hover_color="text_secondary", progress_color="accent_hover")
+        self._r(
+            dynamic_switch,
+            fg_color="accent",
+            button_color="text_primary",
+            button_hover_color="text_secondary",
+            progress_color="accent_hover",
+        )
         self._r(dynamic_hint, text_color="text_secondary")
         self._r(threads_label, text_color="text_primary")
         self._r(self.threads_value_label, text_color="accent")
-        self._r(self._threads_slider, fg_color="bg_light", button_color="accent",
-                button_hover_color="accent_hover", progress_color="accent")
+        self._r(
+            self._threads_slider,
+            fg_color="bg_light",
+            button_color="accent",
+            button_hover_color="accent_hover",
+            progress_color="accent",
+        )
         self._r(jdz_section, fg_color="bg_medium")
         self._r(jdz_title, text_color="text_primary")
-        self._r(self.jdz_user_entry, fg_color="bg_dark", border_color="card_border",
-                text_color="text_primary")
-        self._r(self.jdz_pass_entry, fg_color="bg_dark", border_color="card_border",
-                text_color="text_primary")
+        self._r(self.jdz_user_entry, fg_color="bg_dark", border_color="card_border", text_color="text_primary")
+        self._r(self.jdz_pass_entry, fg_color="bg_dark", border_color="card_border", text_color="text_primary")
         self._r(self.jdz_login_btn, fg_color="accent", hover_color="accent_hover")
         self._r(self.jdz_logout_btn, fg_color="bg_light", hover_color="card_border")
         self._r(self._account_refresh_btn, fg_color="bg_light", hover_color="card_border")
         self._r(self._account_logout_btn, fg_color="bg_light", hover_color="card_border")
-        self._r(register_btn, fg_color="accent", hover_color="accent_hover",
-                text_color="text_primary")
+        self._r(register_btn, fg_color="accent", hover_color="accent_hover", text_color="text_primary")
         self._r(apply_btn, fg_color="accent", hover_color="accent_hover")
         self._r(close_btn, fg_color="bg_light", hover_color="card_border")
 
@@ -842,8 +873,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         # 同步主窗口变量
         self.parent.minimize_var.set(enabled)
         self.parent.set_status(
-            f"游戏启动后最小化: {'已启用' if enabled else '已禁用'}",
-            "success" if enabled else "info"
+            f"游戏启动后最小化: {'已启用' if enabled else '已禁用'}", "success" if enabled else "info"
         )
 
     def _on_mirror_toggle(self):
@@ -853,10 +883,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             self.callbacks["set_mirror_enabled"](enabled)
         # 同步主窗口变量
         self.parent.mirror_var.set(enabled)
-        self.parent.set_status(
-            f"国内镜像源: {'已启用' if enabled else '已禁用'}",
-            "success" if enabled else "info"
-        )
+        self.parent.set_status(f"国内镜像源: {'已启用' if enabled else '已禁用'}", "success" if enabled else "info")
         try:
             self.parent._trigger_ach("advanced_mirror")
         except Exception:
@@ -874,10 +901,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 self.callbacks["set_language"](lang_code)
 
             lang_name = get_available_languages().get(lang_code, lang_code)
-            self.parent.set_status(
-                _("settings_language_changed", lang=lang_name),
-                "info"
-            )
+            self.parent.set_status(_("settings_language_changed", lang=lang_name), "info")
             try:
                 self.parent._trigger_ach("advanced_polyglot")
             except Exception:
@@ -959,6 +983,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
     def _on_random_accent(self):
         """随机生成强调色"""
         from ui.theme_engine import ThemeEngine
+
         color = ThemeEngine.generate_random_accent()
         self.accent_var.set(color)
         if "set_accent_color" in self.callbacks:
@@ -1002,10 +1027,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
     def _on_java_custom_browse(self):
         file_path = filedialog.askopenfilename(
             title="选择 Java 可执行文件",
-            filetypes=[
-                ("Java Executable", "java.exe" if sys.platform == "win32" else "java"),
-                ("All Files", "*.*"),
-            ],
+            filetypes=[("Java Executable", "java.exe" if sys.platform == "win32" else "java"), ("All Files", "*.*")],
             parent=self,
         )
         if file_path:
@@ -1045,11 +1067,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             label = f"Java {rt.get('major_version')} ({kind}) - {rt.get('version_str')} [{rt.get('arch')}]"
             sublabel = rt.get("home", "")
 
-            frame = ctk.CTkFrame(
-                self._java_scan_frame,
-                fg_color=COLORS["bg_medium"],
-                corner_radius=6,
-            )
+            frame = ctk.CTkFrame(self._java_scan_frame, fg_color=COLORS["bg_medium"], corner_radius=6)
             frame.pack(fill=ctk.X, pady=2, padx=5)
 
             radio = ctk.CTkRadioButton(
@@ -1066,10 +1084,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             radio.pack(anchor=ctk.W, padx=10, pady=(4, 0))
 
             sub = ctk.CTkLabel(
-                frame,
-                text=sublabel,
-                font=ctk.CTkFont(family=FONT_FAMILY, size=9),
-                text_color=COLORS["text_secondary"],
+                frame, text=sublabel, font=ctk.CTkFont(family=FONT_FAMILY, size=9), text_color=COLORS["text_secondary"]
             )
             sub.pack(anchor=ctk.W, padx=30, pady=(0, 4))
 
@@ -1099,7 +1114,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         """刷新当前设置窗口和主窗口的UI颜色"""
         self._refresh_ui_colors()
         try:
-            if hasattr(self.parent, '_reapply_theme'):
+            if hasattr(self.parent, "_reapply_theme"):
                 self.parent._reapply_theme()
         except Exception:
             pass
@@ -1129,6 +1144,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         def _do_login():
             try:
                 import requests
+
                 resp = requests.post(
                     "https://jingdu.qzz.io/api/auth/login",
                     json={"username": username, "password": password},
@@ -1146,7 +1162,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             except Exception as e:
                 _err_msg = str(e)
                 try:
-                    if hasattr(e, 'response') and e.response is not None:
+                    if hasattr(e, "response") and e.response is not None:
                         _err_msg = f"HTTP {e.response.status_code}: {e.response.text[:100]}"
                 except Exception:
                     pass
@@ -1159,8 +1175,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             return
         self.jdz_login_btn.configure(state="normal", text=_("login"))
         self.jdz_status_label.configure(
-            text=f"{_('netread_status')}: {_('netread_logged_in')}",
-            text_color=COLORS["success"]
+            text=f"{_('netread_status')}: {_('netread_logged_in')}", text_color=COLORS["success"]
         )
         self._login_form.pack_forget()
         self._account_info_frame.pack(fill=ctk.X, padx=12, pady=(0, 10))
@@ -1173,10 +1188,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         if not self.winfo_exists():
             return
         self.jdz_login_btn.configure(state="normal", text=_("login"))
-        self.jdz_status_label.configure(
-            text=f"{_('netread_status')}: {_('login_failed')}",
-            text_color=COLORS["error"]
-        )
+        self.jdz_status_label.configure(text=f"{_('netread_status')}: {_('login_failed')}", text_color=COLORS["error"])
         messagebox.showerror(_("login_failed"), f"{_('netread_login_failed', error=msg)}", parent=self)
 
     def _on_jdz_logout(self):
@@ -1186,8 +1198,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         if "set_jdz_username" in self.callbacks:
             self.callbacks["set_jdz_username"](None)
         self.jdz_status_label.configure(
-            text=f"{_('netread_status')}: {_('netread_not_logged_in')}",
-            text_color=COLORS["text_secondary"]
+            text=f"{_('netread_status')}: {_('netread_not_logged_in')}", text_color=COLORS["text_secondary"]
         )
         self._account_info_frame.pack_forget()
         self._login_form.pack(fill=ctk.X, padx=12, pady=(0, 10))
@@ -1252,6 +1263,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
     def _update_mc_account_quick_info(self):
         try:
             from launcher.account import get_account_system
+
             account_system = get_account_system()
             if not account_system or not self.winfo_exists():
                 return
@@ -1266,8 +1278,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 self._mc_account_quick_info.configure(text=info, text_color=COLORS["success"])
             else:
                 self._mc_account_quick_info.configure(
-                    text=_("account_sidebar_none"),
-                    text_color=COLORS["text_secondary"],
+                    text=_("account_sidebar_none"), text_color=COLORS["text_secondary"]
                 )
         except Exception:
             pass
@@ -1275,23 +1286,22 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
     def _on_open_account_manager(self):
         try:
             from launcher.account import get_account_system
+
             account_system = get_account_system()
             if not account_system:
                 return
 
             from ui.windows.account_manager import AccountManagerWindow
-            AccountManagerWindow(
-                self,
-                account_system,
-                on_account_changed=lambda: self._on_mc_account_changed(),
-            )
+
+            AccountManagerWindow(self, account_system, on_account_changed=lambda: self._on_mc_account_changed())
         except Exception as e:
             import logzero
-            logzero.logger.error(f"\u6253\u5F00\u8D26\u53F7\u7BA1\u7406\u5931\u8D25: {e}")
+
+            logzero.logger.error(f"\u6253\u5f00\u8d26\u53f7\u7ba1\u7406\u5931\u8d25: {e}")
 
     def _on_mc_account_changed(self):
         self._update_mc_account_quick_info()
-        if self.parent and hasattr(self.parent, '_update_sidebar_account'):
+        if self.parent and hasattr(self.parent, "_update_sidebar_account"):
             self.parent._update_sidebar_account()
 
     # ── AI 模型配置 ──
@@ -1304,51 +1314,81 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         # 获取当前配置
         try:
             from ui.agent.config import get_agent_config, save_agent_config
+
             config = get_agent_config()
         except Exception:
             config = None
 
         # ── OpenAI ──
-        self._build_provider_section(container, "openai", "OpenAI",
+        self._build_provider_section(
+            container,
+            "openai",
+            "OpenAI",
             desc_line1="配置 OpenAI API Key 以使用 GPT-4o、GPT-4o-mini 等模型",
-            desc_line2="API Key 以 sk- 开头。获取地址: https://platform.openai.com/api-keys")
+            desc_line2="API Key 以 sk- 开头。获取地址: https://platform.openai.com/api-keys",
+        )
 
         # ── Anthropic ──
-        self._build_provider_section(container, "anthropic", "Anthropic",
+        self._build_provider_section(
+            container,
+            "anthropic",
+            "Anthropic",
             desc_line1="配置 Anthropic API Key 以使用 Claude 系列模型",
-            desc_line2="API Key 以 sk-ant- 开头。获取地址: https://console.anthropic.com/")
+            desc_line2="API Key 以 sk-ant- 开头。获取地址: https://console.anthropic.com/",
+        )
 
         # ── 自定义端点 ──
-        self._build_provider_section(container, "custom", _("settings_ai_custom"),
+        self._build_provider_section(
+            container,
+            "custom",
+            _("settings_ai_custom"),
             desc_line1="配置自定义 OpenAI 兼容 API 端点",
-            desc_line2="支持 Ollama、vLLM、LiteLLM 等兼容服务")
+            desc_line2="支持 Ollama、vLLM、LiteLLM 等兼容服务",
+        )
 
         # ── Bing API Key（用于 WebSearch）─
         bing_section = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
         bing_section.pack(fill=ctk.X, pady=(15, 5))
         self._r(bing_section, fg_color="bg_medium")
 
-        bing_title = ctk.CTkLabel(bing_section, text="Bing Search API",
+        bing_title = ctk.CTkLabel(
+            bing_section,
+            text="Bing Search API",
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            text_color=COLORS["text_primary"])
+            text_color=COLORS["text_primary"],
+        )
         bing_title.pack(anchor=ctk.W, padx=12, pady=(10, 3))
 
-        bing_desc = ctk.CTkLabel(bing_section, text="可选：配置 Bing API Key 以获得更精准的搜索结果",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLORS["text_secondary"])
+        bing_desc = ctk.CTkLabel(
+            bing_section,
+            text="可选：配置 Bing API Key 以获得更精准的搜索结果",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        )
         bing_desc.pack(anchor=ctk.W, padx=12, pady=(0, 5))
 
         bing_entry_frame = ctk.CTkFrame(bing_section, fg_color="transparent")
         bing_entry_frame.pack(fill=ctk.X, padx=12, pady=(0, 10))
 
-        bing_label = ctk.CTkLabel(bing_entry_frame, text="API Key:",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_primary"])
+        bing_label = ctk.CTkLabel(
+            bing_entry_frame,
+            text="API Key:",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_primary"],
+        )
         bing_label.pack(side=ctk.LEFT)
         self._r(bing_label, text_color="text_primary")
 
-        self._bing_key_entry = ctk.CTkEntry(bing_entry_frame, height=30,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11), width=260,
-            fg_color=COLORS["bg_dark"], border_color=COLORS["card_border"],
-            text_color=COLORS["text_primary"], show="•")
+        self._bing_key_entry = ctk.CTkEntry(
+            bing_entry_frame,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            width=260,
+            fg_color=COLORS["bg_dark"],
+            border_color=COLORS["card_border"],
+            text_color=COLORS["text_primary"],
+            show="•",
+        )
         self._bing_key_entry.pack(side=ctk.LEFT, padx=(10, 5))
         self._r(self._bing_key_entry, fg_color="bg_dark", border_color="card_border", text_color="text_primary")
 
@@ -1357,10 +1397,15 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self._bing_key_entry.insert(0, bing_key)
 
         # ── 保存按钮 ──
-        save_ai_btn = ctk.CTkButton(container, text=_("settings_save"),
-            height=34, font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
-            command=self._on_save_ai_config)
+        save_ai_btn = ctk.CTkButton(
+            container,
+            text=_("settings_save"),
+            height=34,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._on_save_ai_config,
+        )
         save_ai_btn.pack(pady=(15, 5))
 
     def _build_provider_section(self, container, pid, name, desc_line1, desc_line2):
@@ -1380,36 +1425,56 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         title_frame = ctk.CTkFrame(section, fg_color="transparent")
         title_frame.pack(fill=ctk.X, padx=12, pady=(10, 3))
 
-        title_label = ctk.CTkLabel(title_frame, text=name,
+        title_label = ctk.CTkLabel(
+            title_frame,
+            text=name,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
-            text_color=COLORS["text_primary"])
+            text_color=COLORS["text_primary"],
+        )
         title_label.pack(side=ctk.LEFT)
         self._r(title_label, text_color="text_primary")
 
-        test_btn = ctk.CTkButton(title_frame, text=_("settings_ai_test"),
-            height=24, font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-            fg_color=COLORS["bg_light"], hover_color=COLORS["card_border"],
-            command=lambda p=pid: self._on_test_provider(p))
+        test_btn = ctk.CTkButton(
+            title_frame,
+            text=_("settings_ai_test"),
+            height=24,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=lambda p=pid: self._on_test_provider(p),
+        )
         test_btn.pack(side=ctk.RIGHT)
 
         # 描述
-        desc = ctk.CTkLabel(section, text=desc_line1 + "\n" + desc_line2,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=10), text_color=COLORS["text_secondary"],
-            wraplength=440, justify=ctk.LEFT)
+        desc = ctk.CTkLabel(
+            section,
+            text=desc_line1 + "\n" + desc_line2,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+            wraplength=440,
+            justify=ctk.LEFT,
+        )
         desc.pack(anchor=ctk.W, padx=12, pady=(0, 5))
 
         # API Key
         key_frame = ctk.CTkFrame(section, fg_color="transparent")
         key_frame.pack(fill=ctk.X, padx=12, pady=3)
 
-        key_label = ctk.CTkLabel(key_frame, text="API Key:",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_primary"])
+        key_label = ctk.CTkLabel(
+            key_frame, text="API Key:", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_primary"]
+        )
         key_label.pack(side=ctk.LEFT)
         self._r(key_label, text_color="text_primary")
 
-        key_entry = ctk.CTkEntry(key_frame, height=28, font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            fg_color=COLORS["bg_dark"], border_color=COLORS["card_border"],
-            text_color=COLORS["text_primary"], show="•")
+        key_entry = ctk.CTkEntry(
+            key_frame,
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_dark"],
+            border_color=COLORS["card_border"],
+            text_color=COLORS["text_primary"],
+            show="•",
+        )
         key_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(10, 0))
         key_entry.insert(0, api_key)
         self._r(key_entry, fg_color="bg_dark", border_color="card_border", text_color="text_primary")
@@ -1421,14 +1486,23 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             url_frame = ctk.CTkFrame(section, fg_color="transparent")
             url_frame.pack(fill=ctk.X, padx=12, pady=3)
 
-            url_label = ctk.CTkLabel(url_frame, text="Base URL:",
-                font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_primary"])
+            url_label = ctk.CTkLabel(
+                url_frame,
+                text="Base URL:",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLORS["text_primary"],
+            )
             url_label.pack(side=ctk.LEFT)
             self._r(url_label, text_color="text_primary")
 
-            url_entry = ctk.CTkEntry(url_frame, height=28, font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-                fg_color=COLORS["bg_dark"], border_color=COLORS["card_border"],
-                text_color=COLORS["text_primary"])
+            url_entry = ctk.CTkEntry(
+                url_frame,
+                height=28,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                fg_color=COLORS["bg_dark"],
+                border_color=COLORS["card_border"],
+                text_color=COLORS["text_primary"],
+            )
             url_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(10, 0))
             if api_url:
                 url_entry.insert(0, api_url)
@@ -1441,15 +1515,24 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             models_frame = ctk.CTkFrame(section, fg_color="transparent")
             models_frame.pack(fill=ctk.X, padx=12, pady=(3, 10))
 
-            models_label = ctk.CTkLabel(models_frame, text="模型列表:",
-                font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_primary"])
+            models_label = ctk.CTkLabel(
+                models_frame,
+                text="模型列表:",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLORS["text_primary"],
+            )
             models_label.pack(side=ctk.LEFT)
             self._r(models_label, text_color="text_primary")
 
-            models_entry = ctk.CTkEntry(models_frame, height=28, font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                fg_color=COLORS["bg_dark"], border_color=COLORS["card_border"],
+            models_entry = ctk.CTkEntry(
+                models_frame,
+                height=28,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                fg_color=COLORS["bg_dark"],
+                border_color=COLORS["card_border"],
                 text_color=COLORS["text_primary"],
-                placeholder_text="gpt-4o, claude-3.5-sonnet, ...")
+                placeholder_text="gpt-4o, claude-3.5-sonnet, ...",
+            )
             models_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(10, 0))
             models_entry.insert(0, models_str)
             self._r(models_entry, fg_color="bg_dark", border_color="card_border", text_color="text_primary")
@@ -1460,6 +1543,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         """保存 AI 配置"""
         try:
             from ui.agent.config import get_agent_config, save_agent_config
+
             config = get_agent_config()
 
             for pid in ("openai", "anthropic", "custom"):
@@ -1471,12 +1555,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 # 只保存有数据的
                 if api_key or api_url:
                     from ui.agent.config import ProviderConfig
-                    pc = ProviderConfig(
-                        enabled=bool(api_key),
-                        api_key=api_key,
-                        api_url=api_url,
-                        custom_models=[],
-                    )
+
+                    pc = ProviderConfig(enabled=bool(api_key), api_key=api_key, api_url=api_url, custom_models=[])
                     # custom 的模型列表
                     if pid == "custom":
                         models_entry = getattr(self, f"_{pid}_models_entry", None)
@@ -1492,9 +1572,11 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
             save_agent_config()
             import tkinter.messagebox as messagebox
+
             messagebox.showinfo("FMCL", _("settings_saved"))
         except Exception as e:
             import tkinter.messagebox as messagebox
+
             messagebox.showerror("FMCL", f"保存失败: {e}")
 
     def _on_test_provider(self, pid):
@@ -1511,23 +1593,35 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
                 if not api_key:
                     import tkinter.messagebox as messagebox
+
                     self.after(0, lambda: messagebox.showwarning("FMCL", _("settings_ai_key_required")))
                     return
 
-                import json, urllib.request, urllib.error
+                import json
+                import urllib.error
+                import urllib.request
+
                 if pid == "anthropic":
                     # Anthropic: GET /v1/messages 需要 POST，用 models 端点测试
                     test_url = "https://api.anthropic.com/v1/messages"
-                    req_data = json.dumps({
-                        "model": "claude-3-5-haiku-20241022",
-                        "messages": [{"role": "user", "content": "hi"}],
-                        "max_tokens": 1,
-                    }).encode("utf-8")
-                    req = urllib.request.Request(api_url or test_url, data=req_data,
-                        headers={"Content-Type": "application/json", "x-api-key": api_key,
-                                 "anthropic-version": "2023-06-01",
-                                 "User-Agent": "FMCL/2.0"},
-                        method="POST")
+                    req_data = json.dumps(
+                        {
+                            "model": "claude-3-5-haiku-20241022",
+                            "messages": [{"role": "user", "content": "hi"}],
+                            "max_tokens": 1,
+                        }
+                    ).encode("utf-8")
+                    req = urllib.request.Request(
+                        api_url or test_url,
+                        data=req_data,
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-api-key": api_key,
+                            "anthropic-version": "2023-06-01",
+                            "User-Agent": "FMCL/2.0",
+                        },
+                        method="POST",
+                    )
                     try:
                         with urllib.request.urlopen(req, timeout=15) as resp:
                             json.loads(resp.read().decode("utf-8"))
@@ -1537,12 +1631,15 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                             self.after(0, lambda: messagebox.showerror("FMCL", "❌ 认证失败：API Key 无效"))
                         else:
                             body = e.read().decode("utf-8", errors="ignore")[:200]
-                            self.after(0, lambda code=e.code, b=body: messagebox.showerror("FMCL", f"❌ HTTP {code}: {b}"))
+                            self.after(
+                                0, lambda code=e.code, b=body: messagebox.showerror("FMCL", f"❌ HTTP {code}: {b}")
+                            )
                     except Exception as e:
                         self.after(0, lambda err=str(e): messagebox.showerror("FMCL", f"❌ 连接失败: {err}"))
                 else:
                     # OpenAI 兼容
                     from ui.agent.provider import BaseProvider
+
                     result = BaseProvider.test_connection(api_url or "https://api.openai.com/v1", api_key, timeout=15)
                     if result["ok"]:
                         self.after(0, lambda: messagebox.showinfo("FMCL", "✅ 连接成功"))
@@ -1551,6 +1648,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
 
             except Exception as e:
                 import tkinter.messagebox as messagebox
+
                 self.after(0, lambda err=str(e): messagebox.showerror("FMCL", f"测试失败: {err}"))
 
         threading.Thread(target=_do_test, daemon=True).start()
@@ -1618,11 +1716,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         )
         self._plugin_info_label.pack(anchor=ctk.W, padx=12, pady=(0, 10))
 
-        tips = [
-            _("plugin_tip_1"),
-            _("plugin_tip_2"),
-            _("plugin_tip_3"),
-        ]
+        tips = [_("plugin_tip_1"), _("plugin_tip_2"), _("plugin_tip_3")]
         for tip in tips:
             ctk.CTkLabel(
                 container,
@@ -1649,27 +1743,22 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         pm = self.callbacks.get("get_plugin_manager", lambda: None)()
         if pm is None:
             import tkinter.messagebox as messagebox
-            messagebox.showwarning(
-                _("warning"),
-                _("plugin_not_initialized"),
-                parent=self,
-            )
+
+            messagebox.showwarning(_("warning"), _("plugin_not_initialized"), parent=self)
             return
         market = pm.init_market()
         if market is None:
             import tkinter.messagebox as messagebox
-            messagebox.showwarning(
-                _("warning"),
-                _("plugin_market_unavailable"),
-                parent=self,
-            )
+
+            messagebox.showwarning(_("warning"), _("plugin_market_unavailable"), parent=self)
             return
         from ui.windows.plugin_browser import PluginBrowserWindow
+
         PluginBrowserWindow(self, pm, market)
 
     def _refresh_plugin_info(self):
         """刷新设置页中的插件概况信息"""
-        if not hasattr(self, '_plugin_info_label') or not self._plugin_info_label.winfo_exists():
+        if not hasattr(self, "_plugin_info_label") or not self._plugin_info_label.winfo_exists():
             return
         try:
             pm = self.callbacks.get("get_plugin_manager", lambda: None)()
@@ -1690,11 +1779,9 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         pm = self.callbacks.get("get_plugin_manager", lambda: None)()
         if pm is None:
             import tkinter.messagebox as messagebox
-            messagebox.showwarning(
-                _("warning"),
-                _("plugin_not_initialized"),
-                parent=self,
-            )
+
+            messagebox.showwarning(_("warning"), _("plugin_not_initialized"), parent=self)
             return
         from ui.windows.plugin_manager import PluginManagerWindow
+
         PluginManagerWindow(self, pm)

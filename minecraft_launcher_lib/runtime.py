@@ -2,18 +2,30 @@
 # SPDX-FileCopyrightText: Copyright (c) 2019-2025 JakobDev <jakobdev@gmx.de> and contributors
 # SPDX-License-Identifier: BSD-2-Clause
 "runtime allows to install the java runtime. This module is used by :func:`~minecraft_launcher_lib.install.install_minecraft_version`, so you don't need to use it in your code most of the time."
-from ._helper import get_user_agent, download_file, empty, get_sha1_hash, check_path_inside_minecraft_directory, get_client_json
-from ._internal_types.runtime_types import RuntimeListJson, PlatformManifestJson, _PlatformManifestJsonFile
-from .types import CallbackDict, JvmRuntimeInformation, VersionRuntimeInformation
-from .exceptions import VersionNotFound, PlatformNotSupported
-from concurrent.futures import ThreadPoolExecutor
-import subprocess
-import datetime
-import requests
-import platform
-import os
 
-_JVM_MANIFEST_URL = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
+import datetime
+import os
+import platform
+import subprocess
+from concurrent.futures import ThreadPoolExecutor
+
+import requests
+
+from ._helper import (
+    check_path_inside_minecraft_directory,
+    download_file,
+    empty,
+    get_client_json,
+    get_sha1_hash,
+    get_user_agent,
+)
+from ._internal_types.runtime_types import PlatformManifestJson, RuntimeListJson, _PlatformManifestJsonFile
+from .exceptions import PlatformNotSupported, VersionNotFound
+from .types import CallbackDict, JvmRuntimeInformation, VersionRuntimeInformation
+
+_JVM_MANIFEST_URL = (
+    "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json"
+)
 
 
 def _get_jvm_platform_string() -> str:
@@ -78,10 +90,11 @@ def get_installed_jvm_runtimes(minecraft_directory: str | os.PathLike) -> list[s
 
 
 def install_jvm_runtime(
-        jvm_version: str,
-        minecraft_directory: str | os.PathLike,
-        callback: CallbackDict | None = None,
-        max_workers: int | None = None) -> None:
+    jvm_version: str,
+    minecraft_directory: str | os.PathLike,
+    callback: CallbackDict | None = None,
+    max_workers: int | None = None,
+) -> None:
     """
     Installs the given jvm runtime. callback is the same dict as in the install module.
 
@@ -111,7 +124,9 @@ def install_jvm_runtime(
     # Check if there is a platform manifest
     if len(manifest_data[platform_string][jvm_version]) == 0:
         return
-    platform_manifest: PlatformManifestJson = requests.get(manifest_data[platform_string][jvm_version][0]["manifest"]["url"], headers={"user-agent": get_user_agent()}).json()
+    platform_manifest: PlatformManifestJson = requests.get(
+        manifest_data[platform_string][jvm_version][0]["manifest"]["url"], headers={"user-agent": get_user_agent()}
+    ).json()
     base_path = os.path.join(minecraft_directory, "runtime", jvm_version, platform_string, jvm_version)
     session = requests.session()
     file_list: list[str] = []
@@ -124,9 +139,22 @@ def install_jvm_runtime(
         if value["type"] == "file":
             # Prefer downloading the compresses file
             if "lzma" in value["downloads"]:
-                download_file(value["downloads"]["lzma"]["url"], current_path, sha1=value["downloads"]["raw"]["sha1"], callback=callback, lzma_compressed=True, session=session)
+                download_file(
+                    value["downloads"]["lzma"]["url"],
+                    current_path,
+                    sha1=value["downloads"]["raw"]["sha1"],
+                    callback=callback,
+                    lzma_compressed=True,
+                    session=session,
+                )
             else:
-                download_file(value["downloads"]["raw"]["url"], current_path, sha1=value["downloads"]["raw"]["sha1"], callback=callback, session=session)
+                download_file(
+                    value["downloads"]["raw"]["url"],
+                    current_path,
+                    sha1=value["downloads"]["raw"]["sha1"],
+                    callback=callback,
+                    session=session,
+                )
 
             # Make files executable on unix systems
             if value["executable"]:
@@ -156,8 +184,7 @@ def install_jvm_runtime(
     count = 0
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
-            executor.submit(install_runtime_file, key, value)
-            for key, value in platform_manifest["files"].items()
+            executor.submit(install_runtime_file, key, value) for key, value in platform_manifest["files"].items()
         ]
         for future in futures:
             future.result()
@@ -201,12 +228,16 @@ def get_executable_path(jvm_version: str, minecraft_directory: str | os.PathLike
     :param jvm_version: The Name of the JVM version
     :param minecraft_directory: The path to your Minecraft directory
     """
-    java_path = os.path.join(minecraft_directory, "runtime", jvm_version, _get_jvm_platform_string(), jvm_version, "bin", "java")
+    java_path = os.path.join(
+        minecraft_directory, "runtime", jvm_version, _get_jvm_platform_string(), jvm_version, "bin", "java"
+    )
     if os.path.isfile(java_path):
         return java_path
     elif os.path.isfile(java_path + ".exe"):
         return java_path + ".exe"
-    java_path = java_path.replace(os.path.join("bin", "java"), os.path.join("jre.bundle", "Contents", "Home", "bin", "java"))
+    java_path = java_path.replace(
+        os.path.join("bin", "java"), os.path.join("jre.bundle", "Contents", "Home", "bin", "java")
+    )
     if os.path.isfile(java_path):
         return java_path
     else:
@@ -243,11 +274,15 @@ def get_jvm_runtime_information(jvm_version: str) -> JvmRuntimeInformation:
 
     return {
         "name": manifest_data[platform_string][jvm_version][0]["version"]["name"],
-        "released": datetime.datetime.fromisoformat(manifest_data[platform_string][jvm_version][0]["version"]["released"])
+        "released": datetime.datetime.fromisoformat(
+            manifest_data[platform_string][jvm_version][0]["version"]["released"]
+        ),
     }
 
 
-def get_version_runtime_information(version: str, minecraft_directory: str | os.PathLike) -> VersionRuntimeInformation | None:
+def get_version_runtime_information(
+    version: str, minecraft_directory: str | os.PathLike
+) -> VersionRuntimeInformation | None:
     """
     Returns information about the runtime used by a version
 
@@ -270,7 +305,4 @@ def get_version_runtime_information(version: str, minecraft_directory: str | os.
     if "javaVersion" not in data:
         return None
 
-    return {
-        "name": data["javaVersion"]["component"],
-        "javaMajorVersion": data["javaVersion"]["majorVersion"]
-    }
+    return {"name": data["javaVersion"]["component"], "javaMajorVersion": data["javaVersion"]["majorVersion"]}

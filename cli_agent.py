@@ -9,16 +9,16 @@
 """
 
 import sys
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 from logzero import logger
 
 from config import config
 from secure_storage import encrypt_token
 from ui.agent.providers.jingdu import JingduProvider
-from ui.agent.tool_registry import get_registry, get_tool_definitions
 from ui.agent.system_prompt import get_system_prompt
-from ui.agent.tools.system import DANGEROUS_MARKER, ASK_USER_MARKER, execute_dangerous_command
+from ui.agent.tool_registry import get_registry, get_tool_definitions
+from ui.agent.tools.system import ASK_USER_MARKER, DANGEROUS_MARKER, execute_dangerous_command
 
 
 def _print(text: str = ""):
@@ -35,6 +35,7 @@ def _print_assistant(text: str):
 
 def _print_tool(name: str, params: dict):
     import json
+
     _print(f"\033[93m🔧  调用工具: {name}({json.dumps(params, ensure_ascii=False)})\033[0m")
 
 
@@ -85,12 +86,7 @@ def _confirm_dangerous_command(path: str, command: str) -> bool:
         return False
 
 
-def _process_once(
-    messages: List[Dict],
-    provider: JingduProvider,
-    callbacks: Dict,
-    user_input: str,
-) -> List[Dict]:
+def _process_once(messages: List[Dict], provider: JingduProvider, callbacks: Dict, user_input: str) -> List[Dict]:
     """执行一轮 Agent 循环，返回更新后的消息列表"""
     messages.append({"role": "user", "content": user_input})
 
@@ -103,10 +99,7 @@ def _process_once(
         iteration += 1
 
         try:
-            response_msg = provider.chat(
-                messages=messages,
-                tools=get_tool_definitions(),
-            )
+            response_msg = provider.chat(messages=messages, tools=get_tool_definitions())
         except Exception as e:
             _print_error(f"API 调用失败: {e}")
             break
@@ -119,10 +112,7 @@ def _process_once(
             if empty_content_count >= max_empty_retries:
                 _print_error("AI 多次返回空内容，请检查 Token 是否有效")
                 break
-            messages.append({
-                "role": "user",
-                "content": "你返回了空内容，请继续",
-            })
+            messages.append({"role": "user", "content": "你返回了空内容，请继续"})
             continue
 
         empty_content_count = 0
@@ -139,17 +129,14 @@ def _process_once(
                 tool_call_id = tc.get("id", "")
 
                 import json as _json
+
                 try:
                     tool_params = _json.loads(func.get("arguments", "{}"))
                 except (_json.JSONDecodeError, TypeError):
                     tool_params = {}
 
                 if not tool_name:
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "content": "错误: 工具名为空",
-                    })
+                    messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": "错误: 工具名为空"})
                     continue
 
                 _print_tool(tool_name, tool_params)
@@ -171,6 +158,7 @@ def _process_once(
                     question = parts[1]
                     options_json = parts[2] if len(parts) > 2 else "[]"
                     import json as _json2
+
                     try:
                         options = _json2.loads(options_json)
                     except (_json2.JSONDecodeError, TypeError):
@@ -203,11 +191,7 @@ def _process_once(
                 _print_tool_result(result_text)
                 _print_divider()
 
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "content": result_text,
-                })
+                messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": result_text})
 
             continue
 
@@ -240,9 +224,7 @@ def run_agent_cli(instruction: Optional[str] = None):
     provider = JingduProvider(api_key=token)
     _print_system("Agent 就绪")
 
-    messages: List[Dict] = [
-        {"role": "system", "content": get_system_prompt()},
-    ]
+    messages: List[Dict] = [{"role": "system", "content": get_system_prompt()}]
 
     if instruction:
         _print_user(instruction)
@@ -284,8 +266,8 @@ def run_login(username: str, password: str | None):
     """
     import getpass
     import json
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     if not password:
         try:
@@ -303,10 +285,7 @@ def run_login(username: str, password: str | None):
         req = urllib.request.Request(
             "https://jingdu.qzz.io/api/auth/login",
             data=req_data,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)",
-            },
+            headers={"Content-Type": "application/json", "User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)"},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=15) as resp:

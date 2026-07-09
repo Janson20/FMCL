@@ -4,14 +4,15 @@
 """
 
 import json
-import urllib.request
 import urllib.error
-from typing import Dict, List, Optional, Generator
+import urllib.request
+from typing import Dict, Generator, List, Optional
+
 from logzero import logger
 
-from ui.agent.provider import BaseProvider
-from ui.agent.stream import SSEParser, SSEEventType
 from ui.agent.models import ModelInfo
+from ui.agent.provider import BaseProvider
+from ui.agent.stream import SSEEventType, SSEParser
 
 
 class CustomProvider(BaseProvider):
@@ -33,13 +34,11 @@ class CustomProvider(BaseProvider):
         self._custom_models: List[ModelInfo] = []
         if custom_models:
             for m_id in custom_models:
-                self._custom_models.append(ModelInfo(
-                    id=m_id,
-                    provider_id="custom",
-                    name=m_id,
-                    description="用户自定义模型",
-                    requires_custom_url=True,
-                ))
+                self._custom_models.append(
+                    ModelInfo(
+                        id=m_id, provider_id="custom", name=m_id, description="用户自定义模型", requires_custom_url=True
+                    )
+                )
 
     @property
     def models(self) -> List[ModelInfo]:
@@ -53,7 +52,7 @@ class CustomProvider(BaseProvider):
                 name="自定义模型",
                 description="请在设置中配置模型列表",
                 requires_custom_url=True,
-            ),
+            )
         ]
 
     @property
@@ -111,12 +110,7 @@ class CustomProvider(BaseProvider):
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=req_data,
-                headers=self._build_headers(),
-                method="POST",
-            )
+            req = urllib.request.Request(url, data=req_data, headers=self._build_headers(), method="POST")
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
 
@@ -161,12 +155,7 @@ class CustomProvider(BaseProvider):
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=req_data,
-                headers=self._build_headers(),
-                method="POST",
-            )
+            req = urllib.request.Request(url, data=req_data, headers=self._build_headers(), method="POST")
 
             parser = SSEParser()
             accumulated_text = ""
@@ -196,9 +185,17 @@ class CustomProvider(BaseProvider):
                     elif event.type == SSEEventType.TOOL_CALL_START:
                         yield {"type": "tool_call_start", "tool_call_id": event.tool_call_id}
                     elif event.type == SSEEventType.TOOL_CALL_NAME:
-                        yield {"type": "tool_call_name", "tool_call_id": event.tool_call_id, "tool_name": event.tool_name}
+                        yield {
+                            "type": "tool_call_name",
+                            "tool_call_id": event.tool_call_id,
+                            "tool_name": event.tool_name,
+                        }
                     elif event.type == SSEEventType.TOOL_CALL_ARGS:
-                        yield {"type": "tool_call_args", "tool_call_id": event.tool_call_id, "tool_args": event.tool_args}
+                        yield {
+                            "type": "tool_call_args",
+                            "tool_call_id": event.tool_call_id,
+                            "tool_args": event.tool_args,
+                        }
                     elif event.type == SSEEventType.USAGE:
                         yield {"type": "usage", "usage": event.usage}
                     elif event.type == SSEEventType.DONE:
