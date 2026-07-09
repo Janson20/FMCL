@@ -188,12 +188,13 @@ class MinecraftLauncher:
         try:
             from launcher.java_scanner import recommend_for_mc
             javas = self._get_cached_java_runtimes()
+            # 提前检测加载器类型，Minecraft runtime 查找也需要
+            _loader_type = self._detect_mod_loader_type(target_version)
+            logger.info(f"_resolve_java_executable: target_version={target_version}, _loader_type={_loader_type}")
             if javas:
-                # Cleanroom Java 版本要求（参考 HMCL GameJavaVersion.getCleanroomJavaVersion）
-                # - Cleanroom < 0.5.0: 需要 Java 21+
-                # - Cleanroom >= 0.5.0: 需要 Java 25+
-                _loader_type = self._detect_mod_loader_type(target_version)
-                
+
+                best = None
+
                 if _loader_type == "cleanroom":
                     _min_java = self._get_cleanroom_min_java(target_version)
                     _java_versions = [j for j in javas if j.major_version >= _min_java]
@@ -201,8 +202,10 @@ class MinecraftLauncher:
                         best = min(_java_versions, key=lambda j: j.major_version)
                         logger.info(f"Cleanroom 需要 Java {_min_java}+，选择: {best.display_name}")
                         return best.path
-                
-                best = recommend_for_mc(javas, target_version)
+                    # 系统扫描未找到合适的 Java，跳过 recommend_for_mc（会推荐 Java 8）
+                    # 继续往下尝试 Minecraft runtime
+                else:
+                    best = recommend_for_mc(javas, target_version)
                 if best:
                     logger.info(f"从系统扫描选择最佳 Java: {best.display_name}")
                     return best.path
@@ -212,17 +215,33 @@ class MinecraftLauncher:
         try:
             installed_runtimes = self._mcllib.runtime.get_installed_jvm_runtimes(self.minecraft_dir)
             if installed_runtimes:
-                latest = sorted(
-                    installed_runtimes,
-                    key=lambda r: r.get("version", {}).get("name", ""),
-                    reverse=True,
-                )
-                component = latest[0].get("name", "")
+                # installed_runtimes 是组件名称字符串列表，如 ["java-runtime-delta", "jre-legacy"]
+                # 按组件名排序（更高版本排在后面），取最新的
+                _sorted_runtimes = sorted(installed_runtimes)
+                component = _sorted_runtimes[-1] if _sorted_runtimes else ""
                 if component:
                     java_path = self._mcllib.runtime.get_executable_path(component, self.minecraft_dir)
                     if java_path and os.path.isfile(java_path):
-                        logger.info(f"从 Minecraft runtime 找到 Java ({component}): {java_path}")
-                        return java_path
+                        # 对 Cleanroom 检查 Java 版本是否满足要求
+                        if _loader_type == "cleanroom":
+                            _min_java = self._get_cleanroom_min_java(target_version)
+                            try:
+                                import re as _re
+                                result = subprocess.run([java_path, "-version"], capture_output=True, text=True, timeout=10)
+                                _ver_output = result.stderr or result.stdout
+                                _m = _re.search(r'version "(\d+)', _ver_output)
+                                if _m:
+                                    _runtime_major = int(_m.group(1))
+                                    if _runtime_major < _min_java:
+                                        logger.warning(f"Minecraft runtime Java ({component}) 版本 {_runtime_major} < {_min_java}，不满足 Cleanroom 要求，跳过")
+                                        component = ""  # 不满足，清空以继续后续逻辑
+                                    else:
+                                        logger.info(f"Minecraft runtime Java ({component}) 版本 {_runtime_major} 满足 Cleanroom 要求")
+                            except Exception:
+                                pass
+                        if component:
+                            logger.info(f"从 Minecraft runtime 找到 Java ({component}): {java_path}")
+                            return java_path
         except Exception as e:
             logger.debug(f"Minecraft runtime Java 查找失败: {e}")
 
@@ -232,6 +251,30 @@ class MinecraftLauncher:
         current = self._resolve_java_executable(version_id, "java")
         if current != "java" and os.path.isfile(current):
             return current
+
+        # ── Cleanroom: 安装正确的 Java 运行时（非 vanilla 1.12.2 的 Java 8） ──
+        # 参考 HMCL GameJavaVersion.getCleanroomJavaVersion():
+        # - Cleanroom < 0.5.0 → java-runtime-delta (Java 21)
+        # - Cleanroom >= 0.5.0 → java-runtime-epsilon (Java 25)
+        _loader_type = self._detect_mod_loader_type(version_id)
+        if _loader_type == "cleanroom":
+            _min_java = self._get_cleanroom_min_java(version_id)
+            _jvm_component = "java-runtime-epsilon" if _min_java >= 25 else "java-runtime-delta"
+            self._set_status(f"正在为 Cleanroom 安装 Java {_min_java} 运行时...")
+            logger.info(f"Cleanroom: 安装 JVM 运行时 {_jvm_component} (Java {_min_java})")
+            try:
+                self._mcllib.runtime.install_jvm_runtime(
+                    _jvm_component, self.minecraft_dir,
+                    callback=self._get_callback()
+                )
+                # 安装完成，重新解析 Java 路径
+                current = self._resolve_java_executable(version_id, "java")
+                if current != "java" and os.path.isfile(current):
+                    self._set_status(f"Java {_min_java} 运行时就绪: {current}")
+                    return current
+            except Exception as e:
+                logger.error(f"安装 Cleanroom JVM 运行时失败: {e}")
+            return "java"
 
         mc_base = self._extract_mc_version(version_id)
         version_json_path = Path(self.minecraft_dir) / "versions" / version_id / f"{version_id}.json"
@@ -1075,6 +1118,20 @@ class MinecraftLauncher:
                         minecraft_command[0] = resolved_java
                         logger.info(f"自动安装 Java runtime 后使用: {resolved_java}")
 
+                # ── Cleanroom: 最终 Java 版本检查 ──
+                # _resolve_java_executable 可能回退到系统 PATH 的 Java 8，
+                # 此处强制验证并覆盖
+                if self._detect_mod_loader_type(target_version) == "cleanroom":
+                    _min_java = self._get_cleanroom_min_java(target_version)
+                    if not self._verify_java_version(minecraft_command[0], _min_java):
+                        logger.warning(f"当前 Java 不满足 Cleanroom 最低要求 (Java {_min_java})，尝试自动安装...")
+                        _new_java = self._ensure_java_runtime(target_version)
+                        if _new_java != "java" and os.path.isfile(_new_java) and self._verify_java_version(_new_java, _min_java):
+                            minecraft_command[0] = _new_java
+                            logger.info(f"Cleanroom Java 已修正: {_new_java}")
+                        else:
+                            logger.error(f"无法为 Cleanroom 找到 Java {_min_java}+，启动可能失败")
+
             # 直连服务器时追加 --quickPlayMultiplayer（1.20.4+，启动后立即加入）
             if server_ip:
                 server_addr = f"{server_ip}:{server_port}"
@@ -1098,21 +1155,16 @@ class MinecraftLauncher:
             minecraft_command = self._set_launcher_brand(minecraft_command)
 
             logger.info("正在启动游戏...")
-            # 使用 Popen 非阻塞启动，捕获 stdout 以便检测游戏窗口
+            # 使用 Popen 非阻塞启动
             # Windows 下使用 CREATE_NO_WINDOW 隐藏 Java 控制台窗口
-            # 直连服务器时不捕获 stdout，避免管道缓冲区满导致游戏阻塞
-            if server_ip:
-                popen_kwargs = {}
-                if sys.platform == 'win32':
-                    popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
-            else:
-                popen_kwargs = dict(
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    bufsize=1,
-                )
-                if sys.platform == 'win32':
-                    popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+            # 始终捕获 stdout+stderr 以便在进程快速退出时记录错误
+            popen_kwargs = dict(
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+            )
+            if sys.platform == 'win32':
+                popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
 
             # ── Cleanroom 环境变量 ──
             # 参考 HMCL DefaultLauncher: 设置 INST_CLEANROOM=1 让
@@ -1139,11 +1191,65 @@ class MinecraftLauncher:
                 **popen_kwargs,
             )
 
+            # ── 启动子进程输出采集线程 ──
+            # 读取 stdout/stderr 并记录到日志，用于诊断快速退出的问题
+            _early_output_lines: List[str] = []
+
+            def _read_subprocess_output():
+                """在后台线程中读取子进程输出，直到 pipe 关闭"""
+                try:
+                    stdout = self._game_process.stdout
+                    if stdout is None:
+                        return
+                    for line_bytes in stdout:
+                        line = line_bytes.decode("utf-8", errors="replace").rstrip()
+                        if line:
+                            _early_output_lines.append(line)
+                            logger.debug(f"game: {line}")
+                except (ValueError, OSError):
+                    pass  # pipe 关闭或 fd 无效
+                except Exception:
+                    pass
+
+            _reader_thread = threading.Thread(target=_read_subprocess_output, daemon=True)
+            _reader_thread.start()
+
+            # ── 等待 2 秒检测进程是否立即退出 ──
+            try:
+                self._game_process.wait(timeout=2)
+                exit_code = self._game_process.returncode
+                # 进程已退出，等待 reader 线程读完剩余输出
+                _reader_thread.join(timeout=1)
+                # 吸入可能残留的缓冲区内容
+                try:
+                    remaining = self._game_process.stdout.read().decode("utf-8", errors="replace")
+                    if remaining:
+                        for line in remaining.splitlines():
+                            line = line.rstrip()
+                            if line:
+                                _early_output_lines.append(line)
+                except Exception:
+                    pass
+                if _early_output_lines:
+                    logger.error(f"游戏进程在 2 秒内退出 (退出码 {exit_code})，输出:")
+                    for line in _early_output_lines[:50]:
+                        logger.error(f"  {line}")
+                else:
+                    logger.error(f"游戏进程在 2 秒内退出 (退出码 {exit_code})，无输出")
+                slog.error("game_early_exit", version=target_version, exit_code=exit_code,
+                           output_lines=len(_early_output_lines))
+                return False, target_version
+            except subprocess.TimeoutExpired:
+                pass  # 进程运行超过 2 秒，正常
+
             # ── 插件钩子: game.post_launch ──
             self._emit_plugin_hook("game.post_launch", version_id=target_version, pid=self._game_process.pid)
 
             # ── 启动后内存释放 ──
             self._release_memory_after_launch()
+
+            if _early_output_lines:
+                logger.info(f"游戏进程已启动，已采集 {len(_early_output_lines)} 行早期输出")
 
             logger.info(f"游戏已启动 ({target_version})")
             return True, target_version
@@ -1211,6 +1317,36 @@ class MinecraftLauncher:
             logger.debug(f"获取 Cleanroom 最低 Java 版本失败: {e}")
         # 回退到 Java 21
         return 21
+
+    @staticmethod
+    def _verify_java_version(java_path: str, min_major: int) -> bool:
+        """验证 Java 可执行文件的主版本号是否 >= min_major
+
+        通过执行 `java -version` 读取 stderr 输出来解析版本号。
+
+        Args:
+            java_path: Java 可执行文件路径
+            min_major: 最低主版本号
+
+        Returns:
+            True 如果版本满足要求
+        """
+        if not java_path or not os.path.isfile(java_path):
+            return False
+        try:
+            import re as _re
+            result = subprocess.run(
+                [java_path, "-version"], capture_output=True, text=True, timeout=10
+            )
+            _ver_output = result.stderr or result.stdout
+            _m = _re.search(r'version "(\d+)', _ver_output)
+            if _m:
+                major = int(_m.group(1))
+                logger.info(f"_verify_java_version: {java_path} → Java {major}, 需要 >= {min_major}")
+                return major >= min_major
+        except Exception as e:
+            logger.debug(f"_verify_java_version 失败: {e}")
+        return False
 
     def _ensure_version_jar(self, version_id: str) -> bool:
         """确保版本 JAR 文件存在
