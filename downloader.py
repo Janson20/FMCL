@@ -997,7 +997,7 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
                     continue
 
             if not extracted:
-                logger.warning("未在 Cleanroom 安装器中找到 universal jar，但不影响安装")
+                logger.warning("未在 Cleanroom 安装器中找到 universal jar")
 
         # 提取 LWJGL3 原生库到独立 natives 目录
         # Cleanroom 使用 LWJGL3（而非原版的 LWJGL2），需要从其 native JAR 中提取 DLL

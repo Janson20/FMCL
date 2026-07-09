@@ -157,6 +157,7 @@
   "server_port_hint": "預設連接埠: 25565 (離線模式)",
   "server_eula_hint": "EULA 將自動同意",
   "server_no_installed": "暫無已安裝的伺服器\n請在右側安裝伺服器版本",
+  "server_no_available": "暫無可用伺服器版本\n請檢查網路連線後重試",
   "server_version_selected": "已選擇伺服器: {version}",
   "server_enter_version": "請輸入伺服器版本 ID",
   "server_installing": "正在安裝伺服器 {version} ...",

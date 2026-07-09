@@ -41,10 +41,18 @@ class ServerMixin:
         try:
             versions = self._mcllib.utils.get_available_versions(self.minecraft_dir)
             release_versions = [v for v in versions if v.get("type") == "release"]
+            logger.info(f"获取到 {len(release_versions)} 个服务器版本")
             return release_versions
         except Exception as e:
-            logger.error(f"获取服务器版本列表失败: {str(e)}")
-            return []
+            logger.error(f"获取服务器版本列表失败 (upstream): {str(e)}，回退到安全实现")
+            try:
+                safe_versions = self._get_available_versions_safe()
+                release_versions = [v for v in safe_versions if v.get("type") == "release"]
+                logger.info(f"安全模式获取到 {len(release_versions)} 个服务器版本")
+                return release_versions
+            except Exception as e2:
+                logger.error(f"服务器版本安全回退也失败: {str(e2)}")
+                return []
 
     def get_installed_servers(self) -> List[str]:
         """获取已安装的服务器版本列表"""
@@ -487,9 +495,9 @@ class ServerMixin:
                             logger.info(f"Fabric API 自动安装成功: {', '.join(names)}")
                             self._set_status(f"Fabric API 安装成功: {', '.join(names)}")
                         else:
-                            logger.warning(f"Fabric API 自动安装失败（不影响启动）: {msg}")
+                            logger.warning(f"Fabric API 自动安装失败: {msg}")
                     except Exception as e:
-                        logger.warning(f"Fabric API 自动安装异常（不影响启动）: {e}")
+                        logger.warning(f"Fabric API 自动安装异常: {e}")
 
             # 清理残留的 session.lock（上次异常退出可能导致锁文件残留）
             world_dir = server_dir / "world"
