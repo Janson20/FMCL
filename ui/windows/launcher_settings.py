@@ -6,6 +6,7 @@ import tkinter.messagebox as messagebox
 from typing import Dict, Optional, Callable, Any
 
 import customtkinter as ctk
+from logzero import logger
 from tkinter import filedialog
 
 from ui.constants import COLORS, FONT_FAMILY
@@ -55,12 +56,16 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self.destroy()
         # 获取当前脚本路径
         script = sys.executable
-        if getattr(sys, 'frozen', False):
-            # PyInstaller 打包环境下
-            subprocess.Popen([script])
-        else:
-            # 开发环境下
-            subprocess.Popen([script, 'main.py'])
+        try:
+            if getattr(sys, 'frozen', False):
+                # PyInstaller 打包环境下
+                subprocess.Popen([script])
+            else:
+                # 开发环境下
+                subprocess.Popen([script, 'main.py'])
+        except Exception as e:
+            logger.error(f"重启启动器失败: {e}")
+            messagebox.showerror("重启失败", f"无法启动新进程:\n{e}\n请手动重启启动器。", parent=self.parent)
         # 退出当前进程
         self.parent.quit()
 

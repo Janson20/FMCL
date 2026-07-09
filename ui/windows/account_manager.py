@@ -6,6 +6,7 @@ import tkinter.filedialog as filedialog
 from typing import Dict, Optional, Callable, Any
 
 import customtkinter as ctk
+from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
@@ -381,10 +382,14 @@ class AccountManagerWindow(ctk.CTkToplevel):
     def _on_add_microsoft(self):
         def do_login(params):
             self._set_buttons_state(ctk.DISABLED)
-            account = self._account_system.microsoft_login(
-                status_callback=lambda s: self._update_status(s)
-            )
-            self.after(0, lambda: self._on_login_complete(account, "microsoft"))
+            try:
+                account = self._account_system.microsoft_login(
+                    status_callback=lambda s: self._update_status(s)
+                )
+                self.after(0, lambda: self._on_login_complete(account, "microsoft"))
+            except Exception as e:
+                logger.error(f"Microsoft 登录异常: {e}")
+                self.after(0, lambda: self._on_login_complete(None, "microsoft"))
 
         AddAccountDialog(self, "microsoft", do_login)
 
@@ -400,13 +405,17 @@ class AccountManagerWindow(ctk.CTkToplevel):
             self._set_buttons_state(ctk.DISABLED)
 
             def _login():
-                account = self._account_system.yggdrasil_login(
-                    params["server_url"],
-                    params["username"],
-                    params["password"],
-                    status_callback=lambda s: None,
-                )
-                self.after(0, lambda: self._on_login_complete(account, "yggdrasil"))
+                try:
+                    account = self._account_system.yggdrasil_login(
+                        params["server_url"],
+                        params["username"],
+                        params["password"],
+                        status_callback=lambda s: None,
+                    )
+                    self.after(0, lambda: self._on_login_complete(account, "yggdrasil"))
+                except Exception as e:
+                    logger.error(f"Yggdrasil 登录异常: {e}")
+                    self.after(0, lambda: self._on_login_complete(None, "yggdrasil"))
 
             threading.Thread(target=_login, daemon=True).start()
 

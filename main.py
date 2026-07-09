@@ -273,16 +273,22 @@ def main():
         # ── 在后台线程中初始化启动器核心 ──
         # minecraft_launcher_lib (~0.16s) 和 mirror patch 的导入在这里完成
         def _init_launcher():
-            logger.info("_init_launcher: 1. 正在导入 MinecraftLauncher...")
-            from launcher import MinecraftLauncher
-            logger.info("_init_launcher: 2. 正在创建 MinecraftLauncher 实例...")
-            launcher = MinecraftLauncher(config)
-            logger.info("_init_launcher: 3. MinecraftLauncher 创建完成")
-            _launcher_result['launcher'] = launcher
-            _launcher_ready.set()
-            logger.info("_init_launcher: 4. 正在调度 splash 关闭回调...")
-            app.after(0, _try_dismiss_splash)
-            logger.info("_init_launcher: 5. 初始化完成，后台线程即将退出")
+            try:
+                logger.info("_init_launcher: 1. 正在导入 MinecraftLauncher...")
+                from launcher import MinecraftLauncher
+                logger.info("_init_launcher: 2. 正在创建 MinecraftLauncher 实例...")
+                launcher = MinecraftLauncher(config)
+                logger.info("_init_launcher: 3. MinecraftLauncher 创建完成")
+                _launcher_result['launcher'] = launcher
+                _launcher_ready.set()
+                logger.info("_init_launcher: 4. 正在调度 splash 关闭回调...")
+                app.after(0, _try_dismiss_splash)
+                logger.info("_init_launcher: 5. 初始化完成，后台线程即将退出")
+            except Exception as e:
+                logger.error(f"_init_launcher: 启动器初始化失败: {e}", exc_info=True)
+                _launcher_result['error'] = str(e)
+                _launcher_ready.set()
+                app.after(0, lambda: _show_init_error(app, f"启动器核心初始化失败:\n{e}"))
 
         def _try_dismiss_splash():
             """尝试关闭启动画面：需同时满足 launcher、achievements 就绪 且 1 秒"""
@@ -306,8 +312,26 @@ def main():
                 logger.info("_dismiss_splash: splash.destroy() 成功")
             except Exception as e:
                 logger.error(f"_dismiss_splash: splash.destroy() 失败: {e}")
+            if 'launcher' not in _launcher_result or _launcher_result['launcher'] is None:
+                # 启动器初始化失败，显示主窗口但状态栏提示错误
+                app.deiconify()
+                error_msg = _launcher_result.get('error', '未知错误')
+                app.set_status(f"启动器初始化失败: {error_msg}", "error")
+                logger.error(f"启动器初始化失败，无法继续: {error_msg}")
+                return
             _on_launcher_ready(_launcher_result['launcher'])
             threading.Thread(target=_post_init_achievements, daemon=True).start()
+
+        def _show_init_error(app_ref, message):
+            """显示初始化失败错误弹窗"""
+            import tkinter.messagebox
+            try:
+                splash.destroy()
+            except Exception:
+                pass
+            app_ref.deiconify()
+            app_ref.set_status(f"启动器初始化失败: {message}", "error")
+            tkinter.messagebox.showerror("启动失败", f"{message}\n\n请检查日志文件获取详细信息。")
 
         def _post_init_achievements():
             """启动后后台执行：成就同步 + 签到（不阻塞 UI）"""
@@ -319,20 +343,38 @@ def main():
             if token:
                 try:
                     from achievement_sync import run_sync
-                    app.set_status("正在同步成就云存档...", "loading")
+                    app.after(0, lambda: app.set_status("正在同步成就云存档...", "loading"))
                     run_sync(token, ach_engine._db_path, engine=ach_engine)
+                    app.after(0, lambda: app.set_status("成就云存档同步完成", "success"))
                 except Exception as e:
                     logger.error(f"成就同步异常: {e}")
+                    app.after(0, lambda: app.set_status(f"成就云存档同步失败: {e}", "warning"))
             try:
-                ach_engine.checkin()
+                result = ach_engine.checkin()
+                if result and result.get("success"):
+                    app.after(0, lambda: app.set_status(f"签到成功! 连续 {result.get('streak', 0)} 天", "success"))
             except Exception as e:
                 logger.error(f"签到异常: {e}")
+                app.after(0, lambda: app.set_status(f"每日签到失败: {e}", "warning"))
             app.after(0, app._refresh_achievements)
 
         def _on_launcher_ready(launcher):
             """Launcher 初始化完成回调（主线程执行）"""
             app.deiconify()  # 显示主窗口
             callbacks = launcher.get_callbacks()
+
+            # 注册配置错误回调（弹出错误弹窗）
+            def _config_error_handler(title, message):
+                import tkinter.messagebox
+                app.after(0, lambda: tkinter.messagebox.showerror(title, message, parent=app))
+            config.set_error_callback(_config_error_handler)
+
+            # 注册安全存储错误回调
+            try:
+                from secure_storage import set_error_callback as set_sec_error_cb
+                set_sec_error_cb(_config_error_handler)
+            except ImportError:
+                pass
 
             # 更新 UI 回调
             app.callbacks = callbacks
@@ -362,7 +404,8 @@ def main():
                 if tab_registrations:
                     _build_plugin_tabs(app, plugin_manager, tab_registrations)
             except Exception as e:
-                logger.warning(f"插件系统初始化失败（不影响正常启动）: {e}")
+                logger.warning(f"插件系统初始化失败: {e}")
+                app.set_status(f"插件系统加载失败: {e}", "warning")
 
             # ── 成就系统 wiring（引擎已在 splash 期间初始化） ──
             from achievement_engine import get_achievement_engine
@@ -383,7 +426,8 @@ def main():
                         daemon=True,
                     ).start()
             except Exception as e:
-                logger.warning(f"账号系统注入失败（不影响正常启动）: {e}")
+                logger.warning(f"账号系统注入失败: {e}")
+                app.set_status(f"账号系统加载失败: {e}", "warning")
 
             # 重新应用保存的主题颜色（UI 创建时用的是默认主题，需要刷新）
             if hasattr(app, '_reapply_theme'):

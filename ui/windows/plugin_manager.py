@@ -4,6 +4,7 @@ import threading
 from typing import Dict, Optional, Callable
 
 import customtkinter as ctk
+from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
@@ -163,7 +164,12 @@ class PluginManagerWindow(ctk.CTkToplevel):
     def _refresh(self):
         """刷新插件列表"""
         self._set_status(_("refreshing") + "...")
-        self._pm.scan()
+        try:
+            self._pm.scan()
+        except Exception as e:
+            logger.error(f"扫描插件失败: {e}")
+            self._set_status(f"{_('error')}: {e}")
+            return
         self._rebuild_cards()
         self._check_updates_async()
 
@@ -400,36 +406,41 @@ class PluginManagerWindow(ctk.CTkToplevel):
 
     def _on_toggle(self, plugin_id: str):
         """切换启用/禁用"""
-        state = self._pm.get_plugin_state(plugin_id)
-        if state is None:
-            return
+        try:
+            state = self._pm.get_plugin_state(plugin_id)
+            if state is None:
+                return
 
-        if state.value == "enabled":
-            ok, msg = self._pm.disable_plugin(plugin_id)
-            self._set_status(msg if ok else _(msg))
-        else:
-            # 检查权限
-            meta = self._pm.get_all_plugin_meta().get(plugin_id, {})
-            perms = meta.get("manifest", {}).get("permissions", [])
-            if perms:
-                perm_state = self._pm.get_permission_state(plugin_id)
-                if perm_state is None or perm_state.get_ungranted_permissions():
-                    # 需要用户确认
-                    manifest_data = meta.get("manifest", {})
-                    dialog = PluginPermissionDialog(
-                        self,
-                        plugin_name=manifest_data.get("name", plugin_id),
-                        permissions=perms,
-                    )
-                    if not dialog.get_result():
-                        self._set_status(_("plugin_permission_denied"))
-                        return
-                    self._pm.grant_all_permissions(plugin_id)
+            if state.value == "enabled":
+                ok, msg = self._pm.disable_plugin(plugin_id)
+                self._set_status(msg if ok else _(msg))
+            else:
+                # 检查权限
+                meta = self._pm.get_all_plugin_meta().get(plugin_id, {})
+                perms = meta.get("manifest", {}).get("permissions", [])
+                if perms:
+                    perm_state = self._pm.get_permission_state(plugin_id)
+                    if perm_state is None or perm_state.get_ungranted_permissions():
+                        # 需要用户确认
+                        manifest_data = meta.get("manifest", {})
+                        dialog = PluginPermissionDialog(
+                            self,
+                            plugin_name=manifest_data.get("name", plugin_id),
+                            permissions=perms,
+                        )
+                        if not dialog.get_result():
+                            self._set_status(_("plugin_permission_denied"))
+                            return
+                        self._pm.grant_all_permissions(plugin_id)
 
-            ok, msg = self._pm.enable_plugin(plugin_id)
-            self._set_status(f"{_('plugin_state_enabled')}: {plugin_id}" if ok else msg)
+                ok, msg = self._pm.enable_plugin(plugin_id)
+                self._set_status(f"{_('plugin_state_enabled')}: {plugin_id}" if ok else msg)
 
-        self._refresh()
+            self._refresh()
+        except Exception as e:
+            logger.error(f"切换插件状态失败 ({plugin_id}): {e}")
+            self._set_status(f"{_('error')}: {e}")
+            self._refresh()
 
     def _on_uninstall(self, plugin_id: str, name: str):
         """卸载插件"""
@@ -440,18 +451,23 @@ class PluginManagerWindow(ctk.CTkToplevel):
         ):
             return
 
-        # 先禁用（如果已启用）
-        state = self._pm.get_plugin_state(plugin_id)
-        if state and state.value == "enabled":
-            self._pm.disable_plugin(plugin_id)
+        try:
+            # 先禁用（如果已启用）
+            state = self._pm.get_plugin_state(plugin_id)
+            if state and state.value == "enabled":
+                self._pm.disable_plugin(plugin_id)
 
-        ok, msg = self._pm.uninstall_plugin(plugin_id)
-        if ok:
-            self._set_status(_("plugin_uninstall_success", name=name))
-        else:
-            self._set_status(f"{_('error')}: {msg}")
+            ok, msg = self._pm.uninstall_plugin(plugin_id)
+            if ok:
+                self._set_status(_("plugin_uninstall_success", name=name))
+            else:
+                self._set_status(f"{_('error')}: {msg}")
 
-        self._refresh()
+            self._refresh()
+        except Exception as e:
+            logger.error(f"卸载插件失败 ({plugin_id}): {e}")
+            self._set_status(f"{_('error')}: {e}")
+            self._refresh()
 
     def _on_manage_permissions(self, plugin_id: str, permissions: list):
         """打开权限管理"""

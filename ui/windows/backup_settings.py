@@ -265,10 +265,10 @@ class BackupSettingsWindow(ctk.CTkToplevel):
             self.config.backup_dir = custom_path if custom_path != default_path else None
 
             self.config.save_config()
-            self.set_status(_("backup_settings_save_success"), "success") if hasattr(self, "set_status") else None
             self.destroy()
 
         except Exception as e:
             from logzero import logger
             logger.error(f"保存备份设置失败: {e}")
-            self.set_status(_("backup_settings_save_failed", error=str(e)), "error") if hasattr(self, "set_status") else None
+            import tkinter.messagebox as messagebox
+            messagebox.showerror("保存失败", f"无法保存备份设置:\n{e}", parent=self)

@@ -560,8 +560,8 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
         minecraft_launcher_lib.install.install_minecraft_version(
             version, minecraft_dir
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"安装 LiteLoader 原版 Minecraft {version} 时出现异常（将继续安装）: {e}")
 
     # 读取父版本 JSON 判断参数格式
     parent_json_path = Path(minecraft_dir) / "versions" / version / f"{version}.json"
@@ -612,7 +612,7 @@ def _install_liteloader(version: str, minecraft_dir: str, java: str = None) -> T
         install_libraries(version, libraries, minecraft_dir, {})
         logger.info("LiteLoader 库文件下载完成")
     except Exception as e:
-        logger.warning(f"LiteLoader 库文件下载失败（不影响启动）: {e}")
+        logger.warning(f"LiteLoader 库文件下载失败: {e}")
 
     # 复制父版本 JAR 确保 classpath 完整
     _ensure_version_jar_after_install(installed_version_id, version, minecraft_dir)
@@ -701,8 +701,8 @@ def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) ->
         minecraft_launcher_lib.install.install_minecraft_version(
             version, minecraft_dir
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"安装 LegacyFabric 原版 Minecraft {version} 时出现异常（将继续安装）: {e}")
 
     # 标准化版本号用于 API
     normalized = version
@@ -772,7 +772,7 @@ def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) ->
         install_libraries(version, libraries, minecraft_dir, {})
         logger.info("LegacyFabric 库文件下载完成")
     except Exception as e:
-        logger.warning(f"LegacyFabric 库文件下载失败（不影响启动）: {e}")
+        logger.warning(f"LegacyFabric 库文件下载失败: {e}")
 
     # 复制父版本 JAR 确保 classpath 完整
     _ensure_version_jar_after_install(installed_version_id, version, minecraft_dir)
@@ -848,13 +848,13 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
         logger.info(f"Cleanroom 版本 {installed_version_id} 已存在，跳过安装")
         return installed_version_id, loader_version
 
-    # 确保原版已安装
+    # 确保原版已安装（Cleanroom）
     try:
         minecraft_launcher_lib.install.install_minecraft_version(
             version, minecraft_dir
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"安装 Cleanroom 原版 Minecraft {version} 时出现异常（将继续安装）: {e}")
 
     # 下载 Cleanroom 安装器
     installer_url = _CLEANROOM_INSTALLER_URL.format(version=loader_version)
@@ -909,7 +909,7 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
                     install_libraries(version, runtime_libs, minecraft_dir, {})
                     logger.info("Cleanroom 运行时库文件下载完成")
             except Exception as e:
-                logger.warning(f"Cleanroom 运行时库文件下载失败（不影响启动）: {e}")
+                logger.warning(f"Cleanroom 运行时库文件下载失败: {e}")
 
             # 从 version.json 中提取 Cleanroom 库的准确版本（不用拼凑 forge_version）
             # version.json 中的格式: com.cleanroommc:cleanroom:0.2.1-alpha
@@ -1007,7 +1007,7 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
             extract_natives(installed_version_id, minecraft_dir, cleanroom_natives_dir)
             logger.info(f"Cleanroom LWJGL3 原生库已提取到: {cleanroom_natives_dir}")
         except Exception as e:
-            logger.warning(f"Cleanroom 原生库提取失败（不影响启动）: {e}")
+            logger.warning(f"Cleanroom 原生库提取失败: {e}")
 
         # 复制父版本 JAR 确保 classpath 完整
         _ensure_version_jar_after_install(installed_version_id, version, minecraft_dir)
@@ -1093,15 +1093,15 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
         logger.info(f"OptiFine 版本 {installed_version_id} 已存在，跳过安装")
         return installed_version_id, loader_version
 
-    # 确保原版已安装
+    # 确保原版已安装（OptiFine）
     try:
         minecraft_launcher_lib.install.install_minecraft_version(
             version, minecraft_dir
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"安装 OptiFine 原版 Minecraft {version} 时出现异常（将继续安装）: {e}")
 
-    # 读取父版本 JSON 判断参数格式
+    # 读取父版本 JSON 判断参数格式（OptiFine）
     parent_json_path = Path(minecraft_dir) / "versions" / version / f"{version}.json"
     if not parent_json_path.exists():
         raise FileNotFoundError(f"版本 JSON 不存在: {parent_json_path}")
@@ -1166,7 +1166,7 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
             install_libraries(version, libraries, minecraft_dir, {})
             logger.info("OptiFine 库文件下载完成")
         except Exception as e:
-            logger.warning(f"OptiFine 库文件下载失败（不影响启动）: {e}")
+            logger.warning(f"OptiFine 库文件下载失败: {e}")
 
         # 复制父版本 JAR 确保 classpath 完整
         _ensure_version_jar_after_install(installed_version_id, version, minecraft_dir)
@@ -1220,4 +1220,4 @@ def _ensure_version_jar_after_install(installed_version_id: str, parent_version:
         shutil.copy2(str(parent_jar), str(target_jar))
         logger.info(f"安装后已从父版本 {parent_version} 复制 JAR 到 {installed_version_id}")
     except Exception as e:
-        logger.warning(f"安装后复制 JAR 失败（不影响安装）: {e}")
+        logger.warning(f"安装后复制 JAR 失败: {e}")

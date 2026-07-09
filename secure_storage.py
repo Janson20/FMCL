@@ -21,6 +21,27 @@ from logzero import logger
 
 _KEY_FILE_NAME = ".fmcl_key"
 _key_dir: Optional[Path] = None
+# 错误回调（由 UI 层注册）
+_error_callback = None
+
+
+def set_error_callback(callback):
+    """设置加密模块错误回调（由 UI 层注册，用于显示错误弹窗）
+    
+    Args:
+        callback: 接受 (title: str, message: str) 的回调函数
+    """
+    global _error_callback
+    _error_callback = callback
+
+
+def _notify_error(title: str, message: str):
+    """通知加密错误"""
+    if _error_callback:
+        try:
+            _error_callback(title, message)
+        except Exception:
+            pass
 
 
 def _get_key_dir() -> Optional[Path]:
@@ -77,6 +98,9 @@ def _load_or_create_key() -> Optional[bytes]:
             logger.warning(f"密钥文件格式无效，将重新生成: {key_file}")
         except Exception as e:
             logger.warning(f"读取密钥文件失败，将重新生成: {e}")
+            _notify_error("密钥文件读取失败",
+                f"密钥文件 (.fmcl_key) 可能已损坏，将生成新密钥。\n"
+                f"注意：之前加密的 Token 将无法解密，需要重新登录。")
 
     # 3. 生成新密钥并保存
     try:
@@ -88,6 +112,9 @@ def _load_or_create_key() -> Optional[bytes]:
         return new_key
     except Exception as e:
         logger.error(f"生成密钥失败: {e}")
+        _notify_error("密钥生成失败",
+            f"无法生成加密密钥。Token 将以 base64 编码存储（安全性降低）。\n"
+            f"错误: {e}")
         return None
 
 
@@ -164,6 +191,9 @@ def encrypt_token(plaintext: str) -> Optional[str]:
         return base64.b64encode(plaintext.encode("utf-8")).decode("utf-8")
     except Exception as e:
         logger.error(f"加密 Token 失败: {e}")
+        _notify_error("Token 加密失败",
+            f"无法加密 Token，配置保存时将写空值。\n"
+            f"错误: {e}")
         return None
 
 
