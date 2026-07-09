@@ -27,7 +27,7 @@ _error_callback = None
 
 def set_error_callback(callback):
     """设置加密模块错误回调（由 UI 层注册，用于显示错误弹窗）
-    
+
     Args:
         callback: 接受 (title: str, message: str) 的回调函数
     """

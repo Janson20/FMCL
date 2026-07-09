@@ -275,6 +275,7 @@ class BackupTabMixin(object):
             if self.callbacks and "get_minecraft_dir" in self.callbacks:
                 class _Cfg:
                     pass
+                _cfg = _Cfg()
                 from pathlib import Path
                 mc_dir = Path(self.callbacks["get_minecraft_dir"]())
                 _cfg.minecraft_dir = mc_dir

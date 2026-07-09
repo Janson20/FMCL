@@ -797,7 +797,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
                     with lock:
                         fail_count[0] += 1
             except Exception as e:
-                logger.error(f"批量更新模组失败 ({mid}): {e}")
+                logger.error(f"批量更新模组失败 ({modid}): {e}")
                 with lock:
                     fail_count[0] += 1
             finally:

@@ -343,7 +343,7 @@ class ThemeEngine:
         """根据版本 ID 应用动态主题，返回应用后的 colors"""
         version_colors = self.get_version_accent(version_id)
         if version_colors:
-            colors = dict(CURRENT_COLORS)
+            colors = dict(COLORS)
             colors["accent"] = version_colors["accent"]
             colors["accent_hover"] = version_colors["accent_hover"]
             return colors

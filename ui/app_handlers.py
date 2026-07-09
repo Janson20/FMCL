@@ -453,7 +453,7 @@ class EventHandlerMixin(object):
 
     def _collect_crash_info(self):
         """收集崩溃相关文件信息（后台线程调用），支持版本隔离目录"""
-        
+
         files = {}
         mc_dir = None
         try:
@@ -462,7 +462,7 @@ class EventHandlerMixin(object):
             if mc_dir and mc_dir.exists():
                 base_dir = mc_dir.parent  # 项目根目录
                 system = platform.system().lower()
-                
+
                 # ── 游戏日志：根据平台在不同位置查找 ──
                 if system == "linux":
                     # Linux: 日志在 /var/log/fmcl/

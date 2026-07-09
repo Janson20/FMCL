@@ -376,8 +376,6 @@ class MirrorSource:
             return
 
         try:
-            import minecraft_launcher_lib
-
             # ── 1. mojang_api 模块 (v7.x 及更早版本) ──
             try:
                 from minecraft_launcher_lib import mojang_api
@@ -467,8 +465,7 @@ class MirrorSource:
         try:
             # ── Forge ──
             try:
-                from minecraft_launcher_lib.mod_loader._forge import Forge, _MAVEN_METADATA_URL
-                import minecraft_launcher_lib.mod_loader._forge as _forge_mod
+                from minecraft_launcher_lib.mod_loader._forge import Forge
 
                 # 注意: _MAVEN_METADATA_URL 不替换，保留官方源用于版本查询
                 # BMCLAPI 的 maven-metadata.xml 可能不是最新的，导致新版本(如1.21)查询失败
@@ -488,8 +485,6 @@ class MirrorSource:
 
             # ── Fabric ──
             try:
-                from minecraft_launcher_lib.mod_loader._fabric import Fabric
-
                 # 获取 Fabric 单例实例并替换实例变量
                 try:
                     from minecraft_launcher_lib.mod_loader import get_mod_loader
@@ -514,7 +509,6 @@ class MirrorSource:
 
                 # Monkey-patch get_installer_url 方法
                 # BMCLAPI NeoForge 下载路径: /neoforge/version/{version}/download/installer.jar
-                _original_neoforge_get_installer_url = Neoforge.get_installer_url
 
                 def _patched_neoforge_get_installer_url(self_neoforge, minecraft_version, loader_version):
                     # 使用 BMCLAPI 专用 NeoForge 下载接口

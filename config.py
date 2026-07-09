@@ -2,7 +2,7 @@
 import os
 import platform
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 
 import logzero
 from logzero import logger
@@ -38,7 +38,7 @@ except ImportError:
 def _get_platform_paths():
     """
     根据操作系统返回平台特定的路径配置
-    
+
     Returns:
         dict: {
             'base_dir': 基础目录（Windows/macOS: 当前目录, Linux: ~/.fmcl）,
@@ -48,25 +48,25 @@ def _get_platform_paths():
         }
     """
     system = platform.system().lower()
-    
+
     if system == "linux":
         # Linux: 遵循 FHS 标准
         home = Path.home()
-        
+
         # 配置文件: /etc/fmcl/config.json
         config_dir = Path("/etc/fmcl")
         config_file = config_dir / "config.json"
-        
+
         # 日志文件: /var/log/fmcl/latest.log
         log_dir = Path("/var/log/fmcl")
         log_file = log_dir / "latest.log"
-        
+
         # Minecraft 目录: ~/.minecraft
         minecraft_dir = home / ".minecraft"
-        
+
         # 基础目录: ~/.fmcl (用于其他运行时文件)
         base_dir = home / ".fmcl"
-        
+
         return {
             'base_dir': base_dir,
             'minecraft_dir': minecraft_dir,
@@ -106,7 +106,7 @@ class Config:
         """
         # 获取平台特定路径
         platform_paths = _get_platform_paths()
-        
+
         # 如果手动指定了 base_dir，则覆盖自动检测的路径（仅非 Linux 平台有效）
         if base_dir is not None and platform.system().lower() != "linux":
             self.base_dir = Path(base_dir)
@@ -212,7 +212,7 @@ class Config:
     @classmethod
     def set_error_callback(cls, callback):
         """设置配置错误回调（由 UI 层注册，用于显示错误弹窗）
-        
+
         Args:
             callback: 接受 (title: str, message: str) 的回调函数
         """
@@ -356,20 +356,20 @@ class Config:
     def ensure_directories(self) -> None:
         """确保必要的目录存在"""
         import platform
-        
+
         system = platform.system().lower()
-        
+
         # 创建 Minecraft 目录
         self.minecraft_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 创建基础目录
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Linux 特殊处理：确保 /etc/fmcl 和 /var/log/fmcl 存在
         if system == "linux":
             config_dir = self.config_file.parent
             log_dir = self.log_file.parent
-            
+
             try:
                 # 尝试创建配置目录（可能需要 sudo）
                 config_dir.mkdir(parents=True, exist_ok=True)
@@ -383,7 +383,7 @@ class Config:
             except Exception as e:
                 logger.error(f"创建配置目录失败: {e}")
                 Config._notify_error("目录创建失败", f"无法创建配置目录: {e}")
-            
+
             try:
                 # 尝试创建日志目录（可能需要 sudo）
                 log_dir.mkdir(parents=True, exist_ok=True)

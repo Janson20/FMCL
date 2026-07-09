@@ -26,7 +26,7 @@ from ui.constants import USER_AGENT
 def _patch_neoforge_normalize():
     """修复 NeoForge 模块的 _normalize_minecraft_version 方法，
     使其支持 Minecraft 新版本命名格式 (YY.D, YY.D.H)
-    
+
     NeoForge 的 maven API 返回版本如 20.4.234、26.1.0，
     其 _normalize_minecraft_version 实现为 f"1.{prefix}"，
     这对旧格式 (20.4→1.20.4) 正确，但新格式 (26.1→1.26.1) 会匹配失败。

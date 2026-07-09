@@ -253,7 +253,7 @@ class ModernAppBase(ctk.CTk):
         # 创建标签页容器
         self.tabview = ctk.CTkTabview(self.main_frame, fg_color="transparent")
         self.tabview.pack(fill=ctk.BOTH, expand=True, padx=0, pady=0)
-        
+
         # 添加"游戏"标签页
         self.game_tab = self.tabview.add(_("tab_game"))
         self.game_tab.configure(fg_color="transparent")
@@ -265,41 +265,41 @@ class ModernAppBase(ctk.CTk):
         # 添加"开服"标签页
         self.server_tab = self.tabview.add(_("tab_server"))
         self.server_tab.configure(fg_color="transparent")
-        
+
         # 添加"链接"标签页
         self.links_tab = self.tabview.add(_("tab_links"))
         self.links_tab.configure(fg_color="transparent")
-        
+
         # 添加"联机"标签页（仅 Windows 可用）
         if platform.system().lower() == "windows":
             self.online_tab = self.tabview.add(_("tab_online"))
             self.online_tab.configure(fg_color="transparent")
         else:
             self.online_tab = None
-        
+
         # 添加"AGENT"标签页
         self.agent_tab = self.tabview.add(_("tab_agent"))
         self.agent_tab.configure(fg_color="transparent")
-        
+
         # 添加"成就"标签页
         self.achievements_tab = self.tabview.add(_("tab_achievements"))
         self.achievements_tab.configure(fg_color="transparent")
-        
+
         # 添加"音乐"标签页
         self.music_tab = self.tabview.add(_("tab_music"))
         self.music_tab.configure(fg_color="transparent")
-        
+
         # 添加"工具"标签页
         self.tools_tab = self.tabview.add(_("tab_tools"))
         self.tools_tab.configure(fg_color="transparent")
-        
+
         # 添加"关于"标签页
         self.about_tab = self.tabview.add(_("tab_about"))
         self.about_tab.configure(fg_color="transparent")
-        
+
         # 设置默认标签页为"游戏"
         self.tabview.set(_("tab_game"))
-        
+
         # 构建游戏标签页内容
         self._build_game_tab_content()
 
@@ -308,7 +308,7 @@ class ModernAppBase(ctk.CTk):
 
         # 构建开服标签页内容
         self._build_server_tab_content()
-        
+
         # 构建链接标签页内容
         self._build_links_tab_content()
 
@@ -327,15 +327,15 @@ class ModernAppBase(ctk.CTk):
 
         # 构建工具标签页内容
         self._build_tools_tab_content()
-        
+
         # 构建关于标签页内容
         self._build_about_tab_content()
-    
+
     def _build_game_tab_content(self):
         """构建游戏标签页内容"""
         content = ctk.CTkFrame(self.game_tab, fg_color="transparent")
         content.pack(fill=ctk.BOTH, expand=True)
-        
+
         # 最左侧 - 侧边栏（角色名、皮肤、日志）
         self._build_sidebar(content)
 
@@ -524,11 +524,11 @@ class ModernAppBase(ctk.CTk):
                 "link": "https://www.armortrims.com"
             }
         ]
-        
+
         # 主容器
         main_container = ctk.CTkFrame(self.links_tab, fg_color="transparent")
         main_container.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
-        
+
         # 标题
         self._links_title_label = ctk.CTkLabel(
             main_container,
@@ -537,7 +537,7 @@ class ModernAppBase(ctk.CTk):
             text_color=COLORS["text_primary"],
         )
         self._links_title_label.pack(anchor=ctk.W, pady=(0, 10))
-        
+
         # 描述
         self._links_desc_label = ctk.CTkLabel(
             main_container,
@@ -554,7 +554,7 @@ class ModernAppBase(ctk.CTk):
             scrollbar_button_color=COLORS["bg_light"],
         )
         self._links_scroll_frame.pack(fill=ctk.BOTH, expand=True)
-        
+
         # 创建网站卡片
         self._links_site_cards = []
         for site in minecraft_sites:
@@ -563,7 +563,7 @@ class ModernAppBase(ctk.CTk):
         self._theme_refs.append((self._links_title_label, {"text_color": "text_primary"}))
         self._theme_refs.append((self._links_desc_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._links_scroll_frame, {"scrollbar_button_color": "bg_light"}))
-    
+
     def _create_site_card(self, parent, site):
         """创建网站卡片"""
         card = ctk.CTkFrame(
@@ -581,11 +581,11 @@ class ModernAppBase(ctk.CTk):
         # 卡片内部容器
         card_inner = ctk.CTkFrame(card, fg_color="transparent")
         card_inner.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
-        
+
         # 网站名称和标签行
         name_frame = ctk.CTkFrame(card_inner, fg_color="transparent")
         name_frame.pack(fill=ctk.X, pady=(0, 8))
-        
+
         # 网站名称
         name_label = ctk.CTkLabel(
             name_frame,
@@ -596,11 +596,11 @@ class ModernAppBase(ctk.CTk):
         )
         name_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
         self._theme_refs.append((name_label, {"text_color": "text_primary"}))
-        
+
         # 标签
         tags_frame = ctk.CTkFrame(name_frame, fg_color="transparent")
         tags_frame.pack(side=ctk.RIGHT)
-        
+
         for tag in site["tags"][:3]:  # 最多显示3个标签
             tag_label = ctk.CTkLabel(
                 tags_frame,
@@ -614,7 +614,7 @@ class ModernAppBase(ctk.CTk):
             )
             tag_label.pack(side=ctk.LEFT, padx=(2, 0))
             self._theme_refs.append((tag_label, {"text_color": "accent", "fg_color": "bg_medium"}))
-        
+
         # 网站描述
         desc_label = ctk.CTkLabel(
             card_inner,
@@ -627,11 +627,11 @@ class ModernAppBase(ctk.CTk):
         )
         desc_label.pack(fill=ctk.X, pady=(0, 10))
         self._theme_refs.append((desc_label, {"text_color": "text_secondary"}))
-        
+
         # 链接和按钮行
         link_frame = ctk.CTkFrame(card_inner, fg_color="transparent")
         link_frame.pack(fill=ctk.X)
-        
+
         # 链接地址
         link_label = ctk.CTkLabel(
             link_frame,
@@ -642,12 +642,12 @@ class ModernAppBase(ctk.CTk):
         )
         link_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
         self._theme_refs.append((link_label, {"text_color": "text_secondary"}))
-        
+
         # 打开链接按钮
         def create_open_link_callback(url):
             import webbrowser
             return lambda: webbrowser.open(url)
-        
+
         open_btn = ctk.CTkButton(
             link_frame,
             text=_("open_link"),
@@ -673,7 +673,7 @@ class ModernAppBase(ctk.CTk):
                     if hasattr(self, 'set_status'):
                         self.set_status(_("copy_failed", error=str(e)), "error")
             return copy_func
-        
+
         copy_btn = ctk.CTkButton(
             link_frame,
             text=_("copy_link"),

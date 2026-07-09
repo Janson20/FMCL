@@ -2044,9 +2044,9 @@ class OnlineTabMixin(object):
                     self.after(0, lambda: on_done(result))
             except Exception as e:
                 if on_error:
-                    self.after(0, lambda: on_error(str(e)))
+                    self.after(0, lambda err=str(e): on_error(err))
                 else:
-                    self.after(0, lambda: self._append_online_log(f"[FMCL] Error: {e}"))
+                    self.after(0, lambda err=str(e): self._append_online_log(f"[FMCL] Error: {err}"))
         threading.Thread(target=wrapper, daemon=True).start()
 
     def _get_display_name(self) -> str:
