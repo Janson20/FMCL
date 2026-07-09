@@ -62,8 +62,15 @@ def _load_translations(lang_code: str) -> Dict[str, str]:
 def _detect_system_language() -> str:
     """检测系统语言"""
     try:
-        system_locale, _ = locale.getdefaultlocale()
+        system_locale, encoding = locale.getlocale()
+        if not system_locale:
+            # locale.getlocale() 可能返回 (None, None)，尝试从环境变量获取
+            system_locale = locale.getlocale(category=locale.LC_ALL)
+            if isinstance(system_locale, tuple):
+                system_locale = system_locale[0]
         if system_locale:
+            # 标准化：某些平台的语言代码可能包含编码后缀（如 "zh_CN.UTF-8"）
+            system_locale = system_locale.split('.')[0]
             # 标准化语言代码
             lang_map = {
                 "zh_CN": "zh_CN",
