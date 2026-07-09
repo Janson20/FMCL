@@ -18,7 +18,7 @@
 | 🔧 多模组加载器 | Forge / Fabric / NeoForge / Quilt / LiteLoader / LegacyFabric / Cleanroom / OptiFine 一站式安装，版本隔离 | 与原版并行安装，自动适配 YY.D.H 新版本格式，JSON 检测加载器类型 |
 | ⚡ 国内镜像加速 | 内置 BMCLAPI 镜像源，国内下载速度大幅提升 | 一键开关，覆盖版本清单/资源/库/安装器 |
 | 🧩 模组管理 | Modrinth + CurseForge 在线搜索安装，AI 搜索 | 自动匹配版本和加载器，支持依赖递归安装 |
-| 📦 整合包 | 支持 .mrpack 安装与开服，Modrinth 在线下载 | 并行安装优化，分段进度显示 |
+| 📦 整合包 | 支持 .mrpack / MultiMC .zip 安装与开服，Modrinth 在线下载 | 并行安装优化，分段进度显示，增量更新 |
 | 🖥 服务器管理 | 一键安装/启动 MC 服务器，实时日志与命令交互 | 自动同意 EULA，智能 Java 管理，1G~16G 内存 |
 | 🌐 陶瓦联机 | 基于 EasyTier P2P 虚拟组网，局域网广播模拟 | Base34 大厅编号，TCP 端口转发，成员管理 |
 | 💾 存档备份 | 手动/自动备份，一键恢复，压缩/校验/导出 | 支持版本隔离目录扫描，备份索引记录 |
@@ -146,7 +146,7 @@ python main.py -A              # 交互模式
 ### 常用操作
 
 - **安装模组**：已安装加载器的版本右侧点击 🧩 按钮，搜索安装 Modrinth 模组
-- **安装整合包**：点击「📦 安装整合包」，选择 .mrpack 文件或从 Modrinth 下载
+- **安装整合包**：点击「📦 安装整合包」，选择 .mrpack 文件或 .zip 文件（MultiMC 格式），或从 Modrinth 下载
 - **开服**：切换到"🖥 开服"标签页，安装并启动 Minecraft 服务器
 - **备份存档**：切换到"💾 备份"标签页，手动或自动备份存档
 
@@ -164,8 +164,10 @@ FMCL/
 ├── launcher/              # 启动器核心逻辑
 │   ├── core.py            # 环境检查、版本安装、游戏启动
 │   ├── server.py          # 服务器安装/启动/停止
-│   ├── mrpack.py          # 整合包安装/开服
-│   ├── predownload.py     # 资源包预下载
+│   ├── mrpack.py          # 整合包安装/开服（.mrpack 格式）
+│   ├── multimc.py          # MultiMC 整合包安装/开服（.zip 格式）
+│   ├── multimc_types.py    # MultiMC 数据模型定义
+│   ├── predownload.py      # 资源包预下载
 │   └── verify.py          # 并发文件校验
 ├── ui/                    # CustomTkinter 现代化界面
 │   ├── app.py             # 主窗口（12 Mixin 组合模式）

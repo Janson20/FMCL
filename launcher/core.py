@@ -1747,6 +1747,12 @@ class MinecraftLauncher:
             "install_mrpack": self.install_mrpack,
             "get_mrpack_launch_version": self.get_mrpack_launch_version,
             "install_mrpack_server": self.install_mrpack_server,
+            # MultiMC 整合包
+            "get_multimc_pack_info": self.get_multimc_pack_info,
+            "install_multimc_pack": self.install_multimc_pack,
+            "install_multimc_pack_server": self.install_multimc_pack_server,
+            "update_multimc_pack": self.update_multimc_pack,
+            "get_instance_launch_overrides": self._get_instance_launch_overrides,
             # Java 运行时相关
             "scan_system_java": self.scan_system_java,
             "get_java_suggestion": self.get_java_suggestion,
