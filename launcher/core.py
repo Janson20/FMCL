@@ -1185,34 +1185,22 @@ class MinecraftLauncher:
                 minecraft_command.append(server_addr)
                 logger.info(f"追加 --quickPlayMultiplayer {server_addr}")
 
-            # ── retrofuturabootstrap: 构建 classpath + 替换 system.class.loader ──
-            # Forge 不通过 -cp 加载库，但 JVM 需要 -cp 来找到主类。
-            # 扫描 .minecraft/libraries/ 下所有 jar 构建完整 classpath。
-            rfb_jar_path = self._ensure_retrofuturabootstrap(target_version, minecraft_command)
-            if rfb_jar_path:
-                # 替换 -Djava.system.class.loader → -Drfb.skipClassLoaderCheck=true
-                for i, a in enumerate(minecraft_command):
-                    if a.startswith("-Djava.system.class.loader="):
-                        minecraft_command[i] = "-Drfb.skipClassLoaderCheck=true"
-                        break
-                # 构建 classpath：扫描 .minecraft/libraries/ 下所有 jar
-                libs_root = os.path.join(self.minecraft_dir, "libraries")
-                all_jars = []
-                if os.path.isdir(libs_root):
-                    for root, _dirs, files in os.walk(libs_root):
-                        for f in files:
-                            if f.endswith(".jar"):
-                                all_jars.append(os.path.join(root, f))
-                # 确保 retrofuturabootstrap 在最前面
-                if rfb_jar_path not in all_jars:
-                    all_jars.insert(0, rfb_jar_path)
-                # 在 main class 前插入 -cp <classpath>
-                main_class_name = "com.gtnewhorizons.retrofuturabootstrap.Main"
-                for i, a in reversed(list(enumerate(minecraft_command))):
-                    if a == main_class_name:
-                        minecraft_command[i:i] = ["-cp", os.pathsep.join(all_jars)]
-                        break
-                logger.info(f"retrofuturabootstrap: classpath 已构建 ({len(all_jars)} jars)")
+            # ── GTNH 检测 ──
+            if self._is_gtnh_instance(target_version):
+                try:
+                    import tkinter.messagebox as _mb
+                    _mb.showwarning(
+                        "GTNH 兼容性提示",
+                        "检测到 GT New Horizons 整合包。\n\n"
+                        "GTNH 使用了自定义系统类加载器 (retrofuturabootstrap)，"
+                        "在当前启动器中可能存在兼容性问题。\n\n"
+                        "建议使用以下启动器之一：\n"
+                        "  - HMCL (Hello Minecraft! Launcher)\n"
+                        "  - Prism Launcher (官方推荐)\n\n"
+                        "游戏仍会尝试启动，但可能会崩溃。"
+                    )
+                except Exception:
+                    pass
 
             # ── JVM 参数优化 ──
             minecraft_command = self._optimize_jvm_args(minecraft_command, target_version)
@@ -1448,6 +1436,36 @@ class MinecraftLauncher:
 
         return False
 
+    def _is_gtnh_instance(self, version_id: str) -> bool:
+        """检测是否为 GT New Horizons 整合包实例。
+
+        通过检查版本 JSON 的 mainClass 或 JVM 参数中是否包含
+        retrofuturabootstrap 来判断。
+
+        Args:
+            version_id: 版本 ID
+
+        Returns:
+            True 如果该版本是 GTNH 实例
+        """
+        try:
+            json_path = os.path.join(
+                self.minecraft_dir, "versions", version_id, f"{version_id}.json"
+            )
+            if not os.path.isfile(json_path):
+                return False
+            with open(json_path, "r", encoding="utf-8") as f:
+                vj = json.loads(f.read())
+            mc = vj.get("mainClass", "")
+            if "retrofuturabootstrap" in mc.lower():
+                return True
+            for a in vj.get("arguments", {}).get("jvm", []):
+                if isinstance(a, str) and "retrofuturabootstrap" in a.lower():
+                    return True
+        except Exception:
+            pass
+        return False
+
     def _get_mmc_min_java(self, version_id: str) -> Optional[int]:
         """获取 MultiMC 整合包所需的最低 Java 主版本号。
 
@@ -1471,14 +1489,13 @@ class MinecraftLauncher:
                 if java_ver and isinstance(java_ver, dict):
                     major = java_ver.get("majorVersion")
                     if isinstance(major, int) and major >= 8:
-                        # Minecraft runtime 最高只到 Java 21，超出的 cap 到 21
-                        # Java 21 兼容 GTNH 2.8+（官方推荐 Java 17-25）
-                        if major > 21:
+                        # GTNH 用 Java 17 更稳定，cap 到 17
+                        if major > 17:
                             logger.info(
                                 f"MMC 实例 {version_id} 要求 Java {major}+，"
-                                f"但 Minecraft runtime 最高为 21，使用 Java 21"
+                                f"使用 Java 17（GTNH 兼容性更好）"
                             )
-                            major = 21
+                            major = 17
                         logger.info(f"MMC 实例 {version_id} 需要 Java {major}+")
                         return major
 
@@ -1531,6 +1548,10 @@ class MinecraftLauncher:
                 else:
                     component = "java-runtime-alpha"
                 logger.info(f"MMC: 从 min_java={min_java} 推导 component={component}")
+            elif component == "java-runtime-delta" and min_java <= 17:
+                # GTNH: 强制使用 Java 17 以获得更好兼容性
+                component = "java-runtime-gamma"
+                logger.info(f"MMC: GTNH 强制使用 Java 17 运行时 (gamma)")
 
             # 检查是否已安装
             try:
@@ -1768,7 +1789,7 @@ class MinecraftLauncher:
 
         # 下载 retrofuturabootstrap（从旧版本开始尝试，兼容 GTNH 2.8.4）
         # 通过 -cp 加载到 AppClassLoader，由 Main 类在运行时创建 class loader
-        versions_to_try = ["1.0.12", "1.0.13", "1.0.14", "1.0.15", "1.0.16", "1.0.17"]
+        versions_to_try = ["1.1.0", "1.0.17", "1.0.16", "1.0.15", "1.0.14", "1.0.13", "1.0.12"]
         base_url = (
             "https://github.com/GTNewHorizons/RetroFuturaBootstrap"
             "/releases/download/{ver}/RetroFuturaBootstrap-{ver}.jar"
