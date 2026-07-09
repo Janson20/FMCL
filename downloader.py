@@ -931,7 +931,29 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
                 for lib in client_json.get("libraries", [])
             )
             if not has_foundation:
+                # 尝试在本地找已下载的 Foundation 库
                 foundation_libs_dir = Path(minecraft_dir) / "libraries" / "top" / "outlands" / "foundation"
+                if not foundation_libs_dir.exists():
+                    # 从 maven 下载 Foundation 库（Cleanroom 0.2.x 依赖）
+                    # 使用与 Cleanroom 安装器相同的版本解析逻辑
+                    try:
+                        _fv = None
+                        for lib in install_profile.get("libraries", []):
+                            name = lib.get("name", "")
+                            if name.startswith("top.outlands:foundation:"):
+                                _fv = name.split(":")[2]
+                                break
+                        if _fv:
+                            logger.info(f"安装 Foundation 库: top.outlands:foundation:{_fv}")
+                            install_libraries(version, [{
+                                "name": f"top.outlands:foundation:{_fv}",
+                                "url": "https://maven.fabricmc.net/"
+                            }], str(minecraft_dir), {})
+                            # 重新扫描本地目录
+                            foundation_libs_dir = Path(minecraft_dir) / "libraries" / "top" / "outlands" / "foundation"
+                    except Exception as e:
+                        logger.warning(f"Foundation 库下载失败: {e}")
+
                 if foundation_libs_dir.exists():
                     found_versions = sorted([d.name for d in foundation_libs_dir.iterdir() if d.is_dir()], reverse=True)
                     if found_versions:

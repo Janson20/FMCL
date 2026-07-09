@@ -189,16 +189,17 @@ class MinecraftLauncher:
             from launcher.java_scanner import recommend_for_mc
             javas = self._get_cached_java_runtimes()
             if javas:
-                # Cleanroom 需要 Java 21+（参考 HMCL GameJavaVersion.getCleanroomJavaVersion）
-                # 覆盖默认的 MC 版本推荐，优先选择满足 Cleanroom 要求的 Java
+                # Cleanroom Java 版本要求（参考 HMCL GameJavaVersion.getCleanroomJavaVersion）
+                # - Cleanroom < 0.5.0: 需要 Java 21+
+                # - Cleanroom >= 0.5.0: 需要 Java 25+
                 _loader_type = self._detect_mod_loader_type(target_version)
-                _need_java21 = (_loader_type == "cleanroom")
                 
-                if _need_java21:
-                    _java21_versions = [j for j in javas if j.major_version >= 21]
-                    if _java21_versions:
-                        best = min(_java21_versions, key=lambda j: j.major_version)
-                        logger.info(f"Cleanroom 需要 Java 21+，选择: {best.display_name}")
+                if _loader_type == "cleanroom":
+                    _min_java = self._get_cleanroom_min_java(target_version)
+                    _java_versions = [j for j in javas if j.major_version >= _min_java]
+                    if _java_versions:
+                        best = min(_java_versions, key=lambda j: j.major_version)
+                        logger.info(f"Cleanroom 需要 Java {_min_java}+，选择: {best.display_name}")
                         return best.path
                 
                 best = recommend_for_mc(javas, target_version)
@@ -993,31 +994,41 @@ class MinecraftLauncher:
 
             # 确保 natives 目录存在且包含原生库
             # 自定义安装的版本没有独立的 natives 目录，需要回退到父版本的 natives
+            # 但 Cleanroom 使用 LWJGL3，不能使用父版本（1.12.2）的 LWJGL2 natives
             if "nativesDirectory" not in options:
                 # minecraft_launcher_lib 默认使用 versions/{id}/natives
                 # 但自定义版本没有 natives，所以指向父版本的 natives
                 default_natives = os.path.join(self.minecraft_dir, "versions", target_version, "natives")
-                parent_natives = None
-                try:
-                    version_json_path = Path(self.minecraft_dir) / "versions" / target_version / f"{target_version}.json"
-                    if version_json_path.exists():
-                        import json as _json
-                        obj = _json.loads(version_json_path.read_text(encoding="utf-8"))
-                        inherits_from = obj.get("inheritsFrom")
-                        if inherits_from:
-                            parent_natives_path = Path(self.minecraft_dir) / "versions" / str(inherits_from).strip() / "natives"
-                            if parent_natives_path.exists() and any(parent_natives_path.iterdir()):
-                                parent_natives = str(parent_natives_path)
-                except Exception:
-                    pass
+                _loader_type = self._detect_mod_loader_type(target_version)
+                if _loader_type != "cleanroom":
+                    parent_natives = None
+                    try:
+                        version_json_path = Path(self.minecraft_dir) / "versions" / target_version / f"{target_version}.json"
+                        if version_json_path.exists():
+                            import json as _json
+                            obj = _json.loads(version_json_path.read_text(encoding="utf-8"))
+                            inherits_from = obj.get("inheritsFrom")
+                            if inherits_from:
+                                parent_natives_path = Path(self.minecraft_dir) / "versions" / str(inherits_from).strip() / "natives"
+                                if parent_natives_path.exists() and any(parent_natives_path.iterdir()):
+                                    parent_natives = str(parent_natives_path)
+                    except Exception:
+                        pass
 
-                if parent_natives:
-                    options["nativesDirectory"] = parent_natives
-                    logger.info(f"使用父版本 natives 目录: {parent_natives}")
-                elif not os.path.isdir(default_natives) or not any(Path(default_natives).iterdir()):
-                    # 确保默认 natives 目录存在
-                    os.makedirs(default_natives, exist_ok=True)
-                    options["nativesDirectory"] = default_natives
+                    if parent_natives:
+                        options["nativesDirectory"] = parent_natives
+                        logger.info(f"使用父版本 natives 目录: {parent_natives}")
+                    elif not os.path.isdir(default_natives) or not any(Path(default_natives).iterdir()):
+                        os.makedirs(default_natives, exist_ok=True)
+                        options["nativesDirectory"] = default_natives
+                else:
+                    # Cleanroom: 使用自己的 LWJGL3 natives 目录
+                    if os.path.isdir(default_natives) and any(Path(default_natives).iterdir()):
+                        options["nativesDirectory"] = default_natives
+                        logger.info(f"Cleanroom: 使用自带 LWJGL3 natives: {default_natives}")
+                    else:
+                        os.makedirs(default_natives, exist_ok=True)
+                        options["nativesDirectory"] = default_natives
 
             # 获取启动命令（Yggdrasil 账号使用 authlib-injector）
             logger.info(f"正在生成启动命令: {target_version}")
@@ -1102,6 +1113,15 @@ class MinecraftLauncher:
                 )
                 if sys.platform == 'win32':
                     popen_kwargs['creationflags'] = subprocess.CREATE_NO_WINDOW
+
+            # ── Cleanroom 环境变量 ──
+            # 参考 HMCL DefaultLauncher: 设置 INST_CLEANROOM=1 让
+            # Cleanroom Loader 识别自身运行环境
+            if self._detect_mod_loader_type(target_version) == "cleanroom":
+                env = os.environ.copy()
+                env["INST_CLEANROOM"] = "1"
+                popen_kwargs["env"] = env
+                logger.info("已设置 INST_CLEANROOM=1 环境变量")
             # ── 插件钩子: game.pre_launch ──
             pre_launch_results = self._emit_plugin_hook("game.pre_launch", version_id=target_version, command=minecraft_command)
             if pre_launch_results:
@@ -1153,6 +1173,44 @@ class MinecraftLauncher:
                               "optifine", "labymod" 或 ""
         """
         return parse_mod_loader_from_version(version_id) or ""
+
+    def _get_cleanroom_min_java(self, version_id: str) -> int:
+        """获取 Cleanroom 所需的最低 Java 主版本号
+
+        参考 HMCL GameJavaVersion.getCleanroomJavaVersion():
+        - Cleanroom < 0.5.0 → Java 21
+        - Cleanroom >= 0.5.0 → Java 25
+
+        从版本 JSON 中提取 Cleanroom 版本号，回退到 21。
+
+        Args:
+            version_id: 版本 ID
+
+        Returns:
+            最低 Java 主版本号 (21 或 25)
+        """
+        try:
+            from version_utils import parse_loader_version_from_json
+            json_path = os.path.join(self.minecraft_dir, "versions", version_id, f"{version_id}.json")
+            if os.path.isfile(json_path):
+                with open(json_path, "r", encoding="utf-8") as f:
+                    cr_ver = parse_loader_version_from_json(f.read(), "cleanroom")
+                    if cr_ver:
+                        # 去掉 -alpha 后缀进行版本比较
+                        cr_ver_clean = cr_ver.replace("-alpha", "")
+                        parts = cr_ver_clean.split(".")
+                        major = int(parts[0]) if parts else 0
+                        minor = int(parts[1]) if len(parts) > 1 else 0
+                        if major > 0 or minor >= 5:
+                            logger.info(f"Cleanroom {cr_ver} 需要 Java 25+")
+                            return 25
+                        else:
+                            logger.info(f"Cleanroom {cr_ver} 需要 Java 21+")
+                            return 21
+        except Exception as e:
+            logger.debug(f"获取 Cleanroom 最低 Java 版本失败: {e}")
+        # 回退到 Java 21
+        return 21
 
     def _ensure_version_jar(self, version_id: str) -> bool:
         """确保版本 JAR 文件存在
@@ -1292,10 +1350,9 @@ class MinecraftLauncher:
                             break
 
         if is_cleanroom:
-            # Cleanroom 专用 JVM 优化（参考 Cleanroom Loader 官方文档）
-            if not has_gc:
-                jvm_opts.append("-XX:+UseZGC")           # ZGC 极低延迟，适合大堆内存
-            jvm_opts.append("-XX:+UseCompactObjectHeaders")  # Java 25+ 对象头压缩
+            # Cleanroom 专用 JVM 优化
+            # 参考 HMCL: 不添加额外 GC 参数，允许用户自定义
+            # ZGC 和 CompactObjectHeaders 对 Cleanroom 非必需，交给用户自行配置
             # Cleanroom 要求 -Xms == -Xmx，确保堆固定
             if has_xmx and not has_xms:
                 for arg in optimized:
@@ -1382,8 +1439,11 @@ class MinecraftLauncher:
     def _filter_cleanroom_classpath(command: List[str]) -> List[str]:
         """过滤 Cleanroom 的 classpath，移除与 Cleanroom 冲突的旧版库
 
-        HMCL DefaultLauncher 中 Cleanroom 需要排除包含 "2.9.4-nightly-20150209" 的
-        asm 库，该库与 Cleanroom 自带的 asm 版本冲突。
+        参考 HMCL DefaultLauncher 和 PCL-CE ModLaunch.McLaunchLibPath():
+        - 排除旧版 LWJGL 2.9.4（包括 nightly 版本）
+        - 排除旧版 JNA platform 3.4.0
+        - 排除旧版 ICU4J mojang fork 51.2
+        Cleanroom 自带 LWJGL 3 + 现代 JNA/ICU4J，旧版库会导致类加载冲突。
 
         Args:
             command: 启动命令列表
@@ -1395,7 +1455,15 @@ class MinecraftLauncher:
         for i, arg in enumerate(command):
             if arg in ("-cp", "-classpath") and i + 1 < len(command):
                 entries = command[i + 1].split(path_sep)
-                filtered = [e for e in entries if "2.9.4-nightly-20150209" not in e]
+                filtered = [
+                    e for e in entries
+                    if not any(conflict in e for conflict in (
+                        "2.9.4-nightly-20150209",
+                        "lwjgl:lwjgl:2.9.4",
+                        "jna:platform:3.4.0",
+                        "icu4j-core-mojang:51.2",
+                    ))
+                ]
                 if len(filtered) != len(entries):
                     removed = len(entries) - len(filtered)
                     command[i + 1] = path_sep.join(filtered)
