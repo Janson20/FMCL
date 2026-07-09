@@ -570,6 +570,8 @@ class ModpackInstallWindow(ctk.CTkToplevel):
             )
             show_notification("📦", _("notify_modpack_installed"), result, notify_type="success")
             _trigger_ach("modder_lazy")
+            # 刷新主窗口版本列表
+            self.after(0, self.master._refresh_versions)
             messagebox.showinfo(
                 _("mp_install_done_title"),
                 _("mp_install_done_msg", result=result),

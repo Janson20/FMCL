@@ -102,7 +102,7 @@ class MinecraftLauncher(
     def _install_multimc_wrapper(
         self, path: str, optional_ids: Optional[list], name: Optional[str]
     ) -> Tuple[bool, str]:
-        return self.install_multimc_pack(path, instance_name=name)
+        return self.install_multimc_pack(path, optional_files=optional_ids)
 
     def _install_curseforge_wrapper(
         self, path: str, optional_ids: Optional[list], name: Optional[str]
