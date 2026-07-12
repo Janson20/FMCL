@@ -2,8 +2,6 @@ import threading
 import tkinter as tk
 from tkinter import Button, Canvas
 
-import keyboard
-
 
 class ScreenshotTool:
     def __init__(self, root):
@@ -66,7 +64,11 @@ def start_screenshot_tool():
 
 def listen_for_hotkey():
     # 延迟导入 keyboard，避免启动时不必要的导入开销
-    import keyboard
+    try:
+        import keyboard
+    except Exception:
+        print("keyboard 库在当前平台不可用，截图快捷键已禁用")
+        return
 
     # 监听 Ctrl+Alt+T 快捷键
     keyboard.add_hotkey("ctrl+alt+t", start_screenshot_tool)
@@ -79,5 +81,11 @@ if __name__ == "__main__":
     hotkey_thread = threading.Thread(target=listen_for_hotkey, daemon=True)
     hotkey_thread.start()
 
-    # 使用 keyboard.wait() 替代 while True 循环,避免 CPU 100% 占用
-    keyboard.wait()
+    # 主线程等待
+    try:
+        import keyboard
+
+        keyboard.wait()
+    except Exception:
+        # keyboard 不可用，保持主线程存活
+        threading.Event().wait()

@@ -317,22 +317,25 @@ class CrashHandlerMixin(object):
                     # 优先从内存缓冲区获取
                     if hasattr(self, "_log_buffer") and self._log_buffer:
                         launcher_log_content = self._log_buffer.getvalue()
-                    # 如果缓冲区为空，回退到 logzero 的磁盘日志文件
                     if not launcher_log_content.strip():
-                        import platform as _platform
+                        # 使用配置中的日志路径
+                        try:
+                            from config import config as _cfg
 
-                        system = _platform.system().lower()
+                            disk_log = _cfg.log_file
+                        except Exception:
+                            # 回退到基于平台的默认路径
+                            import platform as _platform
 
-                        if system == "linux":
-                            # Linux: 日志在 /var/log/fmcl/latest.log
-                            disk_log = Path("/var/log/fmcl/latest.log")
-                        else:
-                            # Windows/macOS: 日志在项目根目录
-                            base_dir = crash_files.get("_mc_dir")
-                            if base_dir:
-                                disk_log = Path(base_dir) / "latest.log"
+                            system = _platform.system().lower()
+                            if system == "linux":
+                                disk_log = Path.home() / ".local" / "share" / "fmcl" / "fmcl.log"
                             else:
-                                disk_log = None
+                                base_dir = crash_files.get("_mc_dir")
+                                if base_dir:
+                                    disk_log = Path(base_dir) / "latest.log"
+                                else:
+                                    disk_log = None
 
                         if disk_log and disk_log.exists():
                             try:
@@ -593,21 +596,24 @@ class CrashHandlerMixin(object):
         if hasattr(self, "_log_buffer") and self._log_buffer:
             launcher_log = self._log_buffer.getvalue()
         if not launcher_log.strip():
+            disk_log = None
             try:
+                from config import config as _cfg
+
+                disk_log = _cfg.log_file
+            except Exception:
                 system = platform.system().lower()
                 if system == "linux":
-                    disk_log = Path("/var/log/fmcl/latest.log")
+                    disk_log = Path.home() / ".local" / "share" / "fmcl" / "fmcl.log"
                 else:
                     disk_log = Path("latest.log")
-                if disk_log.exists():
-                    for enc in ("utf-8", "gbk", "latin-1"):
-                        try:
-                            launcher_log = disk_log.read_text(enc, errors="ignore")
-                            break
-                        except (UnicodeDecodeError, UnicodeError):
-                            continue
-            except Exception:
-                pass
+            if disk_log and disk_log.exists():
+                for enc in ("utf-8", "gbk", "latin-1"):
+                    try:
+                        launcher_log = disk_log.read_text(enc, errors="ignore")
+                        break
+                    except (UnicodeDecodeError, UnicodeError):
+                        continue
         if launcher_log.strip():
             log_lines = launcher_log.strip().splitlines()[-200:]
             parts.append(f"[启动器日志（最后200行）]\n" + "\n".join(log_lines))
@@ -689,21 +695,24 @@ class CrashHandlerMixin(object):
         if hasattr(self, "_log_buffer") and self._log_buffer:
             launcher_log = self._log_buffer.getvalue()
         if not launcher_log.strip():
+            disk_log = None
             try:
+                from config import config as _cfg
+
+                disk_log = _cfg.log_file
+            except Exception:
                 system = platform.system().lower()
                 if system == "linux":
-                    disk_log = Path("/var/log/fmcl/latest.log")
+                    disk_log = Path.home() / ".local" / "share" / "fmcl" / "fmcl.log"
                 else:
                     disk_log = Path("latest.log")
-                if disk_log.exists():
-                    for enc in ("utf-8", "gbk", "latin-1"):
-                        try:
-                            launcher_log = disk_log.read_text(enc, errors="ignore")
-                            break
-                        except (UnicodeDecodeError, UnicodeError):
-                            continue
-            except Exception:
-                pass
+            if disk_log and disk_log.exists():
+                for enc in ("utf-8", "gbk", "latin-1"):
+                    try:
+                        launcher_log = disk_log.read_text(enc, errors="ignore")
+                        break
+                    except (UnicodeDecodeError, UnicodeError):
+                        continue
         if launcher_log.strip():
             log_lines = launcher_log.strip().splitlines()[-200:]
             parts.append(f"[启动器日志（最后200行）]\n" + "\n".join(log_lines))

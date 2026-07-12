@@ -5,7 +5,12 @@ from pathlib import Path
 
 import customtkinter as ctk
 import markdown
-from tkinterweb import HtmlFrame
+try:
+    from tkinterweb import HtmlFrame
+
+    _HAVE_HTMLFRAME = True
+except Exception:
+    _HAVE_HTMLFRAME = False
 
 from ui.constants import COLORS
 from ui.i18n import _
@@ -135,9 +140,21 @@ def _md_to_html(md_text: str) -> str:
 </html>"""
 
 
-def _build_terms_html_frame(parent, md_text: str = None) -> HtmlFrame:
+def _build_terms_html_frame(parent, md_text: str = None):
     if md_text is None:
         md_text = _load_terms_md()
+
+    if not _HAVE_HTMLFRAME:
+        # 回退：用 CTkTextbox 显示纯文本（无 HTML 渲染）
+        from ui.constants import FONT_FAMILY
+
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        textbox = ctk.CTkTextbox(frame, wrap=ctk.WORD, font=ctk.CTkFont(family=FONT_FAMILY, size=13))
+        textbox.pack(fill=ctk.BOTH, expand=True, padx=10, pady=10)
+        textbox.insert(ctk.END, md_text)
+        textbox.configure(state=ctk.DISABLED)
+        return frame
+
     html = _md_to_html(md_text)
 
     frame = HtmlFrame(
