@@ -37,7 +37,7 @@ try:
     import keyboard as _keyboard_monitor
 
     _keyboard_available = True
-except ImportError:
+except Exception:
     _keyboard_available = False
 
 try:
@@ -750,6 +750,8 @@ class MonitorMixin:
                 self._monitor_hotkeys_registered = True
                 logger.info("性能监控全局热键已注册")
             except Exception as e:
+                global _keyboard_available
+                _keyboard_available = False
                 if sys.platform == "win32":
                     logger.warning(f"注册性能监控热键失败: {e}")
                 else:

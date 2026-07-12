@@ -12,24 +12,15 @@
 - 日志文件: `latest.log`（程序根目录）
 - Minecraft 目录: `.minecraft/`（程序根目录）
 
-**Linux (FHS 标准):**
-- 配置文件: `/etc/fmcl/config.json`
+**Linux (XDG Base Directory 规范):**
+- 配置文件: `~/.config/fmcl/config.json`
 - 密钥文件: `~/.fmcl/.fmcl_key`
-- 日志文件: `/var/log/fmcl/latest.log`
+- 日志文件: `~/.local/share/fmcl/fmcl.log`
 - Minecraft 目录: `~/.minecraft/`
 - 运行时目录: `~/.fmcl/`
 
-> **Linux 首次运行**:
-> - 日志目录 (`/var/log/fmcl/`) 会自动创建（如权限不足会回退到 `~/.fmcl/`）
-> - 配置目录 (`/etc/fmcl/`) 需要手动创建或使用安装脚本：
->   ```bash
->   # 一键安装（推荐）
->   curl -fsSL https://raw.githubusercontent.com/Janson20/FMCL/main/scripts/install.sh | bash
->
->   # 或手动创建
->   sudo mkdir -p /etc/fmcl /var/log/fmcl
->   sudo chown $USER:$USER /etc/fmcl /var/log/fmcl
->   ```
+> **Linux 首次运行**：启动器会自动创建上述目录，无需手动干预。
+> 确保已安装系统依赖：`sudo apt install python3-tk python3-venv`（Debian/Ubuntu）
 
 ## 配置项说明
 
