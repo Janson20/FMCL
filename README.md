@@ -285,7 +285,7 @@ chore: 构建/工具变动
 | 版本安装失败 | 检查网络连接，查看 `latest.log` 日志 |
 | 游戏启动失败 | 确保已安装 Java 运行时 |
 | macOS 提示无法验证开发者 | `xattr -cr FMCL.app` 移除隔离属性 |
-|| Linux 配置文件存储位置 | `~/.config/fmcl/config.json`（自动创建，无需手动干预） |
+| Linux 配置文件存储位置 | `~/.config/fmcl/config.json`（自动创建，无需手动干预） |
 | Linux 无图形环境崩溃 | WSL/无头服务器下鼠标检测线程会自动跳过，不会崩溃 |
 
 ---
