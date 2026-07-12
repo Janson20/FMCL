@@ -108,8 +108,8 @@ try:
     import keyboard as _keyboard
 
     _keyboard_available = True
-except ImportError as e:
-    _keyboard_import_error = e
+except Exception as e:
+    _hotkey_import_error = e
     _keyboard_available = False
 
 
@@ -1757,6 +1757,8 @@ class MusicPlayerMixin(object):
                 logger.info("音乐播放全局热键已注册")
             except Exception as e:
                 # Linux 下 keyboard 库通常需要 root 且全局热键不可靠，降级为 debug 避免噪音
+                global _keyboard_available
+                _keyboard_available = False
                 if sys.platform == "win32":
                     logger.warning(f"注册全局热键失败: {e}")
                 else:

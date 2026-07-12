@@ -182,22 +182,18 @@ cd "${INSTALL_DIR}"
 uv sync
 info "Python 依赖安装完成"
 
-# ── 6. 设置 FHS 目录结构 ─────────────────────────────────
-step "6/7 设置 Linux FHS 目录..."
+# ── 6. 创建 XDG 目录结构 ─────────────────────────────────
+step "6/7 创建 XDG 目录结构..."
 
-${USE_SUDO} mkdir -p /etc/fmcl
-${USE_SUDO} mkdir -p /var/log/fmcl
-
-# 确保当前用户拥有这些目录的写权限
-if [ -n "${USE_SUDO}" ]; then
-    ${USE_SUDO} chown "$(id -u):$(id -g)" /etc/fmcl
-    ${USE_SUDO} chown "$(id -u):$(id -g)" /var/log/fmcl
-fi
+# 配置文件: ~/.config/fmcl/
+mkdir -p "${HOME}/.config/fmcl"
+# 日志文件: ~/.local/share/fmcl/
+mkdir -p "${HOME}/.local/share/fmcl"
 
 mkdir -p "${HOME}/.minecraft"
 mkdir -p "${HOME}/.fmcl"
 
-info "FHS 目录结构创建完成"
+info "XDG 目录结构创建完成"
 
 # ── 7. 注册 fmcl 命令 ────────────────────────────────────
 step "7/7 注册 fmcl 命令..."

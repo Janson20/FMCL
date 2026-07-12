@@ -450,8 +450,10 @@ class EventHandlerMixin(object):
 
                 # ── 游戏日志：根据平台在不同位置查找 ──
                 if system == "linux":
-                    # Linux: 日志在 /var/log/fmcl/
-                    logs_dir = Path("/var/log/fmcl")
+                    # Linux: 日志在配置路径
+                    from config import config as _cfg
+
+                    logs_dir = _cfg.log_file.parent
                     if logs_dir.exists():
                         latest_log = logs_dir / "latest.log"
                         if latest_log.exists():

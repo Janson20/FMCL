@@ -72,6 +72,7 @@
 |------|------|
 | Python 3.10+ | 运行启动器 |
 | Java 8+ | 运行 Minecraft（启动器自动扫描系统 Java，推荐版本由 MC 版本决定） |
+| Linux: `python3-tk` | 系统包（Ubuntu/Debian: `sudo apt install python3-tk python3-venv`） |
 
 ---
 
@@ -126,7 +127,10 @@ python main.py -A              # 交互模式
 ```
 
 > 💡 建议使用虚拟环境：`python -m venv .venv && source .venv/bin/activate`
-> Linux 用户请参阅 [docs/LINUX_FILE_LOCATIONS.md](docs/LINUX_FILE_LOCATIONS.md) 了解 FHS 标准下的文件存储路径
+> **Linux 用户注意**：
+> - 首次运行前请安装系统依赖：`sudo apt install python3-tk python3-venv`（Debian/Ubuntu）或 `sudo dnf install python3-tkinter`（Fedora）
+> - 配置文件存储在 `~/.config/fmcl/config.json`，日志存储在 `~/.local/share/fmcl/fmcl.log`
+> - 全局热键（音乐播放器/性能监控）在非 root 用户下不可用，不影响其他功能
 
 ---
 
@@ -281,7 +285,7 @@ chore: 构建/工具变动
 | 版本安装失败 | 检查网络连接，查看 `latest.log` 日志 |
 | 游戏启动失败 | 确保已安装 Java 运行时 |
 | macOS 提示无法验证开发者 | `xattr -cr FMCL.app` 移除隔离属性 |
-| Linux 配置目录权限错误 | `sudo mkdir -p /etc/fmcl && sudo chown $USER:$USER /etc/fmcl` |
+|| Linux 配置文件存储位置 | `~/.config/fmcl/config.json`（自动创建，无需手动干预） |
 | Linux 无图形环境崩溃 | WSL/无头服务器下鼠标检测线程会自动跳过，不会崩溃 |
 
 ---
