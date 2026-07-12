@@ -51,16 +51,18 @@ def _get_platform_paths():
     system = platform.system().lower()
 
     if system == "linux":
-        # Linux: 遵循 FHS 标准
+        # Linux: 遵循 XDG Base Directory 规范
         home = Path.home()
+        xdg_config_home = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
+        xdg_data_home = Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share"))
 
-        # 配置文件: /etc/fmcl/config.json
-        config_dir = Path("/etc/fmcl")
+        # 配置文件: ~/.config/fmcl/config.json
+        config_dir = xdg_config_home / "fmcl"
         config_file = config_dir / "config.json"
 
-        # 日志文件: /var/log/fmcl/latest.log
-        log_dir = Path("/var/log/fmcl")
-        log_file = log_dir / "latest.log"
+        # 日志文件: ~/.local/share/fmcl/fmcl.log
+        log_dir = xdg_data_home / "fmcl"
+        log_file = log_dir / "fmcl.log"
 
         # Minecraft 目录: ~/.minecraft
         minecraft_dir = home / ".minecraft"
@@ -354,52 +356,17 @@ class Config:
 
     def ensure_directories(self) -> None:
         """确保必要的目录存在"""
-        import platform
-
-        system = platform.system().lower()
-
         # 创建 Minecraft 目录
         self.minecraft_dir.mkdir(parents=True, exist_ok=True)
 
         # 创建基础目录
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
-        # Linux 特殊处理：确保 /etc/fmcl 和 /var/log/fmcl 存在
-        if system == "linux":
-            config_dir = self.config_file.parent
-            log_dir = self.log_file.parent
+        # 创建配置目录
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
 
-            try:
-                # 尝试创建配置目录（可能需要 sudo）
-                config_dir.mkdir(parents=True, exist_ok=True)
-                logger.info(f"配置目录已确保: {config_dir}")
-            except PermissionError:
-                logger.warning(f"无权限创建配置目录: {config_dir}")
-                logger.warning(f"请运行: sudo mkdir -p {config_dir} && sudo chown $USER:$USER {config_dir}")
-                Config._notify_error(
-                    "权限不足",
-                    f"无权限创建配置目录: {config_dir}\n"
-                    f"请运行: sudo mkdir -p {config_dir} && sudo chown $USER:$USER {config_dir}",
-                )
-            except Exception as e:
-                logger.error(f"创建配置目录失败: {e}")
-                Config._notify_error("目录创建失败", f"无法创建配置目录: {e}")
-
-            try:
-                # 尝试创建日志目录（可能需要 sudo）
-                log_dir.mkdir(parents=True, exist_ok=True)
-                logger.info(f"日志目录已确保: {log_dir}")
-            except PermissionError:
-                logger.warning(f"无权限创建日志目录: {log_dir}")
-                logger.warning(f"请运行: sudo mkdir -p {log_dir} && sudo chown $USER:$USER {log_dir}")
-                Config._notify_error(
-                    "权限不足",
-                    f"无权限创建日志目录: {log_dir}\n"
-                    f"请运行: sudo mkdir -p {log_dir} && sudo chown $USER:$USER {log_dir}",
-                )
-            except Exception as e:
-                logger.error(f"创建日志目录失败: {e}")
-                Config._notify_error("目录创建失败", f"无法创建日志目录: {e}")
+        # 创建日志目录
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
     def get_versions_dir(self) -> Path:
         """获取版本目录路径"""
