@@ -20,6 +20,8 @@ pip install -r requirements.txt
 uv sync
 ```
 
+> **Python 版本要求**：本项目仅支持 Python >= 3.10, < 3.12。pygame 在 Windows Python 3.12+ 上无可用二进制包。
+
 #### Node.js 依赖 (用于 Git hooks)
 ```bash
 npm install
