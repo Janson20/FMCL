@@ -26,8 +26,7 @@
 ~/.fmcl/                     # FMCL 运行时目录
 ├── plugins/                 # 插件
 ├── accounts.json            # 账号数据（加密）
-├── achievement.db           # 成就数据
-└── pos.txt                  # 鼠标位置记录（调试用）
+└── achievement.db           # 成就数据
 ```
 
 ### Windows/macOS 平台（保持不变）
@@ -40,7 +39,6 @@ FMCL/                        # 程序所在目录
 │   ├── versions/
 │   ├── mods/
 │   └── ...
-└── pos.txt                  # 鼠标位置记录
 ```
 
 ## 🔧 首次运行

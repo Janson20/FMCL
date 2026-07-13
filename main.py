@@ -4,7 +4,6 @@ v1.0 - start project
 v1.1 - add forge install
 v1.2 - add logs module
 v1.3 - add ui
-v1.4 - add mouse detect
 v2.0 - refactor: modular architecture, improved error handling
 v3.0 - modern UI with CustomTkinter, multi-threaded operations
 v3.1 - perf: lazy imports, deferred heavy initialization
@@ -135,52 +134,6 @@ def setup_logging():
 
     structured_log_path = str(config.base_dir / "latest_structured.log")
     slog._log_path = structured_log_path
-
-
-def detect_mouse_move():
-    """
-    鼠标位置检测功能(调试用)
-    持续记录鼠标位置到文件
-    仅在有图形环境时启用
-    """
-    # 检测是否有 X11 显示环境（Linux 无头环境如 WSL/服务器）
-    display = os.environ.get("DISPLAY")
-    wayland = os.environ.get("WAYLAND_DISPLAY")
-    if not display and not wayland:
-        logger.debug("无图形环境，跳过鼠标检测线程")
-        return
-
-    # 延迟导入 pyautogui，避免启动时 0.08s 的导入开销
-    # 部分 Linux 环境 DISPLAY 有值但 ~/.Xauthority 缺失，导入即会触发 Xlib 连接异常
-    try:
-        import pyautogui
-    except Exception as e:
-        logger.debug(f"pyautogui 不可用，跳过鼠标检测线程: {e}")
-        return
-
-    pos_file = config.base_dir / "pos.txt"
-
-    try:
-        with open(pos_file, "w+") as f:
-            logger.info("鼠标检测线程启动")
-
-            while True:
-                try:
-                    x, y = pyautogui.position()
-                    position_str = f"{str(x).rjust(5)} , {str(y).rjust(5)}"
-
-                    f.write(position_str + "\n")
-                    f.flush()
-
-                    # 降低刷新频率,避免过度写入
-                    time.sleep(0.2)
-
-                except KeyboardInterrupt:
-                    logger.info("鼠标检测线程停止")
-                    break
-
-    except Exception as e:
-        logger.error(f"鼠标检测线程错误: {str(e)}")
 
 
 def _auto_refresh_tokens(account_system):
@@ -490,10 +443,6 @@ def main():
         # 启动成就系统初始化线程（与启动器并行，包含云存档同步）
         ach_thread = threading.Thread(target=_init_achievements, daemon=True)
         ach_thread.start()
-
-        # 启动鼠标检测线程(守护线程,主程序退出时自动结束)
-        mouse_thread = threading.Thread(target=detect_mouse_move, daemon=True)
-        mouse_thread.start()
 
         app.protocol("WM_DELETE_WINDOW", app.on_closing)
         app.mainloop()
