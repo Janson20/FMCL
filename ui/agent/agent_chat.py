@@ -19,6 +19,7 @@
 
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -28,7 +29,20 @@ from typing import Any, Callable, Dict, Generator, List, Optional
 import customtkinter as ctk
 import markdown
 from logzero import logger
-from tkinterweb import HtmlFrame
+
+try:
+    from tkinterweb import HtmlFrame
+
+    _HAVE_HTMLFRAME = True
+except Exception:
+    _HAVE_HTMLFRAME = False
+
+try:
+    from tkhtmlview import HTMLScrolledText
+
+    _HAVE_HTMLVIEW = True
+except Exception:
+    _HAVE_HTMLVIEW = False
 
 from ui.agent.models import ModelInfo, get_default_model, get_model_catalog, get_models_by_provider, get_provider_names
 from ui.agent.permission import check_permission
@@ -851,17 +865,42 @@ class AgentChatView(ctk.CTkFrame):
         panel = ctk.CTkFrame(parent, fg_color=COLORS["card_bg"], corner_radius=10)
         panel.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 5))
 
-        # 消息显示区 - 使用 HtmlFrame 支持 Markdown 渲染
-        self._msg_frame = HtmlFrame(
-            panel,
-            messages_enabled=False,
-            images_enabled=False,
-            forms_enabled=False,
-            objects_enabled=False,
-            javascript_enabled=False,
-            dark_theme_enabled=True,
-            vertical_scrollbar=True,
-        )
+        # 消息显示区 - HtmlFrame → HTMLScrolledText → CTkTextbox 三级回退
+        self._msg_frame = None
+        if _HAVE_HTMLFRAME:
+            try:
+                self._msg_frame = HtmlFrame(
+                    panel,
+                    messages_enabled=False,
+                    images_enabled=False,
+                    forms_enabled=False,
+                    objects_enabled=False,
+                    javascript_enabled=False,
+                    dark_theme_enabled=True,
+                    vertical_scrollbar=True,
+                )
+            except Exception:
+                self._msg_frame = None
+        if self._msg_frame is None and _HAVE_HTMLVIEW:
+            try:
+                self._msg_frame = HTMLScrolledText(
+                    panel,
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+                    background=COLORS["bg_medium"],
+                    foreground=COLORS["text_primary"],
+                    padx=6,
+                    pady=6,
+                )
+            except Exception:
+                self._msg_frame = None
+        if self._msg_frame is None:
+            self._msg_frame = ctk.CTkTextbox(
+                panel,
+                wrap=ctk.WORD,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+                fg_color=COLORS["bg_medium"],
+                text_color=COLORS["text_primary"],
+            )
         self._msg_frame.pack(fill=ctk.BOTH, expand=True, padx=6, pady=(6, 4))
 
         # 进度指示
@@ -1207,8 +1246,28 @@ class AgentChatView(ctk.CTkFrame):
             html = f'<div class="msg msg-user"><div class="role-icon">{icon}</div>{self._md_to_html(content)}</div>'
         return html
 
+    @staticmethod
+    def _strip_html(html: str) -> str:
+        """将 HTML 转换为可读纯文本（用于 CTkTextbox 回退）"""
+        text = html
+        # 块级标签换行
+        text = re.sub(r"</?(div|p|br|hr|h[1-6]|li|tr|td|blockquote)(\s[^>]*)?>", "\n", text, flags=re.IGNORECASE)
+        # 其余标签移除
+        text = re.sub(r"<[^>]+>", "", text)
+        # HTML 实体解码
+        text = (
+            text.replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", '"')
+        )
+        # 折叠多余空行
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
     def _render_full(self):
-        """完整重建 HTML 并加载到 HtmlFrame"""
+        """完整重建消息区（HtmlFrame 加载 HTML / CTkTextbox 显示纯文本）"""
         parts = []
         for block in self._message_blocks:
             if block.get("type") == "divider":
@@ -1218,14 +1277,27 @@ class AgentChatView(ctk.CTkFrame):
         # 流式块
         if self._streaming_block:
             parts.append(self._build_block_html(self._streaming_block))
-        html = self._html_template("".join(parts))
-        try:
-            self._msg_frame.load_html(html)
-            # 取消上一次待执行的滚动，延迟重新滚动（流式更新时每次 load_html 重置位置，
-            # 只保留最后一次滚动调度，避免频繁抖动）
+
+        if hasattr(self._msg_frame, "load_html"):
+            html = self._html_template("".join(parts))
+            try:
+                self._msg_frame.load_html(html)
+                self._defer_scroll()
+            except Exception:
+                pass
+        elif hasattr(self._msg_frame, "set_html"):
+            try:
+                self._msg_frame.set_html("".join(parts))
+                self._defer_scroll()
+            except Exception:
+                pass
+        else:
+            text = self._strip_html("".join(parts))
+            self._msg_frame.configure(state=ctk.NORMAL)
+            self._msg_frame.delete("1.0", ctk.END)
+            self._msg_frame.insert(ctk.END, text)
+            self._msg_frame.configure(state=ctk.DISABLED)
             self._defer_scroll()
-        except Exception:
-            pass
 
     def _defer_scroll(self):
         if hasattr(self, "_scroll_after_id") and self._scroll_after_id:
