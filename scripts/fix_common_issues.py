@@ -102,20 +102,12 @@ def fix_linux_issues():
     # 检测包管理器并安装系统依赖
     if Path("/usr/bin/apt-get").exists():
         run_command(
-            "sudo apt-get update && sudo apt-get install -y "
-            "python3-tk python3-venv",
-            "安装系统依赖 (Debian/Ubuntu)",
+            "sudo apt-get update && sudo apt-get install -y " "python3-tk python3-venv", "安装系统依赖 (Debian/Ubuntu)"
         )
     elif Path("/usr/bin/dnf").exists():
-        run_command(
-            "sudo dnf install -y python3-tkinter python3-virtualenv",
-            "安装系统依赖 (Fedora/RHEL)",
-        )
+        run_command("sudo dnf install -y python3-tkinter python3-virtualenv", "安装系统依赖 (Fedora/RHEL)")
     elif Path("/usr/bin/pacman").exists():
-        run_command(
-            "sudo pacman -S --noconfirm tk python-virtualenv",
-            "安装系统依赖 (Arch Linux)",
-        )
+        run_command("sudo pacman -S --noconfirm tk python-virtualenv", "安装系统依赖 (Arch Linux)")
 
 
 def check_java():
