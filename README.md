@@ -132,6 +132,8 @@ python main.py -A              # 交互模式
 > - 配置文件存储在 `~/.config/fmcl/config.json`，日志存储在 `~/.local/share/fmcl/fmcl.log`
 > - 全局热键（音乐播放器/性能监控）在非 root 用户下不可用，不影响其他功能
 
+> **Python 版本要求**：本项目仅支持 Python >= 3.10, < 3.12。pygame 在 Windows Python 3.12+ 上无可用二进制包。
+
 ---
 
 ## 快速开始
