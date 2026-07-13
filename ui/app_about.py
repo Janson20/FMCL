@@ -5,6 +5,7 @@ from pathlib import Path
 
 import customtkinter as ctk
 import markdown
+
 try:
     from tkinterweb import HtmlFrame
 
