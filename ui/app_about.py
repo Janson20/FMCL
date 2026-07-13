@@ -13,6 +13,13 @@ try:
 except Exception:
     _HAVE_HTMLFRAME = False
 
+try:
+    from tkhtmlview import HTMLScrolledText
+
+    _HAVE_HTMLVIEW = True
+except Exception:
+    _HAVE_HTMLVIEW = False
+
 from ui.constants import COLORS
 from ui.i18n import _
 
@@ -145,30 +152,50 @@ def _build_terms_html_frame(parent, md_text: str = None):
     if md_text is None:
         md_text = _load_terms_md()
 
-    if not _HAVE_HTMLFRAME:
-        # 回退：用 CTkTextbox 显示纯文本（无 HTML 渲染）
-        from ui.constants import FONT_FAMILY
+    # 尝试 HtmlFrame（原生 tkhtml）
+    if _HAVE_HTMLFRAME:
+        try:
+            html = _md_to_html(md_text)
+            frame = HtmlFrame(
+                parent,
+                messages_enabled=False,
+                images_enabled=False,
+                forms_enabled=False,
+                objects_enabled=False,
+                javascript_enabled=False,
+                dark_theme_enabled=True,
+                vertical_scrollbar=True,
+            )
+            frame.load_html(html)
+            return frame
+        except Exception:
+            pass
 
-        frame = ctk.CTkFrame(parent, fg_color="transparent")
-        textbox = ctk.CTkTextbox(frame, wrap=ctk.WORD, font=ctk.CTkFont(family=FONT_FAMILY, size=13))
-        textbox.pack(fill=ctk.BOTH, expand=True, padx=10, pady=10)
-        textbox.insert(ctk.END, md_text)
-        textbox.configure(state=ctk.DISABLED)
-        return frame
+    # 尝试 HTMLScrolledText（纯 Python）
+    if _HAVE_HTMLVIEW:
+        try:
+            html = _md_to_html(md_text)
+            frame = HTMLScrolledText(
+                parent,
+                font=ctk.CTkFont(family="sans-serif", size=13),
+                background=COLORS["bg_medium"],
+                foreground=COLORS["text_primary"],
+                padx=10,
+                pady=10,
+            )
+            frame.set_html(html)
+            return frame
+        except Exception:
+            pass
 
-    html = _md_to_html(md_text)
+    # 回退：CTkTextbox 纯文本
+    from ui.constants import FONT_FAMILY
 
-    frame = HtmlFrame(
-        parent,
-        messages_enabled=False,
-        images_enabled=False,
-        forms_enabled=False,
-        objects_enabled=False,
-        javascript_enabled=False,
-        dark_theme_enabled=True,
-        vertical_scrollbar=True,
-    )
-    frame.load_html(html)
+    frame = ctk.CTkFrame(parent, fg_color="transparent")
+    textbox = ctk.CTkTextbox(frame, wrap=ctk.WORD, font=ctk.CTkFont(family=FONT_FAMILY, size=13))
+    textbox.pack(fill=ctk.BOTH, expand=True, padx=10, pady=10)
+    textbox.insert(ctk.END, md_text)
+    textbox.configure(state=ctk.DISABLED)
     return frame
 
 
