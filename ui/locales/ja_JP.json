@@ -992,6 +992,7 @@
   "music_song_count": "{count} 曲",
   "music_tab_local": "📁 ローカル",
   "music_tab_online": "🌐 オンライン検索",
+  "music_tab_playlist": "📋 プレイリスト",
   "music_search_placeholder": "🔍 曲名/アーティストを検索...",
   "music_search_btn": "🔍 検索",
   "music_source_select": "音源選択",

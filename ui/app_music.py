@@ -443,6 +443,9 @@ class MusicPlayerMixin(object):
         self._music_online_frame = ctk.CTkFrame(self._music_tab_content, fg_color="transparent")
         self._build_music_online_panel()
 
+        # 歌单标签页
+        self._build_music_playlist_tab_panel()
+
         self._music_main_frame.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
 
         self._init_music_lazy()
@@ -669,12 +672,36 @@ class MusicPlayerMixin(object):
         self._theme_refs.append((self._music_fx_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
 
     def _build_music_playlist_panel(self):
-        # 主容器：左侧歌单侧边栏 + 右侧歌曲列表
-        self._music_list_frame = ctk.CTkFrame(self._music_main_frame, fg_color=COLORS["card_bg"], corner_radius=12)
-        self._music_list_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
+        list_frame = ctk.CTkFrame(self._music_main_frame, fg_color=COLORS["card_bg"], corner_radius=12)
+        list_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
+        self._music_list_frame = list_frame
+
+        header = ctk.CTkFrame(list_frame, fg_color="transparent", height=35)
+        header.pack(fill=ctk.X, padx=12, pady=(12, 5))
+        header.pack_propagate(False)
+
+        ctk.CTkLabel(
+            header,
+            text=_("music_playlist"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).pack(side=ctk.LEFT)
+
+        self._music_scroll = ctk.CTkScrollableFrame(
+            list_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
+        )
+        self._music_scroll.pack(fill=ctk.BOTH, expand=True, padx=8, pady=(5, 10))
+        self._theme_refs.append((self._music_scroll, {"scrollbar_button_color": "bg_light"}))
+
+    def _build_music_playlist_tab_panel(self):
+        """构建歌单标签页 — 左侧侧边栏 + 右侧歌曲列表 + 排序控件"""
+        self._music_playlist_frame = ctk.CTkFrame(self._music_tab_content, fg_color="transparent")
+
+        main = ctk.CTkFrame(self._music_playlist_frame, fg_color=COLORS["card_bg"], corner_radius=12)
+        main.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
 
         # ── 左侧：歌单侧边栏 ──
-        sidebar_frame = ctk.CTkFrame(self._music_list_frame, fg_color="transparent", width=160)
+        sidebar_frame = ctk.CTkFrame(main, fg_color="transparent", width=160)
         sidebar_frame.pack(side=ctk.LEFT, fill=ctk.Y, padx=(8, 4), pady=10)
         sidebar_frame.pack_propagate(False)
 
@@ -701,15 +728,14 @@ class MusicPlayerMixin(object):
         )
         self._music_new_playlist_btn.pack(fill=ctk.X, padx=6, pady=(6, 0))
 
-        # 分隔线
-        separator = ctk.CTkFrame(self._music_list_frame, fg_color=COLORS["card_border"], width=1)
+        separator = ctk.CTkFrame(main, fg_color=COLORS["card_border"], width=1)
         separator.pack(side=ctk.LEFT, fill=ctk.Y, padx=2, pady=10)
 
         # ── 右侧：歌曲列表区域 ──
-        right_frame = ctk.CTkFrame(self._music_list_frame, fg_color="transparent")
+        right_frame = ctk.CTkFrame(main, fg_color="transparent")
         right_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(4, 8), pady=10)
 
-        # 排序控件（歌单视图时显示）
+        # 排序控件
         sort_frame = ctk.CTkFrame(right_frame, fg_color="transparent", height=28)
         sort_frame.pack(fill=ctk.X, pady=(0, 4))
         sort_frame.pack_propagate(False)
@@ -741,33 +767,16 @@ class MusicPlayerMixin(object):
         )
         self._music_sort_name_btn.pack(side=ctk.LEFT)
 
-        # 歌曲列表容器（存放两类列表：全部歌曲 和 歌单歌曲）
-        self._music_all_songs_scroll = ctk.CTkScrollableFrame(
+        # 歌单歌曲列表
+        self._music_playlist_scroll = ctk.CTkScrollableFrame(
             right_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
         )
-        self._music_all_songs_scroll.pack(fill=ctk.BOTH, expand=True)
+        self._music_playlist_scroll.pack(fill=ctk.BOTH, expand=True)
 
-        self._music_playlist_songs_scroll = ctk.CTkScrollableFrame(
-            right_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
-        )
-        # 默认隐藏，由视图切换控制
-
-        # 保持旧的 _music_scroll 引用以兼容现有 _rebuild_playlist_ui / _add_playlist_row
-        self._music_scroll = self._music_all_songs_scroll
-
-        self._theme_refs.append((self._music_scroll, {"scrollbar_button_color": "bg_light"}))
-        self._theme_refs.append(
-            (self._music_playlist_songs_scroll, {"scrollbar_button_color": "bg_light"})
-        )
         self._theme_refs.append((self._music_new_playlist_btn, {"fg_color": "bg_light", "hover_color": "accent"}))
 
-        # 初始化显示状态（隐藏排序栏）
-        self._music_sort_frame.pack_forget()
-        self._music_show_playlist_view = False  # True = 歌单视图, False = 全部歌曲
-
-        # 歌单侧边栏状态
+        # 初始化状态
         self._music_playlist_sidebar_widgets: List[dict] = []
-        self._music_current_view_playlist_id: Optional[str] = None
 
     def _build_music_now_playing(self):
         self._music_cover_frame = ctk.CTkFrame(
@@ -925,27 +934,52 @@ class MusicPlayerMixin(object):
         )
         self._music_online_tab_btn.pack(side=ctk.LEFT)
 
+        self._music_playlist_tab_btn = ctk.CTkButton(
+            tab_bar, text=_("music_tab_playlist"), width=100, command=self._music_switch_to_playlist_tab, **btn_cfg
+        )
+        self._music_playlist_tab_btn.pack(side=ctk.LEFT, padx=(4, 0))
+
         self._theme_refs.append((self._music_local_tab_btn, {"fg_color": "bg_light", "hover_color": "accent"}))
         self._theme_refs.append((self._music_online_tab_btn, {"fg_color": "bg_light", "hover_color": "accent"}))
+        self._theme_refs.append((self._music_playlist_tab_btn, {"fg_color": "bg_light", "hover_color": "accent"}))
 
     def _music_switch_to_local(self):
         self._music_tab_mode = "local"
         self._music_online_frame.pack_forget()
+        self._music_playlist_frame.pack_forget()
         if self._music_mini_mode:
             self._music_mini_bar.pack(fill=ctk.X, padx=15, pady=(0, 15))
         else:
             self._music_main_frame.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
         self._music_local_tab_btn.configure(fg_color=COLORS["accent"])
         self._music_online_tab_btn.configure(fg_color=COLORS["bg_light"])
+        self._music_playlist_tab_btn.configure(fg_color=COLORS["bg_light"])
         self._stop_search_loading()
+        # 刷新全部歌曲列表
+        self._rebuild_playlist_ui()
 
     def _music_switch_to_online(self):
         self._music_tab_mode = "online"
         self._music_mini_bar.pack_forget()
         self._music_main_frame.pack_forget()
+        self._music_playlist_frame.pack_forget()
         self._music_online_frame.pack(fill=ctk.BOTH, expand=True, padx=15, pady=15)
         self._music_online_tab_btn.configure(fg_color=COLORS["accent"])
         self._music_local_tab_btn.configure(fg_color=COLORS["bg_light"])
+        self._music_playlist_tab_btn.configure(fg_color=COLORS["bg_light"])
+
+    def _music_switch_to_playlist_tab(self):
+        """切换到歌单标签页"""
+        self._music_tab_mode = "playlist"
+        self._music_mini_bar.pack_forget()
+        self._music_main_frame.pack_forget()
+        self._music_online_frame.pack_forget()
+        self._music_playlist_frame.pack(fill=ctk.BOTH, expand=True)
+        self._music_playlist_tab_btn.configure(fg_color=COLORS["accent"])
+        self._music_local_tab_btn.configure(fg_color=COLORS["bg_light"])
+        self._music_online_tab_btn.configure(fg_color=COLORS["bg_light"])
+        self._stop_search_loading()
+        self._rebuild_playlist_sidebar()
 
     # ═══════════════ 在线搜索面板 ═══════════════
 
@@ -1730,9 +1764,6 @@ class MusicPlayerMixin(object):
         self._music_song_count_label.configure(count_text)
         self._rebuild_playlist_ui()
         self._save_music_state_later()
-        # 切回全部歌曲视图（新文件夹扫描后）
-        if getattr(self, "_music_show_playlist_view", False):
-            self._music_switch_to_all_songs()
 
     def _rebuild_playlist_ui(self):
         for w in self._music_playlist_widgets:
@@ -1817,9 +1848,6 @@ class MusicPlayerMixin(object):
         self._save_music_state_later()
 
     def _highlight_current_in_list(self):
-        # 歌单视图下不执行高亮（由歌单视图自已管理播放状态）
-        if getattr(self, "_music_show_playlist_view", False):
-            return
         for w in self._music_playlist_widgets:
             try:
                 f = w.get("frame")
@@ -1864,7 +1892,7 @@ class MusicPlayerMixin(object):
 
         # ── 用户歌单列表 ──
         mgr = self._music_playlist_manager
-        current_id = mgr.current_playlist_id if self._music_show_playlist_view else None
+        current_id = mgr.current_playlist_id
 
         for pl in mgr.playlists:
             display_name = f"{pl.name} ({pl.song_count})"
@@ -1901,14 +1929,14 @@ class MusicPlayerMixin(object):
         # 点击切换到歌单
         click_targets = [frame, label]
         if playlist_id is None:
-            # 全部歌曲
+            # 全部歌曲 → 切换到本地标签页
             for t in click_targets:
-                t.bind("<Button-1>", lambda e: self._music_switch_to_all_songs())
-                t.bind("<Double-Button-1>", lambda e: self._music_switch_to_all_songs())
+                t.bind("<Button-1>", lambda e: self._music_switch_to_local())
+                t.bind("<Double-Button-1>", lambda e: self._music_switch_to_local())
         else:
             for t in click_targets:
-                t.bind("<Button-1>", lambda e, pid=playlist_id: self._music_switch_to_playlist(pid))
-                t.bind("<Double-Button-1>", lambda e, pid=playlist_id: self._music_switch_to_playlist(pid))
+                t.bind("<Button-1>", lambda e, pid=playlist_id: self._music_show_playlist(pid))
+                t.bind("<Double-Button-1>", lambda e, pid=playlist_id: self._music_show_playlist(pid))
                 # 右键菜单（仅用户歌单）
                 t.bind("<Button-3>", lambda e, pid=playlist_id: self._music_show_playlist_context_menu(e, pid))
 
@@ -1917,18 +1945,17 @@ class MusicPlayerMixin(object):
     def _highlight_sidebar_selection(self):
         """高亮侧边栏当前选中项"""
         mgr = self._music_playlist_manager
-        selected_id = None
-        if self._music_show_playlist_view:
-            selected_id = mgr.current_playlist_id
+        selected_id = mgr.current_playlist_id
 
         for w in self._music_playlist_sidebar_widgets:
             frame = w.get("frame")
             if not frame or not frame.winfo_exists():
                 continue
             pid = w.get("playlist_id")
-            if selected_id and pid == selected_id:
-                frame.configure(fg_color=COLORS["bg_light"])
-            elif selected_id is None and pid is None:
+            if pid is None:
+                # "全部歌曲" — 仅在本地标签页时高亮
+                frame.configure(fg_color="transparent")
+            elif pid == selected_id:
                 frame.configure(fg_color=COLORS["bg_light"])
             else:
                 frame.configure(fg_color="transparent")
@@ -1985,7 +2012,7 @@ class MusicPlayerMixin(object):
         mgr = self._music_playlist_manager
         pl = mgr.create_playlist(name)
         mgr.set_current_playlist(pl.id)
-        self._music_switch_to_playlist(pl.id)
+        self._music_show_playlist(pl.id)
         self._save_music_state_later()
 
     def _music_rename_playlist_dialog(self, playlist_id: str):
@@ -2026,52 +2053,27 @@ class MusicPlayerMixin(object):
 
         mgr = self._music_playlist_manager
         mgr.delete_playlist(playlist_id)
-        self._music_switch_to_all_songs()
         self._rebuild_playlist_sidebar()
         self._save_music_state_later()
 
-    def _music_switch_to_playlist(self, playlist_id: str):
-        """切换到指定歌单视图"""
+    def _music_show_playlist(self, playlist_id: str):
+        """在歌单标签页中显示指定歌单"""
+        # 先确保在歌单标签页
+        if self._music_tab_mode != "playlist":
+            self._music_switch_to_playlist_tab()
+
         mgr = self._music_playlist_manager
         pl = mgr.get_playlist(playlist_id)
         if pl is None:
             return
 
-        self._music_show_playlist_view = True
-        self._music_current_view_playlist_id = playlist_id
         mgr.set_current_playlist(playlist_id)
-
-        # 隐藏全部歌曲视图，显示歌单视图
-        self._music_all_songs_scroll.pack_forget()
-        self._music_playlist_songs_scroll.pack(fill=ctk.BOTH, expand=True)
-        self._music_scroll = self._music_playlist_songs_scroll
-
-        # 显示排序栏
-        self._music_sort_frame.pack(fill=ctk.X, pady=(0, 4))
 
         # 恢复该歌单的排序模式
         self._update_sort_buttons(pl.sort_mode)
 
         # 渲染歌曲列表
         self._rebuild_playlist_song_list(pl)
-
-        self._rebuild_playlist_sidebar()
-
-    def _music_switch_to_all_songs(self):
-        """切换到全部歌曲视图"""
-        self._music_show_playlist_view = False
-        self._music_current_view_playlist_id = None
-
-        # 隐藏歌单视图，显示全部歌曲视图
-        self._music_playlist_songs_scroll.pack_forget()
-        self._music_all_songs_scroll.pack(fill=ctk.BOTH, expand=True)
-        self._music_scroll = self._music_all_songs_scroll
-
-        # 隐藏排序栏
-        self._music_sort_frame.pack_forget()
-
-        # 重新渲染全部歌曲列表
-        self._rebuild_playlist_ui()
         self._rebuild_playlist_sidebar()
 
     def _rebuild_playlist_song_list(self, pl: Playlist):
@@ -2089,7 +2091,7 @@ class MusicPlayerMixin(object):
         if not pl.songs:
             # 空歌单占位
             empty_label = ctk.CTkLabel(
-                self._music_playlist_songs_scroll,
+                self._music_playlist_scroll,
                 text=_("music_playlist_empty"),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=12),
                 text_color=COLORS["text_secondary"],
@@ -2103,7 +2105,7 @@ class MusicPlayerMixin(object):
 
     def _add_playlist_song_row(self, idx: int, song: "PlaylistSong"):
         """渲染歌单中的单行歌曲"""
-        row = ctk.CTkFrame(self._music_playlist_songs_scroll, fg_color="transparent", height=32)
+        row = ctk.CTkFrame(self._music_playlist_scroll, fg_color="transparent", height=32)
         row.pack(fill=ctk.X, pady=1)
 
         # 序号
@@ -2156,7 +2158,7 @@ class MusicPlayerMixin(object):
             fg_color="transparent",
             hover_color=COLORS["accent"],
             text_color=COLORS["text_secondary"],
-            command=lambda pid=self._music_current_view_playlist_id, si=idx: self._music_remove_song_from_playlist(pid, si),
+            command=lambda si=idx: self._music_remove_song_from_playlist(si),
         )
         remove_btn.pack(side=ctk.RIGHT, padx=(0, 4))
 
@@ -2213,13 +2215,13 @@ class MusicPlayerMixin(object):
             t.bind("<Button-1>", _play)
             t.bind("<Double-Button-1>", _play)
 
-    def _music_remove_song_from_playlist(self, playlist_id: str, song_index: int):
-        """从歌单中移除歌曲"""
-        mgr = self._music_playlist_manager
-        if mgr.remove_song(playlist_id, song_index):
-            pl = mgr.get_playlist(playlist_id)
-            if pl:
-                self._rebuild_playlist_song_list(pl)
+    def _music_remove_song_from_playlist(self, song_index: int):
+        """从当前歌单中移除歌曲"""
+        pl = self._music_playlist_manager.get_current_playlist()
+        if pl is None:
+            return
+        if self._music_playlist_manager.remove_song(pl.id, song_index):
+            self._rebuild_playlist_song_list(pl)
             self._rebuild_playlist_sidebar()
             self._save_music_state_later()
 
@@ -2351,10 +2353,9 @@ class MusicPlayerMixin(object):
         if mgr.add_song(playlist_id, song):
             self._rebuild_playlist_sidebar()
             # 如果当前正在查看该歌单，刷新列表
-            if self._music_current_view_playlist_id == playlist_id:
-                pl = mgr.get_playlist(playlist_id)
-                if pl:
-                    self._rebuild_playlist_song_list(pl)
+            current = mgr.get_current_playlist()
+            if current and current.id == playlist_id:
+                self._rebuild_playlist_song_list(current)
             self._save_music_state_later()
 
     # ═══════════════ 注册热键 ─────────────────────
