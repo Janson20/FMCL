@@ -34,7 +34,7 @@ from ui.music_effects import (
 from ui.music_lyrics import LyricLine, LyricParser
 from ui.music_source import MUSIC_SOURCES, SOURCE_META, search_all
 from ui.music_source.base import MusicInfo as OnlineMusicInfo
-from ui.music_playlist import Playlist, PlaylistManager, PlaylistSong, SORT_ADD_TIME_DESC, SORT_ADD_TIME_ASC, SORT_NAME_ASC, SORT_NAME_DESC
+from ui.music_playlist import Playlist, PlaylistManager, PlaylistSong, HISTORY_PLAYLIST_ID, SORT_ADD_TIME_DESC, SORT_ADD_TIME_ASC, SORT_NAME_ASC, SORT_NAME_DESC
 
 _pygame_import_error = None
 try:
@@ -767,6 +767,19 @@ class MusicPlayerMixin(object):
         )
         self._music_sort_name_btn.pack(side=ctk.LEFT)
 
+        # 播放全部按钮
+        self._music_play_all_btn = ctk.CTkButton(
+            sort_frame,
+            text="▶ " + _("music_play_all"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            height=24,
+            width=100,
+            command=self._music_play_playlist_all,
+        )
+        self._music_play_all_btn.pack(side=ctk.RIGHT)
+
         # 歌单歌曲列表
         self._music_playlist_scroll = ctk.CTkScrollableFrame(
             right_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
@@ -1267,6 +1280,7 @@ class MusicPlayerMixin(object):
             self._music_fade_in()
             self._trigger_ach("music_first_play")
             self._trigger_ach("music_play_count")
+            self._music_record_play_history_local(filepath)
         except Exception as e:
             logger.error(f"播放失败: {filepath}: {e}")
             self._music_is_playing = False
@@ -1306,6 +1320,7 @@ class MusicPlayerMixin(object):
             self._music_fade_in()
             self._trigger_ach("music_first_play")
             self._trigger_ach("music_play_count")
+            self._music_record_play_history_online(online_info)
         except Exception as e:
             logger.error(f"在线播放失败: {e}")
             self._music_is_playing = False
@@ -1895,7 +1910,12 @@ class MusicPlayerMixin(object):
         current_id = mgr.current_playlist_id
 
         for pl in mgr.playlists:
-            display_name = f"{pl.name} ({pl.song_count})"
+            if pl.is_system:
+                # 系统歌单特殊显示
+                icon = "🕐"
+                display_name = f"{icon} {pl.name} ({pl.song_count})"
+            else:
+                display_name = f"{pl.name} ({pl.song_count})"
             item = self._build_sidebar_item(pl.id, display_name, is_active=(pl.id == current_id))
             self._music_playlist_sidebar_widgets.append(item)
 
@@ -1985,6 +2005,14 @@ class MusicPlayerMixin(object):
 
         ctk.CTkButton(menu, text=_("music_rename_playlist"), command=lambda: self._music_rename_playlist_dialog(playlist_id) or menu.destroy(), **btn_cfg).pack(fill=ctk.X, padx=4, pady=2)
         ctk.CTkButton(menu, text=_("music_delete_playlist"), command=lambda: self._music_delete_playlist_confirm(playlist_id) or menu.destroy(), **btn_cfg).pack(fill=ctk.X, padx=4, pady=2)
+
+        # 如果是系统歌单，禁用编辑按钮
+        if pl.is_system:
+            for child in menu.winfo_children():
+                try:
+                    child.configure(state=ctk.DISABLED, text_color=COLORS["text_secondary"])
+                except Exception:
+                    pass
 
         def _close_menu(e=None):
             try:
@@ -2357,6 +2385,54 @@ class MusicPlayerMixin(object):
             if current and current.id == playlist_id:
                 self._rebuild_playlist_song_list(current)
             self._save_music_state_later()
+
+    # ── 播放历史记录 ──
+
+    def _music_record_play_history_local(self, filepath: str):
+        """记录本地歌曲到播放历史"""
+        if not hasattr(self, "_music_playlist_manager"):
+            return
+        meta = self._get_metadata(filepath)
+        song = PlaylistSong.from_local_file(filepath, meta)
+        self._music_playlist_manager.record_to_history(song)
+
+    def _music_record_play_history_online(self, online_info):
+        """记录在线歌曲到播放历史"""
+        if not hasattr(self, "_music_playlist_manager"):
+            return
+        try:
+            song = PlaylistSong.from_online_info(online_info)
+        except Exception:
+            return
+        self._music_playlist_manager.record_to_history(song)
+
+    # ── 播放全部按钮 ──
+
+    def _music_play_playlist_all(self):
+        """播放当前歌单的所有可播放歌曲"""
+        mgr = self._music_playlist_manager
+        pl = mgr.get_current_playlist()
+        if pl is None or not pl.songs:
+            return
+        # 构建播放路径列表
+        paths = []
+        start_index = -1
+        for s in pl.songs:
+            if s.source_type == "local":
+                if os.path.exists(s.file_path):
+                    paths.append(s.file_path)
+            elif s.source_type == "online":
+                # 在线歌曲通过播放触发下载
+                paths.append(s)
+        if paths:
+            # 优先播放本地歌曲
+            local_paths = [p for p in paths if isinstance(p, str)]
+            if local_paths:
+                self._music_playlist = local_paths
+                self._music_current_index = 0
+                self._music_progress = 0
+                self._play_file(local_paths[0])
+                self._save_music_state_later()
 
     # ═══════════════ 注册热键 ─────────────────────
 

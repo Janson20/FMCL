@@ -1024,6 +1024,7 @@
   "music_sort_name": "曲名",
   "music_sort_asc": "昇順",
   "music_sort_desc": "降順",
+  "music_play_all": "すべて再生",
   "music_playlist_empty": "プレイリストは空です",
   "music_already_in_playlist": "プレイリストに既に存在します",
   "music_playlist_name_placeholder": "プレイリスト名を入力",

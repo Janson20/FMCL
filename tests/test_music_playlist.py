@@ -31,6 +31,7 @@ SORT_ADD_TIME_DESC = mp.SORT_ADD_TIME_DESC
 SORT_NAME_ASC = mp.SORT_NAME_ASC
 SORT_NAME_DESC = mp.SORT_NAME_DESC
 _name_sort_key = mp._name_sort_key
+HISTORY_PLAYLIST_ID = mp.HISTORY_PLAYLIST_ID
 
 
 class TestPlaylistSong:
@@ -287,7 +288,6 @@ class TestPlaylistManager:
         mgr.add_song(pl.id, s2)
         assert pl.songs[0].display_title == "B"
         assert pl.songs[1].display_title == "A"
-
     def test_save_and_load(self):
         mgr = PlaylistManager()
         pl = mgr.create_playlist("SavedTest")
@@ -299,11 +299,13 @@ class TestPlaylistManager:
 
         try:
             mgr.save(tmp_path)
+
             mgr2 = PlaylistManager()
             mgr2.load(tmp_path)
-            assert len(mgr2.playlists) == 1
-            assert mgr2.playlists[0].name == "SavedTest"
-            assert len(mgr2.playlists[0].songs) == 1
+            # 1 user playlist + 1 history playlist
+            assert len(mgr2.user_playlists) == 1
+            assert mgr2.user_playlists[0].name == "SavedTest"
+            assert len(mgr2.user_playlists[0].songs) == 1
             assert mgr2.current_playlist_id == pl.id
         finally:
             if tmp_path.exists():
@@ -312,7 +314,9 @@ class TestPlaylistManager:
     def test_load_nonexistent_file(self):
         mgr = PlaylistManager()
         mgr.load(Path("/tmp/nonexistent_test_file.json"))
-        assert mgr.playlists == []
+        # Even with no file, history playlist should exist
+        assert len(mgr.playlists) >= 1
+        assert mgr.get_playlist(HISTORY_PLAYLIST_ID) is not None
         assert mgr.current_playlist_id is None
 
     def test_get_playable_songs_filters_missing_local(self):
@@ -355,3 +359,134 @@ class TestNameSortKey:
         """即使没有 pypinyin，排序也不应该报错"""
         key = _name_sort_key("中文歌曲")
         assert isinstance(key, str)
+
+
+class TestPlaylistHistory:
+    def test_get_or_create_history(self):
+        mgr = PlaylistManager()
+        pl = mgr.get_or_create_history_playlist()
+        assert pl.id == HISTORY_PLAYLIST_ID
+        assert pl.is_system is True
+        assert pl in mgr.playlists
+
+    def test_history_is_system(self):
+        mgr = PlaylistManager()
+        pl = mgr.get_or_create_history_playlist()
+        assert mgr.is_system_playlist(pl.id) is True
+
+    def test_history_cannot_be_deleted(self):
+        mgr = PlaylistManager()
+        pl = mgr.get_or_create_history_playlist()
+        assert mgr.delete_playlist(pl.id) is False
+        assert mgr.get_playlist(pl.id) is not None
+
+    def test_history_cannot_be_renamed(self):
+        mgr = PlaylistManager()
+        pl = mgr.get_or_create_history_playlist()
+        assert mgr.rename_playlist(pl.id, "New Name") is False
+        assert pl.name != "New Name"
+
+    def test_record_to_history(self):
+        mgr = PlaylistManager()
+        song = PlaylistSong(source_type="local", file_path="/a.mp3", display_title="A")
+        assert mgr.record_to_history(song) is True
+        pl = mgr.get_or_create_history_playlist()
+        assert len(pl.songs) == 1
+        assert pl.songs[0]._id == song._id
+
+    def test_record_to_history_dedup(self):
+        mgr = PlaylistManager()
+        s1 = PlaylistSong(source_type="local", file_path="/a.mp3", display_title="A")
+        s2 = PlaylistSong(source_type="local", file_path="/a.mp3", display_title="A")
+        mgr.record_to_history(s1)
+        mgr.record_to_history(s2)
+        pl = mgr.get_or_create_history_playlist()
+        assert len(pl.songs) == 1  # dedup
+        assert pl.songs[0]._id == s2._id  # updated to latest
+
+    def test_record_to_history_max(self):
+        mgr = PlaylistManager()
+        for i in range(mp.MAX_HISTORY + 10):
+            s = PlaylistSong(source_type="local", file_path=f"/test_{i}.mp3", display_title=f"Song {i}")
+            mgr.record_to_history(s)
+        pl = mgr.get_or_create_history_playlist()
+        assert len(pl.songs) == mp.MAX_HISTORY
+
+    def test_record_to_history_online(self):
+        mgr = PlaylistManager()
+        song = PlaylistSong(source_type="online", online_source="kw", online_songmid="abc", display_title="Online")
+        assert mgr.record_to_history(song) is True
+        pl = mgr.get_or_create_history_playlist()
+        assert len(pl.songs) == 1
+
+    def test_history_persists_across_load_save(self):
+        mgr = PlaylistManager()
+        song = PlaylistSong(source_type="local", file_path="/a.mp3", display_title="A")
+        mgr.record_to_history(song)
+
+        with NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            tmp_path = Path(f.name)
+        try:
+            mgr.save(tmp_path)
+            mgr2 = PlaylistManager()
+            mgr2.load(tmp_path)
+            pl = mgr2.get_or_create_history_playlist()
+            assert len(pl.songs) == 1
+            assert pl.is_system is True
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+    def test_history_auto_created_on_load(self):
+        mgr = PlaylistManager()
+        with NamedTemporaryFile(suffix=".json", delete=False, mode="w") as f:
+            tmp_path = Path(f.name)
+        try:
+            # Empty file, no history
+            tmp_path.write_text('{"version":1,"playlists":[],"current_playlist_id":null}', encoding="utf-8")
+            mgr.load(tmp_path)
+            pl = mgr.get_or_create_history_playlist()
+            assert pl is not None
+            assert pl.is_system is True
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+    def test_user_playlists_excludes_history(self):
+        mgr = PlaylistManager()
+        mgr.get_or_create_history_playlist()
+        mgr.create_playlist("My Playlist")
+        assert len(mgr.user_playlists) == 1
+        assert mgr.user_playlists[0].name == "My Playlist"
+
+
+class TestSystemPlaylistProtection:
+    def test_system_playlist_reject_clear(self):
+        mgr = PlaylistManager()
+        pl = mgr.get_or_create_history_playlist()
+        s = PlaylistSong(source_type="local", file_path="/a.mp3", display_title="A")
+        mgr.record_to_history(s)
+        assert mgr.clear_playlist(pl.id) is False
+        assert len(pl.songs) == 1
+
+    def test_system_playlist_reject_remove_song(self):
+        mgr = PlaylistManager()
+        pl = mgr.get_or_create_history_playlist()
+        s = PlaylistSong(source_type="local", file_path="/a.mp3", display_title="A")
+        mgr.record_to_history(s)
+        assert mgr.remove_song(pl.id, 0) is False
+        assert len(pl.songs) == 1
+
+    def test_playlist_song_matches(self):
+        s1 = PlaylistSong(source_type="local", file_path="/a.mp3")
+        s2 = PlaylistSong(source_type="local", file_path="/a.mp3")
+        s3 = PlaylistSong(source_type="local", file_path="/b.mp3")
+        assert s1.matches(s2) is True
+        assert s1.matches(s3) is False
+
+        o1 = PlaylistSong(source_type="online", online_source="kw", online_songmid="abc")
+        o2 = PlaylistSong(source_type="online", online_source="kw", online_songmid="abc")
+        o3 = PlaylistSong(source_type="online", online_source="kw", online_songmid="xyz")
+        assert o1.matches(o2) is True
+        assert o1.matches(o3) is False
+        assert s1.matches(o1) is False

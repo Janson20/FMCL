@@ -38,6 +38,15 @@ except ImportError:
         return _json_mod.loads(data)
 
 
+# ─── 常量 ──────────────────────────────────────────────────
+
+HISTORY_PLAYLIST_ID = "__history__"
+"""系统播放历史歌单的固定 ID"""
+
+MAX_HISTORY = 200
+"""播放历史最大条目数"""
+
+
 # ─── 平台相关路径 ─────────────────────────────────────────
 
 
@@ -177,6 +186,14 @@ class PlaylistSong:
         """获取用于歌名排序的键值"""
         return (self.display_title or "").lower()
 
+    def matches(self, other: "PlaylistSong") -> bool:
+        """判断两首歌是否相同（用于去重）"""
+        if self.source_type == "local" and other.source_type == "local":
+            return os.path.normpath(self.file_path) == os.path.normpath(other.file_path)
+        if self.source_type == "online" and other.source_type == "online":
+            return self.online_source == other.online_source and self.online_songmid == other.online_songmid
+        return False
+
 
 @dataclass
 class Playlist:
@@ -188,6 +205,7 @@ class Playlist:
     created_at: float = 0.0  # 创建时间戳
     updated_at: float = 0.0  # 最后修改时间戳
     sort_mode: str = SORT_ADD_TIME_DESC  # 当前排序模式
+    is_system: bool = False  # 系统内置歌单（不可删除/重命名）
 
     def __post_init__(self):
         if not self.id:
@@ -200,7 +218,7 @@ class Playlist:
 
     def to_dict(self) -> dict:
         """序列化为字典"""
-        return {
+        result = {
             "id": self.id,
             "name": self.name,
             "songs": [s.to_dict() for s in self.songs],
@@ -208,6 +226,9 @@ class Playlist:
             "updated_at": self.updated_at,
             "sort_mode": self.sort_mode,
         }
+        if self.is_system:
+            result["is_system"] = True
+        return result
 
     @classmethod
     def from_dict(cls, data: dict) -> "Playlist":
@@ -220,6 +241,7 @@ class Playlist:
             created_at=data.get("created_at", 0.0),
             updated_at=data.get("updated_at", 0.0),
             sort_mode=data.get("sort_mode", SORT_ADD_TIME_DESC),
+            is_system=data.get("is_system", False),
         )
 
     @property
@@ -245,6 +267,11 @@ class PlaylistManager:
         return list(self._playlists)
 
     @property
+    def user_playlists(self) -> List[Playlist]:
+        """返回用户自建歌单（排除系统歌单）"""
+        return [pl for pl in self._playlists if not pl.is_system]
+
+    @property
     def current_playlist_id(self) -> Optional[str]:
         return self._current_playlist_id
 
@@ -253,6 +280,11 @@ class PlaylistManager:
         if not self._current_playlist_id:
             return None
         return self.get_playlist(self._current_playlist_id)
+
+    def is_system_playlist(self, playlist_id: str) -> bool:
+        """判断是否为系统内置歌单"""
+        pl = self.get_playlist(playlist_id)
+        return pl is not None and pl.is_system
 
     # ── CRUD ──
 
@@ -263,9 +295,12 @@ class PlaylistManager:
         return pl
 
     def delete_playlist(self, playlist_id: str) -> bool:
-        """删除歌单"""
-        for i, pl in enumerate(self._playlists):
-            if pl.id == playlist_id:
+        """删除歌单（系统歌单不可删除）"""
+        pl = self.get_playlist(playlist_id)
+        if pl is None or pl.is_system:
+            return False
+        for i, p in enumerate(self._playlists):
+            if p.id == playlist_id:
                 self._playlists.pop(i)
                 if self._current_playlist_id == playlist_id:
                     self._current_playlist_id = None
@@ -273,9 +308,9 @@ class PlaylistManager:
         return False
 
     def rename_playlist(self, playlist_id: str, new_name: str) -> bool:
-        """重命名歌单"""
+        """重命名歌单（系统歌单不可重命名）"""
         pl = self.get_playlist(playlist_id)
-        if pl is None:
+        if pl is None or pl.is_system:
             return False
         pl.name = new_name
         return True
@@ -290,6 +325,38 @@ class PlaylistManager:
     def set_current_playlist(self, playlist_id: str):
         """设置当前选中歌单"""
         self._current_playlist_id = playlist_id
+
+    # ── 播放历史 ──
+
+    def get_or_create_history_playlist(self) -> Playlist:
+        """获取或创建系统播放历史歌单"""
+        pl = self.get_playlist(HISTORY_PLAYLIST_ID)
+        if pl is None:
+            pl = Playlist(
+                id=HISTORY_PLAYLIST_ID,
+                name="播放历史",
+                is_system=True,
+                sort_mode=SORT_ADD_TIME_DESC,
+            )
+            self._playlists.insert(0, pl)  # 放在最前
+        return pl
+
+    def record_to_history(self, song: PlaylistSong) -> bool:
+        """记录一首歌到播放历史（去重 + 上限裁剪）"""
+        pl = self.get_or_create_history_playlist()
+        # 去重：如果已存在，移除旧的
+        for i, existing in enumerate(pl.songs):
+            if existing.matches(song):
+                pl.songs.pop(i)
+                break
+        # 添加在最前面
+        song.added_at = time.time()
+        pl.songs.insert(0, song)
+        pl.updated_at = time.time()
+        # 裁剪上限
+        if len(pl.songs) > MAX_HISTORY:
+            pl.songs = pl.songs[:MAX_HISTORY]
+        return True
 
     # ── 歌曲操作 ──
 
@@ -312,9 +379,9 @@ class PlaylistManager:
         return True
 
     def remove_song(self, playlist_id: str, song_index: int) -> bool:
-        """从歌单移除指定索引的歌曲"""
+        """从歌单移除指定索引的歌曲（系统歌单不可编辑）"""
         pl = self.get_playlist(playlist_id)
-        if pl is None or song_index < 0 or song_index >= len(pl.songs):
+        if pl is None or pl.is_system or song_index < 0 or song_index >= len(pl.songs):
             return False
         pl.songs.pop(song_index)
         pl.updated_at = time.time()
@@ -333,9 +400,9 @@ class PlaylistManager:
         return False
 
     def clear_playlist(self, playlist_id: str) -> bool:
-        """清空歌单"""
+        """清空歌单（系统歌单不可清空）"""
         pl = self.get_playlist(playlist_id)
-        if pl is None:
+        if pl is None or pl.is_system:
             return False
         pl.songs.clear()
         pl.updated_at = time.time()
@@ -344,6 +411,8 @@ class PlaylistManager:
     def is_song_in_any_playlist(self, file_path: str = "", online_source: str = "", online_songmid: str = "") -> bool:
         """检查歌曲是否已在某个歌单中（用于 UI 显示"已收藏"状态）"""
         for pl in self._playlists:
+            if pl.is_system:
+                continue  # 系统歌单不参与"已收藏"判断
             for s in pl.songs:
                 if file_path and s.source_type == "local" and os.path.normpath(s.file_path) == os.path.normpath(file_path):
                     return True
@@ -355,6 +424,8 @@ class PlaylistManager:
         """返回包含该歌曲的所有歌单名称列表（用于 UI 显示）"""
         names = []
         for pl in self._playlists:
+            if pl.is_system:
+                continue
             for s in pl.songs:
                 if file_path and s.source_type == "local" and os.path.normpath(s.file_path) == os.path.normpath(file_path):
                     names.append(pl.name)
@@ -412,6 +483,8 @@ class PlaylistManager:
         if not path.exists():
             self._playlists.clear()
             self._current_playlist_id = None
+            # 确保历史歌单始终存在
+            self.get_or_create_history_playlist()
             return
 
         try:
@@ -419,10 +492,12 @@ class PlaylistManager:
             parsed = _json_loads(data)
             self._playlists.clear()
             for pl_data in parsed.get("playlists", []):
-                self._playlists.append(Playlist.from_dict(pl_data))
+                pl = Playlist.from_dict(pl_data)
+                self._playlists.append(pl)
             self._current_playlist_id = parsed.get("current_playlist_id", None)
+            # 确保历史歌单始终存在
+            self.get_or_create_history_playlist()
         except Exception:
-            # 文件损坏 → 重命名后重建
             try:
                 corrupt_path = path.with_suffix(".json.corrupt")
                 path.rename(corrupt_path)
@@ -430,6 +505,7 @@ class PlaylistManager:
                 pass
             self._playlists.clear()
             self._current_playlist_id = None
+            self.get_or_create_history_playlist()
 
     def save(self, path: Optional[Path] = None):
         """保存歌单数据到文件（原子写入）"""
@@ -444,13 +520,11 @@ class PlaylistManager:
 
         content = _json_dumps(data)
         try:
-            # 原子写入：临时文件 + 重命名
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp_path = path.with_suffix(".tmp")
             tmp_path.write_text(content, encoding="utf-8")
             tmp_path.rename(path)
         except Exception:
-            # fallback: 直接写入
             path.write_text(content, encoding="utf-8")
 
 
@@ -466,13 +540,10 @@ def _name_sort_key(title: str) -> str:
     if not title:
         return ""
 
-    # 尝试使用 pypinyin
     try:
         import pypinyin
 
-        # 检查是否包含中文字符
         if any("\u4e00" <= c <= "\u9fff" for c in title):
-            # 将每个字转换为拼音首字母，非中文保留原字符
             result = []
             for char in title:
                 if "\u4e00" <= char <= "\u9fff":
@@ -487,13 +558,10 @@ def _name_sort_key(title: str) -> str:
     except ImportError:
         pass
 
-    # 回退: locale.strxfrm
     try:
         import locale
-
         return locale.strxfrm(title.lower())
     except Exception:
         pass
 
-    # 最终回退
     return title.lower()
