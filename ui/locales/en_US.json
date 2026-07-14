@@ -1024,6 +1024,7 @@
   "music_sort_name": "Song Name",
   "music_sort_asc": "Ascending",
   "music_sort_desc": "Descending",
+  "music_play_all": "Play All",
   "music_playlist_empty": "Playlist is empty",
   "music_already_in_playlist": "Already in playlist",
   "music_playlist_name_placeholder": "Enter playlist name",

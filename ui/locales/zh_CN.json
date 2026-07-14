@@ -1024,6 +1024,7 @@
   "music_sort_name": "歌名",
   "music_sort_asc": "正序",
   "music_sort_desc": "倒序",
+  "music_play_all": "播放全部",
   "music_playlist_empty": "歌单是空的",
   "music_already_in_playlist": "已在歌单中",
   "music_playlist_name_placeholder": "输入歌单名称",
