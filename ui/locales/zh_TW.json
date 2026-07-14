@@ -1011,6 +1011,22 @@
   "music_pitch_label": "變速/變調",
   "music_cache_clear": "清除快取",
 
+  "music_playlists": "歌單",
+  "music_all_songs": "📋 全部歌曲",
+  "music_new_playlist": "➕ 新建歌單",
+  "music_rename_playlist": "重新命名歌單",
+  "music_delete_playlist": "刪除歌單",
+  "music_confirm_delete_playlist": "確定要刪除歌單「{name}」嗎？",
+  "music_add_to_playlist": "新增到歌單",
+  "music_remove_from_playlist": "從歌單移除",
+  "music_sort_add_time": "加入時間",
+  "music_sort_name": "歌名",
+  "music_sort_asc": "正序",
+  "music_sort_desc": "倒序",
+  "music_playlist_empty": "歌單是空的",
+  "music_already_in_playlist": "已在歌單中",
+  "music_playlist_name_placeholder": "輸入歌單名稱",
+
   "tab_tools": "🔧 工具",
 
   "tab_agent": "🤖 AGENT",

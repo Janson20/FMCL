@@ -1011,6 +1011,22 @@
   "music_pitch_label": "Speed/Pitch",
   "music_cache_clear": "Clear Cache",
 
+  "music_playlists": "Playlists",
+  "music_all_songs": "📋 All Songs",
+  "music_new_playlist": "➕ New Playlist",
+  "music_rename_playlist": "Rename Playlist",
+  "music_delete_playlist": "Delete Playlist",
+  "music_confirm_delete_playlist": "Delete playlist \"{name}\"?",
+  "music_add_to_playlist": "Add to Playlist",
+  "music_remove_from_playlist": "Remove from Playlist",
+  "music_sort_add_time": "Added Time",
+  "music_sort_name": "Song Name",
+  "music_sort_asc": "Ascending",
+  "music_sort_desc": "Descending",
+  "music_playlist_empty": "Playlist is empty",
+  "music_already_in_playlist": "Already in playlist",
+  "music_playlist_name_placeholder": "Enter playlist name",
+
   "tab_tools": "🔧 Tools",
 
   "tab_agent": "🤖 AGENT",

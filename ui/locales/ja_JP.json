@@ -1011,6 +1011,22 @@
   "music_pitch_label": "速度/ピッチ",
   "music_cache_clear": "キャッシュクリア",
 
+  "music_playlists": "プレイリスト",
+  "music_all_songs": "📋 すべての曲",
+  "music_new_playlist": "➕ 新規プレイリスト",
+  "music_rename_playlist": "プレイリスト名変更",
+  "music_delete_playlist": "プレイリスト削除",
+  "music_confirm_delete_playlist": "プレイリスト「{name}」を削除しますか？",
+  "music_add_to_playlist": "プレイリストに追加",
+  "music_remove_from_playlist": "プレイリストから削除",
+  "music_sort_add_time": "追加日時",
+  "music_sort_name": "曲名",
+  "music_sort_asc": "昇順",
+  "music_sort_desc": "降順",
+  "music_playlist_empty": "プレイリストは空です",
+  "music_already_in_playlist": "プレイリストに既に存在します",
+  "music_playlist_name_placeholder": "プレイリスト名を入力",
+
   "tab_tools": "🔧 ツール",
 
   "tab_agent": "🤖 AGENT",
