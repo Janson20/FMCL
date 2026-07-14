@@ -32,9 +32,18 @@ from ui.music_effects import (
     EffectSettings,
 )
 from ui.music_lyrics import LyricLine, LyricParser
+from ui.music_playlist import (
+    HISTORY_PLAYLIST_ID,
+    SORT_ADD_TIME_ASC,
+    SORT_ADD_TIME_DESC,
+    SORT_NAME_ASC,
+    SORT_NAME_DESC,
+    Playlist,
+    PlaylistManager,
+    PlaylistSong,
+)
 from ui.music_source import MUSIC_SOURCES, SOURCE_META, search_all
 from ui.music_source.base import MusicInfo as OnlineMusicInfo
-from ui.music_playlist import Playlist, PlaylistManager, PlaylistSong, HISTORY_PLAYLIST_ID, SORT_ADD_TIME_DESC, SORT_ADD_TIME_ASC, SORT_NAME_ASC, SORT_NAME_DESC
 
 _pygame_import_error = None
 try:
@@ -1927,10 +1936,7 @@ class MusicPlayerMixin(object):
         active_bg = COLORS["bg_light"]
         normal_bg = "transparent"
         frame = ctk.CTkFrame(
-            self._music_playlist_sidebar,
-            fg_color=active_bg if is_active else normal_bg,
-            corner_radius=6,
-            height=30,
+            self._music_playlist_sidebar, fg_color=active_bg if is_active else normal_bg, corner_radius=6, height=30
         )
         frame.pack(fill=ctk.X, pady=1)
         frame.pack_propagate(False)
@@ -2003,8 +2009,18 @@ class MusicPlayerMixin(object):
             "height": 28,
         }
 
-        ctk.CTkButton(menu, text=_("music_rename_playlist"), command=lambda: self._music_rename_playlist_dialog(playlist_id) or menu.destroy(), **btn_cfg).pack(fill=ctk.X, padx=4, pady=2)
-        ctk.CTkButton(menu, text=_("music_delete_playlist"), command=lambda: self._music_delete_playlist_confirm(playlist_id) or menu.destroy(), **btn_cfg).pack(fill=ctk.X, padx=4, pady=2)
+        ctk.CTkButton(
+            menu,
+            text=_("music_rename_playlist"),
+            command=lambda: self._music_rename_playlist_dialog(playlist_id) or menu.destroy(),
+            **btn_cfg,
+        ).pack(fill=ctk.X, padx=4, pady=2)
+        ctk.CTkButton(
+            menu,
+            text=_("music_delete_playlist"),
+            command=lambda: self._music_delete_playlist_confirm(playlist_id) or menu.destroy(),
+            **btn_cfg,
+        ).pack(fill=ctk.X, padx=4, pady=2)
 
         # 如果是系统歌单，禁用编辑按钮
         if pl.is_system:
@@ -2029,10 +2045,7 @@ class MusicPlayerMixin(object):
         from ui.dialogs import show_input_dialog
 
         name = show_input_dialog(
-            parent=self,
-            title=_("music_new_playlist"),
-            prompt=_("music_playlist_name_placeholder"),
-            initial_value="",
+            parent=self, title=_("music_new_playlist"), prompt=_("music_playlist_name_placeholder"), initial_value=""
         )
         if not name or not name.strip():
             return

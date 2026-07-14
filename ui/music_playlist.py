@@ -9,7 +9,7 @@ import os
 import platform
 import time
 import uuid
-from dataclasses import dataclass, field, fields, asdict
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -118,7 +118,9 @@ class PlaylistSong:
         if not self.added_at:
             self.added_at = time.time()
         if not self.display_title:
-            self.display_title = self.online_name or os.path.splitext(os.path.basename(self.file_path))[0] if self.file_path else ""
+            self.display_title = (
+                self.online_name or os.path.splitext(os.path.basename(self.file_path))[0] if self.file_path else ""
+            )
 
     def to_dict(self) -> dict:
         """序列化为字典"""
@@ -143,11 +145,7 @@ class PlaylistSong:
         title = meta.get("title", os.path.splitext(os.path.basename(filepath))[0])
         artist = meta.get("artist", "")
         return cls(
-            source_type="local",
-            file_path=filepath,
-            display_title=title,
-            display_artist=artist,
-            added_at=time.time(),
+            source_type="local", file_path=filepath, display_title=title, display_artist=artist, added_at=time.time()
         )
 
     @classmethod
@@ -332,12 +330,7 @@ class PlaylistManager:
         """获取或创建系统播放历史歌单"""
         pl = self.get_playlist(HISTORY_PLAYLIST_ID)
         if pl is None:
-            pl = Playlist(
-                id=HISTORY_PLAYLIST_ID,
-                name="播放历史",
-                is_system=True,
-                sort_mode=SORT_ADD_TIME_DESC,
-            )
+            pl = Playlist(id=HISTORY_PLAYLIST_ID, name="播放历史", is_system=True, sort_mode=SORT_ADD_TIME_DESC)
             self._playlists.insert(0, pl)  # 放在最前
         return pl
 
@@ -414,23 +407,43 @@ class PlaylistManager:
             if pl.is_system:
                 continue  # 系统歌单不参与"已收藏"判断
             for s in pl.songs:
-                if file_path and s.source_type == "local" and os.path.normpath(s.file_path) == os.path.normpath(file_path):
+                if (
+                    file_path
+                    and s.source_type == "local"
+                    and os.path.normpath(s.file_path) == os.path.normpath(file_path)
+                ):
                     return True
-                if online_source and s.source_type == "online" and s.online_source == online_source and s.online_songmid == online_songmid:
+                if (
+                    online_source
+                    and s.source_type == "online"
+                    and s.online_source == online_source
+                    and s.online_songmid == online_songmid
+                ):
                     return True
         return False
 
-    def get_playlist_names_for_song(self, file_path: str = "", online_source: str = "", online_songmid: str = "") -> List[str]:
+    def get_playlist_names_for_song(
+        self, file_path: str = "", online_source: str = "", online_songmid: str = ""
+    ) -> List[str]:
         """返回包含该歌曲的所有歌单名称列表（用于 UI 显示）"""
         names = []
         for pl in self._playlists:
             if pl.is_system:
                 continue
             for s in pl.songs:
-                if file_path and s.source_type == "local" and os.path.normpath(s.file_path) == os.path.normpath(file_path):
+                if (
+                    file_path
+                    and s.source_type == "local"
+                    and os.path.normpath(s.file_path) == os.path.normpath(file_path)
+                ):
                     names.append(pl.name)
                     break
-                if online_source and s.source_type == "online" and s.online_source == online_source and s.online_songmid == online_songmid:
+                if (
+                    online_source
+                    and s.source_type == "online"
+                    and s.online_source == online_source
+                    and s.online_songmid == online_songmid
+                ):
                     names.append(pl.name)
                     break
         return names
@@ -560,6 +573,7 @@ def _name_sort_key(title: str) -> str:
 
     try:
         import locale
+
         return locale.strxfrm(title.lower())
     except Exception:
         pass
