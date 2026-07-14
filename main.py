@@ -257,6 +257,13 @@ def main():
         def _try_dismiss_splash():
             """尝试关闭启动画面：需同时满足 launcher、achievements 就绪 且 1 秒"""
             if not _launcher_ready.is_set() or not _ach_init_done.is_set():
+                # 条件不满足时重新调度自己，直到超时
+                elapsed = time.time() - splash_start
+                if elapsed < 30:
+                    splash.after(200, _try_dismiss_splash)
+                else:
+                    logger.warning("_try_dismiss_splash: 等待超时 30 秒，强制关闭启动画面")
+                    _dismiss_splash()
                 return
             elapsed = time.time() - splash_start
             remaining = max(0, 1.0 - elapsed)
