@@ -992,6 +992,7 @@
   "music_song_count": "{count} songs",
   "music_tab_local": "📁 Local Music",
   "music_tab_online": "🌐 Online Search",
+  "music_tab_playlist": "📋 Playlists",
   "music_search_placeholder": "🔍 Search songs/artists...",
   "music_search_btn": "🔍 Search",
   "music_source_select": "Source",
