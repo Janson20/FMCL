@@ -1,4 +1,5 @@
 """歌单管理模块测试 - PlaylistSong, Playlist, PlaylistManager"""
+
 import importlib
 import os
 import sys
@@ -288,6 +289,7 @@ class TestPlaylistManager:
         mgr.add_song(pl.id, s2)
         assert pl.songs[0].display_title == "B"
         assert pl.songs[1].display_title == "A"
+
     def test_save_and_load(self):
         mgr = PlaylistManager()
         pl = mgr.create_playlist("SavedTest")
@@ -323,7 +325,9 @@ class TestPlaylistManager:
         mgr = PlaylistManager()
         pl = mgr.create_playlist("Test")
         mgr.add_song(pl.id, PlaylistSong(source_type="local", file_path="/definitely/does/not/exist.mp3"))
-        mgr.add_song(pl.id, PlaylistSong(source_type="online", online_source="kw", online_songmid="abc", display_title="Online"))
+        mgr.add_song(
+            pl.id, PlaylistSong(source_type="online", online_source="kw", online_songmid="abc", display_title="Online")
+        )
         songs = mgr.get_playable_songs(pl.id)
         assert len(songs) == 1
         assert songs[0].source_type == "online"
