@@ -27,6 +27,7 @@ uv.lock
 .idea/
 .codebuddy/
 .trae/
+.hermes/
 *.swp
 *.swo
 *~

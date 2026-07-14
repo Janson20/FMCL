@@ -298,7 +298,8 @@
   - `Ctrl+Shift+Down` 停止 | `Ctrl+Shift+Up` 音量+ | `Ctrl+Shift+PageDown` 音量- | `Ctrl+Shift+M` 静音
 - **Windows SMTC**：集成 Windows 系统媒体传输控件（SMTC），任务栏媒体弹窗可显示歌曲信息
 - **迷你模式**：可一键切换为紧凑的迷你播放条
-- **状态记忆**：自动保存上次打开的文件夹、播放进度、音量和播放模式到 `config.json`
+- **歌单系统**：支持创建多个自定义歌单，本地和在线歌曲均可收藏；左侧歌单侧边栏一键切换；支持按加入时间、歌名首字母正序/倒序排序；歌单数据独立存储到 `data/music.json`，遵循 XDG Base Directory 规范
+- **状态记忆**：自动保存上次打开的文件夹、播放进度、音量、播放模式到 `config.json`；歌单数据持久化到 `~/.local/share/fmcl/data/music.json`（Linux）/ `./data/music.json`（其他平台）
 
 ## 🔧 工具标签页
 - **清理游戏垃圾**：扫描 `.minecraft` 目录下所有 `.log` 和 `.tmp` 文件，显示文件数量和总大小，一键删除释放磁盘空间

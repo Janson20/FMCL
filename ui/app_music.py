@@ -34,6 +34,7 @@ from ui.music_effects import (
 from ui.music_lyrics import LyricLine, LyricParser
 from ui.music_source import MUSIC_SOURCES, SOURCE_META, search_all
 from ui.music_source.base import MusicInfo as OnlineMusicInfo
+from ui.music_playlist import Playlist, PlaylistManager, PlaylistSong, SORT_ADD_TIME_DESC, SORT_ADD_TIME_ASC, SORT_NAME_ASC, SORT_NAME_DESC
 
 _pygame_import_error = None
 try:
@@ -377,6 +378,8 @@ class MusicPlayerMixin(object):
         self._music_is_fading = False
         self._music_fade_out_target: Optional[str] = None
         self._music_modes_used: set = set()
+        # ── 歌单管理 ──
+        self._music_playlist_manager: PlaylistManager = PlaylistManager()
         # ── 在线搜索状态 ──
         self._music_tab_mode: str = "local"  # "local" | "online"
         self._music_search_results: List[OnlineMusicInfo] = []
@@ -666,26 +669,105 @@ class MusicPlayerMixin(object):
         self._theme_refs.append((self._music_fx_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
 
     def _build_music_playlist_panel(self):
-        list_frame = ctk.CTkFrame(self._music_main_frame, fg_color=COLORS["card_bg"], corner_radius=12)
-        list_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
-        self._music_list_frame = list_frame
+        # 主容器：左侧歌单侧边栏 + 右侧歌曲列表
+        self._music_list_frame = ctk.CTkFrame(self._music_main_frame, fg_color=COLORS["card_bg"], corner_radius=12)
+        self._music_list_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
 
-        header = ctk.CTkFrame(list_frame, fg_color="transparent", height=35)
-        header.pack(fill=ctk.X, padx=12, pady=(12, 5))
-        header.pack_propagate(False)
+        # ── 左侧：歌单侧边栏 ──
+        sidebar_frame = ctk.CTkFrame(self._music_list_frame, fg_color="transparent", width=160)
+        sidebar_frame.pack(side=ctk.LEFT, fill=ctk.Y, padx=(8, 4), pady=10)
+        sidebar_frame.pack_propagate(False)
 
         ctk.CTkLabel(
-            header,
-            text=_("music_playlist"),
-            font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"),
-            text_color=COLORS["text_primary"],
-        ).pack(side=ctk.LEFT)
+            sidebar_frame,
+            text=_("music_playlists"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor=ctk.W, padx=8, pady=(0, 6))
 
-        self._music_scroll = ctk.CTkScrollableFrame(
-            list_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
+        self._music_playlist_sidebar = ctk.CTkScrollableFrame(
+            sidebar_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"], height=200
         )
-        self._music_scroll.pack(fill=ctk.BOTH, expand=True, padx=8, pady=(5, 10))
+        self._music_playlist_sidebar.pack(fill=ctk.BOTH, expand=True, padx=2)
+
+        self._music_new_playlist_btn = ctk.CTkButton(
+            sidebar_frame,
+            text=_("music_new_playlist"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["accent"],
+            height=28,
+            command=self._music_create_playlist_dialog,
+        )
+        self._music_new_playlist_btn.pack(fill=ctk.X, padx=6, pady=(6, 0))
+
+        # 分隔线
+        separator = ctk.CTkFrame(self._music_list_frame, fg_color=COLORS["card_border"], width=1)
+        separator.pack(side=ctk.LEFT, fill=ctk.Y, padx=2, pady=10)
+
+        # ── 右侧：歌曲列表区域 ──
+        right_frame = ctk.CTkFrame(self._music_list_frame, fg_color="transparent")
+        right_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(4, 8), pady=10)
+
+        # 排序控件（歌单视图时显示）
+        sort_frame = ctk.CTkFrame(right_frame, fg_color="transparent", height=28)
+        sort_frame.pack(fill=ctk.X, pady=(0, 4))
+        sort_frame.pack_propagate(False)
+        self._music_sort_frame = sort_frame
+
+        sort_label_font = ctk.CTkFont(family=FONT_FAMILY, size=11)
+
+        self._music_sort_add_time_btn = ctk.CTkButton(
+            sort_frame,
+            text=_("music_sort_add_time") + " ▼",
+            font=sort_label_font,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            height=24,
+            width=100,
+            command=lambda: self._music_do_sort(SORT_ADD_TIME_DESC),
+        )
+        self._music_sort_add_time_btn.pack(side=ctk.LEFT, padx=(0, 4))
+
+        self._music_sort_name_btn = ctk.CTkButton(
+            sort_frame,
+            text=_("music_sort_name") + " ▲",
+            font=sort_label_font,
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            height=24,
+            width=80,
+            command=lambda: self._music_do_sort(SORT_NAME_ASC),
+        )
+        self._music_sort_name_btn.pack(side=ctk.LEFT)
+
+        # 歌曲列表容器（存放两类列表：全部歌曲 和 歌单歌曲）
+        self._music_all_songs_scroll = ctk.CTkScrollableFrame(
+            right_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
+        )
+        self._music_all_songs_scroll.pack(fill=ctk.BOTH, expand=True)
+
+        self._music_playlist_songs_scroll = ctk.CTkScrollableFrame(
+            right_frame, fg_color="transparent", scrollbar_button_color=COLORS["bg_light"]
+        )
+        # 默认隐藏，由视图切换控制
+
+        # 保持旧的 _music_scroll 引用以兼容现有 _rebuild_playlist_ui / _add_playlist_row
+        self._music_scroll = self._music_all_songs_scroll
+
         self._theme_refs.append((self._music_scroll, {"scrollbar_button_color": "bg_light"}))
+        self._theme_refs.append(
+            (self._music_playlist_songs_scroll, {"scrollbar_button_color": "bg_light"})
+        )
+        self._theme_refs.append((self._music_new_playlist_btn, {"fg_color": "bg_light", "hover_color": "accent"}))
+
+        # 初始化显示状态（隐藏排序栏）
+        self._music_sort_frame.pack_forget()
+        self._music_show_playlist_view = False  # True = 歌单视图, False = 全部歌曲
+
+        # 歌单侧边栏状态
+        self._music_playlist_sidebar_widgets: List[dict] = []
+        self._music_current_view_playlist_id: Optional[str] = None
 
     def _build_music_now_playing(self):
         self._music_cover_frame = ctk.CTkFrame(
@@ -1648,6 +1730,9 @@ class MusicPlayerMixin(object):
         self._music_song_count_label.configure(count_text)
         self._rebuild_playlist_ui()
         self._save_music_state_later()
+        # 切回全部歌曲视图（新文件夹扫描后）
+        if getattr(self, "_music_show_playlist_view", False):
+            self._music_switch_to_all_songs()
 
     def _rebuild_playlist_ui(self):
         for w in self._music_playlist_widgets:
@@ -1703,6 +1788,20 @@ class MusicPlayerMixin(object):
             )
             dur_label.pack(side=ctk.RIGHT)
 
+        # 添加到歌单按钮
+        add_btn = ctk.CTkButton(
+            row,
+            text="➕",
+            width=22,
+            height=22,
+            font=ctk.CTkFont(size=9),
+            fg_color="transparent",
+            hover_color=COLORS["accent"],
+            text_color=COLORS["text_secondary"],
+            command=lambda fp=filepath: self._music_add_to_playlist_menu(fp, is_online=False),
+        )
+        add_btn.pack(side=ctk.RIGHT, padx=(0, 2))
+
         for child in [row, index_label, name_label]:
             child.bind("<Button-1>", lambda e, i=idx: self._play_from_index(i))
             child.bind("<Double-Button-1>", lambda e, i=idx: self._play_from_index(i))
@@ -1718,6 +1817,9 @@ class MusicPlayerMixin(object):
         self._save_music_state_later()
 
     def _highlight_current_in_list(self):
+        # 歌单视图下不执行高亮（由歌单视图自已管理播放状态）
+        if getattr(self, "_music_show_playlist_view", False):
+            return
         for w in self._music_playlist_widgets:
             try:
                 f = w.get("frame")
@@ -1734,6 +1836,528 @@ class MusicPlayerMixin(object):
                         label.configure(text_color=COLORS["text_primary"])
             except Exception:
                 pass
+
+    # ═══════════════ 歌单管理 ─────────────────────
+
+    def _rebuild_playlist_sidebar(self):
+        """重建左侧歌单侧边栏"""
+        if not hasattr(self, "_music_playlist_sidebar"):
+            return
+        # 清除旧组件
+        for w in self._music_playlist_sidebar_widgets:
+            try:
+                f = w.get("frame")
+                if f and f.winfo_exists():
+                    f.destroy()
+            except Exception:
+                pass
+        self._music_playlist_sidebar_widgets.clear()
+
+        # ── "全部歌曲" 条目 ──
+        all_songs_item = self._build_sidebar_item(None, _("music_all_songs"))
+        self._music_playlist_sidebar_widgets.append(all_songs_item)
+
+        # 分隔线
+        sep = ctk.CTkFrame(self._music_playlist_sidebar, fg_color=COLORS["card_border"], height=1)
+        sep.pack(fill=ctk.X, padx=12, pady=4)
+        self._music_playlist_sidebar_widgets.append({"frame": sep})
+
+        # ── 用户歌单列表 ──
+        mgr = self._music_playlist_manager
+        current_id = mgr.current_playlist_id if self._music_show_playlist_view else None
+
+        for pl in mgr.playlists:
+            display_name = f"{pl.name} ({pl.song_count})"
+            item = self._build_sidebar_item(pl.id, display_name, is_active=(pl.id == current_id))
+            self._music_playlist_sidebar_widgets.append(item)
+
+        # 高亮当前选中
+        self._highlight_sidebar_selection()
+
+    def _build_sidebar_item(self, playlist_id: Optional[str], text: str, is_active: bool = False) -> dict:
+        """构建单个侧边栏条目"""
+        active_bg = COLORS["bg_light"]
+        normal_bg = "transparent"
+        frame = ctk.CTkFrame(
+            self._music_playlist_sidebar,
+            fg_color=active_bg if is_active else normal_bg,
+            corner_radius=6,
+            height=30,
+        )
+        frame.pack(fill=ctk.X, pady=1)
+        frame.pack_propagate(False)
+
+        label = ctk.CTkLabel(
+            frame,
+            text=text,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_primary"],
+            anchor="w",
+        )
+        label.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=10)
+
+        ctx = {"frame": frame, "label": label, "playlist_id": playlist_id}
+
+        # 点击切换到歌单
+        click_targets = [frame, label]
+        if playlist_id is None:
+            # 全部歌曲
+            for t in click_targets:
+                t.bind("<Button-1>", lambda e: self._music_switch_to_all_songs())
+                t.bind("<Double-Button-1>", lambda e: self._music_switch_to_all_songs())
+        else:
+            for t in click_targets:
+                t.bind("<Button-1>", lambda e, pid=playlist_id: self._music_switch_to_playlist(pid))
+                t.bind("<Double-Button-1>", lambda e, pid=playlist_id: self._music_switch_to_playlist(pid))
+                # 右键菜单（仅用户歌单）
+                t.bind("<Button-3>", lambda e, pid=playlist_id: self._music_show_playlist_context_menu(e, pid))
+
+        return ctx
+
+    def _highlight_sidebar_selection(self):
+        """高亮侧边栏当前选中项"""
+        mgr = self._music_playlist_manager
+        selected_id = None
+        if self._music_show_playlist_view:
+            selected_id = mgr.current_playlist_id
+
+        for w in self._music_playlist_sidebar_widgets:
+            frame = w.get("frame")
+            if not frame or not frame.winfo_exists():
+                continue
+            pid = w.get("playlist_id")
+            if selected_id and pid == selected_id:
+                frame.configure(fg_color=COLORS["bg_light"])
+            elif selected_id is None and pid is None:
+                frame.configure(fg_color=COLORS["bg_light"])
+            else:
+                frame.configure(fg_color="transparent")
+
+    def _music_show_playlist_context_menu(self, event, playlist_id: str):
+        """显示歌单右键菜单"""
+        pl = self._music_playlist_manager.get_playlist(playlist_id)
+        if pl is None:
+            return
+
+        menu = ctk.CTkToplevel(self)
+        menu.title("")
+        menu.geometry(f"+{event.x_root}+{event.y_root}")
+        menu.overrideredirect(True)
+        menu.configure(fg_color=COLORS["card_bg"])
+        menu.lift()
+        menu.focus_force()
+
+        btn_cfg = {
+            "font": ctk.CTkFont(family=FONT_FAMILY, size=11),
+            "fg_color": "transparent",
+            "hover_color": COLORS["bg_light"],
+            "text_color": COLORS["text_primary"],
+            "anchor": "w",
+            "height": 28,
+        }
+
+        ctk.CTkButton(menu, text=_("music_rename_playlist"), command=lambda: self._music_rename_playlist_dialog(playlist_id) or menu.destroy(), **btn_cfg).pack(fill=ctk.X, padx=4, pady=2)
+        ctk.CTkButton(menu, text=_("music_delete_playlist"), command=lambda: self._music_delete_playlist_confirm(playlist_id) or menu.destroy(), **btn_cfg).pack(fill=ctk.X, padx=4, pady=2)
+
+        def _close_menu(e=None):
+            try:
+                menu.destroy()
+            except Exception:
+                pass
+
+        menu.bind("<FocusOut>", _close_menu)
+        menu.bind("<Escape>", _close_menu)
+        menu.after(5000, _close_menu)
+
+    def _music_create_playlist_dialog(self):
+        """弹出新建歌单对话框"""
+        from ui.dialogs import show_input_dialog
+
+        name = show_input_dialog(
+            parent=self,
+            title=_("music_new_playlist"),
+            prompt=_("music_playlist_name_placeholder"),
+            initial_value="",
+        )
+        if not name or not name.strip():
+            return
+        name = name.strip()
+        mgr = self._music_playlist_manager
+        pl = mgr.create_playlist(name)
+        mgr.set_current_playlist(pl.id)
+        self._music_switch_to_playlist(pl.id)
+        self._save_music_state_later()
+
+    def _music_rename_playlist_dialog(self, playlist_id: str):
+        """弹出重命名歌单对话框"""
+        from ui.dialogs import show_input_dialog
+
+        pl = self._music_playlist_manager.get_playlist(playlist_id)
+        if pl is None:
+            return
+
+        name = show_input_dialog(
+            parent=self,
+            title=_("music_rename_playlist"),
+            prompt=_("music_playlist_name_placeholder"),
+            initial_value=pl.name,
+        )
+        if not name or not name.strip():
+            return
+        name = name.strip()
+        self._music_playlist_manager.rename_playlist(playlist_id, name)
+        self._rebuild_playlist_sidebar()
+        self._save_music_state_later()
+
+    def _music_delete_playlist_confirm(self, playlist_id: str):
+        """确认删除歌单"""
+        import tkinter.messagebox as messagebox
+
+        pl = self._music_playlist_manager.get_playlist(playlist_id)
+        if pl is None:
+            return
+
+        msg = _("music_confirm_delete_playlist", name=pl.name)
+        if msg == "music_confirm_delete_playlist":
+            msg = f"确定要删除歌单「{pl.name}」吗？"
+
+        if not messagebox.askyesno(_("music_delete_playlist"), msg):
+            return
+
+        mgr = self._music_playlist_manager
+        mgr.delete_playlist(playlist_id)
+        self._music_switch_to_all_songs()
+        self._rebuild_playlist_sidebar()
+        self._save_music_state_later()
+
+    def _music_switch_to_playlist(self, playlist_id: str):
+        """切换到指定歌单视图"""
+        mgr = self._music_playlist_manager
+        pl = mgr.get_playlist(playlist_id)
+        if pl is None:
+            return
+
+        self._music_show_playlist_view = True
+        self._music_current_view_playlist_id = playlist_id
+        mgr.set_current_playlist(playlist_id)
+
+        # 隐藏全部歌曲视图，显示歌单视图
+        self._music_all_songs_scroll.pack_forget()
+        self._music_playlist_songs_scroll.pack(fill=ctk.BOTH, expand=True)
+        self._music_scroll = self._music_playlist_songs_scroll
+
+        # 显示排序栏
+        self._music_sort_frame.pack(fill=ctk.X, pady=(0, 4))
+
+        # 恢复该歌单的排序模式
+        self._update_sort_buttons(pl.sort_mode)
+
+        # 渲染歌曲列表
+        self._rebuild_playlist_song_list(pl)
+
+        self._rebuild_playlist_sidebar()
+
+    def _music_switch_to_all_songs(self):
+        """切换到全部歌曲视图"""
+        self._music_show_playlist_view = False
+        self._music_current_view_playlist_id = None
+
+        # 隐藏歌单视图，显示全部歌曲视图
+        self._music_playlist_songs_scroll.pack_forget()
+        self._music_all_songs_scroll.pack(fill=ctk.BOTH, expand=True)
+        self._music_scroll = self._music_all_songs_scroll
+
+        # 隐藏排序栏
+        self._music_sort_frame.pack_forget()
+
+        # 重新渲染全部歌曲列表
+        self._rebuild_playlist_ui()
+        self._rebuild_playlist_sidebar()
+
+    def _rebuild_playlist_song_list(self, pl: Playlist):
+        """渲染歌单中的歌曲列表"""
+        # 清除旧列表
+        for w in self._music_playlist_widgets:
+            try:
+                f = w.get("frame")
+                if f and f.winfo_exists():
+                    f.destroy()
+            except Exception:
+                pass
+        self._music_playlist_widgets.clear()
+
+        if not pl.songs:
+            # 空歌单占位
+            empty_label = ctk.CTkLabel(
+                self._music_playlist_songs_scroll,
+                text=_("music_playlist_empty"),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLORS["text_secondary"],
+            )
+            empty_label.pack(pady=30)
+            self._music_playlist_widgets.append({"frame": empty_label})
+            return
+
+        for idx, song in enumerate(pl.songs):
+            self._add_playlist_song_row(idx, song)
+
+    def _add_playlist_song_row(self, idx: int, song: "PlaylistSong"):
+        """渲染歌单中的单行歌曲"""
+        row = ctk.CTkFrame(self._music_playlist_songs_scroll, fg_color="transparent", height=32)
+        row.pack(fill=ctk.X, pady=1)
+
+        # 序号
+        ctk.CTkLabel(
+            row,
+            text=str(idx + 1),
+            width=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+        ).pack(side=ctk.LEFT)
+
+        # 显示的文本
+        display_text = song.get_display_text(max_title=50)
+        name_label = ctk.CTkLabel(
+            row,
+            text=display_text,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_primary"],
+            anchor="w",
+        )
+        name_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(5, 5))
+
+        # 时长标记
+        if song.source_type == "online" and song.online_interval:
+            ctk.CTkLabel(
+                row,
+                text=_format_time(song.online_interval),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+                text_color=COLORS["text_secondary"],
+                width=35,
+            ).pack(side=ctk.RIGHT, padx=(0, 2))
+
+        # 来源标记
+        if song.source_type == "online":
+            ctk.CTkLabel(
+                row,
+                text=song.online_source.upper(),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=8),
+                text_color=COLORS["accent"],
+                width=28,
+            ).pack(side=ctk.RIGHT, padx=(0, 2))
+
+        # 移除按钮
+        remove_btn = ctk.CTkButton(
+            row,
+            text="✕",
+            width=22,
+            height=22,
+            font=ctk.CTkFont(size=9),
+            fg_color="transparent",
+            hover_color=COLORS["accent"],
+            text_color=COLORS["text_secondary"],
+            command=lambda pid=self._music_current_view_playlist_id, si=idx: self._music_remove_song_from_playlist(pid, si),
+        )
+        remove_btn.pack(side=ctk.RIGHT, padx=(0, 4))
+
+        # 点击播放
+        self._bind_playlist_song_click(row, name_label, idx)
+
+        self._music_playlist_widgets.append({"frame": row, "name_label": name_label, "index": idx})
+
+    def _bind_playlist_song_click(self, row, label, idx: int):
+        """绑定歌单歌曲点击事件"""
+        pl = self._music_playlist_manager.get_current_playlist()
+        if pl is None or idx >= len(pl.songs):
+            return
+        song = pl.songs[idx]
+
+        def _play(e=None):
+            if song.source_type == "local":
+                # 本地歌曲：构建临时播放列表
+                paths = []
+                for s in pl.songs:
+                    if s.source_type == "local" and os.path.exists(s.file_path):
+                        paths.append(s.file_path)
+                if not paths:
+                    return
+                # 找到对应索引并播放
+                local_idx = -1
+                for i, s in enumerate(pl.songs):
+                    if s.source_type == "local" and os.path.exists(s.file_path):
+                        local_idx += 1
+                        if s is song:
+                            break
+                if local_idx >= 0:
+                    self._music_playlist = paths
+                    self._music_current_index = local_idx
+                    self._music_progress = 0
+                    self._play_file(paths[local_idx])
+                    self._save_music_state_later()
+            elif song.source_type == "online":
+                # 在线歌曲：通过下载后播放
+                from ui.music_source.base import MusicInfo
+
+                info = MusicInfo(
+                    name=song.online_name,
+                    singer=song.online_singer,
+                    source=song.online_source,
+                    songmid=song.online_songmid,
+                    album_name=song.online_album,
+                    interval=song.online_interval,
+                    img=song.online_img,
+                )
+                self._music_play_online_url(info)
+
+        for t in [row, label]:
+            t.bind("<Button-1>", _play)
+            t.bind("<Double-Button-1>", _play)
+
+    def _music_remove_song_from_playlist(self, playlist_id: str, song_index: int):
+        """从歌单中移除歌曲"""
+        mgr = self._music_playlist_manager
+        if mgr.remove_song(playlist_id, song_index):
+            pl = mgr.get_playlist(playlist_id)
+            if pl:
+                self._rebuild_playlist_song_list(pl)
+            self._rebuild_playlist_sidebar()
+            self._save_music_state_later()
+
+    def _music_do_sort(self, mode: str):
+        """执行歌单排序"""
+        mgr = self._music_playlist_manager
+        pl = mgr.get_current_playlist()
+        if pl is None:
+            return
+
+        # 如果当前排序模式相同，切换方向
+        if pl.sort_mode == mode:
+            if mode == SORT_ADD_TIME_DESC:
+                mode = SORT_ADD_TIME_ASC
+            elif mode == SORT_ADD_TIME_ASC:
+                mode = SORT_ADD_TIME_DESC
+            elif mode == SORT_NAME_ASC:
+                mode = SORT_NAME_DESC
+            elif mode == SORT_NAME_DESC:
+                mode = SORT_NAME_ASC
+
+        mgr.sort(pl.id, mode)
+        self._update_sort_buttons(mode)
+        self._rebuild_playlist_song_list(pl)
+        self._save_music_state_later()
+
+    def _update_sort_buttons(self, mode: str):
+        """更新排序按钮状态"""
+        add_time_active = mode in (SORT_ADD_TIME_ASC, SORT_ADD_TIME_DESC)
+        name_active = mode in (SORT_NAME_ASC, SORT_NAME_DESC)
+
+        if mode == SORT_ADD_TIME_DESC:
+            self._music_sort_add_time_btn.configure(text=_("music_sort_add_time") + " ▼", fg_color=COLORS["accent"])
+        elif mode == SORT_ADD_TIME_ASC:
+            self._music_sort_add_time_btn.configure(text=_("music_sort_add_time") + " ▲", fg_color=COLORS["accent"])
+        else:
+            self._music_sort_add_time_btn.configure(text=_("music_sort_add_time"), fg_color=COLORS["bg_light"])
+
+        if mode == SORT_NAME_ASC:
+            self._music_sort_name_btn.configure(text=_("music_sort_name") + " ▲", fg_color=COLORS["accent"])
+        elif mode == SORT_NAME_DESC:
+            self._music_sort_name_btn.configure(text=_("music_sort_name") + " ▼", fg_color=COLORS["accent"])
+        else:
+            self._music_sort_name_btn.configure(text=_("music_sort_name"), fg_color=COLORS["bg_light"])
+
+    def _music_add_to_playlist_menu(self, song_info, is_online: bool = False):
+        """弹出"添加到歌单"菜单"""
+        mgr = self._music_playlist_manager
+        playlists = mgr.playlists
+        if not playlists:
+            # 没有歌单，提示先创建
+            import tkinter.messagebox as messagebox
+
+            msg = _("music_new_playlist")
+            if messagebox.askyesno(_("music_new_playlist"), "还没有歌单，是否创建一个？"):
+                self._music_create_playlist_dialog()
+            return
+
+        # 创建临时右键菜单
+        menu = ctk.CTkToplevel(self)
+        menu.title("")
+        menu.overrideredirect(True)
+        menu.configure(fg_color=COLORS["card_bg"])
+        menu.lift()
+        menu.focus_force()
+
+        btn_cfg = {
+            "font": ctk.CTkFont(family=FONT_FAMILY, size=11),
+            "fg_color": "transparent",
+            "hover_color": COLORS["bg_light"],
+            "text_color": COLORS["text_primary"],
+            "anchor": "w",
+            "height": 26,
+        }
+
+        for pl in playlists:
+            # 检查是否已存在
+            if is_online:
+                exists = mgr.is_song_in_any_playlist(
+                    online_source=song_info.source if is_online else "",
+                    online_songmid=song_info.songmid if is_online else "",
+                )
+            else:
+                exists = mgr.is_song_in_any_playlist(file_path=song_info if not is_online else "")
+
+            display_text = pl.name
+            if exists:
+                display_text = f"{pl.name} ✓"
+
+            btn = ctk.CTkButton(
+                menu,
+                text=display_text,
+                command=lambda pid=pl.id: self._music_add_song_to_playlist(pid, song_info, is_online) or menu.destroy(),
+                **btn_cfg,
+            )
+            btn.pack(fill=ctk.X, padx=4, pady=1)
+
+            if exists:
+                btn.configure(state="disabled")
+
+        # 自动定位
+        try:
+            x = self.winfo_pointerx()
+            y = self.winfo_pointery()
+            menu.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
+
+        def _close_menu(e=None):
+            try:
+                menu.destroy()
+            except Exception:
+                pass
+
+        menu.bind("<FocusOut>", _close_menu)
+        menu.bind("<Escape>", _close_menu)
+        menu.after(5000, _close_menu)
+
+    def _music_add_song_to_playlist(self, playlist_id: str, song_info, is_online: bool = False):
+        """将歌曲添加到指定歌单"""
+        mgr = self._music_playlist_manager
+
+        if is_online:
+            song = PlaylistSong.from_online_info(song_info)
+        else:
+            meta = self._get_metadata(song_info)
+            song = PlaylistSong.from_local_file(song_info, meta)
+
+        if mgr.add_song(playlist_id, song):
+            self._rebuild_playlist_sidebar()
+            # 如果当前正在查看该歌单，刷新列表
+            if self._music_current_view_playlist_id == playlist_id:
+                pl = mgr.get_playlist(playlist_id)
+                if pl:
+                    self._rebuild_playlist_song_list(pl)
+            self._save_music_state_later()
+
+    # ═══════════════ 注册热键 ─────────────────────
 
     def _register_hotkeys(self):
         if self._music_hotkeys_registered:
@@ -1839,6 +2463,9 @@ class MusicPlayerMixin(object):
             }
             if hasattr(self, "callbacks") and "save_music_state" in self.callbacks:
                 self.callbacks["save_music_state"](state)
+            # 同时保存歌单数据到独立文件
+            if hasattr(self, "_music_playlist_manager"):
+                self._music_playlist_manager.save()
         except Exception as e:
             logger.debug(f"保存音乐状态失败: {e}")
 
@@ -1878,6 +2505,10 @@ class MusicPlayerMixin(object):
                 self._music_last_folder = folder
                 self._music_folder_label.configure(text=os.path.basename(folder) or folder)
                 self._music_scan_folder_restore(folder)
+            # 加载歌单数据
+            if hasattr(self, "_music_playlist_manager"):
+                self._music_playlist_manager.load()
+                self._rebuild_playlist_sidebar()
         except Exception as e:
             logger.debug(f"加载音乐状态失败: {e}")
 
@@ -1996,6 +2627,20 @@ class MusicPlayerMixin(object):
             width=28,
         )
         source_label.pack(side=ctk.RIGHT, padx=(0, 4))
+
+        # 添加到歌单按钮
+        add_btn = ctk.CTkButton(
+            row,
+            text="➕",
+            width=22,
+            height=22,
+            font=ctk.CTkFont(size=9),
+            fg_color="transparent",
+            hover_color=COLORS["accent"],
+            text_color=COLORS["text_secondary"],
+            command=lambda oi=info: self._music_add_to_playlist_menu(oi, is_online=True),
+        )
+        add_btn.pack(side=ctk.RIGHT, padx=(0, 2))
 
         for child in [row, index_label, name_label]:
             child.bind("<Button-1>", lambda e, i=idx: self._music_play_online_from_index(i))
