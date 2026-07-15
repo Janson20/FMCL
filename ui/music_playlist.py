@@ -257,6 +257,7 @@ class PlaylistManager:
     def __init__(self):
         self._playlists: List[Playlist] = []
         self._current_playlist_id: Optional[str] = None
+        self._dirty: bool = False
 
     # ── 属性 ──
 
@@ -486,6 +487,17 @@ class PlaylistManager:
             results.append(s)
         return results
 
+    # ── 脏标记 ──
+
+    def mark_dirty(self):
+        """标记歌单数据已变更，等待定时落盘"""
+        self._dirty = True
+
+    def save_if_dirty(self, path: Optional[Path] = None):
+        """仅在数据有变更时执行落盘（由定时器调用）"""
+        if self._dirty:
+            self.save(path)
+
     # ── 持久化 ──
 
     def load(self, path: Optional[Path] = None):
@@ -539,6 +551,7 @@ class PlaylistManager:
             tmp_path.rename(path)
         except Exception:
             path.write_text(content, encoding="utf-8")
+        self._dirty = False
 
 
 # ─── 排序辅助函数 ─────────────────────────────────────────
