@@ -14,6 +14,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from logzero import logger
 
+from structured_logger import slog
+
 
 class MrpackMixin:
     """整合包（mrpack）安装 Mixin 类"""
@@ -707,6 +709,47 @@ class MrpackMixin:
                     "max-world-size=29999984\n",
                     encoding="utf-8",
                 )
+
+            # ── 模组自动筛选 ──
+            # 自动识别纯客户端模组并重命名为 .disabled
+            mods_dir = server_dir / "mods"
+            if mods_dir.is_dir():
+                try:
+                    from launcher.mod_classifier import filter_server_mods
+
+                    self._set_status("正在筛选模组（识别纯客户端模组）...")
+                    self._mp_progress["loader_label"] = "正在筛选模组..."
+                    self._mp_progress["phase"] = "loader"
+
+                    def _filter_progress(completed: int, total: int, filename: str):
+                        if total > 0:
+                            pct = int(completed / total * 100)
+                            self._set_status(f"正在筛选模组 {pct}% ({completed}/{total})")
+                        if filename:
+                            logger.info(f"[模组筛选] {filename}")
+
+                    filter_result = filter_server_mods(
+                        str(mods_dir), use_online=True, dry_run=False, progress_callback=_filter_progress
+                    )
+
+                    logger.info(f"[模组筛选] {filter_result.summary}")
+                    self._set_status(f"模组筛选完成: {filter_result.summary}")
+                    slog.info(
+                        "modpack_server_mod_classification",
+                        server_name=server_name,
+                        total=len(filter_result.rows),
+                        server_keep=len(filter_result.server_keep),
+                        client_only=len(filter_result.client_only),
+                        unknown=len(filter_result.unknown),
+                    )
+
+                    # 如果有 unknown 模组，在日志中列出供用户参考
+                    if filter_result.unknown:
+                        unknown_names = [r["file_name"] for r in filter_result.unknown]
+                        logger.info(f"[模组筛选] ⚠ {len(unknown_names)} 个模组无法确定: {', '.join(unknown_names)}")
+
+                except Exception as filter_err:
+                    logger.warning(f"[模组筛选] 筛选过程出错（不影响安装）: {filter_err}")
 
             self._mp_progress["phase"] = "done"
             logger.info(f"整合包服务器 {server_name} 安装完成: {server_dir}")
