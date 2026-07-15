@@ -1500,6 +1500,7 @@ class MusicPlayerMixin(object):
             return
         song = songs[idx]
         self._music_playlist_context_idx = idx
+        self._highlight_playlist_song(idx)
         if song.source_type == "local":
             if not os.path.exists(song.file_path):
                 # 跳过不存在的本地文件，播下一首
@@ -1527,6 +1528,20 @@ class MusicPlayerMixin(object):
                 img=song.online_img,
             )
             self._music_play_online_url(info)
+
+    def _highlight_playlist_song(self, target_idx: int):
+        """高亮歌单歌曲列表中指定索引的行"""
+        for w in self._music_playlist_widgets:
+            try:
+                f = w.get("frame")
+                if not f or not f.winfo_exists():
+                    continue
+                if w.get("index") == target_idx:
+                    f.configure(fg_color=COLORS["accent"])
+                else:
+                    f.configure(fg_color="transparent")
+            except Exception:
+                pass
 
     def _music_prev(self):
         if self._music_playlist_context_songs:
@@ -2586,6 +2601,7 @@ class MusicPlayerMixin(object):
                 "music_play_mode": PLAY_MODE_NAMES.get(self._music_play_mode, "loop_list"),
                 "music_mini_mode": self._music_mini_mode,
                 "music_last_playlist_id": self._music_playlist_manager.current_playlist_id,
+                "music_last_song_idx_in_playlist": self._music_playlist_context_idx if self._music_playlist_context_songs else -1,
             }
             if hasattr(self, "callbacks") and "save_music_state" in self.callbacks:
                 self.callbacks["save_music_state"](state)
@@ -2644,6 +2660,28 @@ class MusicPlayerMixin(object):
                     history = self._music_playlist_manager.get_or_create_history_playlist()
                     target_id = history.id
                 self._music_show_playlist(target_id)
+                # 恢复歌单中的歌曲位置和进度
+                pl = self._music_playlist_manager.get_current_playlist()
+                saved_song_idx = state.get("music_last_song_idx_in_playlist", -1)
+                if pl and 0 <= saved_song_idx < len(pl.songs):
+                    self._music_playlist_context_songs = list(pl.songs)
+                    self._music_playlist_context_idx = saved_song_idx
+                    song = pl.songs[saved_song_idx]
+                    self._music_progress = state.get("music_progress", 0)
+                    # 同步 _music_playlist 供本地播放使用
+                    if song.source_type == "local" and os.path.exists(song.file_path):
+                        local_paths = [
+                            s.file_path
+                            for s in pl.songs
+                            if s.source_type == "local" and os.path.exists(s.file_path)
+                        ]
+                        if local_paths:
+                            self._music_playlist = local_paths
+                            try:
+                                self._music_current_index = local_paths.index(song.file_path)
+                            except ValueError:
+                                pass
+                    self._highlight_playlist_song(saved_song_idx)
         except Exception as e:
             logger.debug(f"加载音乐状态失败: {e}")
 
