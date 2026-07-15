@@ -2585,6 +2585,7 @@ class MusicPlayerMixin(object):
                 "music_volume": self._music_volume,
                 "music_play_mode": PLAY_MODE_NAMES.get(self._music_play_mode, "loop_list"),
                 "music_mini_mode": self._music_mini_mode,
+                "music_last_playlist_id": self._music_playlist_manager.current_playlist_id,
             }
             if hasattr(self, "callbacks") and "save_music_state" in self.callbacks:
                 self.callbacks["save_music_state"](state)
@@ -2634,6 +2635,15 @@ class MusicPlayerMixin(object):
             if hasattr(self, "_music_playlist_manager"):
                 self._music_playlist_manager.load()
                 self._rebuild_playlist_sidebar()
+                # 自动切换到上次打开的歌单，若不存在则回退到播放历史
+                saved_pl_id = state.get("music_last_playlist_id")
+                target_id = None
+                if saved_pl_id and self._music_playlist_manager.get_playlist(saved_pl_id):
+                    target_id = saved_pl_id
+                else:
+                    history = self._music_playlist_manager.get_or_create_history_playlist()
+                    target_id = history.id
+                self._music_show_playlist(target_id)
         except Exception as e:
             logger.debug(f"加载音乐状态失败: {e}")
 
