@@ -779,6 +779,33 @@ class MultiMCMixin:
             with open(os.path.join(server_dir, "eula.txt"), "w", encoding="utf-8") as f:
                 f.write("eula=true\n")
 
+            # ── 模组自动筛选 ──
+            mods_dir = Path(server_dir) / "mods"
+            if mods_dir.is_dir():
+                try:
+                    from launcher.mod_classifier import filter_server_mods
+
+                    logger.info(f"[MultiMC开服] 正在筛选模组: {mods_dir}")
+
+                    def _filter_progress(completed: int, total: int, filename: str):
+                        if total > 0:
+                            pct = int(completed / total * 100)
+                            self._set_status(f"正在筛选模组 {pct}% ({completed}/{total})")
+
+                    filter_result = filter_server_mods(
+                        str(mods_dir), use_online=True, dry_run=False, progress_callback=_filter_progress
+                    )
+
+                    logger.info(f"[MultiMC开服] {filter_result.summary}")
+                    self._set_status(f"模组筛选完成: {filter_result.summary}")
+
+                    if filter_result.unknown:
+                        unknown_names = [r["file_name"] for r in filter_result.unknown]
+                        logger.info(f"[MultiMC开服] ⚠ {len(unknown_names)} 个模组无法确定: {', '.join(unknown_names)}")
+
+                except Exception as filter_err:
+                    logger.warning(f"[MultiMC开服] 模组筛选出错（不影响安装）: {filter_err}")
+
             return True, server_name
 
         except Exception as e:
