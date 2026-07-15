@@ -23,6 +23,8 @@ from logzero import logger
 from structured_logger import slog
 from ui.constants import USER_AGENT
 
+from download_config import DOWNLOAD_POOL_SIZE
+
 
 def _patch_neoforge_normalize():
     """修复 NeoForge 模块的 _normalize_minecraft_version 方法，
@@ -162,7 +164,7 @@ class AsyncBatchDownloader:
     效率远高于同步逐个下载或传统多线程下载。
 
     用法:
-        downloader = AsyncBatchDownloader(max_concurrent=20)
+        downloader = AsyncBatchDownloader(max_concurrent=25)
         tasks = [
             ("https://example.com/file1.jar", "/path/to/file1.jar"),
             ("https://example.com/file2.jar", "/path/to/file2.jar"),
@@ -170,7 +172,7 @@ class AsyncBatchDownloader:
         results = downloader.run(tasks)
     """
 
-    def __init__(self, max_concurrent: int = 20, chunk_size: int = 65536):
+    def __init__(self, max_concurrent: int = DOWNLOAD_POOL_SIZE, chunk_size: int = 65536):
         """
         Args:
             max_concurrent: 最大并发下载数
@@ -259,7 +261,7 @@ class AsyncBatchDownloader:
                     done[0] += 1
                     return save_path, False
 
-        connector = aiohttp.TCPConnector(limit=self.max_concurrent, limit_per_host=5)
+        connector = aiohttp.TCPConnector(limit=self.max_concurrent, limit_per_host=DOWNLOAD_POOL_SIZE)
         async with aiohttp.ClientSession(connector=connector) as session:
             coros = [_download_one(session, url, path) for url, path in tasks]
             download_results = await asyncio.gather(*coros, return_exceptions=True)

@@ -30,6 +30,8 @@ from urllib3.util import Retry
 from structured_logger import slog
 from version_utils import compare_versions, parse_semver
 
+from download_config import DOWNLOAD_POOL_MAXSIZE, DOWNLOAD_POOL_SIZE
+
 # ══════════════════════════════════════════════════════════════════════
 # API 配置
 # ══════════════════════════════════════════════════════════════════════
@@ -90,7 +92,7 @@ def _get_session() -> requests.Session:
             status_forcelist=RETRY_STATUS_FORCELIST,
             allowed_methods=["GET", "POST"],
         )
-        adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=DOWNLOAD_POOL_SIZE, pool_maxsize=DOWNLOAD_POOL_MAXSIZE)
         _shared_session = requests.Session()
         _shared_session.mount("https://", adapter)
         _shared_session.mount("http://", adapter)
