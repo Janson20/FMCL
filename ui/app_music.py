@@ -409,6 +409,8 @@ class MusicPlayerMixin(object):
         # ── 音效状态 ──
         self._music_effects = AudioEffectProcessor()
         self._music_effects_processed_files: List[str] = []  # 效果处理产生的临时文件
+        # ── 定时保存 ──
+        self._music_periodic_save_id = None
 
     def _init_music_lazy(self):
         if self._music_init_done:
@@ -431,6 +433,8 @@ class MusicPlayerMixin(object):
         self._load_music_state()
         if self._music_playlist:
             self._rebuild_playlist_ui()
+        # 启动定时保存（30 秒间隔，避免频繁写盘）
+        self._music_start_periodic_save()
 
     def _build_music_tab_content(self):
         self.__init_music()
@@ -2553,9 +2557,9 @@ class MusicPlayerMixin(object):
             }
             if hasattr(self, "callbacks") and "save_music_state" in self.callbacks:
                 self.callbacks["save_music_state"](state)
-            # 同时保存歌单数据到独立文件
+            # 标记歌单为脏，由后台定时器统一写入磁盘，避免频繁 I/O 卡顿
             if hasattr(self, "_music_playlist_manager"):
-                self._music_playlist_manager.save()
+                self._music_playlist_manager.mark_dirty()
         except Exception as e:
             logger.debug(f"保存音乐状态失败: {e}")
 
@@ -2601,6 +2605,25 @@ class MusicPlayerMixin(object):
                 self._rebuild_playlist_sidebar()
         except Exception as e:
             logger.debug(f"加载音乐状态失败: {e}")
+
+    # ═══════════════ 定时保存 ═══════════════
+
+    def _music_start_periodic_save(self):
+        """启动后台定时保存（每 30 秒检查脏标记并落盘）"""
+        self._music_periodic_save_id = self.after(30000, self._music_periodic_save_tick)
+
+    def _music_periodic_save_tick(self):
+        try:
+            if hasattr(self, "_music_playlist_manager"):
+                self._music_playlist_manager.save_if_dirty()
+        except Exception:
+            pass
+        self._music_start_periodic_save()
+
+    def _music_stop_periodic_save(self):
+        if self._music_periodic_save_id is not None:
+            self.after_cancel(self._music_periodic_save_id)
+            self._music_periodic_save_id = None
 
     def _music_scan_folder_restore(self, folder: str):
         files = []
@@ -3244,7 +3267,11 @@ class MusicPlayerMixin(object):
         self._stop_lyric_poll()
         self._update_music_footer()
         self._unregister_hotkeys()
+        self._music_stop_periodic_save()
         self._save_music_state()
+        # 退出前强制写盘
+        if hasattr(self, "_music_playlist_manager"):
+            self._music_playlist_manager.save()
         self._music_cleanup_temp_files()
         self._music_cleanup_fx_files()
         self._music_destroy_desktop_lyric()
