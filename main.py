@@ -356,6 +356,10 @@ def main():
             # 更新 UI 回调
             app.callbacks = callbacks
 
+            # ── 恢复音乐播放状态（歌单、歌曲位置等） ──
+            if hasattr(app, "_music_on_launcher_ready"):
+                app.after(100, app._music_on_launcher_ready)
+
             # ── 插件系统初始化 ──
             try:
                 from plugin_manager import PluginManager
