@@ -2426,30 +2426,46 @@ class MusicPlayerMixin(object):
     # ── 播放全部按钮 ──
 
     def _music_play_playlist_all(self):
-        """播放当前歌单的所有可播放歌曲"""
+        """播放当前歌单的所有可播放歌曲（支持本地/在线混合）"""
         mgr = self._music_playlist_manager
         pl = mgr.get_current_playlist()
         if pl is None or not pl.songs:
             return
-        # 构建播放路径列表
-        paths = []
-        start_index = -1
+
+        # 构建本地文件播放列表（供 next/prev 使用）
+        local_paths = []
         for s in pl.songs:
-            if s.source_type == "local":
-                if os.path.exists(s.file_path):
-                    paths.append(s.file_path)
-            elif s.source_type == "online":
-                # 在线歌曲通过播放触发下载
-                paths.append(s)
-        if paths:
-            # 优先播放本地歌曲
-            local_paths = [p for p in paths if isinstance(p, str)]
-            if local_paths:
+            if s.source_type == "local" and os.path.exists(s.file_path):
+                local_paths.append(s.file_path)
+
+        # 优先播放第一首可播放的歌曲
+        for s in pl.songs:
+            if s.source_type == "local" and os.path.exists(s.file_path):
+                # 本地歌曲
                 self._music_playlist = local_paths
-                self._music_current_index = 0
+                self._music_current_index = local_paths.index(s.file_path)
                 self._music_progress = 0
-                self._play_file(local_paths[0])
+                self._play_file(s.file_path)
                 self._save_music_state_later()
+                return
+            elif s.source_type == "online":
+                # 在线歌曲
+                from ui.music_source.base import MusicInfo
+
+                info = MusicInfo(
+                    name=s.online_name,
+                    singer=s.online_singer,
+                    source=s.online_source,
+                    songmid=s.online_songmid,
+                    album_name=s.online_album,
+                    interval=s.online_interval,
+                    img=s.online_img,
+                )
+                # 也加载本地歌曲到播放列表，便于后续切换
+                if local_paths:
+                    self._music_playlist = local_paths
+                self._music_play_online_url(info)
+                return
 
     # ═══════════════ 注册热键 ─────────────────────
 
