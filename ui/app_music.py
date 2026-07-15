@@ -2685,6 +2685,12 @@ class MusicPlayerMixin(object):
         except Exception as e:
             logger.debug(f"加载音乐状态失败: {e}")
 
+    # ═══════════════ 启动器就绪后恢复播放状态 ═══════════════
+
+    def _music_on_launcher_ready(self):
+        """启动器核心初始化完成后调用，从配置中恢复音乐播放状态"""
+        self._load_music_state()
+
     # ═══════════════ 定时保存 ═══════════════
 
     def _music_start_periodic_save(self):
