@@ -357,6 +357,18 @@ class ServerTabMixin(object):
         )
         self.server_modpack_btn.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(5, 0))
 
+        # 服务器模组管理按钮
+        self.server_mod_manage_btn = ctk.CTkButton(
+            panel,
+            text=_("server_mod_manage_btn"),
+            height=36,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._on_server_mod_manage,
+        )
+        self.server_mod_manage_btn.pack(fill=ctk.X, padx=15, pady=(0, 10))
+
         # ── 快速选择版本 ──
         ctk.CTkLabel(
             panel,
@@ -683,6 +695,13 @@ class ServerTabMixin(object):
     def _on_server_modpack(self):
         """整合包开服按钮回调"""
         ModpackServerWindow(self, self.callbacks)
+
+    def _on_server_mod_manage(self):
+        """服务器模组管理按钮回调"""
+        if not self.selected_server_version:
+            self.set_status(_("server_no_version_selected"), "error")
+            return
+        ServerResourceManagerWindow(self, self.selected_server_version, self.callbacks)
 
     def _install_server(self, version_id: str):
         """安装服务器（后台线程）"""

@@ -161,6 +161,18 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         )
         self._export_btn.pack(side=ctk.RIGHT, padx=(5, 5))
 
+        self._filter_client_btn = ctk.CTkButton(
+            top_bar,
+            text=_("mod_filter_client_btn"),
+            width=100,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["warning"],
+            hover_color="#e67e22",
+            command=self._filter_client_mods,
+        )
+        self._filter_client_btn.pack(side=ctk.RIGHT, padx=(5, 5))
+
         self._check_updates_btn = ctk.CTkButton(
             top_bar,
             text=_("mod_check_updates"),
@@ -805,6 +817,45 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
 
         self._refresh_mod_list()
         self._set_status(_("mod_update_batch_done", success=success_count[0], fail=fail_count[0]))
+
+    def _filter_client_mods(self):
+        """使用 mod_classifier 自动识别并禁用纯客户端模组"""
+        if not self._mod_metadata:
+            return
+
+        mods_dir = str(self._get_mods_dir())
+        self._filter_client_btn.configure(state=ctk.DISABLED, text=_("mod_filtering"))
+        self._set_status(_("mod_filtering_status"))
+
+        def _progress(completed: int, total: int, filename: str):
+            pct = int(completed / total * 100) if total > 0 else 0
+            self.after(0, lambda: self._set_status(f"正在筛选模组... {pct}% ({completed}/{total})"))
+
+        self._run_in_thread(self._do_filter_client_mods, mods_dir, _progress)
+
+    def _do_filter_client_mods(self, mods_dir: str, progress_callback):
+        from launcher.mod_classifier import filter_server_mods
+
+        try:
+            result = filter_server_mods(mods_dir, use_online=True, dry_run=False, progress_callback=progress_callback)
+            self.after(0, lambda: self._refresh_mod_list())
+            self.after(0, lambda: self._set_status(f"筛选完成: {result.summary}"))
+            self.after(0, lambda: self._filter_client_btn.configure(state=ctk.NORMAL, text=_("mod_filter_client_btn")))
+            if result.unknown:
+                names = [r["file_name"] for r in result.unknown]
+                from ui.dialogs import show_notification
+
+                self.after(
+                    0,
+                    lambda: show_notification(
+                        "⚠", "待确认模组", f"{len(names)} 个无法确定：{', '.join(names[:5])}...", notify_type="warning"
+                    ),
+                )
+        except Exception as e:
+            logger.error(f"剔除客户端模组失败: {e}")
+            err_msg = str(e)
+            self.after(0, lambda msg=err_msg: self._set_status(f"筛选失败: {msg}"))
+            self.after(0, lambda: self._filter_client_btn.configure(state=ctk.NORMAL, text=_("mod_filter_client_btn")))
 
     def _set_status(self, text: str):
         try:

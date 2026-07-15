@@ -151,6 +151,7 @@
   "server_version_placeholder": "例如: 1.21.4",
   "server_install_btn_text": "📥 安装服务器",
   "server_modpack_btn": "📦 整合包开服",
+  "server_mod_manage_btn": "🛠 模组管理",
   "server_quick_select_title": "📋 快速选择",
   "server_settings_title": "⚙ 服务器设置",
   "server_max_memory_label": "最大内存:",
@@ -761,6 +762,9 @@
   "mod_export_empty": "没有可导出的模组",
 
   "mod_check_updates": "🔍 检查更新",
+  "mod_filter_client_btn": "🗑 剔除客户端",
+  "mod_filtering": "筛选中...",
+  "mod_filtering_status": "正在筛选模组（识别纯客户端模组）...",
   "mod_checking_updates": "检查中...",
   "mod_checking_updates_progress": "检查更新中... ({current}/{total})",
   "mod_updates_available": "{count} 个模组可更新",

@@ -151,6 +151,7 @@
   "server_version_placeholder": "e.g. 1.21.4",
   "server_install_btn_text": "📥 Install Server",
   "server_modpack_btn": "📦 Modpack Server",
+  "server_mod_manage_btn": "🛠 Mod Manager",
   "server_quick_select_title": "📋 Quick Select",
   "server_settings_title": "⚙ Server Settings",
   "server_max_memory_label": "Max Memory:",
@@ -761,6 +762,9 @@
   "mod_export_empty": "No mods to export",
 
   "mod_check_updates": "🔍 Check Updates",
+  "mod_filter_client_btn": "🗑 Strip Clients",
+  "mod_filtering": "Filtering...",
+  "mod_filtering_status": "Filtering mods (detecting client-only)...",
   "mod_checking_updates": "Checking...",
   "mod_checking_updates_progress": "Checking updates... ({current}/{total})",
   "mod_updates_available": "{count} mod(s) have updates",
