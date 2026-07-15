@@ -27,8 +27,8 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         self.callbacks = callbacks
 
         self.title(_("server_resource_manager", version=version_id))
-        self.geometry("760x600")
-        self.minsize(680, 520)
+        self.geometry("1292x600")
+        self.minsize(1156, 520)
         self.configure(fg_color=COLORS["bg_dark"])
         self.transient(parent)
 
@@ -37,7 +37,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
         ph = parent.winfo_height()
         px = parent.winfo_x()
         py = parent.winfo_y()
-        w, h = 760, 600
+        w, h = 1292, 600
         x = px + (pw - w) // 2
         y = py + (ph - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -92,7 +92,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
 
         v = self.version_id.lower()
         if any(loader in v for loader in ("forge", "fabric", "neoforge")):
-            mods_dir = server_dir / "versions" / self.version_id / "mods"
+            mods_dir = server_dir / self.version_id / "mods"
         else:
             mods_dir = server_dir / "mods"
         mods_dir.mkdir(parents=True, exist_ok=True)

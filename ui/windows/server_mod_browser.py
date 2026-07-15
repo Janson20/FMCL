@@ -485,7 +485,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
 
         v = self.version_id.lower()
         if any(loader in v for loader in ("forge", "fabric", "neoforge")):
-            mods_dir = server_dir / "versions" / self.version_id / "mods"
+            mods_dir = server_dir / self.version_id / "mods"
         else:
             mods_dir = server_dir / "mods"
         mods_dir.mkdir(parents=True, exist_ok=True)
