@@ -471,7 +471,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
 
         meta_parts = []
         if author:
-            meta_parts.append(author)
+            meta_parts.append(author if len(author) <= 30 else author[:28] + "…")
         version = item.get("version", "")
         if version:
             meta_parts.append(version)
@@ -579,7 +579,7 @@ class ServerResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("mod_export_no_mods"))
             return
         try:
-            lines = [_("mod_export_header")]
+            lines = [_("mod_export_header", version=self.version_id)]
             for m in self._mod_metadata:
                 name = m.get("name", m.get("filename", ""))
                 modid = m.get("modid", "")
