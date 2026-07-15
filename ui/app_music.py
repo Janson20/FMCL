@@ -411,6 +411,9 @@ class MusicPlayerMixin(object):
         self._music_effects_processed_files: List[str] = []  # 效果处理产生的临时文件
         # ── 定时保存 ──
         self._music_periodic_save_id = None
+        # ── 歌单上下文（播歌单中的歌曲时记录，供上下曲使用） ──
+        self._music_playlist_context_songs: List[PlaylistSong] = []
+        self._music_playlist_context_idx: int = -1
 
     def _init_music_lazy(self):
         if self._music_init_done:
@@ -1490,7 +1493,56 @@ class MusicPlayerMixin(object):
         self._music_cur_label.configure(text="0:00")
         self._music_smtc.set_stopped()
 
+    def _play_playlist_context_song(self, idx: int):
+        """播歌单上下文中指定索引的歌曲（支持本地/在线混合）"""
+        songs = self._music_playlist_context_songs
+        if idx < 0 or idx >= len(songs):
+            return
+        song = songs[idx]
+        self._music_playlist_context_idx = idx
+        if song.source_type == "local":
+            if not os.path.exists(song.file_path):
+                # 跳过不存在的本地文件，播下一首
+                self._play_playlist_context_song((idx + 1) % len(songs))
+                return
+            # 构建本地文件列表供 _play_file 使用
+            local_paths = [s.file_path for s in songs if s.source_type == "local" and os.path.exists(s.file_path)]
+            self._music_playlist = local_paths
+            try:
+                self._music_current_index = local_paths.index(song.file_path)
+            except ValueError:
+                self._music_current_index = 0
+            self._music_progress = 0
+            self._play_file(song.file_path)
+        else:
+            from ui.music_source.base import MusicInfo
+
+            info = MusicInfo(
+                name=song.online_name,
+                singer=song.online_singer,
+                source=song.online_source,
+                songmid=song.online_songmid,
+                album_name=song.online_album,
+                interval=song.online_interval,
+                img=song.online_img,
+            )
+            self._music_play_online_url(info)
+
     def _music_prev(self):
+        if self._music_playlist_context_songs:
+            n = len(self._music_playlist_context_songs)
+            if n == 0:
+                return
+            if self._music_play_mode == PLAY_MODE_RANDOM:
+                import random
+                random.seed()
+                new_idx = random.randrange(n)
+                if n > 1 and new_idx == self._music_playlist_context_idx:
+                    new_idx = (new_idx + 1) % n
+            else:
+                new_idx = (self._music_playlist_context_idx - 1) % n
+            self._play_playlist_context_song(new_idx)
+            return
         if not self._music_playlist:
             return
         if self._music_play_mode == PLAY_MODE_RANDOM:
@@ -1507,6 +1559,20 @@ class MusicPlayerMixin(object):
         self._play_file(self._music_playlist[self._music_current_index])
 
     def _music_next(self):
+        if self._music_playlist_context_songs:
+            n = len(self._music_playlist_context_songs)
+            if n == 0:
+                return
+            if self._music_play_mode == PLAY_MODE_RANDOM:
+                import random
+                random.seed()
+                new_idx = random.randrange(n)
+                if n > 1 and new_idx == self._music_playlist_context_idx:
+                    new_idx = (new_idx + 1) % n
+            else:
+                new_idx = (self._music_playlist_context_idx + 1) % n
+            self._play_playlist_context_song(new_idx)
+            return
         if not self._music_playlist:
             return
         if self._music_play_mode == PLAY_MODE_RANDOM:
@@ -1704,6 +1770,10 @@ class MusicPlayerMixin(object):
         if self._music_is_online_playing:
             self._music_is_online_playing = False
             self._music_current_online_info = None
+            # 如果正在播歌单中的在线歌曲，自动切到下一首
+            if self._music_playlist_context_songs:
+                self._music_next()
+                return
             self._update_play_btn_ui()
             self._music_seek_offset = 0
             self._music_progress_bar.set(0)
@@ -1783,6 +1853,8 @@ class MusicPlayerMixin(object):
         self._music_stop()
         self._music_playlist = files
         self._music_current_index = -1
+        self._music_playlist_context_songs = []  # 退出歌单上下文
+        self._music_playlist_context_idx = -1
         self._music_last_folder = folder
         self._music_metadata_cache.clear()
         self._music_folder_label.configure(text=os.path.basename(folder) or folder)
@@ -2220,41 +2292,9 @@ class MusicPlayerMixin(object):
         song = pl.songs[idx]
 
         def _play(e=None):
-            if song.source_type == "local":
-                # 本地歌曲：构建临时播放列表
-                paths = []
-                for s in pl.songs:
-                    if s.source_type == "local" and os.path.exists(s.file_path):
-                        paths.append(s.file_path)
-                if not paths:
-                    return
-                # 找到对应索引并播放
-                local_idx = -1
-                for i, s in enumerate(pl.songs):
-                    if s.source_type == "local" and os.path.exists(s.file_path):
-                        local_idx += 1
-                        if s is song:
-                            break
-                if local_idx >= 0:
-                    self._music_playlist = paths
-                    self._music_current_index = local_idx
-                    self._music_progress = 0
-                    self._play_file(paths[local_idx])
-                    self._save_music_state_later()
-            elif song.source_type == "online":
-                # 在线歌曲：通过下载后播放
-                from ui.music_source.base import MusicInfo
-
-                info = MusicInfo(
-                    name=song.online_name,
-                    singer=song.online_singer,
-                    source=song.online_source,
-                    songmid=song.online_songmid,
-                    album_name=song.online_album,
-                    interval=song.online_interval,
-                    img=song.online_img,
-                )
-                self._music_play_online_url(info)
+            # 保存歌单上下文，供上下曲使用
+            self._music_playlist_context_songs = list(pl.songs)
+            self._play_playlist_context_song(idx)
 
         for t in [row, label]:
             t.bind("<Button-1>", _play)
@@ -2431,40 +2471,15 @@ class MusicPlayerMixin(object):
         pl = mgr.get_current_playlist()
         if pl is None or not pl.songs:
             return
-
-        # 构建本地文件播放列表（供 next/prev 使用）
-        local_paths = []
-        for s in pl.songs:
+        # 保存歌单上下文，供上下曲使用
+        self._music_playlist_context_songs = list(pl.songs)
+        # 找到第一首可播歌曲
+        for idx, s in enumerate(pl.songs):
             if s.source_type == "local" and os.path.exists(s.file_path):
-                local_paths.append(s.file_path)
-
-        # 优先播放第一首可播放的歌曲
-        for s in pl.songs:
-            if s.source_type == "local" and os.path.exists(s.file_path):
-                # 本地歌曲
-                self._music_playlist = local_paths
-                self._music_current_index = local_paths.index(s.file_path)
-                self._music_progress = 0
-                self._play_file(s.file_path)
-                self._save_music_state_later()
+                self._play_playlist_context_song(idx)
                 return
             elif s.source_type == "online":
-                # 在线歌曲
-                from ui.music_source.base import MusicInfo
-
-                info = MusicInfo(
-                    name=s.online_name,
-                    singer=s.online_singer,
-                    source=s.online_source,
-                    songmid=s.online_songmid,
-                    album_name=s.online_album,
-                    interval=s.online_interval,
-                    img=s.online_img,
-                )
-                # 也加载本地歌曲到播放列表，便于后续切换
-                if local_paths:
-                    self._music_playlist = local_paths
-                self._music_play_online_url(info)
+                self._play_playlist_context_song(idx)
                 return
 
     # ═══════════════ 注册热键 ─────────────────────
@@ -2780,6 +2795,8 @@ class MusicPlayerMixin(object):
     def _music_play_online_from_index(self, idx: int):
         if idx < 0 or idx >= len(self._music_search_results):
             return
+        self._music_playlist_context_songs = []  # 退出歌单上下文
+        self._music_playlist_context_idx = -1
         self._music_play_online_url(self._music_search_results[idx])
 
     def _music_play_online_url(self, online_info: OnlineMusicInfo):
