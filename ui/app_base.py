@@ -244,30 +244,27 @@ class ModernAppBase(ctk.CTk):
         self._theme_refs.append((self._agent_quick_input, {"fg_color": "bg_medium", "border_color": "card_border"}))
 
     def _build_content(self):
-        """构建内容区域 - 使用标签页"""
+        """构建内容区域 - 使用标签页（仅构建游戏标签页，其余首次切换时延迟构建）"""
         import queue
 
         # 初始化任务队列（在这里初始化确保所有 mixin 共享同一个）
         if not hasattr(self, "_task_queue") or self._task_queue is None:
             self._task_queue = queue.Queue()
 
-        # 创建标签页容器
+        # 创建标签页容器（暂时不绑定切换回调，等初始 tab 设置好再绑）
         self.tabview = ctk.CTkTabview(self.main_frame, fg_color="transparent")
         self.tabview.pack(fill=ctk.BOTH, expand=True, padx=0, pady=0)
 
-        # 添加"游戏"标签页
+        # ── 添加所有标签页（tab bar 会显示全部，但内容只有游戏页立即构建）──
         self.game_tab = self.tabview.add(_("tab_game"))
         self.game_tab.configure(fg_color="transparent")
 
-        # 添加"备份"标签页
         self.backup_tab = self.tabview.add(_("tab_backup"))
         self.backup_tab.configure(fg_color="transparent")
 
-        # 添加"开服"标签页
         self.server_tab = self.tabview.add(_("tab_server"))
         self.server_tab.configure(fg_color="transparent")
 
-        # 添加"链接"标签页
         self.links_tab = self.tabview.add(_("tab_links"))
         self.links_tab.configure(fg_color="transparent")
 
@@ -278,59 +275,49 @@ class ModernAppBase(ctk.CTk):
         else:
             self.online_tab = None
 
-        # 添加"AGENT"标签页
         self.agent_tab = self.tabview.add(_("tab_agent"))
         self.agent_tab.configure(fg_color="transparent")
 
-        # 添加"成就"标签页
         self.achievements_tab = self.tabview.add(_("tab_achievements"))
         self.achievements_tab.configure(fg_color="transparent")
 
-        # 添加"音乐"标签页
         self.music_tab = self.tabview.add(_("tab_music"))
         self.music_tab.configure(fg_color="transparent")
 
-        # 添加"工具"标签页
         self.tools_tab = self.tabview.add(_("tab_tools"))
         self.tools_tab.configure(fg_color="transparent")
 
-        # 添加"关于"标签页
         self.about_tab = self.tabview.add(_("tab_about"))
         self.about_tab.configure(fg_color="transparent")
 
-        # 设置默认标签页为"游戏"
+        # ── 注册延迟构建器（首次切到该标签时才会调用）──
+        self._tab_builders = {
+            _("tab_backup"): self._build_backup_tab_content,
+            _("tab_server"): self._build_server_tab_content,
+            _("tab_links"): self._build_links_tab_content,
+            _("tab_agent"): self._build_agent_tab_content,
+            _("tab_achievements"): self._build_achievements_tab_content,
+            _("tab_music"): self._build_music_tab_content,
+            _("tab_tools"): self._build_tools_tab_content,
+            _("tab_about"): self._build_about_tab_content,
+        }
+        if self.online_tab is not None:
+            self._tab_builders[_("tab_online")] = self._build_online_tab_content
+
+        # 设置默认标签页为"游戏"（不触发 command 回调）
         self.tabview.set(_("tab_game"))
 
-        # 构建游戏标签页内容
+        # 仅构建默认"游戏"标签页的内容
         self._build_game_tab_content()
 
-        # 构建备份标签页内容
-        self._build_backup_tab_content()
+        # 绑定 tab 切换回调（在 set 之后，确保只对用户切屏生效）
+        self.tabview.configure(command=self._on_tab_switch)
 
-        # 构建开服标签页内容
-        self._build_server_tab_content()
-
-        # 构建链接标签页内容
-        self._build_links_tab_content()
-
-        # 构建联机标签页内容（仅 Windows）
-        if self.online_tab is not None:
-            self._build_online_tab_content()
-
-        # 构建 AGENT 标签页内容
-        self._build_agent_tab_content()
-
-        # 构建成就标签页内容
-        self._build_achievements_tab_content()
-
-        # 构建音乐标签页内容
-        self._build_music_tab_content()
-
-        # 构建工具标签页内容
-        self._build_tools_tab_content()
-
-        # 构建关于标签页内容
-        self._build_about_tab_content()
+    def _on_tab_switch(self, tab_name):
+        """延迟构建标签页内容 — 仅在首次切换到该标签时构建一次"""
+        builder = self._tab_builders.pop(tab_name, None)
+        if builder is not None:
+            builder()
 
     def _build_game_tab_content(self):
         """构建游戏标签页内容"""
