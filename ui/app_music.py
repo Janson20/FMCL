@@ -1615,20 +1615,7 @@ class MusicPlayerMixin(object):
         try:
             pos = (value / 100.0) * self._music_duration if self._music_duration > 0 else 0
             was_paused = self._music_is_paused
-            # 在线歌曲优先用 set_pos，无需重载文件
-            if self._music_is_online_playing:
-                try:
-                    mixer.music.set_pos(pos)
-                    self._music_progress = pos
-                    self._music_seek_offset = pos
-                    if was_paused:
-                        self._stop_progress_poll()
-                    else:
-                        self._start_progress_poll()
-                    return
-                except Exception:
-                    pass  # set_pos 不支持该格式，回退到重载
-            # 重载文件到指定位置
+            # 重载文件到指定位置（set_pos 不重置 get_pos 计时器，必须 reload）
             mixer.music.stop()
             mixer.music.load(self._music_current_filepath)
             mixer.music.set_volume(0)
