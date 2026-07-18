@@ -175,6 +175,7 @@ def _detect_font_family() -> str:
         return "PingFang SC"
 
     # ── Linux: 多层次字体检测 ──
+    logging.info("正在检测系统字体...")
 
     # 策略1: fc-list 按语言检测（最标准的方式）
     chinese_fonts = _run_fc_list("zh")
@@ -200,15 +201,17 @@ def _detect_font_family() -> str:
 
     # 组合字体链（emoji 字体优先 — 让系统用 emoji 字体渲染 😀，中文用中文字体）
     if selected_emoji and selected_chinese:
-        return f"{selected_emoji}, {selected_chinese}"
+        result = f"{selected_emoji}, {selected_chinese}"
     elif selected_chinese:
-        return selected_chinese
+        result = selected_chinese
     elif selected_emoji:
-        return selected_emoji
-
-    # 所有检测策略均失败 → 返回 "Sans"，由 system font fallback 处理
-    # 不再尝试自动安装字体，避免每次启动弹出 pkexec/sudo 密码框
-    return "Sans"
+        result = selected_emoji
+    else:
+        # 所有检测策略均失败 → 返回 "Sans"，由 system font fallback 处理
+        # 不再尝试自动安装字体，避免每次启动弹出 pkexec/sudo 密码框
+        result = "Sans"
+    logging.info(f"字体检测完成: {result}")
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -297,8 +300,27 @@ def _install_emoji_font():
         _mark_install_attempted()
 
 
-FONT_FAMILY = _detect_font_family()
-logging.info(f"使用字体: {FONT_FAMILY}")
+class LazyStr:
+    """惰性求值字符串 — 首次 str()/f-string/format 时才计算实际值
+
+    各模块 ``from ui.constants import FONT_FAMILY`` 拿到的是轻量对象，
+    真正的字体检测（subprocess 调用）在 CTkFont(family=FONT_FAMILY) 构建时发生。
+    """
+
+    def __init__(self, func):
+        self._func = func
+        self._value = None
+
+    def __str__(self):
+        if self._value is None:
+            self._value = self._func()
+        return self._value
+
+    def __repr__(self):
+        return str(self)
+
+
+FONT_FAMILY = LazyStr(_detect_font_family)
 
 
 def _get_fmcl_version():
@@ -317,7 +339,7 @@ def _get_user_agent() -> str:
     return f"FMCL/{_get_fmcl_version()}"
 
 
-USER_AGENT = _get_user_agent()
+USER_AGENT = LazyStr(_get_user_agent)
 
 
 # ─── 资源类型配置 ─────────────────────────────────────────────
