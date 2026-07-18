@@ -313,8 +313,10 @@ class ModernAppBase(ctk.CTk):
         # 绑定 tab 切换回调（在 set 之后，确保只对用户切屏生效）
         self.tabview.configure(command=self._on_tab_switch)
 
-    def _on_tab_switch(self, tab_name):
+    def _on_tab_switch(self, tab_name=None):
         """延迟构建标签页内容 — 仅在首次切换到该标签时构建一次"""
+        if tab_name is None:
+            tab_name = self.tabview.get()
         builder = self._tab_builders.pop(tab_name, None)
         if builder is not None:
             builder()
