@@ -293,10 +293,7 @@ class ModernAppBase(ctk.CTk):
         # ── 注册延迟构建器（首次切到该标签时才会调用）──
         self._tab_builders = {
             _("tab_backup"): self._build_backup_tab_content,
-            _("tab_server"): self._build_server_tab_content,
             _("tab_links"): self._build_links_tab_content,
-            _("tab_agent"): self._build_agent_tab_content,
-            _("tab_achievements"): self._build_achievements_tab_content,
             _("tab_music"): self._build_music_tab_content,
             _("tab_tools"): self._build_tools_tab_content,
             _("tab_about"): self._build_about_tab_content,
@@ -307,8 +304,11 @@ class ModernAppBase(ctk.CTk):
         # 设置默认标签页为"游戏"（不触发 command 回调）
         self.tabview.set(_("tab_game"))
 
-        # 仅构建默认"游戏"标签页的内容
+        # ── 立即构建的标签页 ──
         self._build_game_tab_content()
+        self._build_server_tab_content()
+        self._build_achievements_tab_content()
+        self._build_agent_tab_content()
 
         # 绑定 tab 切换回调（在 set 之后，确保只对用户切屏生效）
         self.tabview.configure(command=self._on_tab_switch)
