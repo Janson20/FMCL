@@ -398,6 +398,7 @@ class MusicPlayerMixin(object):
         self._music_search_keyword: str = ""
         self._music_current_online_info: Optional[OnlineMusicInfo] = None
         self._music_is_online_playing: bool = False
+        self._music_current_filepath: Optional[str] = None  # 当前播放的文件路径（本地/在线临时文件）
         self._music_temp_files: List[str] = []  # 缓存的临时文件列表
         # ── 歌词状态 ──
         self._music_lyric_parser: LyricParser = LyricParser()
@@ -1286,6 +1287,7 @@ class MusicPlayerMixin(object):
             self._music_is_playing = True
             self._music_is_paused = False
             self._music_seek_offset = start_pos if start_pos > 0 else 0
+            self._music_current_filepath = filepath
             self._music_duration = self._get_metadata(filepath).get("duration", 0)
             self._update_play_btn_ui()
             self._update_now_playing_info()
@@ -1327,6 +1329,7 @@ class MusicPlayerMixin(object):
             self._music_is_online_playing = True
             self._music_current_online_info = online_info
             self._music_seek_offset = start_pos if start_pos > 0 else 0
+            self._music_current_filepath = filepath
             self._music_duration = online_info.interval
             self._update_play_btn_ui()
             self._update_now_playing_info()
@@ -1606,15 +1609,28 @@ class MusicPlayerMixin(object):
     def _music_seek(self, value: float):
         if not self._music_is_playing and not self._music_is_paused:
             return
-        if not self._music_playlist or self._music_current_index < 0:
+        if not self._music_current_filepath:
             return
         self._music_cancel_fade()
         try:
             pos = (value / 100.0) * self._music_duration if self._music_duration > 0 else 0
-            filepath = self._music_playlist[self._music_current_index]
             was_paused = self._music_is_paused
+            # 在线歌曲优先用 set_pos，无需重载文件
+            if self._music_is_online_playing:
+                try:
+                    mixer.music.set_pos(pos)
+                    self._music_progress = pos
+                    self._music_seek_offset = pos
+                    if was_paused:
+                        self._stop_progress_poll()
+                    else:
+                        self._start_progress_poll()
+                    return
+                except Exception:
+                    pass  # set_pos 不支持该格式，回退到重载
+            # 重载文件到指定位置
             mixer.music.stop()
-            mixer.music.load(filepath)
+            mixer.music.load(self._music_current_filepath)
             mixer.music.set_volume(0)
             mixer.music.play(start=pos)
             if was_paused:
