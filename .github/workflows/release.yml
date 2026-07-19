@@ -31,6 +31,7 @@ jobs:
         run: |
           echo "# Auto-generated at build time" > _build_secrets.py
           echo "BUILD_CURSEFORGE_API_KEY = '''${{ secrets.CURSEFORGE_API_KEY }}'''" >> _build_secrets.py
+          echo "BUILD_MICROSOFT_CLIENT_ID = '''${{ secrets.MICROSOFT_CLIENT_ID }}'''" >> _build_secrets.py
         shell: bash
 
       - name: Build with PyInstaller

@@ -38,7 +38,20 @@ def _build_ua_header() -> dict:
     return {"User-Agent": f"FMCL/1.0 ({_platform_mod.system()}; {_platform_mod.machine()})"}
 
 
-MICROSOFT_CLIENT_ID = "980ebc21-3288-46a6-bfe1-fc584ba7713e"
+# 从构建时嵌入的 secrets 或硬编码默认值中读取微软 OAuth Client ID
+_BUILTIN_CLIENT_ID = ""
+try:
+    from _build_secrets import BUILD_MICROSOFT_CLIENT_ID  # type: ignore
+    _BUILTIN_CLIENT_ID = BUILD_MICROSOFT_CLIENT_ID or ""
+except (ImportError, ModuleNotFoundError, AttributeError):
+    pass
+
+# 运行时环境变量 > 构建时嵌入 > 硬编码默认值
+MICROSOFT_CLIENT_ID = (
+    os.environ.get("MICROSOFT_CLIENT_ID", "")
+    or _BUILTIN_CLIENT_ID
+    or "980ebc21-3288-46a6-bfe1-fc584ba7713e"
+)
 MICROSOFT_REDIRECT_URI = "http://localhost:8080"
 MICROSOFT_REDIRECT_PORTS = [8080, 8081, 8082, 8083, 8084]
 
