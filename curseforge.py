@@ -40,9 +40,21 @@ CURSEFORGE_API_BASE = "https://api.curseforge.com/v1"
 CURSEFORGE_GAME_ID = 432  # Minecraft
 CURSEFORGE_USER_AGENT = "FMCL-MinecraftLauncher/1.0 (github.com/Janson20/FMCL)"
 
-# 从环境变量读取 API Key（参考 PCL-CE: ModSecret.CurseForgeAPIKey）
-# 用户可在 .env 文件中设置 CURSEFORGE_API_KEY=your_key_here
-CURSEFORGE_API_KEY = os.environ.get("CURSEFORGE_API_KEY", "")
+# 从环境变量或构建时嵌入的 secrets 中读取 API Key
+# （参考 PCL-CE: SecretDictionary 编译时注入机制）
+# CurseForge 现已强制要求 API Key，未设置时将无法使用 CurseForge 功能
+# 申请地址: https://console.curseforge.com/
+
+# 1) 优先尝试构建时嵌入的 key（PyInstaller 打包时由 CI 生成 _build_secrets.py）
+_BUILTIN_API_KEY = ""
+try:
+    from _build_secrets import BUILD_CURSEFORGE_API_KEY  # type: ignore
+    _BUILTIN_API_KEY = BUILD_CURSEFORGE_API_KEY or ""
+except (ImportError, ModuleNotFoundError, AttributeError):
+    pass
+
+# 2) 运行时环境变量可覆盖嵌入的 key（方便开发者调试）
+CURSEFORGE_API_KEY = os.environ.get("CURSEFORGE_API_KEY", "") or _BUILTIN_API_KEY
 
 # ══════════════════════════════════════════════════════════════════════
 # PCL-CE 风格的类型映射
@@ -97,17 +109,20 @@ def _get_session() -> requests.Session:
         _shared_session.mount("https://", adapter)
         _shared_session.mount("http://", adapter)
 
-        # 有 API Key 则添加认证头（无 key 也能正常使用 CurseForge API）
+        # CurseForge 现已强制要求 API Key（参考 PCL-CE: SecretDictionary）
+        # 申请地址: https://console.curseforge.com/
         if CURSEFORGE_API_KEY:
             _shared_session.headers["x-api-key"] = CURSEFORGE_API_KEY
+        else:
+            logger.warning("未设置 CURSEFORGE_API_KEY，CurseForge 功能将不可用（申请: https://console.curseforge.com/）")
 
     _shared_session.headers["User-Agent"] = CURSEFORGE_USER_AGENT
     return _shared_session
 
 
 def is_configured() -> bool:
-    """CurseForge API 无需 API Key 即可正常使用"""
-    return True
+    """检查 CurseForge API Key 是否已配置（CurseForge 现已强制要求 API Key）"""
+    return bool(CURSEFORGE_API_KEY)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -941,7 +956,7 @@ def unified_search_mods(
         offset: 偏移量（分页）
         limit: 每页数量
         sort: 排序方式 ("downloads", "popularity", "relevance")
-        include_curseforge: 是否包含 CurseForge 结果（无需 API Key）
+        include_curseforge: 是否包含 CurseForge 结果（需设置 CURSEFORGE_API_KEY）
 
     Returns:
         {"hits": [...], "total_hits": int, "offset": int, "limit": int,

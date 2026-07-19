@@ -81,6 +81,7 @@ video/
 api/
 plan.md
 tmp/
+_build_secrets.py
 achievements.db
 achievements.db-shm
 achievements.db-wal
