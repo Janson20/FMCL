@@ -75,7 +75,9 @@ def _get_session() -> requests.Session:
             allowed_methods=["GET", "HEAD"],
             raise_on_status=False,
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=DOWNLOAD_POOL_SIZE, pool_maxsize=DOWNLOAD_POOL_MAXSIZE)
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy, pool_connections=DOWNLOAD_POOL_SIZE, pool_maxsize=DOWNLOAD_POOL_MAXSIZE
+        )
         _shared_session.mount("https://", adapter)
         _shared_session.mount("http://", adapter)
         _shared_session.headers.update(_get_headers())
