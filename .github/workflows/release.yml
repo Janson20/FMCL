@@ -27,6 +27,12 @@ jobs:
           pip install pyinstaller
           pip install -r requirements-windows.txt
 
+      - name: Generate build-time secrets
+        run: |
+          echo "# Auto-generated at build time" > _build_secrets.py
+          echo "BUILD_CURSEFORGE_API_KEY = '''${{ secrets.CURSEFORGE_API_KEY }}'''" >> _build_secrets.py
+        shell: bash
+
       - name: Build with PyInstaller
         run: pyinstaller build.spec --noconfirm
         env:
