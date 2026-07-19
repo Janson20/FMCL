@@ -20,10 +20,9 @@ from typing import Callable, Dict, List, Optional, Tuple
 import requests
 from logzero import logger
 
+from download_config import DOWNLOAD_POOL_SIZE
 from structured_logger import slog
 from ui.constants import USER_AGENT
-
-from download_config import DOWNLOAD_POOL_SIZE
 
 
 def _patch_neoforge_normalize():

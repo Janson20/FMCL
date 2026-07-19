@@ -23,13 +23,12 @@ from logzero import logger
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
+from download_config import DOWNLOAD_POOL_MAXSIZE, DOWNLOAD_POOL_SIZE
 from structured_logger import slog
 from version_utils import is_new_version_format as _vu_is_new_format
 from version_utils import is_pre_release, is_snapshot
 from version_utils import parse_mc_version_from_id as _vu_parse_mc_version
 from version_utils import parse_mod_loader_from_version as _vu_parse_mod_loader
-
-from download_config import DOWNLOAD_POOL_MAXSIZE, DOWNLOAD_POOL_SIZE
 
 MODRINTH_API_BASE = "https://api.modrinth.com/v2"
 MODRINTH_USER_AGENT = "FMCL-MinecraftLauncher/1.0 (github.com/Janson20/FMCL)"
