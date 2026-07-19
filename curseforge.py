@@ -27,10 +27,9 @@ from logzero import logger
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
+from download_config import DOWNLOAD_POOL_MAXSIZE, DOWNLOAD_POOL_SIZE
 from structured_logger import slog
 from version_utils import compare_versions, parse_semver
-
-from download_config import DOWNLOAD_POOL_MAXSIZE, DOWNLOAD_POOL_SIZE
 
 # ══════════════════════════════════════════════════════════════════════
 # API 配置
