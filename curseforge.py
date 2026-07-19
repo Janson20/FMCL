@@ -97,19 +97,17 @@ def _get_session() -> requests.Session:
         _shared_session.mount("https://", adapter)
         _shared_session.mount("http://", adapter)
 
-        # 添加 x-api-key 认证头（参考 PCL-CE: RequestSigning.SecretHeadersSign）
+        # 有 API Key 则添加认证头（无 key 也能正常使用 CurseForge API）
         if CURSEFORGE_API_KEY:
             _shared_session.headers["x-api-key"] = CURSEFORGE_API_KEY
-        else:
-            logger.debug("未设置 CURSEFORGE_API_KEY，某些 CurseForge API 可能受限")
 
     _shared_session.headers["User-Agent"] = CURSEFORGE_USER_AGENT
     return _shared_session
 
 
 def is_configured() -> bool:
-    """检查 CurseForge API Key 是否已配置"""
-    return bool(CURSEFORGE_API_KEY)
+    """CurseForge API 无需 API Key 即可正常使用"""
+    return True
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -943,7 +941,7 @@ def unified_search_mods(
         offset: 偏移量（分页）
         limit: 每页数量
         sort: 排序方式 ("downloads", "popularity", "relevance")
-        include_curseforge: 是否包含 CurseForge 结果（需 API Key）
+        include_curseforge: 是否包含 CurseForge 结果（无需 API Key）
 
     Returns:
         {"hits": [...], "total_hits": int, "offset": int, "limit": int,
