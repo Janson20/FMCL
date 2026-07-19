@@ -1553,6 +1553,7 @@ class MusicPlayerMixin(object):
                 return
             if self._music_play_mode == PLAY_MODE_RANDOM:
                 import random
+
                 random.seed()
                 new_idx = random.randrange(n)
                 if n > 1 and new_idx == self._music_playlist_context_idx:
@@ -1583,6 +1584,7 @@ class MusicPlayerMixin(object):
                 return
             if self._music_play_mode == PLAY_MODE_RANDOM:
                 import random
+
                 random.seed()
                 new_idx = random.randrange(n)
                 if n > 1 and new_idx == self._music_playlist_context_idx:
@@ -2604,7 +2606,9 @@ class MusicPlayerMixin(object):
                 "music_play_mode": PLAY_MODE_NAMES.get(self._music_play_mode, "loop_list"),
                 "music_mini_mode": self._music_mini_mode,
                 "music_last_playlist_id": self._music_playlist_manager.current_playlist_id,
-                "music_last_song_idx_in_playlist": self._music_playlist_context_idx if self._music_playlist_context_songs else -1,
+                "music_last_song_idx_in_playlist": (
+                    self._music_playlist_context_idx if self._music_playlist_context_songs else -1
+                ),
             }
             if hasattr(self, "callbacks") and "save_music_state" in self.callbacks:
                 self.callbacks["save_music_state"](state)
@@ -2674,9 +2678,7 @@ class MusicPlayerMixin(object):
                     # 同步 _music_playlist 供本地播放使用
                     if song.source_type == "local" and os.path.exists(song.file_path):
                         local_paths = [
-                            s.file_path
-                            for s in pl.songs
-                            if s.source_type == "local" and os.path.exists(s.file_path)
+                            s.file_path for s in pl.songs if s.source_type == "local" and os.path.exists(s.file_path)
                         ]
                         if local_paths:
                             self._music_playlist = local_paths

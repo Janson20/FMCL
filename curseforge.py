@@ -49,6 +49,7 @@ CURSEFORGE_USER_AGENT = "FMCL-MinecraftLauncher/1.0 (github.com/Janson20/FMCL)"
 _BUILTIN_API_KEY = ""
 try:
     from _build_secrets import BUILD_CURSEFORGE_API_KEY  # type: ignore
+
     _BUILTIN_API_KEY = BUILD_CURSEFORGE_API_KEY or ""
 except (ImportError, ModuleNotFoundError, AttributeError):
     pass
@@ -104,7 +105,9 @@ def _get_session() -> requests.Session:
             status_forcelist=RETRY_STATUS_FORCELIST,
             allowed_methods=["GET", "POST"],
         )
-        adapter = HTTPAdapter(max_retries=retry, pool_connections=DOWNLOAD_POOL_SIZE, pool_maxsize=DOWNLOAD_POOL_MAXSIZE)
+        adapter = HTTPAdapter(
+            max_retries=retry, pool_connections=DOWNLOAD_POOL_SIZE, pool_maxsize=DOWNLOAD_POOL_MAXSIZE
+        )
         _shared_session = requests.Session()
         _shared_session.mount("https://", adapter)
         _shared_session.mount("http://", adapter)
@@ -114,7 +117,9 @@ def _get_session() -> requests.Session:
         if CURSEFORGE_API_KEY:
             _shared_session.headers["x-api-key"] = CURSEFORGE_API_KEY
         else:
-            logger.warning("未设置 CURSEFORGE_API_KEY，CurseForge 功能将不可用（申请: https://console.curseforge.com/）")
+            logger.warning(
+                "未设置 CURSEFORGE_API_KEY，CurseForge 功能将不可用（申请: https://console.curseforge.com/）"
+            )
 
     _shared_session.headers["User-Agent"] = CURSEFORGE_USER_AGENT
     return _shared_session
