@@ -421,7 +421,7 @@ def _get_liteloader_versions(version: str) -> Optional[Dict]:
 
     try:
         url = _LITELOADER_MIRROR_URL if _is_mirror_enabled() else _LITELOADER_VERSIONS_URL
-        resp = requests.get(url, timeout=30, headers={"User-Agent": USER_AGENT})
+        resp = requests.get(url, timeout=30, headers={"User-Agent": str(USER_AGENT)})
         if resp.status_code != 200:
             logger.warning(f"获取 LiteLoader 版本列表失败: HTTP {resp.status_code}")
             return None
@@ -632,7 +632,7 @@ def _get_legacyfabric_versions(version: str) -> Optional[str]:
 
     try:
         # 获取游戏版本列表
-        resp = requests.get(_LEGACY_FABRIC_GAME_URL, timeout=30, headers={"User-Agent": USER_AGENT})
+        resp = requests.get(_LEGACY_FABRIC_GAME_URL, timeout=30, headers={"User-Agent": str(USER_AGENT)})
         if resp.status_code != 200:
             return None
         game_versions = {gv.get("version"): gv for gv in _json.loads(resp.text)}
@@ -647,7 +647,7 @@ def _get_legacyfabric_versions(version: str) -> Optional[str]:
             return None
 
         # 获取 loader 版本列表
-        resp2 = requests.get(_LEGACY_FABRIC_LOADER_URL, timeout=30, headers={"User-Agent": USER_AGENT})
+        resp2 = requests.get(_LEGACY_FABRIC_LOADER_URL, timeout=30, headers={"User-Agent": str(USER_AGENT)})
         if resp2.status_code != 200:
             return None
         loader_versions = _json.loads(resp2.text)
@@ -703,7 +703,7 @@ def _install_legacyfabric(version: str, minecraft_dir: str, java: str = None) ->
 
     # 获取 launcher meta
     launch_meta_url = _LEGACY_FABRIC_LAUNCH_META_URL.format(game=normalized, loader=loader_version)
-    resp = requests.get(launch_meta_url, timeout=30, headers={"User-Agent": USER_AGENT})
+    resp = requests.get(launch_meta_url, timeout=30, headers={"User-Agent": str(USER_AGENT)})
     resp.raise_for_status()
     launcher_meta = _json.loads(resp.text)
 
@@ -794,7 +794,7 @@ def _get_cleanroom_versions(version: str) -> Optional[str]:
         logger.warning(f"Cleanroom 仅支持 MC 1.12.2，不支持 {version}")
         return None
     try:
-        resp = requests.get(_CLEANROOM_INDEX_URL, timeout=30, headers={"User-Agent": USER_AGENT})
+        resp = requests.get(_CLEANROOM_INDEX_URL, timeout=30, headers={"User-Agent": str(USER_AGENT)})
         if resp.status_code != 200:
             return None
         releases = _json.loads(resp.text)
@@ -853,7 +853,7 @@ def _install_cleanroom(version: str, minecraft_dir: str, java: str = None) -> Tu
     # 下载 Cleanroom 安装器
     installer_url = _CLEANROOM_INSTALLER_URL.format(version=loader_version)
     logger.info(f"下载 Cleanroom 安装器: {installer_url}")
-    resp = requests.get(installer_url, timeout=120, headers={"User-Agent": USER_AGENT})
+    resp = requests.get(installer_url, timeout=120, headers={"User-Agent": str(USER_AGENT)})
     resp.raise_for_status()
 
     with tempfile.NamedTemporaryFile(suffix=".jar", delete=False) as tmp:
@@ -1038,7 +1038,7 @@ def _get_optifine_versions(version: str) -> Optional[str]:
 
     try:
         url = _OPTIFINE_BMCLAPI_LIST_URL.format(version=version)
-        resp = requests.get(url, timeout=30, headers={"User-Agent": USER_AGENT})
+        resp = requests.get(url, timeout=30, headers={"User-Agent": str(USER_AGENT)})
         if resp.status_code != 200:
             logger.warning(f"获取 OptiFine 版本列表失败: HTTP {resp.status_code}")
             return None
@@ -1114,7 +1114,7 @@ def _install_optifine(version: str, minecraft_dir: str, java: str = None) -> Tup
     download_url = f"https://bmclapi2.bangbang93.com/optifine/{version}/{of_type}/{of_patch}"
 
     logger.info(f"下载 OptiFine 安装器: {download_url}")
-    resp = requests.get(download_url, timeout=120, headers={"User-Agent": USER_AGENT})
+    resp = requests.get(download_url, timeout=120, headers={"User-Agent": str(USER_AGENT)})
     resp.raise_for_status()
 
     with tempfile.NamedTemporaryFile(suffix=".jar", delete=False) as tmp:
