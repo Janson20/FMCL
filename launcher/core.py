@@ -472,7 +472,7 @@ class MinecraftLauncher:
 
             # 直接从 Mojang API 获取版本清单，不使用上游缓存（避开破损缓存）
             manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json"
-            resp = _req.get(manifest_url, timeout=30, headers={"User-Agent": USER_AGENT})
+            resp = _req.get(manifest_url, timeout=30, headers={"User-Agent": str(USER_AGENT)})
             if resp.status_code != 200:
                 logger.warning(f"获取版本清单失败 HTTP {resp.status_code}")
                 return []
