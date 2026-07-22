@@ -1342,6 +1342,20 @@ class ModernAppBase(ctk.CTk):
         )
         self.status_label.pack(side=ctk.LEFT, padx=15)
 
+        # 下载等待小游戏按钮（默认隐藏，下载/安装时显示）
+        self._game_btn = ctk.CTkButton(
+            self._footer_frame,
+            text=_("minigame_play"),
+            font=ctk.CTkFont(size=11),
+            width=90,
+            height=24,
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["accent"],
+            command=self._open_minigame,
+        )
+        self._game_btn.pack(side=ctk.LEFT, padx=(8, 0))
+        self._game_btn.pack_forget()
+
         # 音乐迷你控制栏（中部）
         self._music_footer_frame = ctk.CTkFrame(self._footer_frame, fg_color="transparent")
         self._music_footer_frame.pack(side=ctk.LEFT, expand=True)
@@ -1418,6 +1432,7 @@ class ModernAppBase(ctk.CTk):
         # 注册底部主题组件
         self._theme_refs.append((self._footer_frame, {"fg_color": "card_bg"}))
         self._theme_refs.append((self.status_label, {"text_color": "success"}))
+        self._theme_refs.append((self._game_btn, {"fg_color": "bg_light", "hover_color": "accent"}))
         self._theme_refs.append((self.progress_bar, {"fg_color": "bg_medium", "progress_color": "accent"}))
         self._theme_refs.append((self.progress_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._music_footer_label, {"text_color": "text_primary"}))

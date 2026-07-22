@@ -1,0 +1,2081 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>深渊快线 - Abyss Express</title>
+    <style>
+        :root {
+            --bg: #0a0418;
+            --panel-bg: #120a24;
+            --gold: #c9a050;
+            --gold-bright: #f0d878;
+            --purple: #3a1a6e;
+            --red-glow: #ff3344;
+            --blue-glow: #33ccff;
+            --yellow-glow: #ffe033;
+            --text: #d4c8b8;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        body {
+            background: #050210;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Courier New', 'PingFang SC', 'Microsoft YaHei', monospace;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            max-width: 480px;
+            max-height: 820px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            display: block;
+            border: 2px solid #2a1a3a;
+            border-radius: 12px;
+            box-shadow:
+                0 0 40px rgba(120, 40, 200, 0.35),
+                0 0 80px rgba(80, 20, 140, 0.2),
+                inset 0 0 0 1px rgba(200, 150, 60, 0.15);
+            background: #0c0620;
+            image-rendering: auto;
+            max-width: 100%;
+            max-height: 100%;
+            aspect-ratio: 9 / 16;
+        }
+
+        @media (max-width: 480px) {
+            canvas {
+                border-radius: 0;
+                border: none;
+                box-shadow: none;
+                width: 100vw;
+                height: 100vh;
+                max-height: 100vh;
+                aspect-ratio: auto;
+            }
+            #game-container {
+                max-width: 100vw;
+                max-height: 100vh;
+            }
+        }
+
+        @media (min-width: 481px) {
+            canvas {
+                width: auto;
+                height: min(85vh, 780px);
+                aspect-ratio: 9 / 16;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        (function() {
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // --- Canvas Sizing ---
+            const BASE_WIDTH = 420;
+            const BASE_HEIGHT = 740;
+
+            function resizeCanvas() {
+                const container = document.getElementById('game-container');
+                const isMobile = window.innerWidth <= 480;
+                if (isMobile) {
+                    canvas.width = window.innerWidth;
+                    canvas.height = window.innerHeight;
+                } else {
+                    const maxH = Math.min(window.innerHeight * 0.85, 780);
+                    const h = maxH;
+                    const w = h * (BASE_WIDTH / BASE_HEIGHT);
+                    canvas.width = Math.floor(w);
+                    canvas.height = Math.floor(h);
+                }
+            }
+            resizeCanvas();
+            window.addEventListener('resize', () => {
+                resizeCanvas();
+                if (game) game.updateScale();
+            });
+            window.addEventListener('orientationchange', () => {
+                setTimeout(() => { resizeCanvas();
+                    if (game) game.updateScale(); }, 200);
+            });
+
+            // --- Scale factor ---
+            function getScale() {
+                return canvas.width / BASE_WIDTH;
+            }
+
+            // --- Local Storage ---
+            const STORAGE_KEY = 'abyss_express_save';
+            let persistentData = {
+                helmetLevel: 0, // +1 HP per level (max 5)
+                engineLevel: 0, // speed multiplier (max 5)
+                coreLevel: 0, // +1 dmg per level (max 5)
+                totalDepth: 0,
+                crystals: 0,
+                gamesPlayed: 0,
+            };
+
+            function loadSave() {
+                try {
+                    const saved = localStorage.getItem(STORAGE_KEY);
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        persistentData = { ...persistentData, ...parsed };
+                    }
+                } catch (e) { /* ignore */ }
+            }
+
+            function saveGame() {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(persistentData));
+                } catch (e) { /* ignore */ }
+            }
+            loadSave();
+
+            // --- Game States ---
+            const STATE = { MENU: 'menu', PLAYING: 'playing', PAUSED: 'paused', BRANCH: 'branch', DEAD: 'dead' };
+
+            // --- Utility ---
+            function rand(min, max) { return Math.random() * (max - min) + min; }
+
+            function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
+
+            function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+            function dist(x1, y1, x2, y2) { return Math.hypot(x2 - x1, y2 - y1); }
+
+            function lerp(a, b, t) { return a + (b - a) * t; }
+
+            // --- Particle System ---
+            class Particle {
+                constructor(x, y, vx, vy, life, color, size = 3) {
+                    this.x = x;
+                    this.y = y;
+                    this.vx = vx;
+                    this.vy = vy;
+                    this.life = life;
+                    this.maxLife = life;
+                    this.color = color;
+                    this.size = size;
+                    this.alive = true;
+                }
+                update(dt) {
+                    this.x += this.vx * dt;
+                    this.y += this.vy * dt;
+                    this.life -= dt;
+                    if (this.life <= 0) this.alive = false;
+                }
+                draw(ctx, s) {
+                    const alpha = clamp(this.life / this.maxLife, 0, 1);
+                    const sz = this.size * s * (0.4 + 0.6 * alpha);
+                    ctx.globalAlpha = alpha;
+                    ctx.fillStyle = this.color;
+                    ctx.shadowColor = this.color;
+                    ctx.shadowBlur = sz * 3;
+                    ctx.beginPath();
+                    ctx.arc(this.x * s, this.y * s, sz, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.globalAlpha = 1;
+                }
+            }
+
+            // --- Game Class ---
+            class Game {
+                constructor() {
+                    this.state = STATE.MENU;
+                    this.scale = getScale();
+                    this.time = 0;
+                    this.dt = 0;
+                    this.lastTime = performance.now();
+                    this.shakeAmount = 0;
+                    this.shakeDuration = 0;
+
+                    // Player
+                    this.player = {
+                        x: BASE_WIDTH / 2,
+                        y: BASE_HEIGHT * 0.62,
+                        width: 36,
+                        height: 44,
+                        vx: 0,
+                        targetVx: 0,
+                        hp: 5,
+                        maxHp: 5,
+                        invincible: 0,
+                        tilt: 0,
+                        flameFlicker: 0,
+                    };
+
+                    // Movement
+                    this.moveLeft = false;
+                    this.moveRight = false;
+                    this.boostFire = false;
+                    this.chargeHeld = false;
+                    this.chargeProgress = 0;
+
+                    // Bullets
+                    this.bullets = [];
+                    this.fireCooldown = 0;
+                    this.baseFireRate = 0.38;
+                    this.boostedFireRate = 0.18;
+
+                    // Monsters
+                    this.monsters = [];
+                    this.monsterSpawnTimer = 0;
+                    this.monsterSpawnInterval = 1.2;
+
+                    // Boss
+                    this.boss = null;
+                    this.bossActive = false;
+
+                    // Particles
+                    this.particles = [];
+
+                    // Depth / Score
+                    this.depth = 0;
+                    this.depthSpeed = 35; // meters per second base
+                    this.scoreMultiplier = 1.0;
+                    this.energyOrbs = [];
+                    this.energyCount = 0;
+
+                    // Branch system
+                    this.nextBranchDepth = 600;
+                    this.branchInterval = 500;
+                    this.currentBranchEffect = null; // {type, remaining}
+                    this.branchQueue = null;
+
+                    // Tunnel walls
+                    this.wallLeftX = BASE_WIDTH * 0.12;
+                    this.wallRightX = BASE_WIDTH * 0.88;
+                    this.tunnelWidth = this.wallRightX - this.wallLeftX;
+                    this.wallWobble = 0;
+                    this.wallWobbleSpeed = 0.4;
+
+                    // Background elements
+                    this.bgRocks = [];
+                    this.trackMarkers = [];
+                    for (let i = 0; i < 30; i++) {
+                        this.bgRocks.push({
+                            x: rand(this.wallLeftX - 20, this.wallLeftX + 5),
+                            y: rand(0, BASE_HEIGHT),
+                            size: rand(3, 10),
+                            brightness: rand(0.3, 0.7),
+                        });
+                        this.bgRocks.push({
+                            x: rand(this.wallRightX - 5, this.wallRightX + 20),
+                            y: rand(0, BASE_HEIGHT),
+                            size: rand(3, 10),
+                            brightness: rand(0.3, 0.7),
+                        });
+                    }
+                    for (let i = 0; i < 16; i++) {
+                        this.trackMarkers.push({ y: i * (BASE_HEIGHT / 16), offset: rand(-8, 8) });
+                    }
+
+                    // Screen flash
+                    this.screenFlash = 0;
+                    this.heartbeatPulse = 0;
+
+                    // Stats for death screen
+                    this.killCount = 0;
+                    this.bossKillCount = 0;
+                    this.maxDepthReached = 0;
+
+                    // Menu animation
+                    this.menuPulse = 0;
+
+                    this.updateScale();
+                    this.applyUpgrades();
+                }
+
+                updateScale() {
+                    this.scale = getScale();
+                }
+
+                applyUpgrades() {
+                    this.player.maxHp = 5 + persistentData.helmetLevel;
+                    this.player.hp = this.player.maxHp;
+                    this.depthSpeed = 35 + persistentData.engineLevel * 5;
+                    this.baseFireRate = Math.max(0.12, 0.38 - persistentData.coreLevel * 0.04);
+                    this.boostedFireRate = Math.max(0.06, 0.18 - persistentData.coreLevel * 0.03);
+                }
+
+                startGame() {
+                    this.state = STATE.PLAYING;
+                    this.time = 0;
+                    this.depth = 0;
+                    this.player.x = BASE_WIDTH / 2;
+                    this.player.y = BASE_HEIGHT * 0.62;
+                    this.player.vx = 0;
+                    this.player.tilt = 0;
+                    this.player.invincible = 0;
+                    this.player.hp = this.player.maxHp;
+                    this.bullets = [];
+                    this.monsters = [];
+                    this.particles = [];
+                    this.energyOrbs = [];
+                    this.energyCount = 0;
+                    this.boss = null;
+                    this.bossActive = false;
+                    this.shakeAmount = 0;
+                    this.shakeDuration = 0;
+                    this.fireCooldown = 0;
+                    this.monsterSpawnTimer = 0;
+                    this.nextBranchDepth = this.branchInterval;
+                    this.currentBranchEffect = null;
+                    this.branchQueue = null;
+                    this.scoreMultiplier = 1.0;
+                    this.killCount = 0;
+                    this.bossKillCount = 0;
+                    this.maxDepthReached = 0;
+                    this.screenFlash = 0;
+                    this.chargeProgress = 0;
+                    this.chargeHeld = false;
+                    this.applyUpgrades();
+                }
+
+                update(dt) {
+                    if (this.state !== STATE.PLAYING) return;
+                    this.dt = dt;
+                    this.time += dt;
+
+                    // Depth increase
+                    const speedBonus = this.currentBranchEffect?.type === 'hard' ? 1.35 : 1.0;
+                    this.depth += this.depthSpeed * speedBonus * dt;
+                    if (this.depth > this.maxDepthReached) this.maxDepthReached = this.depth;
+
+                    // Shake decay
+                    if (this.shakeDuration > 0) {
+                        this.shakeDuration -= dt;
+                        this.shakeAmount *= 0.85;
+                        if (this.shakeDuration <= 0) this.shakeAmount = 0;
+                    }
+
+                    // Screen flash decay
+                    if (this.screenFlash > 0) this.screenFlash -= dt * 3;
+                    if (this.screenFlash < 0) this.screenFlash = 0;
+
+                    // Heartbeat pulse
+                    if (this.player.hp <= 2 && this.player.hp > 0) {
+                        this.heartbeatPulse += dt * 6;
+                    } else {
+                        this.heartbeatPulse *= 0.9;
+                    }
+
+                    // Player invincibility
+                    if (this.player.invincible > 0) this.player.invincible -= dt;
+
+                    // Player movement
+                    const moveSpeed = 380;
+                    if (this.moveLeft && !this.moveRight) this.player.targetVx = -moveSpeed;
+                    else if (this.moveRight && !this.moveLeft) this.player.targetVx = moveSpeed;
+                    else this.player.targetVx = 0;
+
+                    this.player.vx = lerp(this.player.vx, this.player.targetVx, 1 - Math.exp(-18 * dt));
+                    this.player.x += this.player.vx * dt;
+                    this.player.tilt = lerp(this.player.tilt, clamp(this.player.vx / 200, -0.45, 0.45), 1 - Math.exp(-12 *
+                        dt));
+
+                    // Tunnel boundaries
+                    const halfW = this.player.width / 2;
+                    const leftBound = this.wallLeftX + 18;
+                    const rightBound = this.wallRightX - 18;
+                    this.player.x = clamp(this.player.x, leftBound + halfW, rightBound - halfW);
+
+                    // Wall wobble
+                    this.wallWobble += this.wallWobbleSpeed * dt;
+                    const wobbleAmp = 12;
+                    const currentWallLeft = this.wallLeftX + Math.sin(this.wallWobble) * wobbleAmp * 0.3;
+                    const currentWallRight = this.wallRightX + Math.cos(this.wallWobble * 1.3) * wobbleAmp * 0.3;
+
+                    // Charge attack
+                    if (this.chargeHeld && this.state === STATE.PLAYING) {
+                        this.chargeProgress = Math.min(1, this.chargeProgress + dt * 1.8);
+                    } else if (!this.chargeHeld) {
+                        if (this.chargeProgress >= 0.85 && this.state === STATE.PLAYING) {
+                            this.fireChargedShot();
+                        }
+                        this.chargeProgress = Math.max(0, this.chargeProgress - dt * 4);
+                    }
+
+                    // Auto fire
+                    const fireRate = this.boostFire ? this.boostedFireRate : this.baseFireRate;
+                    this.fireCooldown -= dt;
+                    if (this.fireCooldown <= 0 && this.chargeProgress < 0.5) {
+                        this.fireCooldown = fireRate;
+                        this.fireBullet();
+                    }
+
+                    // Update bullets
+                    for (const b of this.bullets) {
+                        b.y -= b.speed * dt;
+                        b.life -= dt;
+                    }
+                    this.bullets = this.bullets.filter(b => b.life > 0 && b.y > -40 && b.y < BASE_HEIGHT + 40);
+
+                    // Update monsters
+                    for (const m of this.monsters) {
+                        m.y += m.speed * dt;
+                        // Monster behaviors
+                        if (m.type === 'blue' && m.y > this.player.y - 150 && !m.teleported) {
+                            if (Math.random() < dt * 1.5 && m.y < this.player.y + 80) {
+                                m.x = this.player.x + rand(-50, 50);
+                                m.x = clamp(m.x, leftBound + m.size, rightBound - m.size);
+                                m.teleported = true;
+                                this.spawnParticles(m.x, m.y, 8, '#33ccff', 0.4);
+                            }
+                        }
+                        if (m.type === 'yellow') {
+                            const dx = this.player.x - m.x;
+                            m.x += clamp(dx, -120, 120) * dt * 1.6;
+                            if (m.x <= currentWallLeft + m.size + 4 || m.x >= currentWallRight - m.size - 4) {
+                                this.explodeBomber(m);
+                                continue;
+                            }
+                        }
+                    }
+
+                    // Remove off-screen monsters
+                    this.monsters = this.monsters.filter(m => {
+                        if (m.y > BASE_HEIGHT + 80) return false;
+                        if (m.y < -100 && m.type !== 'boss') return false;
+                        return true;
+                    });
+
+                    // Update energy orbs
+                    for (const orb of this.energyOrbs) {
+                        orb.y += orb.speed * dt;
+                        const d = dist(orb.x, orb.y, this.player.x, this.player.y);
+                        if (d < 55) {
+                            const pullSpeed = 350;
+                            const angle = Math.atan2(this.player.y - orb.y, this.player.x - orb.x);
+                            orb.x += Math.cos(angle) * pullSpeed * dt;
+                            orb.y += Math.sin(angle) * pullSpeed * dt;
+                        }
+                        if (d < 22) {
+                            orb.collected = true;
+                            this.energyCount++;
+                            this.spawnParticles(orb.x, orb.y, 6, '#f0d878', 0.3);
+                            if (this.energyCount % 15 === 0 && this.player.hp < this.player.maxHp) {
+                                this.player.hp = Math.min(this.player.maxHp, this.player.hp + 1);
+                                this.spawnParticles(this.player.x, this.player.y, 15, '#5f5', 0.6);
+                                this.screenFlash = 0.5;
+                            }
+                        }
+                    }
+                    this.energyOrbs = this.energyOrbs.filter(o => !o.collected && o.y < BASE_HEIGHT + 40);
+
+                    // Update boss
+                    if (this.boss && this.boss.alive) {
+                        this.updateBoss(dt);
+                    }
+
+                    // Monster spawning
+                    if (!this.bossActive) {
+                        const spawnRate = this.currentBranchEffect?.type === 'hard' ? 1.5 : 1.0;
+                        this.monsterSpawnTimer -= dt * spawnRate;
+                        const baseInterval = Math.max(0.35, this.monsterSpawnInterval - this.depth * 0.00008);
+                        if (this.monsterSpawnTimer <= 0) {
+                            this.monsterSpawnTimer = baseInterval + rand(-0.2, 0.3);
+                            this.spawnMonster();
+                        }
+                    }
+
+                    // Check branch trigger
+                    if (this.depth >= this.nextBranchDepth && !this.bossActive && !this.branchQueue) {
+                        this.triggerBranchBoss();
+                    }
+
+                    // Update particles
+                    for (const p of this.particles) p.update(dt);
+                    this.particles = this.particles.filter(p => p.alive);
+
+                    // Player collision with monsters
+                    if (this.player.invincible <= 0) {
+                        for (const m of this.monsters) {
+                            if (m.type === 'yellow') continue;
+                            const d = dist(this.player.x, this.player.y, m.x, m.y);
+                            const collDist = (this.player.width + m.size) * 0.6;
+                            if (d < collDist) {
+                                this.hitPlayer(m);
+                                break;
+                            }
+                        }
+                        if (this.boss && this.boss.alive) {
+                            const bd = dist(this.player.x, this.player.y, this.boss.x, this.boss.y);
+                            if (bd < (this.player.width + this.boss.size) * 0.7) {
+                                this.hitPlayer({ x: this.boss.x, y: this.boss.y, type: 'boss' });
+                            }
+                        }
+                    }
+
+                    // Bullet-monster collision
+                    for (const b of this.bullets) {
+                        if (b.piercing) continue;
+                        for (const m of this.monsters) {
+                            const d = dist(b.x, b.y, m.x, m.y);
+                            if (d < m.size + 6) {
+                                b.life = 0;
+                                m.hp -= b.damage;
+                                this.spawnParticles(b.x, b.y, 3, '#fff', 0.2);
+                                if (m.hp <= 0 && m.alive !== false) {
+                                    this.killMonster(m);
+                                }
+                                break;
+                            }
+                        }
+                        if (b.life <= 0) continue;
+                        if (this.boss && this.boss.alive && !b.piercing) {
+                            const bd = dist(b.x, b.y, this.boss.x, this.boss.y);
+                            if (bd < this.boss.size + 8) {
+                                b.life = 0;
+                                this.boss.hp -= b.damage;
+                                this.spawnParticles(b.x, b.y, 4, '#ffaa00', 0.3);
+                                this.shakeAmount = Math.max(this.shakeAmount, 2);
+                                this.shakeDuration = Math.max(this.shakeDuration, 0.08);
+                                if (this.boss.hp <= 0) {
+                                    this.killBoss();
+                                }
+                            }
+                        }
+                    }
+
+                    // Update track markers
+                    for (const tm of this.trackMarkers) {
+                        tm.y += this.depthSpeed * 0.5 * dt;
+                        if (tm.y > BASE_HEIGHT + 20) tm.y -= BASE_HEIGHT + 40;
+                    }
+                    for (const rock of this.bgRocks) {
+                        rock.y += this.depthSpeed * 0.7 * dt;
+                        if (rock.y > BASE_HEIGHT + 30) rock.y -= BASE_HEIGHT + 60;
+                    }
+
+                    // Player death
+                    if (this.player.hp <= 0) {
+                        this.die();
+                    }
+                }
+
+                spawnMonster() {
+                    const leftBound = this.wallLeftX + 22;
+                    const rightBound = this.wallRightX - 22;
+                    const x = rand(leftBound, rightBound);
+                    const y = rand(-60, -20);
+                    const roll = Math.random();
+                    let type, hp, speed, size, color;
+                    if (roll < 0.45) {
+                        type = 'red';
+                        hp = 3 + Math.floor(this.depth / 1500);
+                        speed = rand(55, 90);
+                        size = rand(16, 22);
+                        color = '#ff4455';
+                    } else if (roll < 0.78) {
+                        type = 'blue';
+                        hp = 1 + Math.floor(this.depth / 3000);
+                        speed = rand(90, 150);
+                        size = rand(12, 17);
+                        color = '#33ccff';
+                    } else {
+                        type = 'yellow';
+                        hp = 1;
+                        speed = rand(70, 110);
+                        size = rand(11, 15);
+                        color = '#ffe033';
+                    }
+                    this.monsters.push({
+                        type,
+                        x,
+                        y,
+                        hp,
+                        maxHp: hp,
+                        speed,
+                        size,
+                        color,
+                        teleported: false,
+                        alive: true,
+                        flashTimer: 0,
+                    });
+                }
+
+                killMonster(m) {
+                    m.alive = false;
+                    this.killCount++;
+                    this.spawnParticles(m.x, m.y, 10, m.color, 0.5);
+                    if (Math.random() < 0.45 || m.type === 'red') {
+                        const orbCount = m.type === 'red' ? randInt(2, 4) : 1;
+                        for (let i = 0; i < orbCount; i++) {
+                            this.energyOrbs.push({
+                                x: m.x + rand(-10, 10),
+                                y: m.y + rand(-8, 8),
+                                speed: rand(30, 60),
+                                collected: false,
+                                size: rand(5, 8),
+                            });
+                        }
+                    }
+                    if (m.type === 'yellow') {
+                        this.explodeBomber(m);
+                    }
+                    this.monsters = this.monsters.filter(mm => mm !== m);
+                }
+
+                explodeBomber(m) {
+                    this.spawnParticles(m.x, m.y, 20, '#ffe033', 0.7);
+                    this.shakeAmount = Math.max(this.shakeAmount, 6);
+                    this.shakeDuration = Math.max(this.shakeDuration, 0.2);
+                    this.screenFlash = 0.8;
+                    const blastRadius = 80;
+                    for (const mm of this.monsters) {
+                        if (mm === m || !mm.alive) continue;
+                        if (dist(m.x, m.y, mm.x, mm.y) < blastRadius) {
+                            mm.hp -= 5;
+                            if (mm.hp <= 0) this.killMonster(mm);
+                        }
+                    }
+                    if (this.boss && this.boss.alive && dist(m.x, m.y, this.boss.x, this.boss.y) < blastRadius) {
+                        this.boss.hp -= 5;
+                        if (this.boss.hp <= 0) this.killBoss();
+                    }
+                    if (dist(m.x, m.y, this.player.x, this.player.y) < blastRadius && this.player.invincible <= 0) {
+                        this.hitPlayer({ x: m.x, y: m.y, type: 'explosion' });
+                    }
+                    m.alive = false;
+                    this.monsters = this.monsters.filter(mm => mm !== m);
+                }
+
+                fireBullet() {
+                    const dmg = 1 + persistentData.coreLevel;
+                    this.bullets.push({
+                        x: this.player.x,
+                        y: this.player.y - this.player.height / 2,
+                        speed: 550,
+                        life: 1.6,
+                        damage: dmg,
+                        piercing: false,
+                        size: 4,
+                    });
+                }
+
+                fireChargedShot() {
+                    const dmg = (3 + persistentData.coreLevel * 2);
+                    this.bullets.push({
+                        x: this.player.x,
+                        y: this.player.y - this.player.height / 2,
+                        speed: 400,
+                        life: 2.5,
+                        damage: dmg,
+                        piercing: true,
+                        size: 10,
+                    });
+                    this.spawnParticles(this.player.x, this.player.y - 20, 15, '#ffcc00', 0.5);
+                    this.shakeAmount = Math.max(this.shakeAmount, 3);
+                    this.shakeDuration = Math.max(this.shakeDuration, 0.1);
+                }
+
+                triggerBranchBoss() {
+                    this.bossActive = true;
+                    this.monsters = this.monsters.filter(m => m.y < this.player.y - 60);
+                    const bossX = BASE_WIDTH / 2;
+                    const bossY = -70;
+                    const bossHp = 25 + Math.floor(this.depth / 400) * 8;
+                    this.boss = {
+                        x: bossX,
+                        y: bossY,
+                        targetY: BASE_HEIGHT * 0.22,
+                        size: 38,
+                        hp: bossHp,
+                        maxHp: bossHp,
+                        alive: true,
+                        phase: 'entering',
+                        actionTimer: 0,
+                        actionCooldown: 1.5,
+                        attackTelegraph: null,
+                        attackTimer: 0,
+                        flashTimer: 0,
+                    };
+                    this.branchQueue = this.depth;
+                }
+
+                updateBoss(dt) {
+                    const b = this.boss;
+                    if (!b || !b.alive) return;
+
+                    // Entering phase
+                    if (b.phase === 'entering') {
+                        b.y = lerp(b.y, b.targetY, 1 - Math.exp(-3 * dt));
+                        if (Math.abs(b.y - b.targetY) < 5) {
+                            b.phase = 'fighting';
+                            b.y = b.targetY;
+                            b.actionTimer = 1.2;
+                        }
+                    }
+
+                    // Fighting phase
+                    if (b.phase === 'fighting') {
+                        b.actionTimer -= dt;
+                        if (b.attackTelegraph) {
+                            b.attackTimer -= dt;
+                            if (b.attackTimer <= 0 && b.attackTelegraph === 'charge') {
+                                this.bossChargeAttack(b);
+                                b.attackTelegraph = null;
+                            } else if (b.attackTimer <= 0 && b.attackTelegraph === 'roar') {
+                                this.bossRoarAttack(b);
+                                b.attackTelegraph = null;
+                            } else if (b.attackTimer <= 0 && b.attackTelegraph === 'shoot') {
+                                this.bossShootAttack(b);
+                                b.attackTelegraph = null;
+                            }
+                        }
+                        if (b.actionTimer <= 0 && !b.attackTelegraph) {
+                            const roll = Math.random();
+                            if (roll < 0.4) {
+                                b.attackTelegraph = 'charge';
+                                b.attackTimer = 0.9;
+                                b.actionCooldown = 1.6;
+                            } else if (roll < 0.7) {
+                                b.attackTelegraph = 'roar';
+                                b.attackTimer = 0.7;
+                                b.actionCooldown = 1.4;
+                            } else {
+                                b.attackTelegraph = 'shoot';
+                                b.attackTimer = 0.5;
+                                b.actionCooldown = 1.2;
+                            }
+                            b.actionTimer = b.actionCooldown + rand(0.3, 1.0);
+                        }
+                    }
+
+                    // Flash timer
+                    if (b.flashTimer > 0) b.flashTimer -= dt;
+                }
+
+                bossChargeAttack(b) {
+                    const tx = this.player.x;
+                    const ty = this.player.y;
+                    const startX = b.x;
+                    const startY = b.y;
+                    const chargeSpeed = 700;
+                    const dx = tx - startX;
+                    const dy = ty - startY;
+                    const mag = Math.hypot(dx, dy) || 1;
+                    const vx = (dx / mag) * chargeSpeed;
+                    const vy = (dy / mag) * chargeSpeed;
+                    // Create a projectile
+                    this.monsters.push({
+                        type: 'boss_charge',
+                        x: startX,
+                        y: startY,
+                        hp: 99,
+                        maxHp: 99,
+                        speed: chargeSpeed,
+                        size: 14,
+                        color: '#ff6644',
+                        teleported: false,
+                        alive: true,
+                        flashTimer: 0,
+                        vx: vx,
+                        vy: vy,
+                        isProjectile: true,
+                    });
+                    this.spawnParticles(startX, startY, 10, '#ff6644', 0.4);
+                }
+
+                bossRoarAttack(b) {
+                    this.shakeAmount = Math.max(this.shakeAmount, 10);
+                    this.shakeDuration = Math.max(this.shakeDuration, 0.35);
+                    this.screenFlash = 1.0;
+                    this.spawnParticles(b.x, b.y, 25, '#ff3300', 0.6);
+                    if (this.player.invincible <= 0 && dist(this.player.x, this.player.y, b.x, b.y) < 150) {
+                        this.hitPlayer({ x: b.x, y: b.y, type: 'boss_roar' });
+                    }
+                }
+
+                bossShootAttack(b) {
+                    for (let i = 0; i < 5; i++) {
+                        const angle = (i - 2) * 0.35 + Math.PI / 2;
+                        const spd = 280;
+                        this.monsters.push({
+                            type: 'boss_bullet',
+                            x: b.x,
+                            y: b.y,
+                            hp: 99,
+                            maxHp: 99,
+                            speed: spd,
+                            size: 7,
+                            color: '#ff9900',
+                            teleported: false,
+                            alive: true,
+                            flashTimer: 0,
+                            vx: Math.cos(angle) * spd,
+                            vy: Math.sin(angle) * spd,
+                            isProjectile: true,
+                        });
+                    }
+                    this.spawnParticles(b.x, b.y, 12, '#ff9900', 0.35);
+                }
+
+                killBoss() {
+                    if (!this.boss || !this.boss.alive) return;
+                    this.boss.alive = false;
+                    this.bossActive = false;
+                    this.bossKillCount++;
+                    this.spawnParticles(this.boss.x, this.boss.y, 35, '#ffaa00', 0.9);
+                    this.shakeAmount = 16;
+                    this.shakeDuration = 0.5;
+                    this.screenFlash = 1.2;
+                    // Drop lots of energy
+                    for (let i = 0; i < 12; i++) {
+                        this.energyOrbs.push({
+                            x: this.boss.x + rand(-40, 40),
+                            y: this.boss.y + rand(-30, 30),
+                            speed: rand(20, 70),
+                            collected: false,
+                            size: rand(6, 10),
+                        });
+                    }
+                    this.energyCount += 8;
+                    this.boss = null;
+                    this.nextBranchDepth = this.depth + this.branchInterval;
+                    // Trigger branch selection
+                    this.branchQueue = this.depth;
+                    setTimeout(() => {
+                        if (this.state === STATE.PLAYING) {
+                            this.openBranchSelection();
+                        }
+                    }, 600);
+                }
+
+                openBranchSelection() {
+                    if (this.state !== STATE.PLAYING) return;
+                    this.state = STATE.BRANCH;
+                    this.branchQueue = null;
+                }
+
+                selectBranch(choice) {
+                    this.currentBranchEffect = null;
+                    if (choice === 'reward') {
+                        this.energyCount += 20;
+                        for (let i = 0; i < 8; i++) {
+                            this.energyOrbs.push({
+                                x: this.player.x + rand(-30, 30),
+                                y: this.player.y - rand(20, 80),
+                                speed: rand(30, 70),
+                                collected: false,
+                                size: rand(6, 9),
+                            });
+                        }
+                        this.currentBranchEffect = { type: 'reward', remaining: this.branchInterval };
+                    } else if (choice === 'hard') {
+                        this.scoreMultiplier = 1.6;
+                        this.currentBranchEffect = { type: 'hard', remaining: this.branchInterval };
+                    } else if (choice === 'shop') {
+                        const cost = 25;
+                        if (this.energyCount >= cost) {
+                            this.energyCount -= cost;
+                            this.player.hp = Math.min(this.player.maxHp, this.player.hp + 2);
+                            this.spawnParticles(this.player.x, this.player.y, 20, '#5f5', 0.7);
+                            this.screenFlash = 0.6;
+                        }
+                        this.currentBranchEffect = { type: 'shop', remaining: this.branchInterval };
+                    }
+                    this.state = STATE.PLAYING;
+                    this.monsterSpawnTimer = 1.5;
+                    this.player.invincible = 1.0;
+                }
+
+                hitPlayer(source) {
+                    if (this.player.invincible > 0) return;
+                    const dmg = (source.type === 'boss' || source.type === 'boss_roar') ? 2 : 1;
+                    this.player.hp -= dmg;
+                    this.player.invincible = 1.2;
+                    this.shakeAmount = Math.max(this.shakeAmount, 8);
+                    this.shakeDuration = Math.max(this.shakeDuration, 0.25);
+                    this.screenFlash = 1.0;
+                    this.spawnParticles(this.player.x, this.player.y, 15, '#ff3344', 0.5);
+                    if (navigator.vibrate) {
+                        try { navigator.vibrate(40); } catch (e) {}
+                    }
+                }
+
+                die() {
+                    this.state = STATE.DEAD;
+                    this.spawnParticles(this.player.x, this.player.y, 40, '#ff3344', 0.8);
+                    this.shakeAmount = 20;
+                    this.shakeDuration = 0.6;
+                    this.screenFlash = 1.5;
+                    // Award crystals
+                    const earnedCrystals = Math.floor(this.maxDepthReached / 200) + this.bossKillCount * 5 + Math.floor(this
+                        .energyCount / 10);
+                    persistentData.crystals += earnedCrystals;
+                    persistentData.totalDepth += Math.floor(this.maxDepthReached);
+                    persistentData.gamesPlayed++;
+                    saveGame();
+                    if (navigator.vibrate) {
+                        try { navigator.vibrate([30, 60, 30, 60, 100]); } catch (e) {}
+                    }
+                }
+
+                spawnParticles(x, y, count, color, life) {
+                    for (let i = 0; i < count; i++) {
+                        const angle = rand(0, Math.PI * 2);
+                        const speed = rand(40, 200);
+                        this.particles.push(new Particle(
+                            x, y,
+                            Math.cos(angle) * speed,
+                            Math.sin(angle) * speed,
+                            life + rand(-0.15, 0.15),
+                            color,
+                            rand(2, 6)
+                        ));
+                    }
+                }
+
+                togglePause() {
+                    if (this.state === STATE.PLAYING) {
+                        this.state = STATE.PAUSED;
+                    } else if (this.state === STATE.PAUSED) {
+                        this.state = STATE.PLAYING;
+                        this.lastTime = performance.now();
+                    }
+                }
+
+                draw(ctx) {
+                    const s = this.scale;
+                    const shakeX = this.shakeAmount > 0 ? (Math.random() - 0.5) * this.shakeAmount * 2 : 0;
+                    const shakeY = this.shakeAmount > 0 ? (Math.random() - 0.5) * this.shakeAmount * 2 : 0;
+
+                    ctx.save();
+                    ctx.scale(s, s);
+                    ctx.translate(shakeX, shakeY);
+
+                    // Background
+                    const bgGrad = ctx.createRadialGradient(BASE_WIDTH / 2, BASE_HEIGHT / 2, 100, BASE_WIDTH / 2, BASE_HEIGHT /
+                        2, 700);
+                    bgGrad.addColorStop(0, '#150a2e');
+                    bgGrad.addColorStop(0.7, '#0a0418');
+                    bgGrad.addColorStop(1, '#020008');
+                    ctx.fillStyle = bgGrad;
+                    ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+
+                    // Tunnel walls
+                    const wobbleLeft = this.wallLeftX + Math.sin(this.wallWobble) * 3.5;
+                    const wobbleRight = this.wallRightX + Math.cos(this.wallWobble * 1.3) * 3.5;
+
+                    // Left wall
+                    const wallGradL = ctx.createLinearGradient(0, 0, wobbleLeft + 25, 0);
+                    wallGradL.addColorStop(0, '#0d0520');
+                    wallGradL.addColorStop(0.5, '#1a0d35');
+                    wallGradL.addColorStop(1, '#251545');
+                    ctx.fillStyle = wallGradL;
+                    ctx.fillRect(0, 0, wobbleLeft, BASE_HEIGHT);
+
+                    // Right wall
+                    const wallGradR = ctx.createLinearGradient(wobbleRight - 25, 0, BASE_WIDTH, 0);
+                    wallGradR.addColorStop(0, '#251545');
+                    wallGradR.addColorStop(0.5, '#1a0d35');
+                    wallGradR.addColorStop(1, '#0d0520');
+                    ctx.fillStyle = wallGradR;
+                    ctx.fillRect(wobbleRight, 0, BASE_WIDTH - wobbleRight, BASE_HEIGHT);
+
+                    // Wall edge highlights
+                    ctx.strokeStyle = 'rgba(180,140,60,0.35)';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(wobbleLeft, 0);
+                    ctx.lineTo(wobbleLeft, BASE_HEIGHT);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(wobbleRight, 0);
+                    ctx.lineTo(wobbleRight, BASE_HEIGHT);
+                    ctx.stroke();
+
+                    // Glowing ore veins on walls
+                    ctx.strokeStyle = 'rgba(180,130,255,0.25)';
+                    ctx.lineWidth = 1;
+                    for (let i = 0; i < 4; i++) {
+                        const vy = (i * 190 + this.time * 40) % (BASE_HEIGHT + 200) - 100;
+                        ctx.beginPath();
+                        ctx.moveTo(wobbleLeft - 8, vy);
+                        ctx.quadraticCurveTo(wobbleLeft - 3, vy + 30, wobbleLeft - 10, vy + 60);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(wobbleRight + 8, vy + 40);
+                        ctx.quadraticCurveTo(wobbleRight + 3, vy + 70, wobbleRight + 10, vy + 100);
+                        ctx.stroke();
+                    }
+
+                    // Background rocks
+                    for (const rock of this.bgRocks) {
+                        const rx = rock.x < BASE_WIDTH / 2 ? Math.min(rock.x, wobbleLeft - 2) : Math.max(rock.x,
+                            wobbleRight + 2);
+                        ctx.fillStyle = `rgba(80,50,120,${rock.brightness * 0.5})`;
+                        ctx.beginPath();
+                        ctx.arc(rx, rock.y, rock.size, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    // Track / rail marks in tunnel
+                    ctx.strokeStyle = 'rgba(180,140,70,0.2)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([8, 20]);
+                    const trackLeft = wobbleLeft + 30;
+                    const trackRight = wobbleRight - 30;
+                    for (const tm of this.trackMarkers) {
+                        ctx.beginPath();
+                        ctx.moveTo(trackLeft, tm.y);
+                        ctx.lineTo(trackLeft, tm.y + 4);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(trackRight, tm.y + tm.offset);
+                        ctx.lineTo(trackRight, tm.y + tm.offset + 4);
+                        ctx.stroke();
+                    }
+                    ctx.setLineDash([]);
+
+                    // Energy orbs
+                    for (const orb of this.energyOrbs) {
+                        const glow = ctx.createRadialGradient(orb.x, orb.y, orb.size * 0.3, orb.x, orb.y, orb.size * 2.5);
+                        glow.addColorStop(0, 'rgba(255,220,100,0.9)');
+                        glow.addColorStop(0.5, 'rgba(200,150,40,0.5)');
+                        glow.addColorStop(1, 'rgba(200,150,40,0)');
+                        ctx.fillStyle = glow;
+                        ctx.beginPath();
+                        ctx.arc(orb.x, orb.y, orb.size * 2.5, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = '#ffe8a0';
+                        ctx.beginPath();
+                        ctx.arc(orb.x, orb.y, orb.size, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = '#fff';
+                        ctx.beginPath();
+                        ctx.arc(orb.x - orb.size * 0.2, orb.y - orb.size * 0.2, orb.size * 0.35, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    // Monsters
+                    for (const m of this.monsters) {
+                        if (!m.alive) continue;
+                        if (m.isProjectile) {
+                            this.drawProjectileMonster(m, ctx);
+                            continue;
+                        }
+                        const flashOn = m.flashTimer > 0 && Math.floor(m.flashTimer * 30) % 2 === 0;
+                        const drawColor = flashOn ? '#ffffff' : m.color;
+                        ctx.shadowColor = m.color;
+                        ctx.shadowBlur = 12;
+
+                        if (m.type === 'red') {
+                            ctx.fillStyle = drawColor;
+                            ctx.strokeStyle = '#ff8899';
+                            ctx.lineWidth = 2.5;
+                            ctx.beginPath();
+                            this.drawDiamond(m.x, m.y, m.size);
+                            ctx.fill();
+                            ctx.stroke();
+                            // HP indicator
+                            if (m.maxHp > 2) {
+                                const hpRatio = m.hp / m.maxHp;
+                                ctx.fillStyle = 'rgba(255,255,255,0.6)';
+                                ctx.fillRect(m.x - m.size * 0.5, m.y - m.size - 8, m.size * hpRatio, 4);
+                            }
+                        } else if (m.type === 'blue') {
+                            ctx.fillStyle = drawColor;
+                            ctx.strokeStyle = '#88ddff';
+                            ctx.lineWidth = 2.5;
+                            ctx.beginPath();
+                            this.drawTriangle(m.x, m.y, m.size);
+                            ctx.fill();
+                            ctx.stroke();
+                            if (m.teleported) {
+                                ctx.fillStyle = 'rgba(100,200,255,0.5)';
+                                ctx.beginPath();
+                                ctx.arc(m.x, m.y, m.size * 1.5, 0, Math.PI * 2);
+                                ctx.fill();
+                            }
+                        } else if (m.type === 'yellow') {
+                            const pulse = 1 + Math.sin(this.time * 8 + m.x) * 0.25;
+                            ctx.fillStyle = drawColor;
+                            ctx.strokeStyle = '#fff5aa';
+                            ctx.lineWidth = 2;
+                            ctx.beginPath();
+                            ctx.arc(m.x, m.y, m.size * pulse, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.stroke();
+                            ctx.fillStyle = 'rgba(255,255,200,0.6)';
+                            ctx.beginPath();
+                            ctx.arc(m.x, m.y, m.size * pulse * 0.55, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                        ctx.shadowBlur = 0;
+                    }
+
+                    // Boss
+                    if (this.boss && this.boss.alive) {
+                        const b = this.boss;
+                        ctx.shadowColor = '#ff6600';
+                        ctx.shadowBlur = 25;
+                        const bossFlash = b.flashTimer > 0 && Math.floor(b.flashTimer * 25) % 2 === 0;
+                        ctx.fillStyle = bossFlash ? '#fff' : '#2a0800';
+                        ctx.strokeStyle = '#ff6600';
+                        ctx.lineWidth = 4;
+                        ctx.beginPath();
+                        this.drawHexagon(b.x, b.y, b.size);
+                        ctx.fill();
+                        ctx.stroke();
+                        ctx.fillStyle = '#ff4400';
+                        ctx.beginPath();
+                        this.drawHexagon(b.x, b.y, b.size * 0.55);
+                        ctx.fill();
+                        // Eyes
+                        ctx.fillStyle = '#fff';
+                        ctx.beginPath();
+                        ctx.arc(b.x - b.size * 0.3, b.y - b.size * 0.2, b.size * 0.2, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.beginPath();
+                        ctx.arc(b.x + b.size * 0.3, b.y - b.size * 0.2, b.size * 0.2, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = '#000';
+                        ctx.beginPath();
+                        ctx.arc(b.x - b.size * 0.28, b.y - b.size * 0.18, b.size * 0.08, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.beginPath();
+                        ctx.arc(b.x + b.size * 0.32, b.y - b.size * 0.18, b.size * 0.08, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+
+                        // Telegraph indicator
+                        if (b.attackTelegraph) {
+                            const telColor = b.attackTelegraph === 'charge' ? '#ff4444' :
+                                b.attackTelegraph === 'roar' ? '#ff8800' : '#ffcc00';
+                            ctx.fillStyle = telColor;
+                            ctx.globalAlpha = 0.5 + Math.sin(this.time * 12) * 0.3;
+                            ctx.beginPath();
+                            ctx.arc(b.x, b.y, b.size * 1.6, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.globalAlpha = 1;
+                            // Label
+                            ctx.fillStyle = '#fff';
+                            ctx.font = 'bold 11px "PingFang SC","Microsoft YaHei",sans-serif';
+                            ctx.textAlign = 'center';
+                            const label = b.attackTelegraph === 'charge' ? '冲撞!' : b.attackTelegraph === 'roar' ? '咆哮!' :
+                                '射击!';
+                            ctx.fillText(label, b.x, b.y - b.size - 16);
+                        }
+
+                        // Boss HP bar
+                        const barWidth = 160;
+                        const barY = b.y - b.size - 30;
+                        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                        ctx.fillRect(b.x - barWidth / 2, barY, barWidth, 12);
+                        const hpRatio = clamp(b.hp / b.maxHp, 0, 1);
+                        const hpGrad = ctx.createLinearGradient(b.x - barWidth / 2, 0, b.x + barWidth / 2, 0);
+                        hpGrad.addColorStop(0, '#ff3300');
+                        hpGrad.addColorStop(0.5, '#ff6600');
+                        hpGrad.addColorStop(1, '#ff3300');
+                        ctx.fillStyle = hpGrad;
+                        ctx.fillRect(b.x - barWidth / 2, barY, barWidth * hpRatio, 12);
+                        ctx.strokeStyle = '#fff';
+                        ctx.lineWidth = 1.5;
+                        ctx.strokeRect(b.x - barWidth / 2, barY, barWidth, 12);
+                        ctx.fillStyle = '#fff';
+                        ctx.font = 'bold 10px "PingFang SC","Microsoft YaHei",sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('站台守卫', b.x, barY - 6);
+                    }
+
+                    // Bullets
+                    for (const b of this.bullets) {
+                        const bulletGlow = ctx.createRadialGradient(b.x, b.y, 2, b.x, b.y, b.size * 2);
+                        bulletGlow.addColorStop(0, 'rgba(255,240,200,0.9)');
+                        bulletGlow.addColorStop(0.6, 'rgba(255,180,60,0.4)');
+                        bulletGlow.addColorStop(1, 'rgba(255,100,20,0)');
+                        ctx.fillStyle = bulletGlow;
+                        ctx.beginPath();
+                        ctx.arc(b.x, b.y, b.size * 2, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = b.piercing ? '#ffcc00' : '#ffe8c0';
+                        ctx.beginPath();
+                        ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+                        ctx.fill();
+                        if (b.piercing) {
+                            ctx.strokeStyle = '#ffaa00';
+                            ctx.lineWidth = 2;
+                            ctx.beginPath();
+                            ctx.arc(b.x, b.y, b.size * 1.5, 0, Math.PI * 2);
+                            ctx.stroke();
+                        }
+                    }
+
+                    // Player (mine cart)
+                    this.drawPlayer(ctx);
+
+                    // Screen flash
+                    if (this.screenFlash > 0.01) {
+                        const flashAlpha = this.screenFlash * 0.6;
+                        if (this.player.hp <= 2 && this.player.hp > 0) {
+                            const pulse = Math.sin(this.heartbeatPulse) * 0.5 + 0.5;
+                            ctx.fillStyle = `rgba(255,30,30,${flashAlpha * 0.5 + pulse * 0.25})`;
+                        } else {
+                            ctx.fillStyle = `rgba(255,255,255,${flashAlpha * 0.3})`;
+                        }
+                        ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+                    }
+
+                    // Low HP edge glow
+                    if (this.player.hp <= 2 && this.player.hp > 0 && this.state === STATE.PLAYING) {
+                        const pulse = Math.sin(this.heartbeatPulse) * 0.5 + 0.5;
+                        const edgeGrad = ctx.createRadialGradient(BASE_WIDTH / 2, BASE_HEIGHT / 2, BASE_WIDTH * 0.4,
+                            BASE_WIDTH / 2, BASE_HEIGHT / 2, BASE_WIDTH * 0.75);
+                        edgeGrad.addColorStop(0, 'transparent');
+                        edgeGrad.addColorStop(1, `rgba(255,20,20,${pulse * 0.5})`);
+                        ctx.fillStyle = edgeGrad;
+                        ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+                    }
+
+                    ctx.restore();
+
+                    // --- HUD (drawn in screen space, not scaled) ---
+                    this.drawHUD(ctx, s);
+                }
+
+                drawPlayer(ctx) {
+                    const px = this.player.x;
+                    const py = this.player.y;
+                    const tilt = this.player.tilt;
+                    const invincible = this.player.invincible > 0;
+                    const blinkOff = invincible && Math.floor(this.player.invincible * 20) % 2 === 0;
+
+                    if (blinkOff) return;
+
+                    ctx.save();
+                    ctx.translate(px, py);
+                    ctx.rotate(tilt * 0.6);
+
+                    // Shadow
+                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    ctx.beginPath();
+                    ctx.ellipse(0, 6, this.player.width * 0.55, 8, 0, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Cart body
+                    const bodyGrad = ctx.createLinearGradient(0, -this.player.height / 2, 0, this.player.height / 2);
+                    bodyGrad.addColorStop(0, '#6b4c2a');
+                    bodyGrad.addColorStop(0.3, '#8b6840');
+                    bodyGrad.addColorStop(0.6, '#c49550');
+                    bodyGrad.addColorStop(1, '#4a3020');
+                    ctx.fillStyle = bodyGrad;
+                    ctx.strokeStyle = '#d4a860';
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    const hw = this.player.width / 2;
+                    const hh = this.player.height / 2;
+                    ctx.moveTo(-hw + 4, -hh);
+                    ctx.lineTo(hw - 4, -hh);
+                    ctx.quadraticCurveTo(hw, -hh, hw, -hh + 6);
+                    ctx.lineTo(hw, hh - 4);
+                    ctx.quadraticCurveTo(hw, hh, hw - 4, hh);
+                    ctx.lineTo(-hw + 4, hh);
+                    ctx.quadraticCurveTo(-hw, hh, -hw, hh - 4);
+                    ctx.lineTo(-hw, -hh + 6);
+                    ctx.quadraticCurveTo(-hw, -hh, -hw + 4, -hh);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+
+                    // Metal bands
+                    ctx.strokeStyle = '#e8c878';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(-hw + 2, -hh + 10);
+                    ctx.lineTo(hw - 2, -hh + 10);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(-hw + 2, hh - 10);
+                    ctx.lineTo(hw - 2, hh - 10);
+                    ctx.stroke();
+
+                    // Front grill
+                    ctx.fillStyle = '#3a1a08';
+                    ctx.fillRect(-hw + 6, -hh + 14, hw * 2 - 12, 8);
+                    ctx.strokeStyle = '#a07040';
+                    ctx.lineWidth = 1;
+                    for (let i = 0; i < 4; i++) {
+                        ctx.beginPath();
+                        ctx.moveTo(-hw + 8 + i * (hw * 2 - 16) / 3, -hh + 14);
+                        ctx.lineTo(-hw + 8 + i * (hw * 2 - 16) / 3, -hh + 22);
+                        ctx.stroke();
+                    }
+
+                    // Wheels (side view in pseudo-3D)
+                    ctx.fillStyle = '#1a1a1a';
+                    ctx.strokeStyle = '#888';
+                    ctx.lineWidth = 2;
+                    // Left wheel
+                    ctx.beginPath();
+                    ctx.arc(-hw - 3, hh - 7, 7, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#555';
+                    ctx.beginPath();
+                    ctx.arc(-hw - 3, hh - 7, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    // Right wheel
+                    ctx.fillStyle = '#1a1a1a';
+                    ctx.beginPath();
+                    ctx.arc(hw + 3, hh - 7, 7, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#555';
+                    ctx.beginPath();
+                    ctx.arc(hw + 3, hh - 7, 3, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Exhaust flame
+                    const flameLen = 14 + Math.sin(this.time * 18) * 5 + this.player.flameFlicker;
+                    const flameGrad = ctx.createLinearGradient(0, hh, 0, hh + flameLen);
+                    flameGrad.addColorStop(0, '#ffcc44');
+                    flameGrad.addColorStop(0.4, '#ff6600');
+                    flameGrad.addColorStop(1, 'rgba(255,30,0,0)');
+                    ctx.fillStyle = flameGrad;
+                    ctx.beginPath();
+                    ctx.moveTo(-5, hh);
+                    ctx.quadraticCurveTo(-3, hh + flameLen * 0.6, 0, hh + flameLen);
+                    ctx.quadraticCurveTo(3, hh + flameLen * 0.6, 5, hh);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Glow
+                    const glowGrad = ctx.createRadialGradient(0, 0, hw * 0.5, 0, 0, hw * 1.8);
+                    glowGrad.addColorStop(0, 'rgba(255,200,100,0)');
+                    glowGrad.addColorStop(0.7, 'rgba(255,150,40,0.15)');
+                    glowGrad.addColorStop(1, 'rgba(255,100,20,0)');
+                    ctx.fillStyle = glowGrad;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, hw * 1.8, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.restore();
+                }
+
+                drawProjectileMonster(m, ctx) {
+                    ctx.fillStyle = m.color;
+                    ctx.shadowColor = m.color;
+                    ctx.shadowBlur = 10;
+                    ctx.beginPath();
+                    ctx.arc(m.x, m.y, m.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    // Move projectile
+                    if (m.vx !== undefined && m.vy !== undefined) {
+                        m.x += m.vx * (this.dt || 0.016);
+                        m.y += m.vy * (this.dt || 0.016);
+                    } else {
+                        m.y += m.speed * (this.dt || 0.016);
+                    }
+                    if (m.y > BASE_HEIGHT + 60 || m.y < -100 || m.x < -50 || m.x > BASE_WIDTH + 50) {
+                        m.alive = false;
+                    }
+                    // Check collision with player
+                    if (this.player.invincible <= 0 && this.state === STATE.PLAYING) {
+                        if (dist(m.x, m.y, this.player.x, this.player.y) < m.size + 18) {
+                            this.hitPlayer({ x: m.x, y: m.y, type: 'projectile' });
+                            m.alive = false;
+                        }
+                    }
+                }
+
+                drawDiamond(x, y, size) {
+                    ctx.moveTo(x, y - size);
+                    ctx.lineTo(x + size * 0.7, y);
+                    ctx.lineTo(x, y + size);
+                    ctx.lineTo(x - size * 0.7, y);
+                    ctx.closePath();
+                }
+
+                drawTriangle(x, y, size) {
+                    ctx.moveTo(x, y - size);
+                    ctx.lineTo(x + size * 0.8, y + size * 0.6);
+                    ctx.lineTo(x - size * 0.8, y + size * 0.6);
+                    ctx.closePath();
+                }
+
+                drawHexagon(x, y, size) {
+                    for (let i = 0; i < 6; i++) {
+                        const angle = (Math.PI / 3) * i - Math.PI / 2;
+                        const px = x + Math.cos(angle) * size;
+                        const py = y + Math.sin(angle) * size;
+                        if (i === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                }
+
+                drawHUD(ctx, s) {
+                    // Convert base coords to screen coords
+                    const screenX = (v) => v * s;
+                    const screenY = (v) => v * s;
+                    const screenFont = (size) => Math.floor(size * s);
+
+                    // Top bar background
+                    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+                    ctx.fillRect(0, 0, canvas.width, screenY(50));
+
+                    // Depth counter
+                    ctx.fillStyle = '#f0d878';
+                    ctx.font = `bold ${screenFont(18)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.textAlign = 'center';
+                    const depthDisplay = Math.floor(this.depth);
+                    ctx.fillText(`▼ ${depthDisplay}m`, canvas.width / 2, screenY(30));
+
+                    // HP hearts
+                    ctx.textAlign = 'left';
+                    ctx.font = `${screenFont(20)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    let heartsStr = '';
+                    for (let i = 0; i < this.player.maxHp; i++) {
+                        heartsStr += i < this.player.hp ? '❤️' : '🖤';
+                    }
+                    ctx.fillText(heartsStr, screenX(12), screenY(30));
+
+                    // Energy count
+                    ctx.textAlign = 'right';
+                    ctx.fillStyle = '#ffe8a0';
+                    ctx.font = `bold ${screenFont(15)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText(`⚡${this.energyCount}`, canvas.width - screenX(12), screenY(30));
+
+                    // Charge bar
+                    if (this.chargeProgress > 0.05) {
+                        const barW = screenX(120);
+                        const barH = screenY(6);
+                        const barX = canvas.width / 2 - barW / 2;
+                        const barY = screenY(48);
+                        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                        ctx.fillRect(barX, barY, barW, barH);
+                        const chargeGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+                        chargeGrad.addColorStop(0, '#ff6600');
+                        chargeGrad.addColorStop(0.5, '#ffcc00');
+                        chargeGrad.addColorStop(1, '#fff');
+                        ctx.fillStyle = chargeGrad;
+                        ctx.fillRect(barX, barY, barW * this.chargeProgress, barH);
+                        ctx.strokeStyle = '#fff';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(barX, barY, barW, barH);
+                        if (this.chargeProgress >= 0.85) {
+                            ctx.fillStyle = '#fff';
+                            ctx.font = `bold ${screenFont(10)}px "PingFang SC","Microsoft YaHei",monospace`;
+                            ctx.textAlign = 'center';
+                            ctx.fillText('释放!', canvas.width / 2, barY - screenY(4));
+                        }
+                    }
+
+                    // Multiplier indicator
+                    if (this.scoreMultiplier > 1.0) {
+                        ctx.fillStyle = '#ffaa00';
+                        ctx.font = `bold ${screenFont(13)}px "PingFang SC","Microsoft YaHei",monospace`;
+                        ctx.textAlign = 'center';
+                        ctx.fillText(`🔥 x${this.scoreMultiplier.toFixed(1)}`, canvas.width / 2, screenY(68));
+                    }
+
+                    // Branch effect indicator
+                    if (this.currentBranchEffect && this.currentBranchEffect.remaining > 0) {
+                        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+                        ctx.font = `${screenFont(11)}px "PingFang SC","Microsoft YaHei",monospace`;
+                        ctx.textAlign = 'center';
+                        const effLabel = this.currentBranchEffect.type === 'hard' ? '困难路线' : this
+                            .currentBranchEffect.type === 'reward' ? '奖励路线' : '已恢复';
+                        ctx.fillText(effLabel, canvas.width / 2, screenY(84));
+                    }
+
+                    // Bottom hint (only in first few seconds)
+                    if (this.time < 8 && this.state === STATE.PLAYING) {
+                        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+                        ctx.font = `${screenFont(12)}px "PingFang SC","Microsoft YaHei",monospace`;
+                        ctx.textAlign = 'center';
+                        const hint = this.moveLeft || this.moveRight ? '自动射击中...' : '← 滑动/按键移动 →';
+                        ctx.fillText(hint, canvas.width / 2, canvas.height - screenY(20));
+                    }
+
+                    // Pause button
+                    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                    ctx.font = `${screenFont(22)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.textAlign = 'right';
+                    ctx.fillText('⏸', canvas.width - screenX(8), screenY(70));
+                }
+
+                drawMenu(ctx) {
+                    const s = this.scale;
+                    this.menuPulse += 0.03;
+
+                    // Background
+                    const bgGrad = ctx.createRadialGradient(BASE_WIDTH / 2, BASE_HEIGHT / 2, 50, BASE_WIDTH / 2, BASE_HEIGHT /
+                        2, 600);
+                    bgGrad.addColorStop(0, '#1a0a35');
+                    bgGrad.addColorStop(1, '#050210');
+                    ctx.fillStyle = bgGrad;
+                    ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+
+                    // Particles in background
+                    for (let i = 0; i < 30; i++) {
+                        const px = (Math.sin(i * 7.3 + this.menuPulse * 0.5) * 0.5 + 0.5) * BASE_WIDTH;
+                        const py = (Math.cos(i * 5.7 + this.menuPulse * 0.7) * 0.5 + 0.5) * BASE_HEIGHT;
+                        ctx.fillStyle = `rgba(180,140,60,${0.3 + Math.sin(i + this.menuPulse) * 0.2})`;
+                        ctx.beginPath();
+                        ctx.arc(px, py, rand(1, 3), 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    // Title
+                    const titleY = BASE_HEIGHT * 0.25;
+                    ctx.fillStyle = '#f0d878';
+                    ctx.font = `bold ${42}px "PingFang SC","Microsoft YaHei",serif`;
+                    ctx.textAlign = 'center';
+                    ctx.shadowColor = '#c9a050';
+                    ctx.shadowBlur = 25;
+                    ctx.fillText('深渊快线', BASE_WIDTH / 2, titleY);
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#c9a050';
+                    ctx.font = `${16}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText('ABYSS EXPRESS', BASE_WIDTH / 2, titleY + 38);
+
+                    // Subtitle
+                    ctx.fillStyle = '#b8a090';
+                    ctx.font = `${14}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText('驾驶魔法矿车·极速下坠', BASE_WIDTH / 2, titleY + 68);
+
+                    // Cart icon
+                    const cartY = BASE_HEIGHT * 0.48;
+                    ctx.fillStyle = '#8b6840';
+                    ctx.strokeStyle = '#d4a860';
+                    ctx.lineWidth = 3;
+                    const cartW = 40;
+                    const cartH = 50;
+                    ctx.beginPath();
+                    ctx.roundRect(BASE_WIDTH / 2 - cartW / 2, cartY - cartH / 2, cartW, cartH, 8);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#ffe8c0';
+                    ctx.beginPath();
+                    ctx.arc(BASE_WIDTH / 2, cartY - 6, 10, 0, Math.PI * 2);
+                    ctx.fill();
+                    // Flame
+                    const fl = 20 + Math.sin(this.menuPulse * 3) * 8;
+                    const fg = ctx.createLinearGradient(0, cartY + cartH / 2, 0, cartY + cartH / 2 + fl);
+                    fg.addColorStop(0, '#ffcc44');
+                    fg.addColorStop(1, 'rgba(255,60,0,0)');
+                    ctx.fillStyle = fg;
+                    ctx.beginPath();
+                    ctx.moveTo(BASE_WIDTH / 2 - 6, cartY + cartH / 2);
+                    ctx.quadraticCurveTo(BASE_WIDTH / 2, cartY + cartH / 2 + fl, BASE_WIDTH / 2 + 6, cartY + cartH / 2);
+                    ctx.fill();
+
+                    // Start button
+                    const btnY = BASE_HEIGHT * 0.64;
+                    const btnW = 180;
+                    const btnH = 50;
+                    const btnX = BASE_WIDTH / 2 - btnW / 2;
+                    ctx.fillStyle = '#3a1a6e';
+                    ctx.strokeStyle = '#c9a050';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.roundRect(btnX, btnY, btnW, btnH, 25);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#f0d878';
+                    ctx.font = `bold ${20}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText('▶  开始下坠', BASE_WIDTH / 2, btnY + 33);
+
+                    // Stats
+                    const statsY = BASE_HEIGHT * 0.76;
+                    ctx.fillStyle = '#887868';
+                    ctx.font = `${13}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText(`累计下坠: ${persistentData.totalDepth}m | 对局: ${persistentData.gamesPlayed}`,
+                        BASE_WIDTH / 2, statsY);
+                    ctx.fillText(`深渊晶石: ${persistentData.crystals}`, BASE_WIDTH / 2, statsY + 22);
+
+                    // Upgrades
+                    const upgY = BASE_HEIGHT * 0.86;
+                    ctx.fillText(
+                        `⛑矿工头盔 Lv${persistentData.helmetLevel}/5 | 🚀涡轮引擎 Lv${persistentData.engineLevel}/5 | ⚡聚能核心 Lv${persistentData.coreLevel}/5`,
+                        BASE_WIDTH / 2, upgY);
+                    ctx.fillStyle = '#665848';
+                    ctx.font = `${11}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText('死亡后可消耗晶石升级', BASE_WIDTH / 2, upgY + 18);
+
+                    // Controls hint
+                    ctx.fillStyle = '#998878';
+                    ctx.font = `${11}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText('移动端: 左右滑动 | 桌面: A/D键 | 空格暂停', BASE_WIDTH / 2, BASE_HEIGHT - 30);
+                }
+
+                drawPauseOverlay(ctx) {
+                    const s = this.scale;
+                    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = '#f0d878';
+                    ctx.font = `bold ${Math.floor(30*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText('⏸ 已暂停', canvas.width / 2, canvas.height / 2 - 20);
+                    ctx.fillStyle = '#c9c0b0';
+                    ctx.font = `${Math.floor(14*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText('按空格键或点击继续', canvas.width / 2, canvas.height / 2 + 30);
+                    ctx.fillText(`深度: ${Math.floor(this.depth)}m | 能量: ${this.energyCount}`,
+                        canvas.width / 2, canvas.height / 2 + 55);
+                }
+
+                drawBranchSelection(ctx) {
+                    const s = this.scale;
+                    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    ctx.fillStyle = '#f0d878';
+                    ctx.font = `bold ${Math.floor(22*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText('🚇 站台分支选择', canvas.width / 2, canvas.height * 0.18);
+
+                    const options = [
+                        { id: 'reward', label: '🏆 奖励路线', desc: '获得大量能量块', color: '#ffcc00' },
+                        { id: 'hard', label: '⚔️ 困难路线', desc: '分数×1.6 怪物更强', color: '#ff4444' },
+                        { id: 'shop', label: '🏪 商店', desc: '消耗25能量恢复2HP', color: '#44cc88' },
+                    ];
+
+                    const cardW = canvas.width * 0.78;
+                    const cardH = canvas.height * 0.14;
+                    const startY = canvas.height * 0.32;
+                    const gap = canvas.height * 0.06;
+
+                    options.forEach((opt, i) => {
+                        const cy = startY + i * (cardH + gap);
+                        const cx = canvas.width / 2 - cardW / 2;
+                        ctx.fillStyle = 'rgba(30,15,50,0.9)';
+                        ctx.strokeStyle = opt.color;
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.roundRect(cx, cy, cardW, cardH, 14);
+                        ctx.fill();
+                        ctx.stroke();
+                        ctx.fillStyle = opt.color;
+                        ctx.font = `bold ${Math.floor(18*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                        ctx.textAlign = 'center';
+                        ctx.fillText(opt.label, canvas.width / 2, cy + cardH * 0.45);
+                        ctx.fillStyle = '#c9c0b0';
+                        ctx.font = `${Math.floor(13*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                        ctx.fillText(opt.desc, canvas.width / 2, cy + cardH * 0.78);
+                        // Store click region
+                        if (!this._branchRegions) this._branchRegions = [];
+                        this._branchRegions[i] = { x: cx, y: cy, w: cardW, h: cardH, id: opt.id };
+                    });
+
+                    ctx.fillStyle = '#887868';
+                    ctx.font = `${Math.floor(12*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText('点击卡片选择路线', canvas.width / 2, canvas.height * 0.9);
+                }
+
+                drawDeathScreen(ctx) {
+                    const s = this.scale;
+                    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    const earnedCrystals = Math.floor(this.maxDepthReached / 200) + this.bossKillCount * 5 + Math.floor(this
+                        .energyCount / 10);
+
+                    ctx.fillStyle = '#ff4444';
+                    ctx.font = `bold ${Math.floor(28*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText('矿车损毁', canvas.width / 2, canvas.height * 0.1);
+
+                    ctx.fillStyle = '#f0d878';
+                    ctx.font = `${Math.floor(16*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText(`最深抵达: ${Math.floor(this.maxDepthReached)}m`, canvas.width / 2, canvas.height * 0.19);
+                    ctx.fillText(`击杀怪物: ${this.killCount} | Boss: ${this.bossKillCount}`,
+                        canvas.width / 2, canvas.height * 0.24);
+                    ctx.fillText(`获得晶石: +${earnedCrystals}`, canvas.width / 2, canvas.height * 0.29);
+
+                    // Upgrade buttons
+                    const upgrades = [
+                        { key: 'helmetLevel', label: '⛑ 矿工头盔', desc: `生命+1 (当前Lv${persistentData.helmetLevel}/5)`,
+                            cost: 15 + persistentData.helmetLevel * 10 },
+                        { key: 'engineLevel', label: '🚀 涡轮引擎', desc: `速度提升 (当前Lv${persistentData.engineLevel}/5)`,
+                            cost: 12 + persistentData.engineLevel * 8 },
+                        { key: 'coreLevel', label: '⚡ 聚能核心', desc: `攻击力+1 (当前Lv${persistentData.coreLevel}/5)`,
+                            cost: 18 + persistentData.coreLevel * 12 },
+                    ];
+
+                    const btnW = canvas.width * 0.7;
+                    const btnH = canvas.height * 0.07;
+                    const btnStartY = canvas.height * 0.36;
+                    const btnGap = canvas.height * 0.025;
+
+                    this._upgradeButtons = [];
+                    upgrades.forEach((upg, i) => {
+                        const by = btnStartY + i * (btnH + btnGap);
+                        const bx = canvas.width / 2 - btnW / 2;
+                        const canAfford = persistentData.crystals >= upg.cost;
+                        const maxed = persistentData[upg.key] >= 5;
+                        ctx.fillStyle = maxed ? 'rgba(40,40,40,0.8)' : canAfford ? 'rgba(30,20,60,0.9)' :
+                            'rgba(40,30,30,0.8)';
+                        ctx.strokeStyle = maxed ? '#555' : canAfford ? '#c9a050' : '#664444';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.roundRect(bx, by, btnW, btnH, 10);
+                        ctx.fill();
+                        ctx.stroke();
+                        ctx.fillStyle = maxed ? '#888' : canAfford ? '#f0d878' : '#aa8888';
+                        ctx.font = `bold ${Math.floor(14*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                        ctx.textAlign = 'center';
+                        const label = maxed ? `${upg.label} - 已满级` :
+                            `${upg.label} - ${upg.cost}晶石`;
+                        ctx.fillText(label, canvas.width / 2, by + btnH * 0.55);
+                        ctx.fillStyle = '#b8a090';
+                        ctx.font = `${Math.floor(11*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                        ctx.fillText(upg.desc, canvas.width / 2, by + btnH * 0.85);
+                        this._upgradeButtons.push({ x: bx, y: by, w: btnW, h: btnH, key: upg.key, cost: upg.cost,
+                            maxed });
+                    });
+
+                    // Restart button
+                    const restY = btnStartY + 3 * (btnH + btnGap) + btnGap;
+                    ctx.fillStyle = '#3a1a6e';
+                    ctx.strokeStyle = '#f0d878';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.roundRect(canvas.width / 2 - btnW / 2, restY, btnW, btnH + 10, 25);
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = '#f0d878';
+                    ctx.font = `bold ${Math.floor(18*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText('🔄 再次出发', canvas.width / 2, restY + (btnH + 10) * 0.6);
+                    this._restartButton = { x: canvas.width / 2 - btnW / 2, y: restY, w: btnW, h: btnH + 10 };
+
+                    ctx.fillStyle = '#887868';
+                    ctx.font = `${Math.floor(11*s)}px "PingFang SC","Microsoft YaHei",monospace`;
+                    ctx.fillText(`晶石余额: ${persistentData.crystals}`, canvas.width / 2, restY + btnH + 30);
+                }
+
+                handleClick(screenX, screenY) {
+                    const s = this.scale;
+                    if (this.state === STATE.MENU) {
+                        const btnY = BASE_HEIGHT * 0.64 * s;
+                        const btnW = 180 * s;
+                        const btnH = 50 * s;
+                        const btnX = canvas.width / 2 - btnW / 2;
+                        if (screenX >= btnX && screenX <= btnX + btnW && screenY >= btnY && screenY <= btnY + btnH) {
+                            this.startGame();
+                            this.lastTime = performance.now();
+                        }
+                        return;
+                    }
+
+                    if (this.state === STATE.PAUSED) {
+                        this.togglePause();
+                        this.lastTime = performance.now();
+                        return;
+                    }
+
+                    if (this.state === STATE.BRANCH) {
+                        if (this._branchRegions) {
+                            for (const reg of this._branchRegions) {
+                                if (screenX >= reg.x && screenX <= reg.x + reg.w &&
+                                    screenY >= reg.y && screenY <= reg.y + reg.h) {
+                                    this.selectBranch(reg.id);
+                                    this._branchRegions = null;
+                                    this.lastTime = performance.now();
+                                    return;
+                                }
+                            }
+                        }
+                        return;
+                    }
+
+                    if (this.state === STATE.DEAD) {
+                        // Check upgrade buttons
+                        if (this._upgradeButtons) {
+                            for (const btn of this._upgradeButtons) {
+                                if (screenX >= btn.x && screenX <= btn.x + btn.w &&
+                                    screenY >= btn.y && screenY <= btn.y + btn.h) {
+                                    if (!btn.maxed && persistentData.crystals >= btn.cost) {
+                                        persistentData.crystals -= btn.cost;
+                                        persistentData[btn.key] = Math.min(5, persistentData[btn.key] + 1);
+                                        saveGame();
+                                        this.applyUpgrades();
+                                        // Redraw death screen
+                                        this._upgradeButtons = null;
+                                        this._restartButton = null;
+                                    }
+                                    return;
+                                }
+                            }
+                        }
+                        // Check restart button
+                        if (this._restartButton) {
+                            const rb = this._restartButton;
+                            if (screenX >= rb.x && screenX <= rb.x + rb.w &&
+                                screenY >= rb.y && screenY <= rb.y + rb.h) {
+                                this.startGame();
+                                this.lastTime = performance.now();
+                                this._upgradeButtons = null;
+                                this._restartButton = null;
+                                return;
+                            }
+                        }
+                        return;
+                    }
+
+                    // In game - toggle pause if tapping top-right area
+                    const pauseX = canvas.width - 40 * s;
+                    const pauseY = 55 * s;
+                    if (screenX > canvas.width - 50 * s && screenY < 80 * s) {
+                        this.togglePause();
+                        if (this.state === STATE.PAUSED) this.lastTime = performance.now();
+                        return;
+                    }
+                }
+
+                handlePointerDown(screenX, screenY) {
+                    if (this.state === STATE.PLAYING) {
+                        const midX = canvas.width / 2;
+                        if (screenX < midX) {
+                            this.moveLeft = true;
+                            this.moveRight = false;
+                        } else {
+                            this.moveRight = true;
+                            this.moveLeft = false;
+                        }
+                        this.boostFire = true;
+                        // Start charging if held on right side
+                        if (screenX >= midX) {
+                            this.chargeHeld = true;
+                        }
+                    }
+                }
+
+                handlePointerMove(screenX, screenY) {
+                    if (this.state === STATE.PLAYING) {
+                        const midX = canvas.width / 2;
+                        if (screenX < midX) {
+                            this.moveLeft = true;
+                            this.moveRight = false;
+                            this.chargeHeld = false;
+                        } else {
+                            this.moveRight = true;
+                            this.moveLeft = false;
+                            this.chargeHeld = true;
+                        }
+                        this.boostFire = true;
+                    }
+                }
+
+                handlePointerUp() {
+                    this.moveLeft = false;
+                    this.moveRight = false;
+                    this.boostFire = false;
+                    this.chargeHeld = false;
+                }
+            }
+
+            // --- Initialize Game ---
+            const game = new Game();
+            game.updateScale();
+
+            // --- Input Handling ---
+            canvas.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const sx = e.clientX - rect.left;
+                const sy = e.clientY - rect.top;
+                game.handleClick(sx, sy);
+                game.handlePointerDown(sx, sy);
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (e.buttons > 0) {
+                    const rect = canvas.getBoundingClientRect();
+                    const sx = e.clientX - rect.left;
+                    const sy = e.clientY - rect.top;
+                    game.handlePointerMove(sx, sy);
+                }
+            });
+
+            canvas.addEventListener('mouseup', (e) => {
+                game.handlePointerUp();
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                game.handlePointerUp();
+            });
+
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                const sx = touch.clientX - rect.left;
+                const sy = touch.clientY - rect.top;
+                game.handleClick(sx, sy);
+                game.handlePointerDown(sx, sy);
+                if (navigator.vibrate) {
+                    try { navigator.vibrate(8); } catch (e) {}
+                }
+            }, { passive: false });
+
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                const sx = touch.clientX - rect.left;
+                const sy = touch.clientY - rect.top;
+                game.handlePointerMove(sx, sy);
+            }, { passive: false });
+
+            canvas.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                game.handlePointerUp();
+            });
+
+            canvas.addEventListener('touchcancel', () => {
+                game.handlePointerUp();
+            });
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+                    e.preventDefault();
+                    game.moveLeft = true;
+                    game.boostFire = true;
+                }
+                if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                    e.preventDefault();
+                    game.moveRight = true;
+                    game.boostFire = true;
+                    game.chargeHeld = true;
+                }
+                if (e.key === ' ' || e.key === 'Escape') {
+                    e.preventDefault();
+                    if (game.state === STATE.PLAYING || game.state === STATE.PAUSED) {
+                        game.togglePause();
+                    }
+                }
+                if (e.key === 'Enter' && game.state === STATE.MENU) {
+                    game.startGame();
+                    game.lastTime = performance.now();
+                }
+                if (e.key === 'Enter' && game.state === STATE.DEAD) {
+                    game.startGame();
+                    game.lastTime = performance.now();
+                }
+            });
+
+            document.addEventListener('keyup', (e) => {
+                if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+                    game.moveLeft = false;
+                    if (!game.moveRight) game.boostFire = false;
+                }
+                if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+                    game.moveRight = false;
+                    game.chargeHeld = false;
+                    if (!game.moveLeft) game.boostFire = false;
+                }
+            });
+
+            // --- Game Loop ---
+            function gameLoop(timestamp) {
+                if (!game.lastTime) game.lastTime = timestamp;
+                let dt = (timestamp - game.lastTime) / 1000;
+                if (dt <= 0) dt = 0.016;
+                if (dt > 0.2) dt = 0.2; // Cap to avoid jumps
+                game.lastTime = timestamp;
+
+                if (game.state === STATE.PLAYING) {
+                    game.update(dt);
+                    // Update projectile monsters even when not actively updating
+                    if (game.monsters) {
+                        for (const m of game.monsters) {
+                            if (m.isProjectile && m.alive) {
+                                if (m.vx !== undefined && m.vy !== undefined) {
+                                    m.x += m.vx * dt;
+                                    m.y += m.vy * dt;
+                                } else {
+                                    m.y += m.speed * dt;
+                                }
+                                if (m.y > BASE_HEIGHT + 60 || m.y < -100 || m.x < -50 || m.x > BASE_WIDTH + 50) {
+                                    m.alive = false;
+                                }
+                                if (game.player.invincible <= 0 && dist(m.x, m.y, game.player.x, game.player.y) < m
+                                    .size + 18) {
+                                    game.hitPlayer({ x: m.x, y: m.y, type: 'projectile' });
+                                    m.alive = false;
+                                }
+                            }
+                        }
+                        game.monsters = game.monsters.filter(m => m.alive || !m.isProjectile);
+                    }
+                }
+
+                // Clear
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Draw
+                if (game.state === STATE.MENU) {
+                    game.drawMenu(ctx);
+                } else if (game.state === STATE.PLAYING || game.state === STATE.PAUSED) {
+                    game.draw(ctx);
+                    if (game.state === STATE.PAUSED) {
+                        game.drawPauseOverlay(ctx);
+                    }
+                } else if (game.state === STATE.BRANCH) {
+                    game.draw(ctx);
+                    game.drawBranchSelection(ctx);
+                } else if (game.state === STATE.DEAD) {
+                    game.draw(ctx);
+                    game.drawDeathScreen(ctx);
+                }
+
+                requestAnimationFrame(gameLoop);
+            }
+
+            // --- Handle window blur (auto-pause) ---
+            window.addEventListener('blur', () => {
+                if (game.state === STATE.PLAYING) {
+                    game.togglePause();
+                }
+            });
+
+            // --- Start ---
+            resizeCanvas();
+            game.updateScale();
+            game.lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+
+            console.log('🪨 深渊快线 - Abyss Express 已就绪');
+            console.log('  ← 左半屏/AD键 漂移 | 右半屏/点击 加速射击 →');
+            console.log('  空格键暂停 | 长按右侧蓄力攻击');
+            console.log('  竖屏单手操作 · 碎片时间专属');
+        })();
+    </script>
+</body>
+</html>
