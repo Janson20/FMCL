@@ -1269,5 +1269,7 @@
   "plugin_updating_progress": "Updating {name}...",
   "plugin_update_success": "Updated: {name}",
   "plugin_update_failed": "Update failed: {error}",
-  "plugin_market_updates_available": "{count} update(s) available"
+  "plugin_market_updates_available": "{count} update(s) available",
+
+  "minigame_play": "▶ Play Minigame"
 }

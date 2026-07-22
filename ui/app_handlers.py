@@ -1420,6 +1420,21 @@ class EventHandlerMixin(object):
         icon = icons.get(status_type, "")
         color = colors.get(status_type, COLORS["text_primary"])
         self.status_label.configure(text=f"{icon} {text}", text_color=color)
+        self._update_game_btn_visibility(status_type)
+
+    def _update_game_btn_visibility(self, status_type: str):
+        if not hasattr(self, "_game_btn"):
+            return
+        if status_type == "loading":
+            self._game_btn.pack(side=ctk.LEFT, padx=(8, 0))
+        else:
+            self._game_btn.pack_forget()
+
+    def _open_minigame(self):
+        from ui.download_minigame import open_game_in_browser
+
+        if not open_game_in_browser():
+            self.set_status("未找到小游戏文件", "error")
 
     def _set_buttons_enabled(self, enabled: bool):
         """启用/禁用操作按钮"""

@@ -1269,5 +1269,7 @@
   "plugin_updating_progress": "正在更新 {name}...",
   "plugin_update_success": "更新成功: {name}",
   "plugin_update_failed": "更新失败: {error}",
-  "plugin_market_updates_available": "发现 {count} 个可用更新"
+  "plugin_market_updates_available": "发现 {count} 个可用更新",
+
+  "minigame_play": "▶ 等待小游戏"
 }

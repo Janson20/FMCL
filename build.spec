@@ -35,10 +35,15 @@ pyproject_path = os.path.join(os.getcwd(), 'pyproject.toml')
 # TERMS_OF_USE.md 路径
 terms_path = os.path.join(os.getcwd(), 'TERMS_OF_USE.md')
 
-# 数据文件列表：图标 + locales + pyproject.toml + TERMS_OF_USE.md
+# ui/static 路径（下载等待小游戏等静态资源）
+static_src = os.path.join(os.getcwd(), 'ui', 'static')
+
+# 数据文件列表：图标 + locales + pyproject.toml + TERMS_OF_USE.md + static
 datas = [(icon_path, '.'), (pyproject_path, '.')]
 if os.path.exists(locales_src):
     datas.append((locales_src, 'ui' + os.sep + 'locales'))
+if os.path.exists(static_src):
+    datas.append((static_src, 'ui' + os.sep + 'static'))
 if os.path.exists(terms_path):
     datas.append((terms_path, '.'))
 

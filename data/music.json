@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "playlists": [
+    {
+      "id": "__history__",
+      "name": "播放历史",
+      "songs": [
+        {
+          "source_type": "local",
+          "file_path": "D:/Music/flac\\1578809641307392909trackmediaF0000012f2Ev22UNdo_1flac.flac",
+          "online_source": "",
+          "online_songmid": "",
+          "online_name": "",
+          "online_singer": "",
+          "online_album": "",
+          "online_interval": 0,
+          "online_img": "",
+          "display_title": "一梦千宵",
+          "display_artist": "人形兎",
+          "added_at": 1784734380.1391697,
+          "_id": "35683e3b"
+        }
+      ],
+      "created_at": 1784734377.853167,
+      "updated_at": 1784734380.1391697,
+      "sort_mode": "add_time_desc",
+      "is_system": true
+    }
+  ],
+  "current_playlist_id": "__history__"
+}
