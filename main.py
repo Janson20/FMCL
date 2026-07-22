@@ -125,7 +125,7 @@ def setup_logging():
         log_file = fallback_dir / "latest.log"
         logger.warning(f"日志目录 {log_dir} 不可写，回退到 {log_file}")
 
-    logzero.logfile(str(log_file))
+    logzero.logfile(str(log_file), encoding="utf-8")
     logzero.loglevel(config.log_level)
     logger.info("日志系统初始化完成")
 
