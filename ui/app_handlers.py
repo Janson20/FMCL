@@ -1550,6 +1550,11 @@ class EventHandlerMixin(object):
                 "license_url": "https://github.com/PCL-Community/PCL-CE/blob/dev/LICENSE",
             },
             {
+                "name": "HMCL",
+                "url": "https://github.com/HMCL-dev/HMCL",
+                "license_url": "https://github.com/HMCL-dev/HMCL/blob/main/LICENSE",
+            },
+            {
                 "name": "opencode",
                 "url": "https://github.com/anomalyco/opencode",
                 "license_url": "https://github.com/anomalyco/opencode/blob/dev/LICENSE",
@@ -1563,6 +1568,11 @@ class EventHandlerMixin(object):
                 "name": "lx-music-desktop",
                 "url": "https://github.com/lyswhut/lx-music-desktop",
                 "license_url": "https://github.com/lyswhut/lx-music-desktop/blob/master/LICENSE",
+            },
+            {
+                "name": "auto-mod-classifier",
+                "url": "https://github.com/qk-yiyihehe/auto-mod-classifier",
+                "license_url": "https://github.com/qk-yiyihehe/auto-mod-classifier/blob/main/LICENSE",
             },
         ]
 
