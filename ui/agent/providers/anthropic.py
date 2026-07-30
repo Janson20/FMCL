@@ -6,6 +6,10 @@ Anthropic 的 API 格式与 OpenAI 不同，需做格式转换：
 - 响应中 tool_use 格式不同
 
 内部统一为 OpenAI 兼容格式输出。
+
+思考强度控制 (新模型 Claude 4.6+):
+- thinking: {"type": "adaptive"}  自适应思考开关
+- output_config: {"effort": "low"|"medium"|"high"|"xhigh"|"max"}  控制推理深度
 """
 
 import json
@@ -21,6 +25,8 @@ ANTHROPIC_DEFAULT_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-5"
 ANTHROPIC_VERSION = "2023-06-01"
 
+ANTHROPIC_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"]
+
 
 class AnthropicProvider:
     """Anthropic Claude 提供商
@@ -34,12 +40,18 @@ class AnthropicProvider:
     default_api_url = ANTHROPIC_DEFAULT_API_URL
 
     def __init__(
-        self, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None
+        self,
+        api_key: str,
+        api_url: str = "",
+        timeout: int = 120,
+        extra_headers: Optional[Dict[str, str]] = None,
+        reasoning_effort: str = "high",
     ):
         self.api_key = api_key
         self.api_url = normalize_anthropic_url(api_url or ANTHROPIC_DEFAULT_API_URL)
         self.timeout = timeout
         self.extra_headers = extra_headers or {}
+        self.reasoning_effort = reasoning_effort
 
     def _build_headers(self) -> Dict[str, str]:
         return {
@@ -200,6 +212,9 @@ class AnthropicProvider:
             payload["system"] = system_text
         if tools:
             payload["tools"] = self._convert_tools(tools)
+        if self.reasoning_effort:
+            payload["thinking"] = {"type": "adaptive"}
+            payload["output_config"] = {"effort": self.reasoning_effort}
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
@@ -243,6 +258,9 @@ class AnthropicProvider:
             payload["system"] = system_text
         if tools:
             payload["tools"] = self._convert_tools(tools)
+        if self.reasoning_effort:
+            payload["thinking"] = {"type": "adaptive"}
+            payload["output_config"] = {"effort": self.reasoning_effort}
 
         try:
             req_data = json.dumps(payload).encode("utf-8")

@@ -1,4 +1,9 @@
-"""OpenAI 提供商 - 标准 OpenAI chat/completions API + 自定义端点兼容"""
+"""OpenAI 提供商 - 标准 OpenAI chat/completions API + 自定义端点兼容
+
+思考强度控制 (GPT-5.6 系列):
+- reasoning: {"effort": "none"|"low"|"medium"|"high"|"xhigh"}
+- 通过 reasoning_effort 参数传递给 API
+"""
 
 import json
 import urllib.error
@@ -13,6 +18,8 @@ from ui.agent.stream import SSEEventType, SSEParser
 OPENAI_DEFAULT_API_URL = "https://api.openai.com/v1/chat/completions"
 OPENAI_DEFAULT_MODEL = "gpt-5.6-terra"
 
+OPENAI_EFFORT_LEVELS = ["none", "low", "medium", "high", "xhigh"]
+
 
 class OpenAIProvider(BaseProvider):
     """标准 OpenAI 兼容提供商"""
@@ -22,11 +29,17 @@ class OpenAIProvider(BaseProvider):
     default_api_url = OPENAI_DEFAULT_API_URL
 
     def __init__(
-        self, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None
+        self,
+        api_key: str,
+        api_url: str = "",
+        timeout: int = 120,
+        extra_headers: Optional[Dict[str, str]] = None,
+        reasoning_effort: str = "medium",
     ):
         super().__init__(
             api_key=api_key, api_url=api_url or OPENAI_DEFAULT_API_URL, timeout=timeout, extra_headers=extra_headers
         )
+        self.reasoning_effort = reasoning_effort
 
     def _build_headers(self) -> Dict[str, str]:
         return {
@@ -55,6 +68,8 @@ class OpenAIProvider(BaseProvider):
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
+        if self.reasoning_effort:
+            payload["reasoning"] = {"effort": self.reasoning_effort}
         return payload
 
     def chat(

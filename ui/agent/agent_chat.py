@@ -1029,13 +1029,22 @@ class AgentChatView(ctk.CTkFrame):
                     api_key=api_key,
                     api_url=pc.api_url if pc else "",
                     thinking_enabled=self._thinking_var.get(),
+                    reasoning_effort=self._effort_var.get(),
                 )
         elif pid == "openai":
             if api_key:
-                self._provider = OpenAIProvider(api_key=api_key, api_url=pc.api_url if pc else "")
+                self._provider = OpenAIProvider(
+                    api_key=api_key,
+                    api_url=pc.api_url if pc else "",
+                    reasoning_effort=self._effort_var.get(),
+                )
         elif pid == "anthropic":
             if api_key:
-                self._provider = AnthropicProvider(api_key=api_key, api_url=pc.api_url if pc else "")
+                self._provider = AnthropicProvider(
+                    api_key=api_key,
+                    api_url=pc.api_url if pc else "",
+                    reasoning_effort=self._effort_var.get(),
+                )
         elif pid == "custom":
             if api_key:
                 self._provider = CustomProvider(
@@ -1049,16 +1058,27 @@ class AgentChatView(ctk.CTkFrame):
 
     def _on_model_changed(self, choice: str):
         logger.info(f"[Agent] 模型切换: {choice}")
-        # 仅在 jingdu 且模型支持推理时显示思考开关
         model_info = None
         for m in get_model_catalog():
             if m.name == choice:
                 model_info = m
                 break
 
-        if model_info and model_info.provider_id == "jingdu" and model_info.supports_reasoning:
+        if model_info and model_info.supports_reasoning:
+            pid = model_info.provider_id
             self._thinking_check.pack(side=ctk.LEFT, padx=(0, 4), after=self._model_menu)
             self._thinking_var.set(model_info.thinking_default)
+
+            if pid == "jingdu":
+                self._effort_menu.configure(values=["high", "max"])
+                self._effort_var.set(self._effort_var.get() if self._effort_var.get() in ("high", "max") else "high")
+            elif pid == "openai":
+                self._effort_menu.configure(values=["none", "low", "medium", "high", "xhigh"])
+                self._effort_var.set("medium")
+            elif pid == "anthropic":
+                self._effort_menu.configure(values=["low", "medium", "high", "xhigh", "max"])
+                self._effort_var.set("high")
+
             if model_info.thinking_default:
                 self._effort_menu.pack(side=ctk.LEFT, padx=(0, 4), after=self._thinking_check)
             else:
@@ -1068,9 +1088,10 @@ class AgentChatView(ctk.CTkFrame):
             self._effort_menu.pack_forget()
             self._thinking_var.set(False)
 
-        # 更新 provider 的 thinking 设置
         if self._provider and hasattr(self._provider, "thinking_enabled"):
             self._provider.thinking_enabled = self._thinking_var.get()
+        if self._provider and hasattr(self._provider, "reasoning_effort"):
+            self._provider.reasoning_effort = self._effort_var.get() if self._thinking_var.get() else ""
 
     def _on_thinking_toggled(self):
         thinking_on = self._thinking_var.get()
@@ -1080,6 +1101,8 @@ class AgentChatView(ctk.CTkFrame):
             self._effort_menu.pack_forget()
         if self._provider and hasattr(self._provider, "thinking_enabled"):
             self._provider.thinking_enabled = thinking_on
+        if self._provider and hasattr(self._provider, "reasoning_effort"):
+            self._provider.reasoning_effort = self._effort_var.get() if thinking_on else ""
 
     # ============ 会话管理 ============
 
@@ -1515,11 +1538,11 @@ class AgentChatView(ctk.CTkFrame):
                     break
 
                 try:
-                    # 同步 DeepSeek 思考模式设置
+                    # 同步思考模式设置
                     if hasattr(provider, "thinking_enabled"):
                         provider.thinking_enabled = self._thinking_var.get()
                     if hasattr(provider, "reasoning_effort"):
-                        provider.reasoning_effort = self._effort_var.get()
+                        provider.reasoning_effort = self._effort_var.get() if self._thinking_var.get() else ""
                     stream_gen = provider.stream_chat(messages=self._session.messages, tools=tools, model=model_name)
                 except Exception as e:
                     logger.error(f"[Agent] 启动流式调用失败: {e}")
