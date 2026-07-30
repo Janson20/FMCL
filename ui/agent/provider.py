@@ -80,15 +80,16 @@ class BaseProvider(ABC):
         return cls(api_key=api_key, api_url=api_url, timeout=timeout, extra_headers=extra_headers)
 
     @staticmethod
-    def test_connection(api_url: str, api_key: str, timeout: int = 15) -> dict:
+    def test_connection(api_url: str, api_key: str, timeout: int = 15, custom_models: Optional[List[str]] = None) -> dict:
         """测试 API 连接是否正常
 
         Returns:
             {"ok": True/False, "message": "...", "models": [...]}
         """
         try:
+            test_model = custom_models[0] if custom_models else "gpt-3.5-turbo"
             req_data = json.dumps(
-                {"model": "gpt-3.5-turbo", "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1}
+                {"model": test_model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1}
             ).encode("utf-8")
 
             url = api_url.rstrip("/") + "/chat/completions"

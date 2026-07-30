@@ -11,7 +11,7 @@ from typing import List, Optional
 class ModelInfo:
     """单个 AI 模型的元数据"""
 
-    id: str  # API 模型标识，如 "deepseek-v4-flash", "gpt-4o"
+    id: str  # API 模型标识，如 "deepseek-v4-flash", "gpt-5.6-sol"
     provider_id: str  # 所属提供商 ID，如 "jingdu", "openai", "anthropic"
     name: str  # 用户友好的显示名称
     description: str = ""  # 简短描述
@@ -107,13 +107,63 @@ def _build_catalog() -> List[ModelInfo]:
         )
     )
 
-    # ============ OpenAI ============
+    # ============ OpenAI (GPT-5.6 系列) ============
+    models.append(
+        ModelInfo(
+            id="gpt-5.6-sol",
+            provider_id="openai",
+            name="GPT-5.6 Sol",
+            description="旗舰模型，适用于复杂推理和编程",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=True,
+            context_limit=200000,
+            max_output=16384,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="active",
+        )
+    )
+    models.append(
+        ModelInfo(
+            id="gpt-5.6-terra",
+            provider_id="openai",
+            name="GPT-5.6 Terra",
+            description="在智能与成本之间取得平衡",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=True,
+            context_limit=200000,
+            max_output=16384,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="active",
+        )
+    )
+    models.append(
+        ModelInfo(
+            id="gpt-5.6-luna",
+            provider_id="openai",
+            name="GPT-5.6 Luna",
+            description="针对成本敏感和高吞吐量任务优化",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=True,
+            context_limit=200000,
+            max_output=16384,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="active",
+        )
+    )
+
+    # GPT-4o 系列（旧版，仍可用）
     models.append(
         ModelInfo(
             id="gpt-4o",
             provider_id="openai",
-            name="GPT-4o",
-            description="OpenAI 最新旗舰多模态模型",
+            name="GPT-4o (旧版)",
+            description="多模态模型，已被 GPT-5.6 系列取代",
             supports_tools=True,
             supports_stream=True,
             supports_reasoning=False,
@@ -121,15 +171,15 @@ def _build_catalog() -> List[ModelInfo]:
             max_output=16384,
             cost_input_per_1m=2.50,
             cost_output_per_1m=10.00,
-            status="active",
+            status="deprecated",
         )
     )
     models.append(
         ModelInfo(
             id="gpt-4o-mini",
             provider_id="openai",
-            name="GPT-4o Mini",
-            description="轻量快速，成本极低",
+            name="GPT-4o Mini (旧版)",
+            description="轻量快速，已被 GPT-5.6 Luna 取代",
             supports_tools=True,
             supports_stream=True,
             supports_reasoning=False,
@@ -137,15 +187,15 @@ def _build_catalog() -> List[ModelInfo]:
             max_output=16384,
             cost_input_per_1m=0.15,
             cost_output_per_1m=0.60,
-            status="active",
+            status="deprecated",
         )
     )
     models.append(
         ModelInfo(
             id="o3-mini",
             provider_id="openai",
-            name="o3 Mini",
-            description="推理模型，擅长数学与逻辑",
+            name="o3 Mini (旧版)",
+            description="推理模型，已被 GPT-5.6 系列取代",
             supports_tools=True,
             supports_stream=True,
             supports_reasoning=True,
@@ -153,17 +203,167 @@ def _build_catalog() -> List[ModelInfo]:
             max_output=100000,
             cost_input_per_1m=1.10,
             cost_output_per_1m=4.40,
-            status="active",
+            status="deprecated",
         )
     )
 
     # ============ Anthropic ============
+
+    # 当前主力模型
+    models.append(
+        ModelInfo(
+            id="claude-fable-5",
+            provider_id="anthropic",
+            name="Claude Fable 5",
+            description="能力最强的广泛发布模型，面向长时间运行的智能体任务",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=True,
+            context_limit=200000,
+            max_output=8192,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="active",
+        )
+    )
+    models.append(
+        ModelInfo(
+            id="claude-opus-4-8",
+            provider_id="anthropic",
+            name="Claude Opus 4.8",
+            description="旗舰级模型，适用于复杂的智能体编码和企业级工作",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=True,
+            context_limit=200000,
+            max_output=8192,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="active",
+        )
+    )
+    models.append(
+        ModelInfo(
+            id="claude-sonnet-5",
+            provider_id="anthropic",
+            name="Claude Sonnet 5",
+            description="速度与智能的最佳组合，日常编码的主力模型",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=True,
+            context_limit=200000,
+            max_output=8192,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="active",
+        )
+    )
+    models.append(
+        ModelInfo(
+            id="claude-haiku-4-5-20251001",
+            provider_id="anthropic",
+            name="Claude Haiku 4.5",
+            description="速度最快的模型，适合快速编辑和轻量推理",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=False,
+            context_limit=200000,
+            max_output=8192,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="active",
+        )
+    )
+
+    # 特殊访问模型
+    models.append(
+        ModelInfo(
+            id="claude-mythos-5",
+            provider_id="anthropic",
+            name="Claude Mythos 5",
+            description="与 Fable 5 规格相同，仅限 Project Glasswing 批准客户使用",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=True,
+            context_limit=200000,
+            max_output=8192,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="beta",
+        )
+    )
+    models.append(
+        ModelInfo(
+            id="claude-mythos-preview",
+            provider_id="anthropic",
+            name="Claude Mythos Preview",
+            description="Mythos 5 的预览版本，仅限邀请制",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=True,
+            context_limit=200000,
+            max_output=8192,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="beta",
+        )
+    )
+
+    # 旧版模型
+    models.append(
+        ModelInfo(
+            id="claude-opus-4-7",
+            provider_id="anthropic",
+            name="Claude Opus 4.7 (旧版)",
+            description="已被 Claude Opus 4.8 取代",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=True,
+            context_limit=200000,
+            max_output=8192,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="deprecated",
+        )
+    )
+    models.append(
+        ModelInfo(
+            id="claude-opus-4-6",
+            provider_id="anthropic",
+            name="Claude Opus 4.6 (旧版)",
+            description="已被 Claude Opus 4.8 取代",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=True,
+            context_limit=200000,
+            max_output=8192,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="deprecated",
+        )
+    )
+    models.append(
+        ModelInfo(
+            id="claude-sonnet-4-6",
+            provider_id="anthropic",
+            name="Claude Sonnet 4.6 (旧版)",
+            description="已被 Claude Sonnet 5 取代",
+            supports_tools=True,
+            supports_stream=True,
+            supports_reasoning=True,
+            context_limit=200000,
+            max_output=8192,
+            cost_input_per_1m=0.0,
+            cost_output_per_1m=0.0,
+            status="deprecated",
+        )
+    )
     models.append(
         ModelInfo(
             id="claude-sonnet-4-20250514",
             provider_id="anthropic",
-            name="Claude Sonnet 4",
-            description="Anthropic 最新高性能模型",
+            name="Claude Sonnet 4 (旧版)",
+            description="已被 Claude Sonnet 5 取代",
             supports_tools=True,
             supports_stream=True,
             supports_reasoning=False,
@@ -171,15 +371,15 @@ def _build_catalog() -> List[ModelInfo]:
             max_output=8192,
             cost_input_per_1m=3.00,
             cost_output_per_1m=15.00,
-            status="active",
+            status="deprecated",
         )
     )
     models.append(
         ModelInfo(
             id="claude-3-5-haiku-20241022",
             provider_id="anthropic",
-            name="Claude 3.5 Haiku",
-            description="快速轻量的 Claude 模型",
+            name="Claude 3.5 Haiku (旧版)",
+            description="已被 Claude Haiku 4.5 取代",
             supports_tools=True,
             supports_stream=True,
             supports_reasoning=False,
@@ -187,7 +387,7 @@ def _build_catalog() -> List[ModelInfo]:
             max_output=8192,
             cost_input_per_1m=0.80,
             cost_output_per_1m=4.00,
-            status="active",
+            status="deprecated",
         )
     )
 

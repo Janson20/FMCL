@@ -16,7 +16,7 @@ from typing import Dict, Generator, List, Optional
 from logzero import logger
 
 ANTHROPIC_DEFAULT_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-20250514"
+ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-5"
 ANTHROPIC_VERSION = "2023-06-01"
 
 

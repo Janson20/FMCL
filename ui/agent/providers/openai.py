@@ -11,7 +11,7 @@ from ui.agent.provider import BaseProvider
 from ui.agent.stream import SSEEventType, SSEParser
 
 OPENAI_DEFAULT_API_URL = "https://api.openai.com/v1/chat/completions"
-OPENAI_DEFAULT_MODEL = "gpt-4o"
+OPENAI_DEFAULT_MODEL = "gpt-5.6-terra"
 
 
 class OpenAIProvider(BaseProvider):

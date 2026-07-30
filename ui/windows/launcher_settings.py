@@ -1324,7 +1324,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             container,
             "openai",
             "OpenAI",
-            desc_line1="配置 OpenAI API Key 以使用 GPT-4o、GPT-4o-mini 等模型",
+            desc_line1="配置 OpenAI API Key 以使用 GPT-5.6 Sol、GPT-5.6 Terra 等模型",
             desc_line2="API Key 以 sk- 开头。获取地址: https://platform.openai.com/api-keys",
         )
 
@@ -1531,7 +1531,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 fg_color=COLORS["bg_dark"],
                 border_color=COLORS["card_border"],
                 text_color=COLORS["text_primary"],
-                placeholder_text="gpt-4o, claude-3.5-sonnet, ...",
+                placeholder_text="gpt-5.6-sol, claude-sonnet-5, ...",
             )
             models_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(10, 0))
             models_entry.insert(0, models_str)
@@ -1584,6 +1584,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         import threading
 
         def _do_test():
+            import tkinter.messagebox as messagebox
+
             try:
                 key_entry = getattr(self, f"_{pid}_key_entry", None)
                 api_key = key_entry.get().strip() if key_entry else ""
@@ -1592,8 +1594,6 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 api_url = url_entry.get().strip() if url_entry else ""
 
                 if not api_key:
-                    import tkinter.messagebox as messagebox
-
                     self.after(0, lambda: messagebox.showwarning("FMCL", _("settings_ai_key_required")))
                     return
 
@@ -1606,7 +1606,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                     test_url = "https://api.anthropic.com/v1/messages"
                     req_data = json.dumps(
                         {
-                            "model": "claude-3-5-haiku-20241022",
+                            "model": "claude-haiku-4-5-20251001",
                             "messages": [{"role": "user", "content": "hi"}],
                             "max_tokens": 1,
                         }
@@ -1640,15 +1640,22 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                     # OpenAI 兼容
                     from ui.agent.provider import BaseProvider
 
-                    result = BaseProvider.test_connection(api_url or "https://api.openai.com/v1", api_key, timeout=15)
+                    custom_models = None
+                    if pid == "custom":
+                        models_entry = getattr(self, f"_{pid}_models_entry", None)
+                        models_str = models_entry.get().strip() if models_entry else ""
+                        if models_str:
+                            custom_models = [m.strip() for m in models_str.split(",") if m.strip()]
+
+                    result = BaseProvider.test_connection(
+                        api_url or "https://api.openai.com/v1", api_key, timeout=15, custom_models=custom_models
+                    )
                     if result["ok"]:
                         self.after(0, lambda: messagebox.showinfo("FMCL", "✅ 连接成功"))
                     else:
                         self.after(0, lambda msg=result["message"]: messagebox.showerror("FMCL", f"❌ {msg}"))
 
             except Exception as e:
-                import tkinter.messagebox as messagebox
-
                 self.after(0, lambda err=str(e): messagebox.showerror("FMCL", f"测试失败: {err}"))
 
         threading.Thread(target=_do_test, daemon=True).start()
