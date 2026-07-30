@@ -1034,23 +1034,17 @@ class AgentChatView(ctk.CTkFrame):
         elif pid == "openai":
             if api_key:
                 self._provider = OpenAIProvider(
-                    api_key=api_key,
-                    api_url=pc.api_url if pc else "",
-                    reasoning_effort=self._effort_var.get(),
+                    api_key=api_key, api_url=pc.api_url if pc else "", reasoning_effort=self._effort_var.get()
                 )
         elif pid == "anthropic":
             if api_key:
                 self._provider = AnthropicProvider(
-                    api_key=api_key,
-                    api_url=pc.api_url if pc else "",
-                    reasoning_effort=self._effort_var.get(),
+                    api_key=api_key, api_url=pc.api_url if pc else "", reasoning_effort=self._effort_var.get()
                 )
         elif pid == "custom":
             if api_key:
                 self._provider = CustomProvider(
-                    api_key=api_key,
-                    api_url=pc.api_url if pc else "",
-                    custom_models=pc.custom_models if pc else None,
+                    api_key=api_key, api_url=pc.api_url if pc else "", custom_models=pc.custom_models if pc else None
                 )
 
         self._refresh_model_list(pid)

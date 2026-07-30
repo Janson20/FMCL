@@ -106,7 +106,9 @@ class BaseProvider(ABC):
         return cls(api_key=api_key, api_url=api_url, timeout=timeout, extra_headers=extra_headers)
 
     @staticmethod
-    def test_connection(api_url: str, api_key: str, timeout: int = 15, custom_models: Optional[List[str]] = None) -> dict:
+    def test_connection(
+        api_url: str, api_key: str, timeout: int = 15, custom_models: Optional[List[str]] = None
+    ) -> dict:
         """测试 API 连接是否正常
 
         Returns:

@@ -441,11 +441,7 @@ def get_provider_names() -> List[dict]:
         providers[m.provider_id]["models"].append(m)
 
     if "custom" not in providers:
-        providers["custom"] = {
-            "id": "custom",
-            "name": _get_provider_display_name("custom"),
-            "models": [],
-        }
+        providers["custom"] = {"id": "custom", "name": _get_provider_display_name("custom"), "models": []}
 
     ordering = ["jingdu", "openai", "anthropic", "custom"]
     result = []
