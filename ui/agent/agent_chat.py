@@ -988,21 +988,62 @@ class AgentChatView(ctk.CTkFrame):
     # ============ 模型选择 ============
 
     def _refresh_model_list(self, provider_id: str):
-        models = get_models_by_provider(provider_id)
-        values = [m.name for m in models]
-        if values:
-            self._model_menu.configure(values=values)
-            default = get_default_model(provider_id)
-            if default:
-                self._model_var.set(default.name)
-            else:
+        if provider_id == "custom":
+            from ui.agent.config import get_agent_config
+
+            config = get_agent_config()
+            pc = config.providers.get("custom") if config else None
+            values = pc.custom_models if pc and pc.custom_models else []
+            if values:
+                self._model_menu.configure(values=values)
                 self._model_var.set(values[0])
+            else:
+                self._model_menu.configure(values=[])
+                self._model_var.set("")
+        else:
+            models = get_models_by_provider(provider_id)
+            values = [m.name for m in models]
+            if values:
+                self._model_menu.configure(values=values)
+                default = get_default_model(provider_id)
+                if default:
+                    self._model_var.set(default.name)
+                else:
+                    self._model_var.set(values[0])
 
     def _on_provider_changed(self, choice: str):
+        from ui.agent.config import get_agent_config
+
         provider_map = {}
         for p in get_provider_names():
             provider_map[p["name"]] = p["id"]
         pid = provider_map.get(choice, "jingdu")
+
+        config = get_agent_config()
+        pc = config.providers.get(pid) if config else None
+        api_key = pc.api_key if pc else ""
+
+        if pid == "jingdu":
+            if api_key:
+                self._provider = JingduProvider(
+                    api_key=api_key,
+                    api_url=pc.api_url if pc else "",
+                    thinking_enabled=self._thinking_var.get(),
+                )
+        elif pid == "openai":
+            if api_key:
+                self._provider = OpenAIProvider(api_key=api_key, api_url=pc.api_url if pc else "")
+        elif pid == "anthropic":
+            if api_key:
+                self._provider = AnthropicProvider(api_key=api_key, api_url=pc.api_url if pc else "")
+        elif pid == "custom":
+            if api_key:
+                self._provider = CustomProvider(
+                    api_key=api_key,
+                    api_url=pc.api_url if pc else "",
+                    custom_models=pc.custom_models if pc else None,
+                )
+
         self._refresh_model_list(pid)
         self._on_model_changed(self._model_var.get())
 
@@ -1814,7 +1855,8 @@ class AgentChatView(ctk.CTkFrame):
         for p in get_provider_names():
             provider_map[p["name"]] = p["id"]
         pid = provider_map.get(provider_name, "jingdu")
-        # 查找 model_id
+        if pid == "custom":
+            return pid, model_name
         for m in get_model_catalog():
             if m.name == model_name and m.provider_id == pid:
                 return pid, m.id

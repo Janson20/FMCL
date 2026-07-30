@@ -90,13 +90,6 @@ class CustomProvider(BaseProvider):
             payload["tool_choice"] = "auto"
         return payload
 
-    def _ensure_chat_completions_url(self) -> str:
-        """确保 URL 指向 chat/completions 端点"""
-        url = self.api_url.rstrip("/")
-        if not url.endswith("/chat/completions"):
-            url += "/chat/completions"
-        return url
-
     def chat(
         self,
         messages: List[Dict],
@@ -106,11 +99,10 @@ class CustomProvider(BaseProvider):
         temperature: float = 0.7,
     ) -> Dict:
         payload = self._build_payload(messages, tools, model, max_tokens, temperature, stream=False)
-        url = self._ensure_chat_completions_url()
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(url, data=req_data, headers=self._build_headers(), method="POST")
+            req = urllib.request.Request(self.api_url, data=req_data, headers=self._build_headers(), method="POST")
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
 
@@ -151,11 +143,10 @@ class CustomProvider(BaseProvider):
         temperature: float = 0.7,
     ) -> Generator[Dict, None, None]:
         payload = self._build_payload(messages, tools, model, max_tokens, temperature, stream=True)
-        url = self._ensure_chat_completions_url()
 
         try:
             req_data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(url, data=req_data, headers=self._build_headers(), method="POST")
+            req = urllib.request.Request(self.api_url, data=req_data, headers=self._build_headers(), method="POST")
 
             parser = SSEParser()
             accumulated_text = ""

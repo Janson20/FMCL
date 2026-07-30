@@ -1602,8 +1602,9 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 import urllib.request
 
                 if pid == "anthropic":
-                    # Anthropic: GET /v1/messages 需要 POST，用 models 端点测试
-                    test_url = "https://api.anthropic.com/v1/messages"
+                    from ui.agent.provider import normalize_anthropic_url
+
+                    test_url = normalize_anthropic_url(api_url) if api_url else "https://api.anthropic.com/v1/messages"
                     req_data = json.dumps(
                         {
                             "model": "claude-haiku-4-5-20251001",
@@ -1612,7 +1613,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                         }
                     ).encode("utf-8")
                     req = urllib.request.Request(
-                        api_url or test_url,
+                        test_url,
                         data=req_data,
                         headers={
                             "Content-Type": "application/json",

@@ -15,6 +15,32 @@ from logzero import logger
 from ui.agent.models import ModelInfo, get_default_model, get_models_by_provider
 
 
+def normalize_chat_completions_url(url: str) -> str:
+    """标准化 OpenAI 兼容 API URL，确保以 /chat/completions 结尾
+
+    兼容输入格式：
+    - https://api.openai.com/v1/chat/completions  → 原样返回
+    - https://api.openai.com/v1                   → 追加 /chat/completions
+    """
+    url = url.rstrip("/")
+    if not url.endswith("/chat/completions"):
+        url += "/chat/completions"
+    return url
+
+
+def normalize_anthropic_url(url: str) -> str:
+    """标准化 Anthropic API URL，确保以 /v1/messages 结尾
+
+    兼容输入格式：
+    - https://api.anthropic.com/v1/messages       → 原样返回
+    - https://api.anthropic.com                   → 追加 /v1/messages
+    """
+    url = url.rstrip("/")
+    if not url.endswith("/v1/messages"):
+        url += "/v1/messages"
+    return url
+
+
 class BaseProvider(ABC):
     """AI 提供商基类"""
 
@@ -27,7 +53,7 @@ class BaseProvider(ABC):
         self, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None
     ):
         self.api_key = api_key
-        self.api_url = api_url or self.default_api_url
+        self.api_url = normalize_chat_completions_url(api_url or self.default_api_url)
         self.timeout = timeout
         self.extra_headers = extra_headers or {}
 
@@ -92,7 +118,7 @@ class BaseProvider(ABC):
                 {"model": test_model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1}
             ).encode("utf-8")
 
-            url = api_url.rstrip("/") + "/chat/completions"
+            url = normalize_chat_completions_url(api_url)
             req = urllib.request.Request(
                 url,
                 data=req_data,

@@ -15,6 +15,8 @@ from typing import Dict, Generator, List, Optional
 
 from logzero import logger
 
+from ui.agent.provider import normalize_anthropic_url
+
 ANTHROPIC_DEFAULT_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-5"
 ANTHROPIC_VERSION = "2023-06-01"
@@ -35,7 +37,7 @@ class AnthropicProvider:
         self, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None
     ):
         self.api_key = api_key
-        self.api_url = api_url or ANTHROPIC_DEFAULT_API_URL
+        self.api_url = normalize_anthropic_url(api_url or ANTHROPIC_DEFAULT_API_URL)
         self.timeout = timeout
         self.extra_headers = extra_headers or {}
 
