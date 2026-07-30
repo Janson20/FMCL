@@ -182,6 +182,7 @@ def show_confirmation(message: str, title: str = "确认") -> bool:
     ).pack(side=ctk.LEFT, padx=10)
 
     dialog.wait_window()
+    return result[0]
 
 
 def show_input_dialog(parent, title: str, prompt: str, initial_value: str = "") -> Optional[str]:
