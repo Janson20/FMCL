@@ -4,22 +4,26 @@
 
 密钥管理策略：
 - 首次使用时在 <base_dir>/.fmcl_key 生成随机密钥并保存
-- 后续始终从密钥文件读取，确保同一台机器上密钥稳定
-- 密钥文件可随 config.json 一起拷贝到新机器实现迁移
+- 使用随机盐值文件 .fmcl_salt 进行密码派生（每用户唯一）
+- 密钥文件权限限制为仅所有者可访问
 - 可选密码派生：通过环境变量 FMCL_ENC_KEY_PASSWORD 设置密码
-- 后向兼容：保留硬件指纹密钥作为解密回退
+- 后向兼容：保留硬件指纹密钥和固定盐值作为解密回退
 """
 
 import base64
 import hashlib
 import os
 import platform
+import stat
 from pathlib import Path
 from typing import Optional
 
 from logzero import logger
 
 _KEY_FILE_NAME = ".fmcl_key"
+_SALT_FILE_NAME = ".fmcl_salt"
+# 旧版固定盐值（仅用于向后兼容解密）
+_LEGACY_SALT = b"FMCL_ENC_KEY_SALT_v1"
 _key_dir: Optional[Path] = None
 # 错误回调（由 UI 层注册）
 _error_callback = None
@@ -74,6 +78,8 @@ def _get_key_file_path() -> Path:
 def _load_or_create_key() -> Optional[bytes]:
     """从密钥文件加载密钥，若不存在则生成并保存
 
+    新创建的密钥文件使用受限权限 (仅所有者可读)。
+
     Returns:
         Fernet 兼容的 32 字节 base64 密钥，失败返回 None
     """
@@ -104,35 +110,92 @@ def _load_or_create_key() -> Optional[bytes]:
                 f"注意：之前加密的 Token 将无法解密，需要重新登录。",
             )
 
-    # 3. 生成新密钥并保存
+    # 3. 生成新密钥并保存（受限权限）
     try:
         from cryptography.fernet import Fernet
 
         new_key = Fernet.generate_key()
         key_file.parent.mkdir(parents=True, exist_ok=True)
-        key_file.write_bytes(new_key)
+
+        # 使用受限权限创建密钥文件
+        _write_restricted_file(key_file, new_key)
+
         logger.info(f"已生成新密钥并保存到: {key_file}")
         return new_key
     except Exception as e:
         logger.error(f"生成密钥失败: {e}")
-        _notify_error("密钥生成失败", f"无法生成加密密钥。Token 将以 base64 编码存储（安全性降低）。\n" f"错误: {e}")
+        _notify_error("密钥生成失败", f"无法生成加密密钥。Token 将不会被加密存储。\n" f"错误: {e}")
         return None
+
+
+def _write_restricted_file(file_path: Path, data: bytes) -> None:
+    """以受限权限写入文件
+
+    POSIX: 0o600 (仅所有者可读写)
+    Windows: 通过 DACL 限制为仅当前用户
+    """
+    if os.name == "posix":
+        fd = os.open(str(file_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, data)
+        finally:
+            os.close(fd)
+    else:
+        # Windows: 先创建文件再限制权限
+        file_path.write_bytes(data)
+        try:
+            # 移除继承权限，仅保留当前用户完全控制
+            import subprocess as _sp
+
+            _sp.run(
+                ["icacls", str(file_path), "/inheritance:r", "/grant:r", f"{os.getlogin()}:(R,W)"],
+                capture_output=True,
+                timeout=10,
+            )
+        except Exception as e:
+            logger.debug(f"设置 Windows DACL 失败（非致命）: {e}")
+
+
+def _load_or_create_salt() -> bytes:
+    """加载或创建随机盐值文件
+
+    盐值用于 PBKDF2 密码派生，确保每个用户的盐值唯一。
+    """
+    key_dir = _get_key_dir()
+    if key_dir is None:
+        key_dir = Path.cwd()
+    salt_file = key_dir / _SALT_FILE_NAME
+
+    if salt_file.exists():
+        try:
+            data = salt_file.read_bytes()
+            if len(data) >= 16:
+                return data
+        except Exception:
+            pass
+
+    # 生成 32 字节随机盐
+    new_salt = os.urandom(32)
+    salt_file.parent.mkdir(parents=True, exist_ok=True)
+    _write_restricted_file(salt_file, new_salt)
+    logger.debug(f"已生成随机盐值: {salt_file}")
+    return new_salt
 
 
 def _derive_key_from_password(password: str) -> bytes:
     """从用户密码派生 Fernet 密钥
 
     使用 PBKDF2-HMAC-SHA256 进行密钥派生，迭代 600000 次。
-    盐值使用固定应用标识，确保同一密码始终派生相同密钥。
-
-    Args:
-        password: 用户密码
-
-    Returns:
-        Fernet 兼容的 32 字节 base64 密钥
+    盐值从 .fmcl_salt 文件加载（每用户唯一随机盐）。
     """
-    salt = b"FMCL_ENC_KEY_SALT_v1"
+    salt = _load_or_create_salt()
     derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 600000)
+    return base64.urlsafe_b64encode(derived)
+
+
+def _derive_key_from_password_legacy(password: str) -> bytes:
+    """使用旧版固定盐值派生密钥（仅用于向后兼容解密）"""
+    derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), _LEGACY_SALT, 600000)
     return base64.urlsafe_b64encode(derived)
 
 
@@ -182,7 +245,7 @@ def encrypt_token(plaintext: str) -> Optional[str]:
         plaintext: 明文 Token
 
     Returns:
-        加密后的 base64 字符串，加密失败返回 None
+        加密后的 base64 字符串，加密失败返回 None（不再回退到不安全的 base64 编码）
     """
     if not plaintext:
         return None
@@ -190,8 +253,9 @@ def encrypt_token(plaintext: str) -> Optional[str]:
         cipher = _get_cipher()
         if cipher:
             return cipher.encrypt(plaintext.encode("utf-8")).decode("utf-8")
-        logger.warning("cryptography 未安装，使用 base64 编码存储（安全性较低）")
-        return base64.b64encode(plaintext.encode("utf-8")).decode("utf-8")
+        logger.error("cryptography 库不可用，无法加密 Token")
+        _notify_error("加密不可用", "cryptography 库未安装或加载失败，Token 不会被保存。\n请安装: pip install cryptography")
+        return None
     except Exception as e:
         logger.error(f"加密 Token 失败: {e}")
         _notify_error("Token 加密失败", f"无法加密 Token，配置保存时将写空值。\n" f"错误: {e}")
@@ -226,10 +290,12 @@ def decrypt_token(ciphertext: str) -> Optional[str]:
     if file_key:
         candidate_keys.append(("key_file", file_key))
 
-    # 2. 环境变量密码派生密钥
+    # 2. 环境变量密码派生密钥（新随机盐）
     env_password = os.environ.get("FMCL_ENC_KEY_PASSWORD")
     if env_password:
         candidate_keys.append(("env_password", _derive_key_from_password(env_password)))
+        # 2b. 旧版固定盐值密码派生密钥（向后兼容）
+        candidate_keys.append(("env_password_legacy", _derive_key_from_password_legacy(env_password)))
 
     # 3. 旧版硬件指纹密钥（后向兼容）
     candidate_keys.append(("legacy_hardware", _get_legacy_machine_key()))

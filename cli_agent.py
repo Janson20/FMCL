@@ -143,9 +143,16 @@ def _process_once(messages: List[Dict], provider: JingduProvider, callbacks: Dic
                 result_text = get_registry().execute(tool_name, tool_params, callbacks)
 
                 if result_text.startswith(DANGEROUS_MARKER):
-                    parts = result_text.split("|", 2)
-                    exec_path = parts[1]
-                    exec_command = parts[2]
+                    import json as _json_danger
+
+                    payload_str = result_text[len(DANGEROUS_MARKER) + 1:]  # skip marker + "|"
+                    try:
+                        danger_payload = _json_danger.loads(payload_str)
+                        exec_path = danger_payload.get("path", "")
+                        exec_command = danger_payload.get("command", "")
+                    except (_json_danger.JSONDecodeError, TypeError):
+                        exec_path = ""
+                        exec_command = payload_str
                     if _confirm_dangerous_command(exec_path, exec_command):
                         _print_system(f"用户确认执行高危命令: {exec_command}")
                         result_text = execute_dangerous_command(exec_path, exec_command)

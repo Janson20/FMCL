@@ -158,10 +158,10 @@ class PluginManager:
                 if persisted.get(pid) == PluginState.ENABLED.value:
                     if self._states.get(pid) == PluginState.SCANNED:
                         logger.info(f"恢复插件启用状态: {pid}")
-                        # 恢复启用前自动授权权限（持久化 ENABLED 状态表示用户此前已确认）
+                        # 恢复启用前仅授予清单声明的权限（高风险仍需用户确认）
                         perm_state = self._perm_states.get(pid)
                         if perm_state is None or perm_state.get_ungranted_permissions():
-                            self.grant_all_permissions(pid)
+                            self.grant_manifest_permissions(pid)
                         self.load_plugin(pid)
                         ok, msg = self.enable_plugin(pid)
                         if not ok:
@@ -484,13 +484,74 @@ class PluginManager:
             self._save_perm_state(plugin_id)
 
     def grant_all_permissions(self, plugin_id: str):
-        """授予所有权限（用户在安装确认时同意）"""
+        """授予所有权限（已弃用 — 请使用 grant_manifest_permissions）
+
+        仅作为向后兼容保留，新代码应调用 grant_manifest_permissions。
+        """
         ps = self._perm_states.get(plugin_id)
         if ps:
             for perm in PluginPermission:
                 risk = get_permission_risk(perm)
                 ps.grant(perm, always=(risk == PermissionRiskLevel.HIGH))
             self._save_perm_state(plugin_id)
+
+    def grant_manifest_permissions(self, plugin_id: str) -> Tuple[bool, str]:
+        """仅授予插件清单中声明的权限
+
+        - 低/中风险权限：自动授予
+        - 高风险权限：通过 perm_confirm_callback 请求用户确认
+          如无回调或未获批准，高风险权限不授予，插件仍可启用但功能受限
+
+        Returns:
+            (是否至少获得了全部低风险权限, 未授予的高风险权限列表信息)
+        """
+        manifest = self._manifests.get(plugin_id)
+        if manifest is None:
+            return False, "插件未发现"
+
+        ps = self._perm_states.get(plugin_id)
+        if ps is None:
+            ps = PluginPermissionState(plugin_id)
+            self._perm_states[plugin_id] = ps
+
+        # 解析清单中声明的权限
+        declared_perms: List[PluginPermission] = []
+        for p_str in manifest.permissions:
+            try:
+                declared_perms.append(PluginPermission(p_str))
+            except ValueError:
+                logger.warning(f"插件 {plugin_id} 声明了未知权限: {p_str}")
+
+        # 按风险分级
+        high_risk_declared = [p for p in declared_perms if get_permission_risk(p) == PermissionRiskLevel.HIGH]
+        non_high_declared = [p for p in declared_perms if get_permission_risk(p) != PermissionRiskLevel.HIGH]
+
+        # 自动授予低/中风险权限
+        for perm in non_high_declared:
+            ps.grant(perm, always=False)
+
+        # 高风险权限需用户确认
+        ungranted_high: List[PluginPermission] = []
+        for perm in high_risk_declared:
+            approved = False
+            if self._perm_confirm_callback:
+                try:
+                    approved = self._perm_confirm_callback(plugin_id, perm)
+                except Exception as e:
+                    logger.error(f"权限确认回调异常 ({plugin_id}, {perm.value}): {e}")
+            if approved:
+                ps.grant(perm, always=True)
+            else:
+                ungranted_high.append(perm)
+
+        self._save_perm_state(plugin_id)
+
+        if ungranted_high:
+            info = f"以下高风险权限未授予: {[p.value for p in ungranted_high]}"
+            logger.warning(f"插件 {plugin_id}: {info}")
+            return True, info
+
+        return True, ""
 
     def check_permission(self, plugin_id: str, permission: PluginPermission) -> str:
         """检查权限: 'granted' | 'need_confirm' | 'denied'"""

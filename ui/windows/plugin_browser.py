@@ -561,7 +561,7 @@ class PluginBrowserWindow(ctk.CTkToplevel):
                 if ok:
                     # 授权权限
                     if permissions:
-                        self._pm.grant_all_permissions(pid)
+                        self._pm.grant_manifest_permissions(pid)
                     # 启用
                     self._pm.load_plugin(pid)
                     self._pm.enable_plugin(pid)
@@ -646,7 +646,7 @@ class PluginBrowserWindow(ctk.CTkToplevel):
                     self, plugin_name=manifest_data.get("name", pid), permissions=permissions
                 )
                 if dialog.get_result():
-                    self._pm.grant_all_permissions(pid)
+                    self._pm.grant_manifest_permissions(pid)
                 else:
                     return
         try:

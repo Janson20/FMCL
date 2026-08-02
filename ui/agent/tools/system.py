@@ -199,10 +199,37 @@ def _list_version_resources(params: Dict[str, str], callbacks: Dict[str, Callabl
     return result
 
 
+# 命令链接分隔符 — 包含这些字符的命令可能通过链式调用绕过前缀黑名单
+_COMMAND_CHAIN_PATTERNS = [
+    (";", "命令分隔符"),
+    ("&&", "逻辑与链接"),
+    ("||", "逻辑或链接"),
+    ("|", "管道符"),
+    ("$(", "命令替换"),
+    ("`", "反引号命令替换"),
+    ("\n", "换行符"),
+    ("\r", "回车符"),
+]
+
+
 def _is_dangerous_command(command: str) -> Optional[str]:
+    """检测命令是否为高危命令
+
+    两层检测：
+    1. 前缀匹配：命令以已知高危前缀开头
+    2. 链式调用检测：命令包含 ;, &&, ||, |, $() 等分隔符
+       （防止 "echo test; rm -rf /" 类绕过）
+    """
+    # 1. 前缀匹配
     for prefix in DANGEROUS_PREFIXES:
         if command.startswith(prefix):
             return prefix
+
+    # 2. 链式调用检测 — 任何包含命令分隔符的命令都需要用户确认
+    for pattern, label in _COMMAND_CHAIN_PATTERNS:
+        if pattern in command:
+            return f"chain:{label}"
+
     return None
 
 

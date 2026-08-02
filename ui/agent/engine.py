@@ -226,6 +226,10 @@ def _is_dangerous_command(command: str) -> Optional[str]:
     for prefix in DANGEROUS_PREFIXES:
         if command.startswith(prefix):
             return prefix
+    # 链式调用检测 — 防止通过 ;, &&, ||, | 等分隔符绕过前缀黑名单
+    for pattern in (";", "&&", "||", "|", "$(", "`", "\n", "\r"):
+        if pattern in command:
+            return f"chain:{pattern}"
     return None
 
 
@@ -244,7 +248,8 @@ def _exec_command(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str
     dangerous_prefix = _is_dangerous_command(command)
     if dangerous_prefix:
         logger.warning(f"[Agent] 检测到高危命令: '{command}' (匹配前缀: '{dangerous_prefix}')")
-        return f"{DANGEROUS_MARKER}|{path}|{command}"
+        payload = json.dumps({"path": path, "command": command}, ensure_ascii=False)
+        return f"{DANGEROUS_MARKER}|{payload}"
 
     return _run_command(path, command)
 

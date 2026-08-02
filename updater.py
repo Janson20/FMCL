@@ -226,6 +226,32 @@ def find_suitable_asset(assets: list) -> Optional[Dict[str, Any]]:
     return candidates[0][1]
 
 
+def _fetch_expected_sha256(tag_name: str, filename: str) -> Optional[str]:
+    """尝试从 release assets 中获取预期 SHA-256 值
+
+    依次尝试:
+    1. 代理 API 的 checksums 字段
+    2. 下载 SHA256SUMS 文件
+    """
+    # 尝试从代理获取 checksums
+    try:
+        checksums_url = f"{PROXY_DOWNLOAD_URL}/{tag_name}/SHA256SUMS"
+        headers = {"User-Agent": f"FMCL/{get_current_version()} ({platform.system()}; {platform.machine()})"}
+        resp = requests.get(checksums_url, timeout=10, headers=headers)
+        if resp.status_code == 200:
+            for line in resp.text.strip().splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    expected_hash = parts[0].lower()
+                    listed_file = parts[-1].lstrip("*")  # GNU coreutils format: *filename
+                    if listed_file.lower() == filename.lower():
+                        return expected_hash
+    except Exception as e:
+        logger.debug(f"获取 SHA256SUMS 失败: {e}")
+
+    return None
+
+
 def download_update(
     asset: Dict[str, Any], tag_name: str = "", progress_callback: Optional[Callable[[int, int], None]] = None
 ) -> Optional[str]:
@@ -290,9 +316,33 @@ def download_update(
             slog.error("update_install_failed", failure_stage="verify_size", error="size_mismatch")
             return None
 
-        logger.info(f"更新下载完成: {save_path} (SHA256: {sha256_hash.hexdigest()})")
+        computed_sha256 = sha256_hash.hexdigest()
+
+        # 尝试获取预期哈希值并校验
+        if tag_name:
+            expected_sha256 = _fetch_expected_sha256(tag_name, filename)
+            if expected_sha256:
+                if computed_sha256.lower() != expected_sha256.lower():
+                    os.unlink(save_path)
+                    logger.error(
+                        f"更新文件 SHA-256 校验失败!\n"
+                        f"  期望: {expected_sha256}\n"
+                        f"  实际: {computed_sha256}"
+                    )
+                    slog.error(
+                        "update_hash_mismatch",
+                        expected=expected_sha256,
+                        actual=computed_sha256,
+                        filename=filename,
+                    )
+                    return None
+                logger.info("更新文件 SHA-256 校验通过")
+            else:
+                logger.warning("未找到 SHA256SUMS 文件，跳过哈希校验（请手动验证完整性）")
+
+        logger.info(f"更新下载完成: {save_path} (SHA256: {computed_sha256})")
         slog.info(
-            "update_download_complete", installer_path=save_path, size_bytes=downloaded, sha256=sha256_hash.hexdigest()
+            "update_download_complete", installer_path=save_path, size_bytes=downloaded, sha256=computed_sha256
         )
         return save_path
 

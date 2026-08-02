@@ -72,9 +72,10 @@ class PluginInstaller:
         try:
             with zipfile.ZipFile(fmpl_path, "r") as zf:
                 # 安全检查: Zip Slip 防护
+                extract_resolved = extract_temp.resolve()
                 for member in zf.namelist():
                     resolved = (extract_temp / member).resolve()
-                    if not str(resolved).startswith(str(extract_temp.resolve())):
+                    if not resolved.is_relative_to(extract_resolved):
                         return False, f"检测到 Zip Slip 攻击: {member}"
                 zf.extractall(extract_temp)
 
@@ -100,6 +101,11 @@ class PluginInstaller:
                 shutil.rmtree(target_dir, ignore_errors=True)
             shutil.move(str(extract_temp), str(target_dir))
 
+            # 7. 保存插件指纹（用于加载时完整性校验）
+            from plugin_manager.loader import save_plugin_fingerprint
+
+            save_plugin_fingerprint(self._installed_dir, safe_plugin_id, target_dir)
+
             logger.info(f"插件安装成功: {plugin_id} v{manifest.version}")
             return True, ""
 
@@ -114,7 +120,8 @@ class PluginInstaller:
 
     def uninstall(self, plugin_id: str) -> Tuple[bool, str]:
         """卸载插件（完全删除 installed/ 中的目录）"""
-        target_dir = self._installed_dir / plugin_id
+        safe_plugin_id = self._sanitize_id(plugin_id)
+        target_dir = self._installed_dir / safe_plugin_id
         if not target_dir.exists():
             return False, f"插件目录不存在: {target_dir}"
 
@@ -128,8 +135,9 @@ class PluginInstaller:
 
     def disable(self, plugin_id: str) -> Tuple[bool, str]:
         """禁用插件（移动到 disabled/ 目录）"""
-        src = self._installed_dir / plugin_id
-        dst = self._disabled_dir / plugin_id
+        safe_plugin_id = self._sanitize_id(plugin_id)
+        src = self._installed_dir / safe_plugin_id
+        dst = self._disabled_dir / safe_plugin_id
         if not src.exists():
             return False, f"插件目录不存在: {src}"
 
@@ -145,8 +153,9 @@ class PluginInstaller:
 
     def enable(self, plugin_id: str) -> Tuple[bool, str]:
         """启用插件（从 disabled/ 移回 installed/）"""
-        src = self._disabled_dir / plugin_id
-        dst = self._installed_dir / plugin_id
+        safe_plugin_id = self._sanitize_id(plugin_id)
+        src = self._disabled_dir / safe_plugin_id
+        dst = self._installed_dir / safe_plugin_id
         if not src.exists():
             return False, f"已禁用的插件目录不存在: {src}"
 

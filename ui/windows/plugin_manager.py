@@ -409,7 +409,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
                         if not dialog.get_result():
                             self._set_status(_("plugin_permission_denied"))
                             return
-                        self._pm.grant_all_permissions(plugin_id)
+                        self._pm.grant_manifest_permissions(plugin_id)
 
                 ok, msg = self._pm.enable_plugin(plugin_id)
                 self._set_status(f"{_('plugin_state_enabled')}: {plugin_id}" if ok else msg)
@@ -454,7 +454,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
             self, plugin_name=plugin_id, permissions=permissions, title=_("plugin_permissions_manage")
         )
         if dialog.get_result():
-            self._pm.grant_all_permissions(plugin_id)
+            self._pm.grant_manifest_permissions(plugin_id)
             self._set_status(_("plugin_permission_granted"))
         else:
             self._set_status(_("plugin_permission_unchanged"))
@@ -512,7 +512,7 @@ class PluginManagerWindow(ctk.CTkToplevel):
             ok, msg = self._pm.install_from_file(filepath, plugin_id)
             if ok:
                 if permissions:
-                    self._pm.grant_all_permissions(plugin_id)
+                    self._pm.grant_manifest_permissions(plugin_id)
                 self._set_status(_("plugin_install_success", name=data.get("name", plugin_id)))
             else:
                 self._set_status(f"{_('error')}: {msg}")

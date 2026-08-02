@@ -506,7 +506,6 @@ def _do_predownload_check(app):
 def _parse_cli_args():
     """解析命令行参数，支持以下 CLI 模式:
 
-      python main.py login -name <username> -pwd <password>
       python main.py login -name <username>
       python main.py -agent <指令>
       python main.py -A <指令>
@@ -520,7 +519,7 @@ def _parse_cli_args():
     while i < len(args):
         arg = args[i]
         if arg == "login":
-            username, password = None, None
+            username = None
             j = i + 1
             while j < len(args):
                 if args[j] in ("-name", "--name"):
@@ -531,18 +530,18 @@ def _parse_cli_args():
                         _print_cli_error("缺少用户名参数")
                         sys.exit(1)
                 elif args[j] in ("-pwd", "--pwd", "-password", "--password"):
+                    _print_cli_error("-pwd 参数已弃用（密码在进程列表中可见，不安全）")
+                    _print_cli_error("请使用交互方式输入密码（程序会提示输入）")
                     if j + 1 < len(args):
-                        password = args[j + 1]
-                        j += 2
+                        j += 2  # 跳过密码值，不再读取
                     else:
-                        _print_cli_error("缺少密码参数")
-                        sys.exit(1)
+                        j += 1
                 else:
                     break
             if not username:
-                _print_cli_error("用法: python main.py login -name <用户名> -pwd <密码>")
+                _print_cli_error("用法: python main.py login -name <用户名>")
                 sys.exit(1)
-            return "login", (username, password)
+            return "login", (username, None)  # password 始终为 None，由 run_login 通过 getpass 获取
         if arg in ("-A", "-agent", "--agent"):
             if i + 1 < len(args) and not args[i + 1].startswith("-"):
                 return "agent", args[i + 1]

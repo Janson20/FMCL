@@ -1,6 +1,8 @@
 """插件加载器 - 从 installed/ 目录扫描并动态加载插件"""
 
+import hashlib
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -10,6 +12,69 @@ from logzero import logger
 from plugin_manager.base import PluginBase, PluginState
 from plugin_manager.manifest import PluginManifest
 
+# 指纹文件名
+_FINGERPRINT_FILE = "_fingerprints.json"
+
+
+def _compute_plugin_fingerprint(plugin_dir: Path) -> str:
+    """计算插件目录中所有 .py 文件的 SHA-256 聚合指纹
+
+    将所有 .py 文件按文件名排序后拼接哈希，作为插件完整性指纹。
+    """
+    py_files = sorted(plugin_dir.rglob("*.py"))
+    h = hashlib.sha256()
+    for f in py_files:
+        # 包含相对路径以确保文件结构变化也能被检测
+        rel = f.relative_to(plugin_dir)
+        h.update(str(rel).encode("utf-8"))
+        h.update(f.read_bytes())
+    return h.hexdigest()
+
+
+def save_plugin_fingerprint(plugins_dir: Path, plugin_id: str, plugin_dir: Path) -> None:
+    """安装时保存插件指纹"""
+    fp_file = plugins_dir / _FINGERPRINT_FILE
+    fingerprints = {}
+    if fp_file.exists():
+        try:
+            fingerprints = json.loads(fp_file.read_text(encoding="utf-8"))
+        except Exception:
+            fingerprints = {}
+    fingerprints[plugin_id] = _compute_plugin_fingerprint(plugin_dir)
+    fp_file.write_text(json.dumps(fingerprints, indent=2, ensure_ascii=False), encoding="utf-8")
+    logger.debug(f"已保存插件指纹: {plugin_id}")
+
+
+def verify_plugin_fingerprint(plugins_dir: Path, plugin_id: str, plugin_dir: Path) -> Tuple[bool, str]:
+    """加载前验证插件完整性
+
+    Returns:
+        (是否通过, 错误信息)
+    """
+    fp_file = plugins_dir / _FINGERPRINT_FILE
+    if not fp_file.exists():
+        # 无指纹文件 — 可能是旧版安装，允许加载但记录警告
+        logger.warning(f"插件指纹文件不存在，跳过完整性校验: {plugin_id}")
+        return True, ""
+
+    try:
+        fingerprints = json.loads(fp_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.warning(f"读取插件指纹文件失败: {e}")
+        return True, ""
+
+    stored = fingerprints.get(plugin_id)
+    if stored is None:
+        # 该插件无指纹记录（可能是手动放入目录的）
+        logger.warning(f"插件无指纹记录，跳过完整性校验: {plugin_id}")
+        return True, ""
+
+    current = _compute_plugin_fingerprint(plugin_dir)
+    if current != stored:
+        return False, f"插件文件完整性校验失败 (SHA-256 不匹配)，文件可能被篡改"
+
+    return True, ""
+
 
 class PluginLoader:
     """插件加载器
@@ -17,6 +82,7 @@ class PluginLoader:
     负责:
         - 扫描 installed/ 目录发现所有插件
         - 读取 plugin.json 并校验
+        - 加载前验证插件完整性（SHA-256 指纹）
         - 通过 importlib 动态加载插件模块
         - 实例化 PluginBase 子类并注入属性
     """
@@ -75,6 +141,12 @@ class PluginLoader:
 
         if not entry_path.exists():
             return None, f"入口模块 {entry_module}.py 不存在"
+
+        # 完整性校验：验证插件文件指纹
+        fp_ok, fp_err = verify_plugin_fingerprint(self._plugins_dir, manifest.id, plugin_dir)
+        if not fp_ok:
+            logger.error(f"插件完整性校验失败: {manifest.id} — {fp_err}")
+            return None, fp_err
 
         # 构造唯一的模块名（防止同名插件冲突）
         safe_id = manifest.id.replace(".", "_").replace("-", "_")

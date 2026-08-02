@@ -43,7 +43,10 @@ def check_path_inside_minecraft_directory(minecraft_directory: str | os.PathLike
     """
     Raises a FileOutsideMinecraftDirectory if the Path is not in the given Directory
     """
-    if not os.path.abspath(path).startswith(os.path.abspath(minecraft_directory)):
+    base = os.path.abspath(minecraft_directory)
+    target = os.path.abspath(path)
+    # 使用 os.sep 后缀防止前缀匹配绕过（如 .minecraft_evil 通过 .minecraft 检查）
+    if not (target == base or target.startswith(base + os.sep)):
         raise FileOutsideMinecraftDirectory(os.path.abspath(path), os.path.abspath(minecraft_directory))
 
 

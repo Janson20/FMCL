@@ -117,14 +117,25 @@ class ToolRegistry:
 
         # 检查是否需要用户确认
         if result_text.startswith(DANGEROUS_MARKER):
-            parts = result_text.split("|", 2)
-            if len(parts) >= 3:
+            rest = result_text[len(DANGEROUS_MARKER) + 1:]
+            try:
+                payload = json.loads(rest)
                 return ToolResult(
                     success=False,
                     text=result_text,
                     needs_user_confirm="dangerous_command",
-                    confirm_data={"path": parts[1], "command": parts[2]},
+                    confirm_data={"path": payload.get("path", ""), "command": payload.get("command", "")},
                 )
+            except (json.JSONDecodeError, TypeError):
+                # 兼容旧格式: __DANGEROUS__|path|command
+                parts = result_text.split("|", 2)
+                if len(parts) >= 3:
+                    return ToolResult(
+                        success=False,
+                        text=result_text,
+                        needs_user_confirm="dangerous_command",
+                        confirm_data={"path": parts[1], "command": parts[2]},
+                    )
 
         if result_text.startswith(ASK_USER_MARKER):
             rest = result_text[len(ASK_USER_MARKER) + 1 :]

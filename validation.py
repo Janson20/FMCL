@@ -98,7 +98,7 @@ def safe_path_join(base_dir: Path, user_input: str) -> Optional[Path]:
     try:
         resolved = (base_dir.resolve() / user_input).resolve()
         base_resolved = base_dir.resolve()
-        if not str(resolved).startswith(str(base_resolved)):
+        if not resolved.is_relative_to(base_resolved):
             logger.warning(f"检测到路径穿越尝试: {user_input}")
             return None
         return resolved
