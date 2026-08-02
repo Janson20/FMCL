@@ -377,7 +377,7 @@ class ToolsTabMixin(object):
             {"role": "system", "content": self._QUIZ_SYSTEM_PROMPT},
             {"role": "user", "content": "请生成 20 道 Minecraft 知识选择题（JSON 格式）。"},
         ]
-        resp = provider.chat(messages, stream=False)
+        resp = provider.chat(messages)
         content = resp.get("content", "")
         if not content:
             raise ValueError("AI 返回内容为空")
