@@ -55,6 +55,7 @@ MICROSOFT_REDIRECT_URI = "http://localhost:8080"
 MICROSOFT_REDIRECT_PORTS = [8080, 8081, 8082, 8083, 8084]
 
 AUTHLIB_INJECTOR_VERSION = "1.2.5"
+AUTHLIB_INJECTOR_SHA256 = "b620507312c5e97566a3c6cfaf99144fefc18a0da7d941401dfa0f5f58fb0368"
 AUTHLIB_INJECTOR_URL = "https://pysio.online/static/mirror/authlib-injector/authlib-injector-{version}.jar"
 AUTHLIB_INJECTOR_MIRRORS = [
     "https://authlib-injector.yushi.moe/artifact/{version}/authlib-injector-{version}.jar",
@@ -181,10 +182,13 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
             )
             self.wfile.write(html.encode("utf-8"))
         else:
+            import html as _html
+
             error_desc = query_params.get("error_description", ["\u672a\u77e5\u9519\u8bef"])[0]
+            safe_desc = _html.escape(error_desc)
             html = (
                 "<html><head><meta charset='utf-8'></head><body>"
-                f"<h1>\u767b\u5f55\u5931\u8d25</h1><p>{error_desc}</p>"
+                f"<h1>\u767b\u5f55\u5931\u8d25</h1><p>{safe_desc}</p>"
                 "</body></html>"
             )
             self.wfile.write(html.encode("utf-8"))
@@ -599,21 +603,49 @@ class AuthlibInjectorManager:
         urls = [AUTHLIB_INJECTOR_URL.format(version=AUTHLIB_INJECTOR_VERSION)]
         urls.extend(m.format(version=AUTHLIB_INJECTOR_VERSION) for m in AUTHLIB_INJECTOR_MIRRORS)
 
+        import tempfile
+
         for url in urls:
+            tmp_path = None
             try:
                 if status_callback:
                     status_callback(f"\u6b63\u5728\u4e0b\u8f7d authlib-injector...")
                 logger.info(f"\u4e0b\u8f7d authlib-injector: {url}")
                 resp = requests.get(url, headers=_build_ua_header(), timeout=60, stream=True)
                 if resp.status_code == 200:
-                    with open(self._jar_path, "wb") as f:
+                    fd, tmp_path = tempfile.mkstemp(
+                        dir=str(self._injector_dir), suffix=".jar.tmp"
+                    )
+                    with os.fdopen(fd, "wb") as f:
                         for chunk in resp.iter_content(chunk_size=8192):
                             f.write(chunk)
+
+                    sha256 = hashlib.sha256()
+                    with open(tmp_path, "rb") as f:
+                        for chunk in iter(lambda: f.read(65536), b""):
+                            sha256.update(chunk)
+                    actual_hash = sha256.hexdigest()
+
+                    if actual_hash != AUTHLIB_INJECTOR_SHA256:
+                        logger.error(
+                            f"authlib-injector \u6821\u9a8c\u5931\u8d25: "
+                            f"expected={AUTHLIB_INJECTOR_SHA256}, got={actual_hash}"
+                        )
+                        os.unlink(tmp_path)
+                        tmp_path = None
+                        continue
+
+                    os.replace(tmp_path, str(self._jar_path))
                     logger.info(f"authlib-injector \u4e0b\u8f7d\u5b8c\u6210: {self._jar_path}")
                     return True
             except Exception as e:
                 logger.debug(f"authlib-injector \u4e0b\u8f7d\u5931\u8d25 ({url}): {e}")
-                continue
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
 
         logger.error("authlib-injector \u4e0b\u8f7d\u5931\u8d25\uff0c\u6240\u6709\u955c\u50cf\u5747\u4e0d\u53ef\u7528")
         return False

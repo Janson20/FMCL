@@ -195,9 +195,14 @@ class Predownloader:
 
             with rarfile.RarFile(str(rar_path)) as rf:
                 total_files = len(rf.namelist())
+                abs_dest = os.path.abspath(str(dest_dir))
                 for i, name in enumerate(rf.namelist()):
                     if self._cancel_event.is_set():
                         return
+                    extracted_path = os.path.abspath(os.path.join(str(dest_dir), name))
+                    if not extracted_path.startswith(abs_dest + os.sep) and extracted_path != abs_dest:
+                        logger.warning(f"跳过越界文件: {name}")
+                        continue
                     rf.extract(name, str(dest_dir))
                     if self._progress_callback:
                         pct = int((i + 1) / total_files * 100)
