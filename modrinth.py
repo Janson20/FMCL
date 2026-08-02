@@ -1921,7 +1921,7 @@ def ai_expand_search_keywords(query: str, token: str) -> List[str]:
     Returns:
         优化后的英文关键词列表，失败时返回仅含原始 query 的列表
     """
-    from ui.agent.provider import AIProvider
+    from ui.agent.providers.jingdu import JingduProvider
 
     if not query or not query.strip():
         return [query]
@@ -1940,7 +1940,7 @@ def ai_expand_search_keywords(query: str, token: str) -> List[str]:
     )
 
     try:
-        provider = AIProvider(api_key=token)
+        provider = JingduProvider(api_key=token)
         response_dict = provider.chat([{"role": "user", "content": prompt}])
         response = (response_dict.get("content") or "").strip()
 

@@ -370,9 +370,9 @@ class ToolsTabMixin(object):
         if not token:
             raise ValueError(_("tool_quiz_not_logged_in"))
 
-        from ui.agent.provider import AIProvider
+        from ui.agent.providers.jingdu import JingduProvider
 
-        provider = AIProvider(api_key=token)
+        provider = JingduProvider(api_key=token)
         messages = [
             {"role": "system", "content": self._QUIZ_SYSTEM_PROMPT},
             {"role": "user", "content": "请生成 20 道 Minecraft 知识选择题（JSON 格式）。"},
