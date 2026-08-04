@@ -982,43 +982,87 @@ class ModBrowserWindow(ctk.CTkToplevel):
             logger.error(f"安装光影失败: {e}")
 
     def _get_mods_dir(self) -> str:
-        mc_dir = Path(".")
-        if "get_minecraft_dir" in self.callbacks:
-            mc_dir = Path(self.callbacks["get_minecraft_dir"]())
-
-        from version_utils import has_mod_loader
-
-        if self.version_id and has_mod_loader(self.version_id):
-            version_dir = mc_dir / "versions" / self.version_id / "mods"
-            return str(version_dir)
-
-        return str(mc_dir / "mods")
+        return self._resolve_install_dir(self.TAB_MODS)
 
     def _get_resourcepacks_dir(self) -> str:
-        mc_dir = Path(".")
-        if "get_minecraft_dir" in self.callbacks:
-            mc_dir = Path(self.callbacks["get_minecraft_dir"]())
-
-        from version_utils import has_mod_loader
-
-        if self.version_id and has_mod_loader(self.version_id):
-            version_dir = mc_dir / "versions" / self.version_id / "resourcepacks"
-            return str(version_dir)
-
-        return str(mc_dir / "resourcepacks")
+        return self._resolve_install_dir(self.TAB_RESOURCE_PACKS)
 
     def _get_shaderpacks_dir(self) -> str:
+        return self._resolve_install_dir(self.TAB_SHADERS)
+
+    def _resolve_install_dir(self, tab_key: str) -> str:
+        """解析安装目标目录
+
+        依据当前筛选的游戏版本/加载器，在已安装版本中查找匹配实例：
+        - 命中 → .minecraft/versions/<实例文件夹>/mods|resourcepacks|shaderpacks
+        - 未命中或未指定筛选 → .minecraft 根目录下的全局资源目录
+        """
         mc_dir = Path(".")
         if "get_minecraft_dir" in self.callbacks:
             mc_dir = Path(self.callbacks["get_minecraft_dir"]())
 
-        from version_utils import has_mod_loader
+        subdirs = {
+            self.TAB_MODS: "mods",
+            self.TAB_RESOURCE_PACKS: "resourcepacks",
+            self.TAB_SHADERS: "shaderpacks",
+        }
+        sub = subdirs.get(tab_key, "mods")
 
-        if self.version_id and has_mod_loader(self.version_id):
-            version_dir = mc_dir / "versions" / self.version_id / "shaderpacks"
-            return str(version_dir)
+        target_version = self._get_selected_version(tab_key) or self._game_version
+        target_loader = self._get_selected_loader(tab_key) if tab_key == self.TAB_MODS else None
 
-        return str(mc_dir / "shaderpacks")
+        folder = self._match_installed_instance(target_version, target_loader)
+        if folder:
+            return str(mc_dir / "versions" / folder / sub)
+        return str(mc_dir / sub)
+
+    def _match_installed_instance(self, game_version: Optional[str], mod_loader: Optional[str]) -> Optional[str]:
+        """在已安装版本中查找与目标版本/加载器匹配的实例文件夹名
+
+        优先级:
+        1. 窗口来源版本自身（filter 与来源一致时直接命中）
+        2. 版本+加载器精确匹配的实例
+        3. 仅版本匹配的实例（偏好带加载器的实例）
+
+        Args:
+            game_version: 目标游戏版本（如 "1.20.4"），None 表示不筛选
+            mod_loader: 目标加载器（如 "forge"），None 表示不筛选
+
+        Returns:
+            实例文件夹名（版本 ID），未找到返回 None
+        """
+        if not game_version:
+            return None
+
+        try:
+            installed = self.callbacks.get("get_installed_versions", lambda: [])()
+        except Exception as e:
+            logger.warning(f"获取已安装版本失败: {e}")
+            installed = []
+
+        exact: List[str] = []
+        version_only: List[str] = []
+        for inst in installed:
+            folder = getattr(inst, "folder_name", "") or ""
+            if not folder or getattr(inst, "vanilla_name", "") != game_version:
+                continue
+            if mod_loader:
+                if getattr(inst, "loader_type", None) == mod_loader:
+                    exact.append(folder)
+            else:
+                version_only.append(folder)
+
+        if exact:
+            if self.version_id in exact:
+                return self.version_id
+            return exact[0]
+        if version_only:
+            # 偏好带加载器的实例（资源按实例目录存放）
+            for inst in installed:
+                if getattr(inst, "folder_name", "") in version_only and getattr(inst, "has_loader", False):
+                    return inst.folder_name
+            return version_only[0]
+        return None
 
     @staticmethod
     def _format_downloads(count: int) -> str:
