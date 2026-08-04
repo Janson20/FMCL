@@ -107,6 +107,68 @@ class ToolsTabMixin(object):
             card, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_secondary"]
         )
 
+        settings = ctk.CTkFrame(card, fg_color="transparent")
+        settings.pack(fill=ctk.X, padx=16, pady=(0, 8))
+
+        folder_row = ctk.CTkFrame(settings, fg_color="transparent")
+        folder_row.pack(fill=ctk.X, pady=(0, 6))
+
+        ctk.CTkLabel(
+            folder_row,
+            text=_("tool_clean_junk_folder"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_secondary"],
+        ).pack(side=ctk.LEFT, padx=(0, 6))
+
+        self._clean_junk_folder_entry = ctk.CTkEntry(
+            folder_row,
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_medium"],
+            border_color=COLORS["card_border"],
+        )
+        self._clean_junk_folder_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(0, 6))
+        self._clean_junk_folder_entry.insert(0, str(self._get_minecraft_dir_for_tools()))
+
+        ctk.CTkButton(
+            folder_row,
+            text="📂",
+            width=36,
+            height=32,
+            font=ctk.CTkFont(size=14),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_browse_clean_junk_folder,
+        ).pack(side=ctk.RIGHT)
+
+        depth_row = ctk.CTkFrame(settings, fg_color="transparent")
+        depth_row.pack(fill=ctk.X)
+
+        ctk.CTkLabel(
+            depth_row,
+            text=_("tool_clean_junk_depth"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_secondary"],
+        ).pack(side=ctk.LEFT, padx=(0, 6))
+
+        self._clean_junk_depth_entry = ctk.CTkEntry(
+            depth_row,
+            width=70,
+            height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_medium"],
+            border_color=COLORS["card_border"],
+        )
+        self._clean_junk_depth_entry.insert(0, "5")
+        self._clean_junk_depth_entry.pack(side=ctk.LEFT)
+
+        ctk.CTkLabel(
+            settings,
+            text=_("tool_clean_junk_skip_hint"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        ).pack(anchor=ctk.W, pady=(6, 0))
+
         btn_row = ctk.CTkFrame(card, fg_color="transparent")
         btn_row.pack(fill=ctk.X, padx=16, pady=(0, 14))
 
@@ -122,17 +184,219 @@ class ToolsTabMixin(object):
         )
         self._clean_junk_btn.pack(side=ctk.LEFT)
 
+        self._clean_junk_list_frame = ctk.CTkScrollableFrame(
+            card, height=160, fg_color=COLORS["bg_medium"], corner_radius=8
+        )
+
+        self._clean_junk_selected_label = ctk.CTkLabel(
+            card, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLORS["text_secondary"]
+        )
+
+        self._clean_junk_dirs = {}
+        self._clean_junk_base = ""
+
+    def _refresh_junk_selection(self):
+        count = 0
+        size = 0
+        for info in self._clean_junk_dirs.values():
+            for fp, (cb, _row, file_size) in info["files"].items():
+                if cb.get():
+                    count += 1
+                    size += file_size
+        self._clean_junk_selected_label.configure(
+            text=_("tool_clean_junk_selected", count=count, size=_format_size(size))
+        )
+
+    def _sync_junk_dir_checkbox(self, dir_key: str):
+        info = self._clean_junk_dirs[dir_key]
+        files = info["files"]
+        if files and all(cb.get() for cb, _row, _size in files.values()):
+            info["dir_cb"].select()
+        else:
+            info["dir_cb"].deselect()
+
+    def _set_junk_dir_files_state(self, dir_key: str, checked: bool):
+        info = self._clean_junk_dirs[dir_key]
+        for cb, _row, _size in info["files"].values():
+            if checked:
+                cb.select()
+            else:
+                cb.deselect()
+
+    def _on_junk_file_toggle(self, dir_key: str):
+        self._sync_junk_dir_checkbox(dir_key)
+        self._refresh_junk_selection()
+
+    def _on_junk_dir_toggle(self, dir_key: str):
+        info = self._clean_junk_dirs[dir_key]
+        self._set_junk_dir_files_state(dir_key, bool(info["dir_cb"].get()))
+        self._refresh_junk_selection()
+
+    def _toggle_junk_dir_expand(self, dir_key: str):
+        info = self._clean_junk_dirs[dir_key]
+        info["expanded"] = not info["expanded"]
+        if info["expanded"]:
+            info["expand_btn"].configure(text="▼")
+            info["file_frame"].pack(fill=ctk.X)
+        else:
+            info["expand_btn"].configure(text="▶")
+            info["file_frame"].pack_forget()
+
+    def _add_junk_dir_row(self, dir_key: str, display: str, count: int, size: int):
+        dir_row = ctk.CTkFrame(self._clean_junk_list_frame, fg_color="transparent")
+        dir_row.pack(fill=ctk.X, pady=(3, 0))
+
+        expand_btn = ctk.CTkButton(
+            dir_row,
+            text="▶",
+            width=26,
+            height=22,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color="transparent",
+            hover_color=COLORS["card_border"],
+            command=lambda: self._toggle_junk_dir_expand(dir_key),
+        )
+        expand_btn.pack(side=ctk.LEFT, padx=(2, 2))
+
+        dir_cb = ctk.CTkCheckBox(
+            dir_row,
+            text="",
+            width=26,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            border_color=COLORS["card_border"],
+            command=lambda: self._on_junk_dir_toggle(dir_key),
+        )
+        dir_cb.select()
+        dir_cb.pack(side=ctk.LEFT, padx=(4, 6))
+
+        ctk.CTkLabel(
+            dir_row,
+            text=display,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLORS["text_primary"],
+            wraplength=380,
+            justify=ctk.LEFT,
+            anchor=ctk.W,
+        ).pack(side=ctk.LEFT, fill=ctk.X, expand=True)
+
+        count_label = ctk.CTkLabel(
+            dir_row,
+            text=_("tool_clean_junk_dir_files", count=count, size=_format_size(size)),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        )
+        count_label.pack(side=ctk.RIGHT, padx=(8, 4))
+
+        file_frame = ctk.CTkFrame(self._clean_junk_list_frame, fg_color="transparent")
+        self._clean_junk_dirs[dir_key] = {
+            "dir_row": dir_row,
+            "expand_btn": expand_btn,
+            "dir_cb": dir_cb,
+            "count_label": count_label,
+            "file_frame": file_frame,
+            "expanded": False,
+            "files": {},
+        }
+
+    def _add_junk_file_row(self, dir_key: str, fp: str, size: int):
+        try:
+            rel = os.path.relpath(fp, self._clean_junk_base)
+        except ValueError:
+            rel = fp
+        info = self._clean_junk_dirs[dir_key]
+        row = ctk.CTkFrame(info["file_frame"], fg_color="transparent")
+        row.pack(fill=ctk.X, pady=(1, 0))
+        cb = ctk.CTkCheckBox(
+            row,
+            text="",
+            width=26,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            border_color=COLORS["card_border"],
+            command=lambda: self._on_junk_file_toggle(dir_key),
+        )
+        cb.select()
+        cb.pack(side=ctk.LEFT, padx=(24, 6))
+        ctk.CTkLabel(
+            row,
+            text=rel,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_primary"],
+            wraplength=380,
+            justify=ctk.LEFT,
+            anchor=ctk.W,
+        ).pack(side=ctk.LEFT, fill=ctk.X, expand=True)
+        ctk.CTkLabel(
+            row,
+            text=_format_size(size),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        ).pack(side=ctk.RIGHT, padx=(8, 4))
+        info["files"][fp] = (cb, row, size)
+
+    def _clear_junk_rows(self):
+        for info in self._clean_junk_dirs.values():
+            info["dir_row"].destroy()
+            info["file_frame"].destroy()
+        self._clean_junk_dirs = {}
+
+    def _reset_clean_junk_btn(self):
+        self._clean_junk_btn.configure(
+            state=ctk.NORMAL,
+            text=_("tool_clean_junk_scan"),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_clean_junk,
+        )
+
+    def _on_browse_clean_junk_folder(self):
+        path = filedialog.askdirectory(title=_("tool_clean_junk_folder_title"), parent=self)
+        if path:
+            self._clean_junk_folder_entry.delete(0, "end")
+            self._clean_junk_folder_entry.insert(0, path)
+
+    def _is_protected_system_dir(self, path: str) -> bool:
+        sys_root = os.path.normcase(os.path.normpath(os.environ.get("SystemRoot", r"C:\Windows")))
+        p = os.path.normcase(os.path.normpath(os.path.abspath(path)))
+        return p == sys_root or p.startswith(sys_root + os.sep)
+
     def _on_clean_junk(self):
         btn = self._clean_junk_btn
+
+        scan_dir = self._clean_junk_folder_entry.get().strip()
+        if not scan_dir:
+            scan_dir = str(self._get_minecraft_dir_for_tools())
+        if not os.path.isdir(scan_dir):
+            self.set_status(_("tool_clean_junk_folder_error"), "error")
+            return
+        if self._is_protected_system_dir(scan_dir):
+            self.set_status(_("tool_clean_junk_system_dir_error"), "error")
+            return
+
+        try:
+            max_depth = int(self._clean_junk_depth_entry.get().strip())
+        except ValueError:
+            self.set_status(_("tool_clean_junk_depth_error"), "error")
+            return
+        max_depth = max(1, max_depth)
+
         btn.configure(state=ctk.DISABLED, text=_("tool_clean_junk_scanning"))
 
         def _task():
             try:
-                mc_dir = self._get_minecraft_dir_for_tools()
+                base = os.path.abspath(scan_dir)
                 junk_files = []
                 total_size = 0
 
-                for root, dirs, files in os.walk(str(mc_dir)):
+                for root, dirs, files in os.walk(base):
+                    dirs[:] = [d for d in dirs if not self._is_protected_system_dir(os.path.join(root, d))]
+                    rel = os.path.relpath(root, base)
+                    depth = 0 if rel == "." else rel.count(os.sep) + 1
+                    if depth >= max_depth:
+                        dirs[:] = []
                     for f in files:
                         if f.endswith(".log") or f.endswith(".tmp"):
                             fp = os.path.join(root, f)
@@ -143,12 +407,18 @@ class ToolsTabMixin(object):
                             junk_files.append((fp, size))
                             total_size += size
 
+                junk_files.sort(key=lambda item: item[1], reverse=True)
+
                 def _update_ui():
+                    self._clean_junk_list_frame.pack_forget()
+                    self._clean_junk_selected_label.pack_forget()
+                    self._clear_junk_rows()
+
                     if not junk_files:
                         self._clean_junk_status.configure(
                             text=_("tool_clean_junk_none"), text_color=COLORS["text_secondary"]
                         )
-                        btn.configure(state=ctk.NORMAL, text=_("tool_clean_junk_scan"))
+                        self._reset_clean_junk_btn()
                         self._clean_junk_status.pack(anchor=ctk.W, padx=16, pady=(0, 8))
                     else:
                         self._clean_junk_status.configure(
@@ -156,15 +426,36 @@ class ToolsTabMixin(object):
                             text_color=COLORS["accent"],
                         )
                         self._clean_junk_status.pack(anchor=ctk.W, padx=16, pady=(0, 8))
+                        self._clean_junk_base = base
+                        self._clean_junk_list_frame.pack(fill=ctk.X, padx=16, pady=(0, 6))
+                        dirs_map = {}
+                        for fp, size in junk_files:
+                            dirs_map.setdefault(os.path.dirname(fp), []).append((fp, size))
+                        for d, files in sorted(
+                            dirs_map.items(),
+                            key=lambda item: sum(s for _f, s in item[1]),
+                            reverse=True,
+                        ):
+                            try:
+                                rel_dir = os.path.relpath(d, base)
+                            except ValueError:
+                                rel_dir = d
+                            if rel_dir == ".":
+                                display = os.path.basename(base.rstrip(os.sep)) or base
+                            else:
+                                display = rel_dir
+                            self._add_junk_dir_row(d, display, len(files), sum(s for _f, s in files))
+                            for fp, size in files:
+                                self._add_junk_file_row(d, fp, size)
+                        self._refresh_junk_selection()
+                        self._clean_junk_selected_label.pack(anchor=ctk.W, padx=16, pady=(0, 8))
                         btn.configure(
                             state=ctk.NORMAL,
-                            text=_("tool_clean_junk_delete"),
+                            text=_("tool_clean_junk_delete_selected"),
                             fg_color=COLORS["accent"],
                             hover_color=COLORS["accent_hover"],
-                            command=self._on_delete_junk_files,
+                            command=self._on_delete_selected_junk,
                         )
-                        self._clean_junk__files = junk_files
-                        self._clean_junk__total_size = total_size
 
                 self.after(0, _update_ui)
             except Exception as e:
@@ -172,7 +463,9 @@ class ToolsTabMixin(object):
                 _scan_err = str(e)
 
                 def _error_ui():
-                    btn.configure(state=ctk.NORMAL, text=_("tool_clean_junk_scan"))
+                    self._clean_junk_list_frame.pack_forget()
+                    self._clean_junk_selected_label.pack_forget()
+                    self._reset_clean_junk_btn()
                     self._clean_junk_status.configure(
                         text=_("tool_clean_junk_error", error=_scan_err), text_color=COLORS["text_secondary"]
                     )
@@ -1186,6 +1479,15 @@ class ToolsTabMixin(object):
 
         self._coord_result_frame = ctk.CTkFrame(card, fg_color="transparent")
 
+    def _copy_result_to_clipboard(self, text: str):
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.set_status(_("tool_copy_copied"), "success")
+        except Exception as e:
+            logger.error(f"复制到剪贴板失败: {e}")
+            self.set_status(_("copy_failed", error=str(e)), "error")
+
     def _parse_coord(self, entry) -> int:
         try:
             return int(entry.get().strip())
@@ -1215,12 +1517,26 @@ class ToolsTabMixin(object):
         sep = ctk.CTkFrame(self._coord_result_frame, fg_color=COLORS["card_border"], height=1)
         sep.pack(fill=ctk.X, pady=(4, 8))
 
+        result_row = ctk.CTkFrame(self._coord_result_frame, fg_color="transparent")
+        result_row.pack(fill=ctk.X, pady=(0, 2))
+
         ctk.CTkLabel(
-            self._coord_result_frame,
+            result_row,
             text=f"{rx}, {y}, {rz}",
             font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
             text_color=COLORS["accent"],
-        ).pack(anchor=ctk.W, pady=(0, 2))
+        ).pack(side=ctk.LEFT)
+
+        ctk.CTkButton(
+            result_row,
+            text=_("tool_copy_result"),
+            width=70,
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=lambda t=f"{rx}, {y}, {rz}": self._copy_result_to_clipboard(t),
+        ).pack(side=ctk.LEFT, padx=(12, 0))
 
         ctk.CTkLabel(
             self._coord_result_frame,
@@ -1330,13 +1646,24 @@ class ToolsTabMixin(object):
                     self._hash_result_frame.pack(fill=ctk.X, padx=16, pady=(4, 12))
                     sep = ctk.CTkFrame(self._hash_result_frame, fg_color=COLORS["card_border"], height=1)
                     sep.pack(fill=ctk.X, pady=(4, 8))
+                    hash_text = f"{algo}:  {result}"
                     ctk.CTkLabel(
                         self._hash_result_frame,
-                        text=f"{algo}:  {result}",
+                        text=hash_text,
                         font=ctk.CTkFont(family=FONT_FAMILY, size=13),
                         text_color=COLORS["accent"],
                         wraplength=550,
                     ).pack(anchor=ctk.W, pady=(0, 2))
+                    ctk.CTkButton(
+                        self._hash_result_frame,
+                        text=_("tool_copy_result"),
+                        width=70,
+                        height=26,
+                        font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                        fg_color=COLORS["bg_light"],
+                        hover_color=COLORS["card_border"],
+                        command=lambda t=hash_text: self._copy_result_to_clipboard(t),
+                    ).pack(anchor=ctk.W, pady=(0, 4))
                     fname = os.path.basename(filepath)
                     ctk.CTkLabel(
                         self._hash_result_frame,
@@ -1359,10 +1686,14 @@ class ToolsTabMixin(object):
 
         threading.Thread(target=_task, daemon=True).start()
 
-    def _on_delete_junk_files(self):
-        files = getattr(self, "_clean_junk__files", [])
-        total_size = getattr(self, "_clean_junk__total_size", 0)
-        if not files:
+    def _on_delete_selected_junk(self):
+        selected = []
+        for dir_key, info in self._clean_junk_dirs.items():
+            for fp, (cb, _row, size) in info["files"].items():
+                if cb.get():
+                    selected.append((dir_key, fp, size))
+        if not selected:
+            self.set_status(_("tool_clean_junk_select_none"), "error")
             return
 
         btn = self._clean_junk_btn
@@ -1371,29 +1702,54 @@ class ToolsTabMixin(object):
         def _task():
             deleted = 0
             failed = 0
-            for fp, _ in files:
+            deleted_size = 0
+            for _dir_key, fp, size in selected:
                 try:
                     os.remove(fp)
                     deleted += 1
+                    deleted_size += size
                 except OSError as e:
                     logger.error(f"删除文件失败 {fp}: {e}")
                     failed += 1
 
             def _update_ui():
+                for dir_key, fp, _size in selected:
+                    info = self._clean_junk_dirs.get(dir_key)
+                    if info is None:
+                        continue
+                    entry = info["files"].pop(fp, None)
+                    if entry is not None:
+                        entry[1].destroy()
+                for dir_key in list(self._clean_junk_dirs.keys()):
+                    info = self._clean_junk_dirs[dir_key]
+                    if not info["files"]:
+                        info["dir_row"].destroy()
+                        info["file_frame"].destroy()
+                        del self._clean_junk_dirs[dir_key]
+                    else:
+                        dir_size = sum(s for _cb, _row, s in info["files"].values())
+                        info["count_label"].configure(
+                            text=_("tool_clean_junk_dir_files", count=len(info["files"]), size=_format_size(dir_size))
+                        )
+                        self._sync_junk_dir_checkbox(dir_key)
                 self._clean_junk_status.configure(
-                    text=_("tool_clean_junk_done", deleted=deleted, failed=failed, size=_format_size(total_size)),
+                    text=_("tool_clean_junk_done", deleted=deleted, failed=failed, size=_format_size(deleted_size)),
                     text_color=COLORS["accent"] if failed == 0 else COLORS["text_secondary"],
                 )
                 self._clean_junk_status.pack(anchor=ctk.W, padx=16, pady=(0, 8))
-                btn.configure(
-                    state=ctk.NORMAL,
-                    text=_("tool_clean_junk_scan"),
-                    fg_color=COLORS["bg_light"],
-                    hover_color=COLORS["card_border"],
-                    command=self._on_clean_junk,
-                )
-                self._clean_junk__files = []
-                self._clean_junk__total_size = 0
+                if not self._clean_junk_dirs:
+                    self._clean_junk_list_frame.pack_forget()
+                    self._clean_junk_selected_label.pack_forget()
+                    self._reset_clean_junk_btn()
+                else:
+                    self._refresh_junk_selection()
+                    btn.configure(
+                        state=ctk.NORMAL,
+                        text=_("tool_clean_junk_delete_selected"),
+                        fg_color=COLORS["accent"],
+                        hover_color=COLORS["accent_hover"],
+                        command=self._on_delete_selected_junk,
+                    )
 
             self.after(0, _update_ui)
 
