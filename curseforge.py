@@ -130,14 +130,35 @@ def is_configured() -> bool:
     return bool(CURSEFORGE_API_KEY)
 
 
+def _auth_headers(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """构建带 API Key 认证的请求头
+
+    CurseForge 的 API 与文件下载均要求携带 x-api-key，此处显式附加，
+    不依赖 session 级默认头，避免下载请求漏带认证导致 403。
+
+    Args:
+        extra: 附加请求头（如 Range）
+
+    Returns:
+        合并后的请求头字典
+    """
+    headers = {"User-Agent": CURSEFORGE_USER_AGENT}
+    if CURSEFORGE_API_KEY:
+        headers["x-api-key"] = CURSEFORGE_API_KEY
+        headers["Accept"] = "application/json"
+    if extra:
+        headers.update(extra)
+    return headers
+
+
 # ══════════════════════════════════════════════════════════════════════
 # 底层 HTTP 请求
 # ══════════════════════════════════════════════════════════════════════
 
 
 def _download_file(download_url: str, file_path: Path, timeout: int = 120) -> bool:
-    """下载文件到指定路径（支持断点续传）"""
-    headers = {}
+    """下载文件到指定路径（支持断点续传，显式携带 API Key）"""
+    headers: Dict[str, str] = {}
     existing_size = 0
     if file_path.exists():
         existing_size = file_path.stat().st_size
@@ -146,14 +167,20 @@ def _download_file(download_url: str, file_path: Path, timeout: int = 120) -> bo
 
     try:
         session = _get_session()
-        resp = session.get(download_url, headers=headers, stream=True, timeout=timeout)
+        resp = session.get(download_url, headers=_auth_headers(headers), stream=True, timeout=timeout)
 
         if resp.status_code == 416:
             logger.debug(f"文件已完整下载，跳过: {file_path.name}")
             return True
 
         if resp.status_code not in (200, 206):
-            logger.warning(f"下载失败 (HTTP {resp.status_code}): {download_url[:200]}")
+            if resp.status_code == 403 and not CURSEFORGE_API_KEY:
+                logger.warning(
+                    "下载失败 (HTTP 403): 未配置 CURSEFORGE_API_KEY，CurseForge 文件下载需要 API Key"
+                    "（申请: https://console.curseforge.com/）"
+                )
+            else:
+                logger.warning(f"下载失败 (HTTP {resp.status_code}): {download_url[:200]}")
             return False
 
         total = existing_size + int(resp.headers.get("Content-Length", 0))
@@ -523,8 +550,8 @@ def get_file_download_url(project_id: int, file_id: int) -> Optional[str]:
     """
     获取 CurseForge 文件的下载 URL
 
-    POST /v1/mods/{modId}/files/{fileId}/download-url
-    返回临时下载链接
+    官方文档该端点为 GET（"Get Mod File Download URL"，早期误用 POST 会被网关拒绝 403）；
+    失败时回退读取文件详情中的 downloadUrl 字段（参考 PCL-CE: ModComp.cs）。
 
     Args:
         project_id: 项目 ID
@@ -533,15 +560,60 @@ def get_file_download_url(project_id: int, file_id: int) -> Optional[str]:
     Returns:
         下载 URL 字符串，或 None
     """
+    session = _get_session()
+
+    # 1) 官方端点: GET /mods/{modId}/files/{fileId}/download-url
     try:
-        session = _get_session()
-        resp = session.post(f"{CURSEFORGE_API_BASE}/mods/{project_id}/files/{file_id}/download-url", timeout=15)
+        resp = session.get(
+            f"{CURSEFORGE_API_BASE}/mods/{project_id}/files/{file_id}/download-url",
+            headers=_auth_headers(),
+            timeout=15,
+        )
         resp.raise_for_status()
         data = resp.json()
-        return data.get("data", "")
+        url = data.get("data", "")
+        if url:
+            return url
+    except requests.exceptions.RequestException as e:
+        logger.debug(f"download-url 端点获取失败 (mod={project_id}, file={file_id}): {e}")
+
+    # 2) 回退: 文件详情中的 downloadUrl 字段
+    try:
+        resp = session.get(
+            f"{CURSEFORGE_API_BASE}/mods/{project_id}/files/{file_id}",
+            headers=_auth_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", {}) or {}
+        url = data.get("downloadUrl", "")
+        if url:
+            return url
     except requests.exceptions.RequestException as e:
         logger.warning(f"获取 CurseForge 下载 URL 失败 (mod={project_id}, file={file_id}): {e}")
+
+    return None
+
+
+def _build_forgecdn_url(file_id: int, filename: str) -> Optional[str]:
+    """按文件 ID 构造 forgecdn 直链（参考 PCL-CE 兜底方案）
+
+    https://edge.forgecdn.net/files/{文件ID前4位}/{文件ID其余位}/{URL编码的文件名}
+
+    Args:
+        file_id: CurseForge 文件 ID
+        filename: 文件名
+
+    Returns:
+        直链 URL，无法构造返回 None
+    """
+    import urllib.parse
+
+    fid = str(file_id)
+    if len(fid) < 5 or not filename:
         return None
+    encoded = urllib.parse.quote(filename).replace("+", "%20")
+    return f"https://edge.forgecdn.net/files/{fid[:4]}/{fid[4:]}/{encoded}"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -556,13 +628,15 @@ def download_file(
     filename: Optional[str] = None,
     expected_hash: Optional[str] = None,
     sha1: bool = True,
+    preferred_url: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """
     下载 CurseForge 文件
 
-    两步流程:
-    1. POST /mods/{id}/files/{fileId}/download-url → 获取临时下载链接
-    2. 下载文件到指定目录
+    下载 URL 获取顺序:
+    1. preferred_url（API 文件对象中的 downloadUrl 直链，避免额外请求）
+    2. GET /mods/{id}/files/{fileId}/download-url 端点
+    3. 按文件 ID 构造 forgecdn 直链（参考 PCL-CE 兜底方案）
 
     Args:
         project_id: CurseForge 项目 ID
@@ -571,12 +645,18 @@ def download_file(
         filename: 指定文件名（可选，默认从响应中读取或从 URL 推断）
         expected_hash: 期望的文件哈希值（sha1 或 md5）
         sha1: True=sha1, False=md5
+        preferred_url: API 返回的下载直链（可选）
 
     Returns:
         (success, file_path_or_error)
     """
-    # 1. 获取下载 URL
-    download_url = get_file_download_url(project_id, file_id)
+    # 1. 获取下载 URL（三级获取链）
+    download_url = preferred_url or ""
+    if not download_url:
+        download_url = get_file_download_url(project_id, file_id) or ""
+    if not download_url and filename:
+        # 兜底：端点不可用时按文件 ID 构造 forgecdn 直链（参考 PCL-CE）
+        download_url = _build_forgecdn_url(file_id, filename) or ""
     if not download_url:
         return False, "无法获取下载链接"
 
@@ -646,7 +726,10 @@ def install_mod(
     hashes = file_info.get("hashes", {})
     expected_hash = hashes.get(1)  # SHA-1 (algo=1)
 
-    return download_file(project_id, file_id, mods_dir, filename, expected_hash, sha1=True)
+    return download_file(
+        project_id, file_id, mods_dir, filename, expected_hash, sha1=True,
+        preferred_url=file_info.get("download_url", ""),
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════
