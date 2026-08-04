@@ -433,6 +433,7 @@
   "mod_browser_title_all": "📦 資源瀏覽",
   "mod_browser_header_all": "📦 資源瀏覽",
   "mod_browser_all_versions": "全部版本",
+  "mod_browser_filter_all_loaders": "全部載入器",
   "mod_browser_need_version_install": "未指定遊戲版本，無法安裝。請在已安裝版本中開啟資源瀏覽後安裝。",
   "browse_mods_all": "🧩 資源瀏覽",
   "mod_browser_tab_mods": "🧩 模組",

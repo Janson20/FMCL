@@ -898,6 +898,43 @@ def _fetch_all_game_versions() -> Dict[int, Set[int]]:
         return {}
 
 
+def get_all_game_versions() -> List[str]:
+    """
+    获取所有正式版游戏版本号列表（展平排序，最新在前）
+
+    合并旧格式 (1.X.Y) 与新格式 (YY.D.H) 版本，按版本新旧降序排列。
+
+    Returns:
+        版本号字符串列表，如 ["26.1.1", "26.1", "1.21.1", "1.21", ...]
+    """
+    legacy = _fetch_all_game_versions()
+
+    versions = set()
+    for major, minors in legacy.items():
+        for minor in minors:
+            versions.add(f"1.{major}" if minor == 0 else f"1.{major}.{minor}")
+
+    global _new_versions_cache
+    if _new_versions_cache:
+        for yy, days in _new_versions_cache.items():
+            for d, hours in days.items():
+                for h in hours:
+                    versions.add(f"{yy}.{d}" if h == 0 else f"{yy}.{d}.{h}")
+
+    from version_utils import version_to_drop
+
+    def _sort_key(v: str) -> tuple:
+        """排序键：version_to_drop 为主序，完整数字元组为次序（区分补丁版本）"""
+        parts = v.split(".")
+        try:
+            nums = tuple(int(p) for p in parts)
+        except ValueError:
+            nums = ()
+        return (version_to_drop(v), nums)
+
+    return sorted(versions, key=_sort_key, reverse=True)
+
+
 def parse_mod_loader_from_version(version_id: str) -> Optional[str]:
     """从版本 ID 中解析模组加载器类型，委托到 version_utils
 

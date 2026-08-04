@@ -433,6 +433,7 @@
   "mod_browser_title_all": "📦 リソースブラウザ",
   "mod_browser_header_all": "📦 リソースブラウザ",
   "mod_browser_all_versions": "すべてのバージョン",
+  "mod_browser_filter_all_loaders": "すべてのローダー",
   "mod_browser_need_version_install": "ゲームバージョンが指定されていないため、インストールできません。インストール済みバージョンからリソースブラウザを開いてください。",
   "browse_mods_all": "🧩 リソースブラウズ",
   "mod_browser_tab_mods": "🧩 MOD",

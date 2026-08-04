@@ -74,6 +74,20 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self.geometry(f"{w}x{h}+{x}+{y}")
 
         self._tab_states: Dict[str, Dict] = {}
+
+        # 筛选下拉选项：加载器（显示文本 → API 值）
+        loader_options = [
+            (_("mod_browser_filter_all_loaders"), None),
+            (_("mod_loader_forge"), "forge"),
+            (_("mod_loader_fabric"), "fabric"),
+            (_("mod_loader_neoforge"), "neoforge"),
+            (_("mod_loader_quilt"), "quilt"),
+        ]
+        # 默认筛选值取自窗口来源版本（如已安装版本），API 兼容映射后与选项比对
+        default_loader = self._search_loader
+        if default_loader not in [opt[1] for opt in loader_options]:
+            default_loader = None
+
         for tab_key in (self.TAB_MODS, self.TAB_RESOURCE_PACKS, self.TAB_SHADERS):
             self._tab_states[tab_key] = {
                 "current_offset": 0,
@@ -90,11 +104,23 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 "ai_search_btn": None,
                 "_ai_cached_hits": None,
                 "_cached_hits": None,  # 常规搜索缓存，用于本地分页
+                # 筛选状态
+                "version_var": None,
+                "version_menu": None,
+                "version_options": [_("mod_browser_all_versions")],
+                "default_version": self._game_version,
+                "loader_var": None,
+                "loader_menu": None,
+                "loader_options": loader_options,
+                "default_loader": default_loader,
             }
 
         self._build_ui()
 
         self._switch_to_tab(self.TAB_MODS)
+
+        # 后台加载游戏版本列表，填充筛选下拉菜单
+        self._run_in_thread(self._load_version_options)
 
     def _build_ui(self):
         main_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -199,6 +225,53 @@ class ModBrowserWindow(ctk.CTkToplevel):
         )
         ai_search_btn.pack(side=ctk.LEFT, padx=(4, 0))
         state["ai_search_btn"] = ai_search_btn
+
+        # ── 筛选区域：游戏版本（+ 模组加载器，仅模组页） ──
+        filter_frame = ctk.CTkFrame(tab_frame, fg_color="transparent")
+        filter_frame.pack(fill=ctk.X, pady=(0, 8))
+
+        default_version = state["default_version"] or _("mod_browser_all_versions")
+        version_var = ctk.StringVar(value=default_version)
+        version_menu = ctk.CTkOptionMenu(
+            filter_frame,
+            variable=version_var,
+            values=state["version_options"],
+            width=170,
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_medium"],
+            button_color=COLORS["bg_light"],
+            button_hover_color=COLORS["card_border"],
+            dropdown_fg_color=COLORS["bg_medium"],
+            dropdown_hover_color=COLORS["bg_light"],
+        )
+        version_menu.pack(side=ctk.LEFT, padx=(0, 8))
+        state["version_var"] = version_var
+        state["version_menu"] = version_menu
+
+        if tab_key == self.TAB_MODS:
+            default_loader_display = _("mod_browser_filter_all_loaders")
+            for display, loader in state["loader_options"]:
+                if loader == state["default_loader"]:
+                    default_loader_display = display
+                    break
+            loader_var = ctk.StringVar(value=default_loader_display)
+            loader_menu = ctk.CTkOptionMenu(
+                filter_frame,
+                variable=loader_var,
+                values=[display for display, _ in state["loader_options"]],
+                width=150,
+                height=30,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                fg_color=COLORS["bg_medium"],
+                button_color=COLORS["bg_light"],
+                button_hover_color=COLORS["card_border"],
+                dropdown_fg_color=COLORS["bg_medium"],
+                dropdown_hover_color=COLORS["bg_light"],
+            )
+            loader_menu.pack(side=ctk.LEFT)
+            state["loader_var"] = loader_var
+            state["loader_menu"] = loader_menu
 
         list_container = ctk.CTkFrame(tab_frame, fg_color=COLORS["card_bg"], corner_radius=10)
         list_container.pack(fill=ctk.BOTH, expand=True, pady=(0, 8))
@@ -323,8 +396,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
                 result = unified_search_mods(
                     query=state["current_query"],
-                    game_version=self._game_version,
-                    mod_loader=self._search_loader,
+                    game_version=self._get_selected_version(tab_key),
+                    mod_loader=self._get_selected_loader(tab_key),
                     offset=0,
                     limit=300,  # 请求大批量以触发多页拉取
                 )
@@ -332,13 +405,13 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 from curseforge import unified_search_resource_packs
 
                 result = unified_search_resource_packs(
-                    query=state["current_query"], game_version=self._game_version, offset=0, limit=300
+                    query=state["current_query"], game_version=self._get_selected_version(tab_key), offset=0, limit=300
                 )
             elif tab_key == self.TAB_SHADERS:
                 from curseforge import unified_search_shaders
 
                 result = unified_search_shaders(
-                    query=state["current_query"], game_version=self._game_version, offset=0, limit=300
+                    query=state["current_query"], game_version=self._get_selected_version(tab_key), offset=0, limit=300
                 )
             else:
                 return
@@ -396,8 +469,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 query=query,
                 token=token,
                 search_type=tab_key,
-                game_version=self._game_version,
-                mod_loader=self._search_loader if tab_key == self.TAB_MODS else None,
+                game_version=self._get_selected_version(tab_key),
+                mod_loader=self._get_selected_loader(tab_key) if tab_key == self.TAB_MODS else None,
                 max_per_keyword=30,
             )
 
@@ -430,6 +503,58 @@ class ModBrowserWindow(ctk.CTkToplevel):
                     ai_btn.configure(state="normal", text=_("ai_search_btn"))
                 except Exception:
                     pass
+
+    def _get_selected_version(self, tab_key: str) -> Optional[str]:
+        """获取当前筛选选中的游戏版本（未选择返回 None）"""
+        state = self._tab_states[tab_key]
+        var = state.get("version_var")
+        if var is None:
+            return state.get("default_version")
+        value = var.get()
+        if not value or value == _("mod_browser_all_versions"):
+            return None
+        return value
+
+    def _get_selected_loader(self, tab_key: str) -> Optional[str]:
+        """获取当前筛选选中的模组加载器（未选择返回 None）"""
+        state = self._tab_states[tab_key]
+        var = state.get("loader_var")
+        if var is None:
+            return state.get("default_loader")
+        value = var.get()
+        for display, loader in state.get("loader_options", []):
+            if display == value:
+                return loader
+        return None
+
+    def _load_version_options(self):
+        """后台加载游戏版本列表，填充筛选下拉菜单"""
+        try:
+            from modrinth import get_all_game_versions
+
+            versions = get_all_game_versions()
+        except Exception as e:
+            logger.debug(f"加载游戏版本列表失败: {e}")
+            versions = []
+
+        def _apply():
+            if not self.winfo_exists():
+                return
+            all_display = _("mod_browser_all_versions")
+            options = [all_display] + list(versions)
+            for tab_key, state in self._tab_states.items():
+                menu = state.get("version_menu")
+                var = state.get("version_var")
+                if menu is None or var is None:
+                    continue
+                try:
+                    menu.configure(values=options)
+                    if var.get() not in options:
+                        var.set(all_display)
+                except Exception:
+                    pass
+
+        self.after(0, _apply)
 
     def _render_tab_results(self, tab_key: str, hits: List[Dict]):
         state = self._tab_states[tab_key]
@@ -663,11 +788,10 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
     def _install_mod(self, project_id: str, title: str, source: str = "modrinth"):
         try:
-            if not self.version_id:
+            game_version = self._get_selected_version(self.TAB_MODS)
+            mod_loader = self._get_selected_loader(self.TAB_MODS)
+            if not game_version or not mod_loader:
                 self.after(0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_need_version_install")))
-                return
-            if not self._game_version or not self._search_loader:
-                self.after(0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_unknown_loader")))
                 return
 
             mods_dir = self._get_mods_dir()
@@ -676,7 +800,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 from curseforge import install_mod as cf_install
 
                 success, result = cf_install(
-                    int(project_id), game_version=self._game_version, mod_loader=self._search_loader, mods_dir=mods_dir
+                    int(project_id), game_version=game_version, mod_loader=mod_loader, mods_dir=mods_dir
                 )
                 installed_names = [title] if success else []
             else:
@@ -684,8 +808,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
                 success, result, installed_names = install_mod_with_deps(
                     project_id,
-                    game_version=self._game_version,
-                    mod_loader=self._search_loader,
+                    game_version=game_version,
+                    mod_loader=mod_loader,
                     mods_dir=mods_dir,
                     status_callback=lambda msg: self.after(0, lambda: self._set_tab_status(self.TAB_MODS, msg)),
                 )
@@ -725,20 +849,18 @@ class ModBrowserWindow(ctk.CTkToplevel):
         from modrinth import install_resource_pack
 
         try:
-            if not self.version_id:
+            game_version = self._get_selected_version(self.TAB_RESOURCE_PACKS)
+            if not game_version:
                 self.after(
                     0, lambda: self._set_tab_status(self.TAB_RESOURCE_PACKS, _("mod_browser_need_version_install"))
                 )
-                return
-            if not self._game_version:
-                self.after(0, lambda: self._set_tab_status(self.TAB_RESOURCE_PACKS, _("mod_browser_unknown_version")))
                 return
 
             rp_dir = self._get_resourcepacks_dir()
 
             success, result = install_resource_pack(
                 project_id,
-                game_version=self._game_version,
+                game_version=game_version,
                 resourcepacks_dir=rp_dir,
                 status_callback=lambda msg: self.after(0, lambda: self._set_tab_status(self.TAB_RESOURCE_PACKS, msg)),
             )
@@ -776,18 +898,16 @@ class ModBrowserWindow(ctk.CTkToplevel):
         from modrinth import install_shader
 
         try:
-            if not self.version_id:
+            game_version = self._get_selected_version(self.TAB_SHADERS)
+            if not game_version:
                 self.after(0, lambda: self._set_tab_status(self.TAB_SHADERS, _("mod_browser_need_version_install")))
-                return
-            if not self._game_version:
-                self.after(0, lambda: self._set_tab_status(self.TAB_SHADERS, _("mod_browser_unknown_version")))
                 return
 
             shader_dir = self._get_shaderpacks_dir()
 
             success, result = install_shader(
                 project_id,
-                game_version=self._game_version,
+                game_version=game_version,
                 shaderpacks_dir=shader_dir,
                 status_callback=lambda msg: self.after(0, lambda: self._set_tab_status(self.TAB_SHADERS, msg)),
             )
