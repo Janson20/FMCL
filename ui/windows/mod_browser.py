@@ -782,11 +782,47 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._render_tab_results(tab_key, page)
         self._update_tab_pagination(tab_key)
 
-    def _on_install_mod(self, project_id: str, title: str, source: str = "modrinth"):
-        self._set_tab_status(self.TAB_MODS, _("mod_browser_fetching_version", title=title))
-        self._run_in_thread(lambda: self._install_mod(project_id, title, source))
+    def _ask_install_dir(self, default_dir: str, title: str) -> Optional[str]:
+        """弹出系统文件夹选择器，初始导航到默认目录（不存在时自动创建）
 
-    def _install_mod(self, project_id: str, title: str, source: str = "modrinth"):
+        Args:
+            default_dir: 默认目标目录（如 .minecraft/versions/<版本>/mods）
+            title: 对话框标题
+
+        Returns:
+            用户选择的目录，取消返回 None
+        """
+        from tkinter import filedialog
+
+        initial = default_dir
+        if initial:
+            try:
+                Path(initial).mkdir(parents=True, exist_ok=True)
+                initial = str(Path(initial))
+            except Exception as e:
+                # 创建失败（如路径非法或父路径不可写）时回退到最近的已存在父目录
+                logger.warning(f"自动创建目录失败 ({initial}): {e}")
+                p = Path(initial)
+                while p and not p.exists():
+                    p = p.parent
+                initial = str(p) if p else None
+
+        chosen = filedialog.askdirectory(initialdir=initial, title=title, parent=self)
+        if not chosen:
+            return None
+        return chosen
+
+    def _on_install_mod(self, project_id: str, title: str, source: str = "modrinth"):
+        save_dir = self._ask_install_dir(
+            self._get_mods_dir(), _("mod_browser_select_dir", kind=_("mod_browser_tab_mods"))
+        )
+        if save_dir is None:
+            self._set_tab_status(self.TAB_MODS, _("mod_browser_install_cancelled"))
+            return
+        self._set_tab_status(self.TAB_MODS, _("mod_browser_fetching_version", title=title))
+        self._run_in_thread(lambda: self._install_mod(project_id, title, source, save_dir))
+
+    def _install_mod(self, project_id: str, title: str, source: str = "modrinth", mods_dir: Optional[str] = None):
         try:
             game_version = self._get_selected_version(self.TAB_MODS)
             mod_loader = self._get_selected_loader(self.TAB_MODS)
@@ -794,7 +830,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 self.after(0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_need_version_install")))
                 return
 
-            mods_dir = self._get_mods_dir()
+            if not mods_dir:
+                mods_dir = self._get_mods_dir()
 
             if source == "curseforge":
                 from curseforge import install_mod as cf_install
@@ -842,10 +879,16 @@ class ModBrowserWindow(ctk.CTkToplevel):
             logger.error(f"安装模组失败: {e}")
 
     def _on_install_resource_pack(self, project_id: str, title: str):
+        save_dir = self._ask_install_dir(
+            self._get_resourcepacks_dir(), _("mod_browser_select_dir", kind=_("mod_browser_tab_resourcepacks"))
+        )
+        if save_dir is None:
+            self._set_tab_status(self.TAB_RESOURCE_PACKS, _("mod_browser_install_cancelled"))
+            return
         self._set_tab_status(self.TAB_RESOURCE_PACKS, _("mod_browser_fetching_version", title=title))
-        self._run_in_thread(lambda: self._install_resource_pack(project_id, title))
+        self._run_in_thread(lambda: self._install_resource_pack(project_id, title, save_dir))
 
-    def _install_resource_pack(self, project_id: str, title: str):
+    def _install_resource_pack(self, project_id: str, title: str, rp_dir: Optional[str] = None):
         from modrinth import install_resource_pack
 
         try:
@@ -856,7 +899,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 )
                 return
 
-            rp_dir = self._get_resourcepacks_dir()
+            if not rp_dir:
+                rp_dir = self._get_resourcepacks_dir()
 
             success, result = install_resource_pack(
                 project_id,
@@ -891,10 +935,16 @@ class ModBrowserWindow(ctk.CTkToplevel):
             logger.error(f"安装资源包失败: {e}")
 
     def _on_install_shader(self, project_id: str, title: str):
+        save_dir = self._ask_install_dir(
+            self._get_shaderpacks_dir(), _("mod_browser_select_dir", kind=_("mod_browser_tab_shaders"))
+        )
+        if save_dir is None:
+            self._set_tab_status(self.TAB_SHADERS, _("mod_browser_install_cancelled"))
+            return
         self._set_tab_status(self.TAB_SHADERS, _("mod_browser_fetching_version", title=title))
-        self._run_in_thread(lambda: self._install_shader(project_id, title))
+        self._run_in_thread(lambda: self._install_shader(project_id, title, save_dir))
 
-    def _install_shader(self, project_id: str, title: str):
+    def _install_shader(self, project_id: str, title: str, shader_dir: Optional[str] = None):
         from modrinth import install_shader
 
         try:
@@ -903,7 +953,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 self.after(0, lambda: self._set_tab_status(self.TAB_SHADERS, _("mod_browser_need_version_install")))
                 return
 
-            shader_dir = self._get_shaderpacks_dir()
+            if not shader_dir:
+                shader_dir = self._get_shaderpacks_dir()
 
             success, result = install_shader(
                 project_id,
@@ -935,8 +986,9 @@ class ModBrowserWindow(ctk.CTkToplevel):
         if "get_minecraft_dir" in self.callbacks:
             mc_dir = Path(self.callbacks["get_minecraft_dir"]())
 
-        v = self.version_id.lower()
-        if any(loader in v for loader in ("forge", "fabric", "neoforge")):
+        from version_utils import has_mod_loader
+
+        if self.version_id and has_mod_loader(self.version_id):
             version_dir = mc_dir / "versions" / self.version_id / "mods"
             return str(version_dir)
 
@@ -947,8 +999,9 @@ class ModBrowserWindow(ctk.CTkToplevel):
         if "get_minecraft_dir" in self.callbacks:
             mc_dir = Path(self.callbacks["get_minecraft_dir"]())
 
-        v = self.version_id.lower()
-        if any(loader in v for loader in ("forge", "fabric", "neoforge")):
+        from version_utils import has_mod_loader
+
+        if self.version_id and has_mod_loader(self.version_id):
             version_dir = mc_dir / "versions" / self.version_id / "resourcepacks"
             return str(version_dir)
 
@@ -959,8 +1012,9 @@ class ModBrowserWindow(ctk.CTkToplevel):
         if "get_minecraft_dir" in self.callbacks:
             mc_dir = Path(self.callbacks["get_minecraft_dir"]())
 
-        v = self.version_id.lower()
-        if any(loader in v for loader in ("forge", "fabric", "neoforge")):
+        from version_utils import has_mod_loader
+
+        if self.version_id and has_mod_loader(self.version_id):
             version_dir = mc_dir / "versions" / self.version_id / "shaderpacks"
             return str(version_dir)
 

@@ -435,6 +435,8 @@
   "mod_browser_header_all": "📦 Resource Browser",
   "mod_browser_all_versions": "All Versions",
   "mod_browser_filter_all_loaders": "All Loaders",
+  "mod_browser_select_dir": "Choose save folder for {kind}",
+  "mod_browser_install_cancelled": "Installation cancelled",
   "mod_browser_need_version_install": "No game version specified; installation is unavailable. Open the resource browser from an installed version to install.",
   "browse_mods_all": "🧩 Browse Resources",
   "mod_browser_tab_mods": "🧩 Mods",
