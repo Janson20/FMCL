@@ -173,6 +173,19 @@ def _download_file(download_url: str, file_path: Path, timeout: int = 120) -> bo
             logger.debug(f"文件已完整下载，跳过: {file_path.name}")
             return True
 
+        # CurseForge CDN（mediafilez.forgecdn.net）不支持断点续传：
+        # 对带 Range 头的请求一律返回 404，删除残留文件后全量重新下载
+        if resp.status_code == 404 and "Range" in headers:
+            resp.close()
+            try:
+                file_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            logger.warning(f"目标 CDN 不支持断点续传 (HTTP 404)，改为全量下载: {file_path.name}")
+            existing_size = 0
+            headers.pop("Range", None)
+            resp = session.get(download_url, headers=_auth_headers(headers), stream=True, timeout=timeout)
+
         if resp.status_code not in (200, 206):
             if resp.status_code == 403 and not CURSEFORGE_API_KEY:
                 logger.warning(
@@ -446,8 +459,9 @@ def get_project_files(
     """
     获取 CurseForge 项目文件列表
 
-    参考 PCL-CE: 从 latestFiles + latestFilesIndexes 收集文件
-    这里的 files 包含 fileId, fileName, downloadUrl, releaseType, gameVersions 等
+    优先通过 GET /mods/{id}/files 接口按版本/加载器服务端筛选
+    （latestFiles 仅包含最近上传的几个文件，老版本兼容文件需用完整文件接口，参考 PCL-CE: ModComp.cs），
+    失败或为空时回退到 latestFiles 本地筛选。
 
     Args:
         project_id: CurseForge 项目 ID
@@ -456,8 +470,14 @@ def get_project_files(
         limit: 最大返回数量
 
     Returns:
-        文件信息列表
+        文件信息列表（含 id, file_name, download_url, release_type, game_versions 等）
     """
+    # 1) 完整文件接口 + 服务端筛选
+    files = _fetch_project_files_api(project_id, game_version, mod_loader, limit)
+    if files:
+        return files
+
+    # 2) 回退: latestFiles 本地筛选
     info = get_project_info(project_id)
     if not info:
         return []
@@ -485,28 +505,78 @@ def get_project_files(
             if file_versions and game_version not in file_versions:
                 continue
 
-        files.append(
-            {
-                "id": file_id,
-                "project_id": project_id,
-                "display_name": f.get("displayName", ""),
-                "file_name": f.get("fileName", ""),
-                "download_url": f.get("downloadUrl", ""),
-                "version": f.get("displayName", ""),
-                "release_type": FILE_STATUS_MAP.get(f.get("releaseType", 1), "release"),
-                "file_date": f.get("fileDate", ""),
-                "game_versions": f.get("gameVersions", []),
-                "loaders": [LOADER_TYPE_MAP.get(lt, str(lt)) for lt in (f.get("modLoaderTypes") or [])],
-                "download_count": f.get("downloadCount", 0),
-                "hashes": {h.get("algo", 1): h.get("value", "") for h in (f.get("hashes") or [])},
-                "source": "curseforge",
-            }
-        )
+        parsed = _parse_file_entry(project_id, f)
+        if parsed:
+            files.append(parsed)
 
         if len(files) >= limit:
             break
 
     return files
+
+
+def _fetch_project_files_api(
+    project_id: int, game_version: Optional[str], mod_loader: Optional[str], limit: int
+) -> List[Dict]:
+    """通过 GET /mods/{id}/files 服务端筛选文件（参考 PCL-CE: ModComp.cs）"""
+    params: Dict[str, str] = {"pageSize": str(min(limit, 50))}
+    if game_version:
+        params["gameVersion"] = game_version
+    if mod_loader:
+        loader_id = LOADER_NAME_TO_ID.get(mod_loader)
+        if loader_id:
+            params["modLoaderType"] = str(loader_id)
+
+    try:
+        session = _get_session()
+        resp = session.get(
+            f"{CURSEFORGE_API_BASE}/mods/{project_id}/files",
+            params=params,
+            headers=_auth_headers(),
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", []) or []
+    except requests.exceptions.RequestException as e:
+        logger.warning(
+            f"获取 CurseForge 文件列表失败 (mod={project_id}, version={game_version}, loader={mod_loader}): {e}"
+        )
+        return []
+
+    files = []
+    seen_ids = set()
+    for f in data:
+        file_id = f.get("id")
+        if file_id in seen_ids:
+            continue
+        seen_ids.add(file_id)
+
+        parsed = _parse_file_entry(project_id, f)
+        if parsed:
+            files.append(parsed)
+            if len(files) >= limit:
+                break
+
+    return files
+
+
+def _parse_file_entry(project_id: int, f: Dict) -> Optional[Dict]:
+    """将 CurseForge 文件对象标准化为统一文件信息格式"""
+    return {
+        "id": f.get("id"),
+        "project_id": project_id,
+        "display_name": f.get("displayName", ""),
+        "file_name": f.get("fileName", ""),
+        "download_url": f.get("downloadUrl", ""),
+        "version": f.get("displayName", ""),
+        "release_type": FILE_STATUS_MAP.get(f.get("releaseType", 1), "release"),
+        "file_date": f.get("fileDate", ""),
+        "game_versions": f.get("gameVersions", []),
+        "loaders": [LOADER_TYPE_MAP.get(lt, str(lt)) for lt in (f.get("modLoaderTypes") or [])],
+        "download_count": f.get("downloadCount", 0),
+        "hashes": {h.get("algo", 1): h.get("value", "") for h in (f.get("hashes") or [])},
+        "source": "curseforge",
+    }
 
 
 def get_latest_version(
@@ -515,8 +585,8 @@ def get_latest_version(
     """
     获取 CurseForge 项目的最佳兼容文件（PCL-CE 风格）
 
-    策略: 按 latestFiles 顺序（最新优先），匹配 game_version + mod_loader，
-    匹配 version_type (releaseType: 1=Release, 2=Beta, 3=Alpha)
+    策略: 通过完整文件接口（GET /mods/{id}/files）服务端筛选 game_version + mod_loader，
+    文件按上传时间倒序，匹配 version_type (releaseType: 1=Release, 2=Beta, 3=Alpha)
 
     Args:
         project_id: CurseForge 项目 ID
