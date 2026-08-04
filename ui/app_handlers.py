@@ -1667,6 +1667,10 @@ class EventHandlerMixin(object):
         """打开模组浏览窗口（从 Modrinth 搜索安装模组）"""
         ModBrowserWindow(self, version_id, self.callbacks)
 
+    def _open_mod_browser_all(self):
+        """打开不带版本/加载器筛选的模组浏览窗口（浏览全部版本资源）"""
+        ModBrowserWindow(self, None, self.callbacks)
+
     def on_closing(self):
         """窗口关闭事件"""
         # 检查 AI 是否正在处理任务

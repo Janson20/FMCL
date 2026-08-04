@@ -45,17 +45,19 @@ class ModBrowserWindow(ctk.CTkToplevel):
             return None
         return self.MOD_LOADER_COMPAT_MAP.get(self._mod_loader, self._mod_loader)
 
-    def __init__(self, parent, version_id: str, callbacks: Dict[str, Callable]):
+    def __init__(self, parent, version_id: Optional[str] = None, callbacks: Optional[Dict[str, Callable]] = None):
         super().__init__(parent)
-        self.version_id = version_id
-        self.callbacks = callbacks
+        self.version_id = version_id or ""
+        self.callbacks = callbacks or {}
 
         from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
 
-        self._mod_loader = parse_mod_loader_from_version(version_id)
-        self._game_version = parse_game_version_from_version(version_id)
+        self._mod_loader = parse_mod_loader_from_version(self.version_id) if self.version_id else None
+        self._game_version = parse_game_version_from_version(self.version_id) if self.version_id else None
 
-        self.title(_("mod_browser_title", version=version_id))
+        self.title(
+            _("mod_browser_title", version=self.version_id) if self.version_id else _("mod_browser_title_all")
+        )
         self.geometry("800x680")
         self.minsize(720, 580)
         self.configure(fg_color=COLORS["bg_dark"])
@@ -101,9 +103,12 @@ class ModBrowserWindow(ctk.CTkToplevel):
         header = ctk.CTkFrame(main_frame, fg_color="transparent")
         header.pack(fill=ctk.X, pady=(0, 10))
 
+        header_text = (
+            _("mod_browser_header", version=self.version_id) if self.version_id else _("mod_browser_header_all")
+        )
         ctk.CTkLabel(
             header,
-            text=_("mod_browser_header", version=self.version_id),
+            text=header_text,
             font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
             text_color=COLORS["text_primary"],
         ).pack(side=ctk.LEFT)
@@ -113,8 +118,12 @@ class ModBrowserWindow(ctk.CTkToplevel):
             info_parts.append(f"MC {self._game_version}")
         if self._mod_loader:
             info_parts.append(self._mod_loader.capitalize())
-        info_text = " | ".join(info_parts) if info_parts else _("mod_browser_unknown_version")
-        info_color = COLORS["success"] if info_parts else COLORS["warning"]
+        if self.version_id:
+            info_text = " | ".join(info_parts) if info_parts else _("mod_browser_unknown_version")
+            info_color = COLORS["success"] if info_parts else COLORS["warning"]
+        else:
+            info_text = _("mod_browser_all_versions")
+            info_color = COLORS["success"]
         ctk.CTkLabel(header, text=info_text, font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=info_color).pack(
             side=ctk.RIGHT
         )
@@ -654,6 +663,9 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
     def _install_mod(self, project_id: str, title: str, source: str = "modrinth"):
         try:
+            if not self.version_id:
+                self.after(0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_need_version_install")))
+                return
             if not self._game_version or not self._search_loader:
                 self.after(0, lambda: self._set_tab_status(self.TAB_MODS, _("mod_browser_unknown_loader")))
                 return
@@ -713,6 +725,11 @@ class ModBrowserWindow(ctk.CTkToplevel):
         from modrinth import install_resource_pack
 
         try:
+            if not self.version_id:
+                self.after(
+                    0, lambda: self._set_tab_status(self.TAB_RESOURCE_PACKS, _("mod_browser_need_version_install"))
+                )
+                return
             if not self._game_version:
                 self.after(0, lambda: self._set_tab_status(self.TAB_RESOURCE_PACKS, _("mod_browser_unknown_version")))
                 return
@@ -759,6 +776,9 @@ class ModBrowserWindow(ctk.CTkToplevel):
         from modrinth import install_shader
 
         try:
+            if not self.version_id:
+                self.after(0, lambda: self._set_tab_status(self.TAB_SHADERS, _("mod_browser_need_version_install")))
+                return
             if not self._game_version:
                 self.after(0, lambda: self._set_tab_status(self.TAB_SHADERS, _("mod_browser_unknown_version")))
                 return

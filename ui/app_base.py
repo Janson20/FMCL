@@ -1013,6 +1013,20 @@ class ModernAppBase(ctk.CTk):
         )
         self.version_count_label.pack(side=ctk.RIGHT)
 
+        # 模组浏览按钮（不带版本/加载器筛选，浏览全部资源）
+        self._installed_browse_btn = ctk.CTkButton(
+            title_frame,
+            text=_("browse_mods_all"),
+            width=90,
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color="transparent",
+            hover_color=COLORS["bg_light"],
+            text_color=COLORS["accent"],
+            command=self._open_mod_browser_all,
+        )
+        self._installed_browse_btn.pack(side=ctk.RIGHT, padx=(0, 8))
+
         # 设置按钮（资源管理）
         self._installed_settings_btn = ctk.CTkButton(
             title_frame,
@@ -1076,6 +1090,9 @@ class ModernAppBase(ctk.CTk):
         self._theme_refs.append((self._installed_panel, {"fg_color": "card_bg"}))
         self._theme_refs.append((self._installed_title_label, {"text_color": "text_primary"}))
         self._theme_refs.append((self.version_count_label, {"text_color": "text_secondary"}))
+        self._theme_refs.append(
+            (self._installed_browse_btn, {"hover_color": "bg_light", "text_color": "accent"})
+        )
         self._theme_refs.append(
             (self._installed_settings_btn, {"hover_color": "bg_light", "text_color": "text_secondary"})
         )
