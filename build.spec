@@ -93,6 +93,7 @@ hidden_imports = [
     'rarfile',
     'markdown',
     'tkinterweb',
+    '_build_secrets',
 ]
 
 # 平台特定导入

@@ -115,6 +115,7 @@ def _get_session() -> requests.Session:
         # 申请地址: https://console.curseforge.com/
         if CURSEFORGE_API_KEY:
             _shared_session.headers["x-api-key"] = CURSEFORGE_API_KEY
+            _shared_session.headers["Accept"] = "application/json"
         else:
             logger.warning(
                 "未设置 CURSEFORGE_API_KEY，CurseForge 功能将不可用（申请: https://console.curseforge.com/）"
@@ -226,7 +227,8 @@ def search_mods(
         {"data": [...], "pagination": {"totalCount": int, "index": int, "pageSize": int}}
     """
     params = _build_search_facets(game_version, mod_loader, CLASS_ID_MAP["mod"])
-    params["searchFilter"] = query.strip()
+    if query.strip():
+        params["searchFilter"] = query.strip()
     params["sortField"] = str(SORT_FIELD_MAP.get(sort, 2))
     params["sortOrder"] = "desc"
     params["index"] = str(offset)
@@ -236,9 +238,15 @@ def search_mods(
         session = _get_session()
         resp = session.get(f"{CURSEFORGE_API_BASE}/mods/search", params=params, timeout=15)
         resp.raise_for_status()
-        return resp.json()
+        result = resp.json()
+        logger.debug(
+            f"CF 搜索成功: query={query!r}, status={resp.status_code}, "
+            f"total={result.get('pagination', {}).get('totalCount', 0)}, "
+            f"items={len(result.get('data', []))}"
+        )
+        return result
     except requests.exceptions.RequestException as e:
-        logger.warning(f"CurseForge 搜索失败: {e}")
+        logger.warning(f"CurseForge 搜索失败 (HTTP {getattr(e, 'response', None) and e.response.status_code}): {e}")
         return {"data": [], "pagination": {"totalCount": 0, "index": offset, "pageSize": limit}}
 
 
@@ -252,7 +260,8 @@ def search_resource_packs(
 ) -> Dict:
     """搜索 CurseForge 资源包 (classId=12)"""
     params = _build_search_facets(game_version, None, CLASS_ID_MAP["resourcepack"])
-    params["searchFilter"] = query.strip()
+    if query.strip():
+        params["searchFilter"] = query.strip()
     params["sortField"] = str(SORT_FIELD_MAP["popularity"])
     params["sortOrder"] = "desc"
     params["index"] = str(offset)
@@ -262,16 +271,23 @@ def search_resource_packs(
         session = _get_session()
         resp = session.get(f"{CURSEFORGE_API_BASE}/mods/search", params=params, timeout=15)
         resp.raise_for_status()
-        return resp.json()
+        result = resp.json()
+        logger.debug(
+            f"CF 资源包搜索成功: query={query!r}, status={resp.status_code}, "
+            f"total={result.get('pagination', {}).get('totalCount', 0)}, "
+            f"items={len(result.get('data', []))}"
+        )
+        return result
     except requests.exceptions.RequestException as e:
-        logger.warning(f"CurseForge 资源包搜索失败: {e}")
+        logger.warning(f"CurseForge 资源包搜索失败 (HTTP {getattr(e, 'response', None) and e.response.status_code}): {e}")
         return {"data": [], "pagination": {"totalCount": 0}}
 
 
 def search_shaders(query: str = "", game_version: Optional[str] = None, offset: int = 0, limit: int = 20) -> Dict:
     """搜索 CurseForge 光影 (classId=6552)"""
     params = _build_search_facets(game_version, None, CLASS_ID_MAP["shader"])
-    params["searchFilter"] = query.strip()
+    if query.strip():
+        params["searchFilter"] = query.strip()
     params["sortField"] = str(SORT_FIELD_MAP["popularity"])
     params["sortOrder"] = "desc"
     params["index"] = str(offset)
@@ -281,9 +297,15 @@ def search_shaders(query: str = "", game_version: Optional[str] = None, offset: 
         session = _get_session()
         resp = session.get(f"{CURSEFORGE_API_BASE}/mods/search", params=params, timeout=15)
         resp.raise_for_status()
-        return resp.json()
+        result = resp.json()
+        logger.debug(
+            f"CF 光影搜索成功: query={query!r}, status={resp.status_code}, "
+            f"total={result.get('pagination', {}).get('totalCount', 0)}, "
+            f"items={len(result.get('data', []))}"
+        )
+        return result
     except requests.exceptions.RequestException as e:
-        logger.warning(f"CurseForge 光影搜索失败: {e}")
+        logger.warning(f"CurseForge 光影搜索失败 (HTTP {getattr(e, 'response', None) and e.response.status_code}): {e}")
         return {"data": [], "pagination": {"totalCount": 0}}
 
 
@@ -896,7 +918,7 @@ def _fetch_modrinth_batch(
 
 
 def _fetch_curseforge_batch(
-    search_fn, query: str, game_version: Optional[str], mod_loader: Optional[str] = None, target_count: int = 100
+    search_fn, query: str, game_version: Optional[str], mod_loader: Optional[str] = None, target_count: int = 200
 ) -> list:
     """
     从 CurseForge 批量拉取搜索结果（支持多页）
@@ -914,26 +936,38 @@ def _fetch_curseforge_batch(
         原始 CF 结果列表（未经 normalize）
     """
     page_size = 50  # CF 单页上限
-    all_data = []
+    max_pages = 4  # 最多拉 4 页（200 条）
+
+    def _call_search(offset_val):
+        if mod_loader is not None:
+            return search_fn(query, game_version, mod_loader, offset=offset_val, limit=page_size)
+        else:
+            return search_fn(query, game_version, offset=offset_val, limit=page_size)
 
     # 第一页
-    if mod_loader is not None:
-        first = search_fn(query, game_version, mod_loader, offset=0, limit=page_size)
-    else:
-        first = search_fn(query, game_version, offset=0, limit=page_size)
-    data = first.get("data", []) or []
-    all_data.extend(data)
+    first = _call_search(0)
+    all_data = list(first.get("data", []) or [])
+    total_count = first.get("pagination", {}).get("totalCount", 0)
+    logger.debug(
+        f"CF 批量拉取第0页: query={query!r}, loader={mod_loader!r}, "
+        f"totalCount={total_count}, items={len(all_data)}"
+    )
 
-    if len(all_data) >= target_count or len(data) < page_size:
-        return all_data
+    # 顺序翻页拉取
+    for page_idx in range(1, max_pages):
+        if len(all_data) >= target_count:
+            break
+        if len(all_data) < page_size * page_idx:
+            break
 
-    # 第二页
-    if mod_loader is not None:
-        second = search_fn(query, game_version, mod_loader, offset=page_size, limit=page_size)
-    else:
-        second = search_fn(query, game_version, offset=page_size, limit=page_size)
-    data2 = second.get("data", []) or []
-    all_data.extend(data2)
+        result = _call_search(page_size * page_idx)
+        page_data = result.get("data", []) or []
+        if not page_data:
+            break
+        all_data.extend(page_data)
+        logger.debug(
+            f"CF 批量拉取第{page_idx}页: items={len(page_data)}, accumulated={len(all_data)}"
+        )
 
     return all_data
 
@@ -975,9 +1009,11 @@ def unified_search_mods(
     # 2. CurseForge 批量拉取（最多 100 条，支持多页）
     cf_normalized = []
     if include_curseforge and is_configured():
-        cf_data = _fetch_curseforge_batch(search_mods, query, game_version, mod_loader, target_count=100)
+        cf_data = _fetch_curseforge_batch(search_mods, query, game_version, mod_loader)
         for cf_item in cf_data:
             cf_normalized.append(normalize_search_result(cf_item))
+    elif include_curseforge:
+        logger.debug("未配置 CurseForge API Key，跳过 CF 搜索")
 
     # 3. 合并去重排序
     merged = merge_and_rank(mr_normalized, cf_normalized)
@@ -1011,9 +1047,11 @@ def unified_search_resource_packs(
 
     cf_normalized = []
     if include_curseforge and is_configured():
-        cf_data = _fetch_curseforge_batch(search_resource_packs, query, game_version, None, target_count=100)
+        cf_data = _fetch_curseforge_batch(search_resource_packs, query, game_version, None)
         for cf_item in cf_data:
             cf_normalized.append(normalize_search_result(cf_item))
+    elif include_curseforge:
+        logger.debug("未配置 CurseForge API Key，跳过 CF 资源包搜索")
 
     merged = merge_and_rank(mr_normalized, cf_normalized)
     total = mr_total if mr_total > 0 else len(merged)
@@ -1043,9 +1081,11 @@ def unified_search_shaders(
 
     cf_normalized = []
     if include_curseforge and is_configured():
-        cf_data = _fetch_curseforge_batch(search_shaders, query, game_version, None, target_count=100)
+        cf_data = _fetch_curseforge_batch(search_shaders, query, game_version, None)
         for cf_item in cf_data:
             cf_normalized.append(normalize_search_result(cf_item))
+    elif include_curseforge:
+        logger.debug("未配置 CurseForge API Key，跳过 CF 光影搜索")
 
     merged = merge_and_rank(mr_normalized, cf_normalized)
     total = mr_total if mr_total > 0 else len(merged)
