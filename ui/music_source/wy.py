@@ -39,6 +39,11 @@ CURATED_ORIGINALS = {
     "明天你是否依然爱我": "王芷蕾",
     "后来": "Kiroro",
     "九儿": "胡莎莎",
+    "普通disco": "洛天依、言和",
+    "霜雪千年": "洛天依、乐正绫",
+    "大碗宽面": "吴亦凡",
+    "病名为爱": "镜音铃、镜音连",
+    "七里香": "周杰伦",
 }
 
 
@@ -270,16 +275,24 @@ class NetEaseMusicSource(BaseMusicSource):
             name_match = 0 if kw and key in kw else 1
             candidates.append((name_match, chosen))
 
-        if not candidates:
-            return
-        candidates.sort(
-            key=lambda x: (
-                x[0],
-                0 if self._is_valid_date(x[1].publish_time) else 1,
-                x[1].publish_time,
+        if candidates:
+            candidates.sort(
+                key=lambda x: (
+                    x[0],
+                    0 if self._is_valid_date(x[1].publish_time) else 1,
+                    x[1].publish_time,
+                )
             )
-        )
-        original = candidates[0][1]
+            original = candidates[0][1]
+        else:
+            # 策展歌无算法候选时：置顶最热干净版本，由徽章修正原唱名
+            original = None
+            for info in results:
+                if self._group_key(info.name) in CURATED_ORIGINALS and self._is_clean_name(info.name):
+                    original = info
+                    break
+        if original is None:
+            return
         original.is_original = True
         # 策展表修正：原唱在结果页内则置顶其版本，缺失则徽章显示真实原唱名
         curated = CURATED_ORIGINALS.get(self._group_key(original.name))
@@ -299,13 +312,14 @@ class NetEaseMusicSource(BaseMusicSource):
     def _curated_pin(self, results: List[MusicInfo], original: MusicInfo, curated_norm: str) -> Optional[MusicInfo]:
         """策展原唱在结果页内时，返回其最早的有效版本（无有效日期则取可用版本）"""
         group_key = self._group_key(original.name)
-        matches = [
-            info
-            for info in results
-            if self._group_key(info.name) == group_key
-            and curated_norm in self._singer_artists(info)
-            and self._is_clean_name(info.name)
-        ]
+        target = re.sub(r"[、/]", "", curated_norm)
+        matches = []
+        for info in results:
+            if self._group_key(info.name) != group_key or not self._is_clean_name(info.name):
+                continue
+            singer_compact = re.sub(r"[、/]", "", info.singer.lower())
+            if target in singer_compact:
+                matches.append(info)
         if not matches:
             return None
         matches.sort(key=lambda x: (0 if self._is_valid_date(x.publish_time) else 1, x.publish_time))
