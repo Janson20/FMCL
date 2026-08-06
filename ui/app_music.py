@@ -2788,7 +2788,12 @@ class MusicPlayerMixin(object):
         self._music_search_btn.configure(state="normal", text=_("music_search_btn"))
 
     def _music_add_search_row(self, idx: int, info: OnlineMusicInfo):
-        row = ctk.CTkFrame(self._music_online_scroll, fg_color="transparent", height=32)
+        is_original = info.is_original
+        row = ctk.CTkFrame(
+            self._music_online_scroll,
+            fg_color=COLORS["bg_light"] if is_original else "transparent",
+            height=32,
+        )
         row.pack(fill=ctk.X, pady=1)
 
         index_label = ctk.CTkLabel(
@@ -2801,16 +2806,28 @@ class MusicPlayerMixin(object):
         index_label.pack(side=ctk.LEFT)
 
         name_text = info.name if len(info.name) <= 35 else info.name[:33] + "..."
-        quality_badge = " ".join(t.get("type", "") for t in info.types[:2])
         display = f"{name_text} - {info.singer}" if info.singer else name_text
+        name_wrap = ctk.CTkFrame(row, fg_color="transparent")
+        name_wrap.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(5, 5))
         name_label = ctk.CTkLabel(
-            row,
+            name_wrap,
             text=display,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_primary"],
             anchor="w",
         )
-        name_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(5, 5))
+        name_label.pack(side=ctk.LEFT)
+
+        if is_original:
+            tag_text = _("music_original_tag")
+            if info.original_name:
+                tag_text = _("music_original_tag_with_name", name=info.original_name)
+            ctk.CTkLabel(
+                name_wrap,
+                text=tag_text,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+                text_color=COLORS["warning"],
+            ).pack(side=ctk.LEFT, padx=(6, 0))
 
         dur_text = _format_time(info.interval) if info.interval else ""
         if dur_text:
@@ -2845,7 +2862,7 @@ class MusicPlayerMixin(object):
         )
         add_btn.pack(side=ctk.RIGHT, padx=(0, 2))
 
-        for child in [row, index_label, name_label]:
+        for child in [row, index_label, name_wrap, name_label]:
             child.bind("<Button-1>", lambda e, i=idx: self._music_play_online_from_index(i))
             child.bind("<Double-Button-1>", lambda e, i=idx: self._music_play_online_from_index(i))
 

@@ -1024,6 +1024,8 @@
   "music_source_select": "音源選択",
   "music_search_no_results": "該当する曲が見つかりません",
   "music_quality_label": "音質",
+  "music_original_tag": "オリジナル",
+  "music_original_tag_with_name": "オリジナル: {name}",
   "music_loading_url": "再生URLを取得中...",
   "music_url_failed": "再生URLの取得に失敗しました。他の音質または音源をお試しください",
   "music_desktop_lyric": "デスクトップ歌詞",

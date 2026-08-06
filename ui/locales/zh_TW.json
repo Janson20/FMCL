@@ -1024,6 +1024,8 @@
   "music_source_select": "音源選擇",
   "music_search_no_results": "未找到相關歌曲",
   "music_quality_label": "音質",
+  "music_original_tag": "原唱",
+  "music_original_tag_with_name": "原唱：{name}",
   "music_loading_url": "正在獲取播放連結...",
   "music_url_failed": "獲取播放連結失敗，請嘗試其他音質或音源",
   "music_desktop_lyric": "桌面歌詞",

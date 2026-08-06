@@ -55,6 +55,12 @@ class MusicInfo:
     _types: Dict = field(default_factory=dict)  # 音质详情 (hash/size)
     type_url: Dict = field(default_factory=dict)  # 音质URL缓存
     other_source: Optional[str] = None  # 备用源
+    publish_time: int = 0  # 发布时间 (毫秒时间戳)
+    is_original: bool = False  # 是否为原唱
+    origin_song_id: str = ""  # 翻唱标记的原曲ID (如网易 originSongSimpleData.songId)
+    origin_artists: List[str] = field(default_factory=list)  # 原曲歌手名
+    fee: int = 0  # 版权费用状态 (网易 fee, 8=无版权/旧盗版条目)
+    original_name: str = ""  # 策展表修正后的原唱名（网易页缺失原唱录音时）
 
     def __repr__(self):
         return f"MusicInfo({self.name} - {self.singer}, {self.source}/{self.songmid})"

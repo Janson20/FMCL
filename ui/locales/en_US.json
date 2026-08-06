@@ -1028,6 +1028,8 @@
   "music_source_select": "Source",
   "music_search_no_results": "No results found",
   "music_quality_label": "Quality",
+  "music_original_tag": "Original",
+  "music_original_tag_with_name": "Original: {name}",
   "music_loading_url": "Loading stream URL...",
   "music_url_failed": "Failed to get stream URL, try another quality or source",
   "music_desktop_lyric": "Desktop Lyrics",
