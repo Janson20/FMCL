@@ -118,6 +118,7 @@ class MinecraftLauncher:
 
     _java_scan_cache: Optional[List] = None
     _java_scan_cache_time: float = 0.0
+    _java_major_cache: Dict[str, Optional[int]] = {}
 
     def __init__(self, config: Config):
         self.config = config
@@ -1232,25 +1233,6 @@ class MinecraftLauncher:
             if sys.platform == "win32":
                 popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-            # ── Windows 命令行长度限制绕过 ──
-            # cmd.exe 限制为 8191 字符，classpath 可能超限。
-            # 使用 Java @参数文件 绕过限制（Java 9+ 原生支持）。
-            _args_file = None
-            if sys.platform == "win32":
-                # java.exe 本身不算在命令长度内（通过 Popen 列表传递）
-                # 但 classpath 作为单个参数可能接近或超过限制，统一用 @file
-                if any(len(a) > 2000 for a in minecraft_command):
-                    import tempfile
-
-                    _args_file = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
-                    for a in minecraft_command[1:]:  # 跳过 java.exe
-                        _args_file.write(a + "\n")
-                    _args_file.flush()
-                    _args_file.close()
-                    _args_path = _args_file.name
-                    minecraft_command = [minecraft_command[0], f"@{_args_path}"]
-                    logger.info(f"使用 @参数文件绕过命令行长度限制: {_args_path}")
-
             # ── Cleanroom 环境变量 ──
             # 参考 HMCL DefaultLauncher: 设置 INST_CLEANROOM=1 让
             # Cleanroom Loader 识别自身运行环境
@@ -1272,6 +1254,28 @@ class MinecraftLauncher:
                         additions = mod.get("append_args", [])
                         if additions:
                             minecraft_command.extend(additions)
+
+            # ── Windows 命令行长度限制绕过 ──
+            # cmd.exe 限制为 8191 字符，classpath 可能超限。
+            # 使用 Java @参数文件 绕过限制（仅 Java 9+ 原生支持；Java 8 不支持
+            # @参数文件，会把 "@文件" 当作主类名导致启动失败，必须直接启动）。
+            # 参数文件保存在 .minecraft/.fmcl/ 而非系统临时目录，避免被清理。
+            _args_path = None
+            if sys.platform == "win32":
+                # java.exe 本身不算在命令长度内（通过 Popen 列表传递）
+                # 但 classpath 作为单个参数可能接近或超过限制，统一用 @file
+                if any(len(a) > 2000 for a in minecraft_command):
+                    _java_major = self._get_java_major_version(minecraft_command[0])
+                    if _java_major is not None and _java_major < 9:
+                        logger.warning(
+                            f"当前 Java 为 {_java_major}（不支持 @参数文件），"
+                            "使用直接命令行启动（Popen 列表模式不受 cmd.exe 8191 字符限制）"
+                        )
+                    else:
+                        _args_path = self._write_launch_args_file(minecraft_command, target_version)
+                        if _args_path:
+                            minecraft_command = [minecraft_command[0], f"@{_args_path}"]
+                            logger.info(f"使用 @参数文件绕过命令行长度限制: {_args_path}")
 
             self._game_process = subprocess.Popen(minecraft_command, **popen_kwargs)
 
@@ -1300,6 +1304,10 @@ class MinecraftLauncher:
 
             _reader_thread = threading.Thread(target=_read_subprocess_output, daemon=True)
             _reader_thread.start()
+
+            # ── 参数文件清理：游戏进程结束后删除 ──
+            if _args_path:
+                self._delete_args_file_later(_args_path)
 
             # ── 等待 2 秒检测进程是否立即退出 ──
             try:
@@ -1584,6 +1592,105 @@ class MinecraftLauncher:
         return None
 
     @staticmethod
+    def _get_java_major_version(java_path: str) -> Optional[int]:
+        """获取 Java 可执行文件的主版本号（带缓存，避免重复执行 java -version）。
+
+        通过执行 `java -version` 读取 stderr 输出来解析版本号；
+        Java 8 输出形如 "1.8.0_51"，Java 9+ 输出形如 "17.0.2"。
+
+        Args:
+            java_path: Java 可执行文件路径
+
+        Returns:
+            主版本号（如 8/17/21），解析失败返回 None
+        """
+        if not java_path:
+            return None
+        if java_path in MinecraftLauncher._java_major_cache:
+            return MinecraftLauncher._java_major_cache[java_path]
+        major: Optional[int] = None
+        try:
+            result = subprocess.run([java_path, "-version"], capture_output=True, text=True, timeout=10)
+            _ver_output = result.stderr or result.stdout
+            import re as _re
+
+            _m = _re.search(r'version "(?:1\.)?(\d+)', _ver_output)
+            if _m:
+                major = int(_m.group(1))
+        except Exception as e:
+            logger.debug(f"获取 Java 版本失败 {java_path}: {e}")
+        MinecraftLauncher._java_major_cache[java_path] = major
+        return major
+
+    @staticmethod
+    def _escape_argfile_arg(arg: str) -> str:
+        """按 JEP 198 规范转义单个启动参数（用于 @参数文件）。
+
+        实测规则（JDK 9+）：
+        - 不含空格/引号的参数原样写入（反斜杠按字面保留）；
+        - 含空格/引号的参数用双引号包裹，引号内反斜杠会被吞掉，
+          因此需要双写，内部引号用 \\" 转义。
+        """
+        if " " in arg or '"' in arg:
+            return '"' + arg.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        return arg
+
+    def _write_launch_args_file(self, minecraft_command: List[str], version_id: str) -> Optional[str]:
+        """将启动参数写入稳定的 @参数文件（Java 9+ JEP 198 格式）。
+
+        参数文件保存在 .minecraft/.fmcl/ 目录而非系统临时目录，避免被
+        临时文件清理或安全软件误删；若该路径含空格（JVM 的 @ 路径不支持
+        引号包裹或转义），则回退到无空格的系统临时目录，仍不可用时放弃。
+
+        Args:
+            minecraft_command: 完整启动命令（首项为 java.exe）
+            version_id: 版本 ID，用于生成固定的参数文件名
+
+        Returns:
+            参数文件路径；写入失败或无法获得无空格路径时返回 None
+        """
+        _args_dir = os.path.join(self.minecraft_dir, ".fmcl")
+        if " " in _args_dir:
+            import tempfile
+
+            _args_dir = tempfile.gettempdir()
+            if " " in _args_dir:
+                logger.warning("参数文件目录含空格且系统临时目录不可用，无法使用 @参数文件")
+                return None
+        try:
+            os.makedirs(_args_dir, exist_ok=True)
+            _args_path = os.path.join(_args_dir, f"launch_args_{version_id}.txt")
+            with open(_args_path, "w", encoding="utf-8", newline="\n") as _f:
+                for _a in minecraft_command[1:]:  # 跳过 java.exe
+                    _f.write(MinecraftLauncher._escape_argfile_arg(_a) + "\n")
+            if not os.path.isfile(_args_path) or os.path.getsize(_args_path) == 0:
+                raise OSError(f"参数文件写入失败或为空: {_args_path}")
+            return _args_path
+        except Exception as e:
+            logger.warning(f"写入启动参数文件失败: {e}")
+            return None
+
+    def _delete_args_file_later(self, args_path: str) -> None:
+        """游戏进程结束后删除启动参数文件（守护线程，尽力而为）。"""
+
+        def _cleanup():
+            try:
+                proc = getattr(self, "_game_process", None)
+                if proc is not None:
+                    proc.wait()
+            except Exception:
+                pass
+            finally:
+                try:
+                    if os.path.exists(args_path):
+                        os.unlink(args_path)
+                        logger.debug(f"已清理启动参数文件: {args_path}")
+                except Exception:
+                    pass
+
+        threading.Thread(target=_cleanup, daemon=True).start()
+
+    @staticmethod
     def _verify_java_version(java_path: str, min_major: int) -> bool:
         """验证 Java 可执行文件的主版本号是否 >= min_major
 
@@ -1596,21 +1703,11 @@ class MinecraftLauncher:
         Returns:
             True 如果版本满足要求
         """
-        if not java_path or not os.path.isfile(java_path):
+        major = MinecraftLauncher._get_java_major_version(java_path)
+        if major is None:
             return False
-        try:
-            import re as _re
-
-            result = subprocess.run([java_path, "-version"], capture_output=True, text=True, timeout=10)
-            _ver_output = result.stderr or result.stdout
-            _m = _re.search(r'version "(\d+)', _ver_output)
-            if _m:
-                major = int(_m.group(1))
-                logger.info(f"_verify_java_version: {java_path} → Java {major}, 需要 >= {min_major}")
-                return major >= min_major
-        except Exception as e:
-            logger.debug(f"_verify_java_version 失败: {e}")
-        return False
+        logger.info(f"_verify_java_version: {java_path} → Java {major}, 需要 >= {min_major}")
+        return major >= min_major
 
     def _ensure_retrofuturabootstrap_early(self, version_id: str) -> None:
         """提前准备 retrofuturabootstrap（下载 + 补充版本 JSON）。
