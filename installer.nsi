@@ -132,11 +132,11 @@ check_path:
 
   SetOutPath "$TEMP\FMCLauncher_7z"
   ${If} ${RunningX64}
-    File "7z_installers\7z2409-x64.exe"
-    StrCpy $2 "$TEMP\FMCLauncher_7z\7z2409-x64.exe"
+    File "7z_installers\7z2602-x64.exe"
+    StrCpy $2 "$TEMP\FMCLauncher_7z\7z2602-x64.exe"
   ${Else}
-    File "7z_installers\7z2409.exe"
-    StrCpy $2 "$TEMP\FMCLauncher_7z\7z2409.exe"
+    File "7z_installers\7z2602.exe"
+    StrCpy $2 "$TEMP\FMCLauncher_7z\7z2602.exe"
   ${EndIf}
   SetOutPath "$INSTDIR"
 

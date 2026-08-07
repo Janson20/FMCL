@@ -48,8 +48,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path 7z_installers
           $maxRetries = 5
           $urls = @(
-            @{ Uri = "https://www.7-zip.org/a/7z2409-x64.exe"; OutFile = "7z_installers\7z2409-x64.exe" },
-            @{ Uri = "https://www.7-zip.org/a/7z2409.exe"; OutFile = "7z_installers\7z2409.exe" }
+            @{ Uri = "https://www.7-zip.org/a/7z2602-x64.exe"; OutFile = "7z_installers\7z2602-x64.exe" },
+            @{ Uri = "https://www.7-zip.org/a/7z2602.exe"; OutFile = "7z_installers\7z2602.exe" }
           )
           foreach ($item in $urls) {
             $downloaded = $false
