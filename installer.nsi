@@ -16,11 +16,15 @@ Unicode true
 
 Name "${PRODUCT_NAME} ${VERSION}"
 OutFile "FMCL-Setup-${VERSION}.exe"
-InstallDir "$PROGRAMFILES\${PRODUCT_NAME}"
-InstallDirRegKey HKLM "${PRODUCT_DIR_REGKEY}" ""
+; 按当前用户安装到 %LOCALAPPDATA%\Programs\FMCL
+; 安装到 Program Files 需要管理员权限，且普通用户无法在安装目录写入
+; .minecraft / config.json 等数据，导致启动器必须以管理员身份运行
+; （issue #10）。改为用户目录后安装与使用均无需管理员权限。
+InstallDir "$LOCALAPPDATA\Programs\FMCL"
+InstallDirRegKey HKCU "${PRODUCT_DIR_REGKEY}" ""
 ShowInstDetails show
 ShowUnInstDetails show
-RequestExecutionLevel admin
+RequestExecutionLevel user
 
 ; 现代UI
 !include "MUI2.nsh"
@@ -70,13 +74,13 @@ SectionEnd
 
 Section -Post
   WriteUninstaller "$INSTDIR\uninst.exe"
-  WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\FMCL.exe"
-  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayName" "$(^Name)"
-  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\uninst.exe"
-  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
-  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
-  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\FMCL.exe"
+  WriteRegStr HKCU "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\FMCL.exe"
+  WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "DisplayName" "$(^Name)"
+  WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\uninst.exe"
+  WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${VERSION}"
+  WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
+  WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
+  WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\FMCL.exe"
 SectionEnd
 
 Section "-7ZipCheck" SEC07Z
@@ -89,10 +93,19 @@ Section "-7ZipCheck" SEC07Z
     ReadRegStr $0 HKLM "SOFTWARE\7-Zip" "Path"
     SetRegView 32
     ${If} $0 != ""
-      IfFileExists "$0\7z.exe" 0 check_32bit_reg
+      IfFileExists "$0\7z.exe" 0 check_user_reg
       DetailPrint "检测到 7-Zip 已安装 (64-bit): $0"
       Goto sevenz_done
     ${EndIf}
+  ${EndIf}
+
+check_user_reg:
+  ; 检查按用户安装的 7-Zip（HKCU 注册表视图）
+  ReadRegStr $0 HKCU "SOFTWARE\7-Zip" "Path"
+  ${If} $0 != ""
+    IfFileExists "$0\7z.exe" 0 check_32bit_reg
+    DetailPrint "检测到 7-Zip 已安装 (user): $0"
+    Goto sevenz_done
   ${EndIf}
 
 check_32bit_reg:
@@ -110,6 +123,8 @@ check_path:
   StrCpy $0 "$PROGRAMFILES32\7-Zip\7z.exe"
   IfFileExists $0 sevenz_done
   StrCpy $0 "$PROGRAMFILES64\7-Zip\7z.exe"
+  IfFileExists $0 sevenz_done
+  StrCpy $0 "$LOCALAPPDATA\Programs\7-Zip\7z.exe"
   IfFileExists $0 sevenz_done
 
   DetailPrint "未检测到 7-Zip，正在从安装包中安装..."
@@ -138,16 +153,24 @@ check_path:
 
   Sleep 2000
 
-  ; 安装后验证 — 同样需要检查两种注册表视图
+  ; 安装后验证 — 同样需要检查两种注册表视图与用户安装路径
   ${If} ${RunningX64}
     SetRegView 64
     ReadRegStr $0 HKLM "SOFTWARE\7-Zip" "Path"
     SetRegView 32
     ${If} $0 != ""
-      IfFileExists "$0\7z.exe" 0 verify_32bit_reg
+      IfFileExists "$0\7z.exe" 0 verify_user_reg
       DetailPrint "7-Zip 安装成功 (64-bit): $0"
       Goto sevenz_done
     ${EndIf}
+  ${EndIf}
+
+verify_user_reg:
+  ReadRegStr $0 HKCU "SOFTWARE\7-Zip" "Path"
+  ${If} $0 != ""
+    IfFileExists "$0\7z.exe" 0 verify_32bit_reg
+    DetailPrint "7-Zip 安装成功 (user): $0"
+    Goto sevenz_done
   ${EndIf}
 
 verify_32bit_reg:
@@ -164,6 +187,8 @@ verify_path:
   StrCpy $0 "$PROGRAMFILES32\7-Zip\7z.exe"
   IfFileExists $0 verify_found
   StrCpy $0 "$PROGRAMFILES64\7-Zip\7z.exe"
+  IfFileExists $0 verify_found
+  StrCpy $0 "$LOCALAPPDATA\Programs\7-Zip\7z.exe"
   IfFileExists $0 verify_found
 
   DetailPrint "7-Zip 安装验证失败，请手动安装"
@@ -191,7 +216,7 @@ Section Uninstall
   RMDir /r "$INSTDIR\.minecraft"
   RMDir "$INSTDIR"
 
-  DeleteRegKey HKLM "${PRODUCT_UNINST_KEY}"
-  DeleteRegKey HKLM "${PRODUCT_DIR_REGKEY}"
+  DeleteRegKey HKCU "${PRODUCT_UNINST_KEY}"
+  DeleteRegKey HKCU "${PRODUCT_DIR_REGKEY}"
   SetAutoClose true
 SectionEnd

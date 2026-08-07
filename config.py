@@ -36,16 +36,121 @@ except ImportError:
         return _json_mod.dumps(obj, indent=indent, ensure_ascii=ensure_ascii)
 
 
+def _is_writable_dir(path: Path) -> bool:
+    """检测目录是否可写（通过创建临时探针文件测试）
+
+    Args:
+        path: 待检测目录
+
+    Returns:
+        目录存在且可写返回 True，否则返回 False
+    """
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / f".fmcl_write_probe_{os.getpid()}"
+        probe.write_bytes(b"ok")
+        try:
+            probe.unlink()
+        except Exception:
+            pass
+        return True
+    except (PermissionError, OSError):
+        return False
+
+
+def _get_user_data_dir() -> Path:
+    """获取用户可写的数据目录（cwd 不可写时的回退位置）
+
+    Windows: %LOCALAPPDATA%\\FMCL
+    macOS:   ~/Library/Application Support/FMCL
+    Linux:   ~/.fmcl（与常规路径一致）
+    """
+    system = platform.system().lower()
+    if system == "windows":
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if local_appdata:
+            return Path(local_appdata) / "FMCL"
+        return Path.home() / "AppData" / "Local" / "FMCL"
+    if system == "darwin":
+        return Path.home() / "Library" / "Application Support" / "FMCL"
+    return Path.home() / ".fmcl"
+
+
+# 回退模式下需要迁移的用户数据项（密钥文件优先，保证 config.json 解密可用）
+_MIGRATABLE_ITEMS = [
+    ".fmcl_key",
+    ".fmcl_salt",
+    "config.json",
+    "accounts.json",
+    "achievements.db",
+    "latest.log",
+    "latest_structured.log",
+    ".minecraft",
+    "themes",
+    "plugins",
+    "backups",
+    "logs",
+    "authlib-injector",
+]
+
+
+def _migrate_user_data_if_needed(src: Path, dst: Path) -> bool:
+    """将旧目录中的 FMCL 数据复制迁移到新目录（仅复制，不删除原目录）
+
+    触发条件：回退模式首次启动，新目录尚无 FMCL 数据，且旧目录存在
+    config.json 或 .minecraft。旧目录（如 Program Files）对普通用户
+    通常不可写，因此只读复制并保留原目录。
+
+    Args:
+        src: 旧数据目录（通常是不可写的 cwd）
+        dst: 新数据目录（用户可写）
+
+    Returns:
+        是否发生了迁移
+    """
+    if src == dst or not src.exists():
+        return False
+    if not (src / "config.json").exists() and not (src / ".minecraft").exists():
+        return False
+    if dst.exists() and (dst / "config.json").exists():
+        return False
+
+    import shutil
+
+    dst.mkdir(parents=True, exist_ok=True)
+    migrated: list = []
+    for item in _MIGRATABLE_ITEMS:
+        s = src / item
+        d = dst / item
+        if not s.exists() or d.exists():
+            continue
+        try:
+            if s.is_dir():
+                shutil.copytree(s, d)
+            else:
+                shutil.copy2(s, d)
+            migrated.append(item)
+        except Exception as e:
+            # 复制失败（如部分文件无读权限）时清理残留，下次启动重试
+            shutil.rmtree(d, ignore_errors=True)
+            logger.warning(f"迁移数据失败 ({item}): {e}")
+    if migrated:
+        logger.info(f"已将旧数据从 {src} 迁移到 {dst}: {', '.join(migrated)}")
+    return bool(migrated)
+
+
 def _get_platform_paths():
     """
     根据操作系统返回平台特定的路径配置
 
     Returns:
         dict: {
-            'base_dir': 基础目录（Windows/macOS: 当前目录, Linux: ~/.fmcl）,
+            'base_dir': 基础目录（Windows/macOS: 可写的当前目录, 否则用户数据目录;
+                        Linux: ~/.fmcl）,
             'minecraft_dir': Minecraft 目录,
             'log_file': 日志文件路径,
-            'config_file': 配置文件路径
+            'config_file': 配置文件路径,
+            'used_fallback': 是否回退到了用户数据目录（cwd 不可写）
         }
     """
     system = platform.system().lower()
@@ -70,15 +175,26 @@ def _get_platform_paths():
         # 基础目录: ~/.fmcl (用于其他运行时文件)
         base_dir = home / ".fmcl"
 
-        return {"base_dir": base_dir, "minecraft_dir": minecraft_dir, "log_file": log_file, "config_file": config_file}
+        return {
+            "base_dir": base_dir,
+            "minecraft_dir": minecraft_dir,
+            "log_file": log_file,
+            "config_file": config_file,
+            "used_fallback": False,
+        }
     else:
-        # Windows/macOS: 使用当前工作目录
-        base_dir = Path.cwd()
+        # Windows/macOS: 优先使用当前工作目录（便携模式，数据跟随 exe）。
+        # 当 cwd 不可写时（如安装到 Program Files），回退到用户可写目录，
+        # 否则启动器必须管理员运行才能创建数据目录（issue #10）。
+        cwd = Path.cwd()
+        used_fallback = not _is_writable_dir(cwd)
+        base_dir = _get_user_data_dir() if used_fallback else cwd
         return {
             "base_dir": base_dir,
             "minecraft_dir": base_dir / ".minecraft",
             "log_file": base_dir / "latest.log",
             "config_file": base_dir / "config.json",
+            "used_fallback": used_fallback,
         }
 
 
@@ -116,6 +232,11 @@ class Config:
             self.minecraft_dir = platform_paths["minecraft_dir"]
             self.log_file = platform_paths["log_file"]
             self.config_file = platform_paths["config_file"]
+
+        # 旧数据迁移：cwd 不可写回退到用户数据目录时，
+        # 将原 cwd 中已有的 FMCL 数据复制到新目录（仅首次运行）
+        if base_dir is None and platform_paths.get("used_fallback"):
+            _migrate_user_data_if_needed(Path.cwd(), self.base_dir)
 
         # 设置密钥存储目录
         set_key_dir(self.base_dir)
@@ -355,18 +476,14 @@ class Config:
             Config._notify_error("配置保存失败", f"无法保存配置文件:\n{e}")
 
     def ensure_directories(self) -> None:
-        """确保必要的目录存在"""
-        # 创建 Minecraft 目录
-        self.minecraft_dir.mkdir(parents=True, exist_ok=True)
-
-        # 创建基础目录
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-
-        # 创建配置目录
-        self.config_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # 创建日志目录
-        self.log_file.parent.mkdir(parents=True, exist_ok=True)
+        """确保必要的目录存在（失败时记录日志并重新抛出）"""
+        for d in (self.minecraft_dir, self.base_dir, self.config_file.parent, self.log_file.parent):
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+            except (PermissionError, OSError) as e:
+                logger.error(f"创建目录失败: {d}: {e}")
+                Config._notify_error("目录创建失败", f"无法创建目录:\n{d}\n\n请检查磁盘空间与目录权限。\n错误: {e}")
+                raise
 
     def get_versions_dir(self) -> Path:
         """获取版本目录路径"""

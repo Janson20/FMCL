@@ -136,6 +136,19 @@ def setup_logging():
     slog._log_path = structured_log_path
 
 
+def _show_startup_error(message: str, base_dir):
+    """启动阶段致命错误提示（UI 尚未初始化，直接弹窗并退出）"""
+    try:
+        import tkinter.messagebox
+
+        tkinter.messagebox.showerror(
+            "FMCL 启动失败",
+            f"{message}\n\n数据目录: {base_dir}\n\n请检查磁盘空间与目录权限，或重新安装启动器。",
+        )
+    except Exception:
+        pass
+
+
 def _auto_refresh_tokens(account_system):
     try:
         count = account_system.auto_refresh_all_tokens()
@@ -157,10 +170,15 @@ def main():
 
         logger.info("=" * 60)
         logger.info("Fusion Minecraft Launcher v3.4 启动")
+        logger.info(f"数据目录: {config.base_dir}")
         logger.info("=" * 60)
 
         # 确保目录存在
-        config.ensure_directories()
+        try:
+            config.ensure_directories()
+        except Exception as e:
+            _show_startup_error(f"无法创建必要的目录:\n{e}", config.base_dir)
+            return
 
         # 初始化账号系统并迁移旧配置
         try:
