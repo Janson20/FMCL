@@ -1278,6 +1278,11 @@ class MinecraftLauncher:
             # ── 启动子进程输出采集线程 ──
             _early_output_lines: List[str] = []
 
+            def _write_stdout(text: str):
+                if _sys.stdout is not None:
+                    _sys.stdout.write(text)
+                    _sys.stdout.flush()
+
             def _read_subprocess_output():
                 try:
                     stdout = self._game_process.stdout
@@ -1287,8 +1292,7 @@ class MinecraftLauncher:
                         line = line_bytes.decode("utf-8", errors="replace").rstrip()
                         if line:
                             _early_output_lines.append(line)
-                            _sys.stdout.write(line + "\n")
-                            _sys.stdout.flush()
+                            _write_stdout(line + "\n")
                 except (ValueError, OSError):
                     pass
                 except Exception:
@@ -1309,10 +1313,9 @@ class MinecraftLauncher:
                             line = line.rstrip()
                             if line:
                                 _early_output_lines.append(line)
-                                _sys.stdout.write(line + "\n")
+                                _write_stdout(line + "\n")
                 except Exception:
                     pass
-                _sys.stdout.flush()
                 if _early_output_lines:
                     logger.error(f"游戏进程在 2 秒内退出 (退出码 {exit_code})，输出({len(_early_output_lines)}行)")
                     for line in _early_output_lines[-30:]:
