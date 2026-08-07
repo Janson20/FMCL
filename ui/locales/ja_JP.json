@@ -1029,6 +1029,7 @@
   "music_loading_url": "再生URLを取得中...",
   "music_url_failed": "再生URLの取得に失敗しました。他の音質または音源をお試しください",
   "music_desktop_lyric": "デスクトップ歌詞",
+  "music_original_feedback": "オリジナル歌手の誤表示・欠落？今すぐフィードバック",
   "music_lyric_close": "歌詞を閉じる",
   "music_lyric_loading": "歌詞を読み込み中...",
   "music_sound_effect": "🎛 エフェクト",

@@ -1029,6 +1029,7 @@
   "music_loading_url": "正在獲取播放連結...",
   "music_url_failed": "獲取播放連結失敗，請嘗試其他音質或音源",
   "music_desktop_lyric": "桌面歌詞",
+  "music_original_feedback": "原唱錯標/漏標？立即向我們反饋",
   "music_lyric_close": "關閉歌詞",
   "music_lyric_loading": "載入歌詞中...",
   "music_sound_effect": "🎛 音效",

@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import tkinter.filedialog as filedialog
+import webbrowser
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -112,6 +113,8 @@ FADE_STEPS = 20
 FADE_INTERVAL_MS = 50
 
 MUSIC_METADATA_CACHE_MAX = 200
+
+MUSIC_ORIGINAL_FEEDBACK_URL = "https://doc.weixin.qq.com/forms/AKgAhAf7ABQAUoAtgbcAHkCNf0v0B41mf"
 
 _hotkey_import_error = None
 try:
@@ -1110,6 +1113,22 @@ class MusicPlayerMixin(object):
         )
         self._music_dlrc_btn.pack(side=ctk.RIGHT)
         self._theme_refs.append((self._music_dlrc_btn, {"fg_color": "bg_light", "hover_color": "card_border"}))
+
+        # 原唱错标/漏标反馈按钮
+        self._music_original_feedback_btn = ctk.CTkButton(
+            quality_row,
+            text=_("music_original_feedback"),
+            height=24,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            fg_color="transparent",
+            hover_color=COLORS["card_border"],
+            text_color=COLORS["accent"],
+            command=lambda: webbrowser.open(MUSIC_ORIGINAL_FEEDBACK_URL),
+        )
+        self._music_original_feedback_btn.pack(side=ctk.RIGHT, padx=(8, 8))
+        self._theme_refs.append(
+            (self._music_original_feedback_btn, {"fg_color": "transparent", "hover_color": "card_border"})
+        )
 
         self._theme_refs.append((search_bar, {"fg_color": "card_bg"}))
 

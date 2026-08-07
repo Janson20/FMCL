@@ -1033,6 +1033,7 @@
   "music_loading_url": "Loading stream URL...",
   "music_url_failed": "Failed to get stream URL, try another quality or source",
   "music_desktop_lyric": "Desktop Lyrics",
+  "music_original_feedback": "Original singer mislabeled/missing? Give us feedback",
   "music_lyric_close": "Close Lyrics",
   "music_lyric_loading": "Loading lyrics...",
   "music_sound_effect": "🎛 Effects",
