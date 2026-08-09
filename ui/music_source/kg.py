@@ -130,18 +130,21 @@ class KuGouMusicSource(BaseMusicSource):
             return None
         try:
             # 先获取 key
+            # retries=1: URL 获取失败会立即触发跨源兜底换源，无需按搜索接口的标准重试
             key_resp = self.http_get(
                 "https://trackerc.kugou.com/i/",
                 params={"cmd": "4", "hash": hash_val, "key": info.songmid, "pid": "1", "acceptMp3": "1"},
                 headers={"Referer": "https://www.kugou.com/"},
                 timeout=10,
+                retries=1,
             )
             key_data = key_resp.json()
             key = key_data.get("key", "")
             if key:
                 return f"https://kugou.com/yy/index.php?r=play/getdata&hash={hash_val}&key={key}"
         except Exception as e:
-            logger.warning(f"酷狗获取URL失败 [{info.songmid}]: {e}")
+            # 单个候选失败属兜底流程常态，降为 debug 避免刷屏（外层有汇总日志）
+            logger.debug(f"酷狗获取URL失败 [{info.songmid}]: {e}")
         return None
 
     # ── 获取歌词 ─────────────────────────────────────

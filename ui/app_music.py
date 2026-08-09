@@ -2997,6 +2997,8 @@ class MusicPlayerMixin(object):
                     self._notify_fallback_source(fb_info.source)
                     return result_path, fb_info
                 self._discard_temp_file(result_path)
+        # 全部音源均失败：汇总一条日志（单源失败细节已在 resolve_track 内降为 debug）
+        logger.warning(f"跨源兜底失败，所有音源均不可用: {online_info.name} - {online_info.singer} [{online_info.source}]")
         return None, result_info
 
     def _notify_fallback_source(self, source_id: str):

@@ -192,7 +192,8 @@ class QQMusicSource(BaseMusicSource):
                 if purl:
                     return f"http://ws.stream.qqmusic.qq.com/{purl}"
         except Exception as e:
-            logger.warning(f"QQ获取URL失败 [{info.songmid}]: {e}")
+            # 单个候选失败属兜底流程常态，降为 debug 避免刷屏（外层有汇总日志）
+            logger.debug(f"QQ获取URL失败 [{info.songmid}]: {e}")
         return None
 
     # ── 获取歌词 ─────────────────────────────────────

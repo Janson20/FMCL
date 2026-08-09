@@ -139,7 +139,8 @@ def resolve_track(
         try:
             items = src.search(keyword, page=1, limit=limit)
         except Exception as e:
-            logger.warning(f"[resolve] {source_id} 搜索失败: {e}")
+            # 单源失败属兜底常态，降为 debug 避免刷屏（外层有汇总日志）
+            logger.debug(f"[resolve] {source_id} 搜索失败: {e}")
             return None
         if not items:
             return None
@@ -152,22 +153,28 @@ def resolve_track(
                 try:
                     url = src.get_music_url(cand, q)
                 except Exception as e:
-                    logger.warning(f"[resolve] {source_id} 获取URL失败 [{cand.name}]: {e}")
+                    logger.debug(f"[resolve] {source_id} 获取URL失败 [{cand.name}]: {e}")
                     url = None
                 if url:
                     return (cand, url)
         return None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(source_ids)) as executor:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(source_ids))
+    try:
         futures = [executor.submit(_try_source, sid) for sid in source_ids]
         for future in concurrent.futures.as_completed(futures):
             try:
                 result = future.result()
             except Exception as e:
-                logger.warning(f"[resolve] 兜底任务异常: {e}")
+                logger.debug(f"[resolve] 兜底任务异常: {e}")
                 result = None
             if result:
+                # 找到可用音源立即返回；慢源线程仍可能阻塞在重试中，
+                # 不能等它们（shutdown(wait=True) 会拖慢整个兜底流程）
+                executor.shutdown(wait=False, cancel_futures=True)
                 return result
+    finally:
+        executor.shutdown(wait=False)
     return None
 
 

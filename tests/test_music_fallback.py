@@ -220,6 +220,30 @@ class TestResolveTrack:
         assert result is None
         assert fakes["kg"].search_calls == []
 
+    def test_fast_source_not_blocked_by_slow_source(self, patch_sources):
+        """快源成功后立即返回，不被阻塞在重试中的慢源拖慢（shutdown wait 回归测试）"""
+        import time
+
+        target = make_info(source="wy", songmid="1")
+
+        class SlowSource(FakeSource):
+            def search(self, keyword, page=1, limit=30):
+                time.sleep(3)  # 模拟慢源（重试/超时中的源）
+                return []
+
+        patch_sources(
+            {
+                "kw": SlowSource("kw"),
+                "tx": FakeSource("tx", results=[make_info(source="tx", songmid="t1")]),
+            }
+        )
+        start = time.monotonic()
+        result = ms.resolve_track(target)
+        elapsed = time.monotonic() - start
+        assert result is not None
+        assert result[0].source == "tx"
+        assert elapsed < 1.5  # 不应等待慢源的 3 秒
+
 
 # ═══════════════ 哔哩哔哩音源 ═══════════════
 

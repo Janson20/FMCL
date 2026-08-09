@@ -155,13 +155,15 @@ class MiGuMusicSource(BaseMusicSource):
             "formatType": q_info.get("formatType", "PQ"),
         }
         try:
-            resp = self.http_get(MG_MUSIC_URL, params=params, timeout=10)
+            # retries=1: URL 获取失败会立即触发跨源兜底换源，无需按搜索接口的标准重试
+            resp = self.http_get(MG_MUSIC_URL, params=params, timeout=10, retries=1)
             data = resp.json()
             url = data.get("data", {}).get("url", data.get("resource", [{}])[0].get("url", ""))
             if url:
                 return url
         except Exception as e:
-            logger.warning(f"咪咕获取URL失败 [{info.songmid}]: {e}")
+            # 单个候选失败属兜底流程常态，降为 debug 避免刷屏（外层有汇总日志）
+            logger.debug(f"咪咕获取URL失败 [{info.songmid}]: {e}")
         return None
 
     # ── 获取歌词 ─────────────────────────────────────

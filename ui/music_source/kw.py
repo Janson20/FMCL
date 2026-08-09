@@ -113,13 +113,15 @@ class KuWoMusicSource(BaseMusicSource):
             "from": "web",
         }
         try:
-            resp = self.http_get(KW_MUSIC_URL, params=params, timeout=10)
+            # retries=1: URL 获取失败会立即触发跨源兜底换源，无需按搜索接口的标准重试
+            resp = self.http_get(KW_MUSIC_URL, params=params, timeout=10, retries=1)
             data = resp.json()
             url = data.get("url", "")
             if url:
                 return url
         except Exception as e:
-            logger.warning(f"酷我获取URL失败 [{info.songmid}]: {e}")
+            # 单个候选失败属兜底流程常态，降为 debug 避免刷屏（外层有汇总日志）
+            logger.debug(f"酷我获取URL失败 [{info.songmid}]: {e}")
         return None
 
     # ── 获取歌词 ─────────────────────────────────────
