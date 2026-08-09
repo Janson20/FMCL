@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -13,6 +14,7 @@ import webbrowser
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import customtkinter as ctk
 import requests
@@ -43,6 +45,7 @@ from ui.music_playlist import (
     PlaylistManager,
     PlaylistSong,
 )
+from ui.music_risk_captcha import run_captcha_flow
 from ui.music_source import MUSIC_SOURCES, SOURCE_META, resolve_track, search_all
 from ui.music_source.base import MusicInfo as OnlineMusicInfo
 
@@ -271,6 +274,110 @@ def _validate_audio_duration(filepath: str, expected_seconds: int) -> bool:
         return True
     tolerance = max(_DURATION_TOLERANCE_MIN_SEC, expected_seconds * _DURATION_TOLERANCE_RATIO)
     return abs(actual - expected_seconds) <= tolerance
+
+
+def _is_m4a_container(filepath: str) -> bool:
+    """检测文件是否为 MP4/AAC 容器（ftyp box）
+
+    不依赖扩展名：B站 dash URL 带查询参数时文件可能被命名为 .mp3，
+    但内容是 AAC（SDL_mixer 无法解码）。
+    """
+    if filepath.lower().endswith(".m4a"):
+        return True
+    try:
+        with open(filepath, "rb") as f:
+            head = f.read(8)
+        return len(head) >= 8 and head[4:8] == _M4A_FTYP_MAGIC
+    except OSError:
+        return False
+
+
+def _transcode_audio_to_wav(filepath: str) -> Optional[str]:
+    """将 m4a/m4s（AAC 容器）转码为 wav 供 pygame 播放。
+
+    pygame 的 SDL_mixer 不支持 MP4/AAC 容器（B站 dash 音频流与部分平台
+    音源是 m4a）。优先用 Windows Media Foundation（winsdk，系统原生无
+    外部依赖），回退系统 ffmpeg。失败返回 None（调用方保留原文件）。
+
+    Args:
+        filepath: 音频文件路径（按文件头检测 MP4 容器，不依赖扩展名）
+
+    Returns:
+        转码后的 wav 文件路径，无需转码或失败时为 None
+    """
+    if not _is_m4a_container(filepath):
+        return None
+
+    def _finish_ok(wav_path: str) -> Optional[str]:
+        if os.path.getsize(wav_path) > 0:
+            return wav_path
+        try:
+            os.remove(wav_path)
+        except Exception:
+            pass
+        return None
+
+    # 1. Windows Media Foundation 原生转码
+    if _winsdk_available:
+        try:
+            import asyncio
+
+            from winsdk.windows.media.mediaproperties import AudioEncodingQuality, MediaEncodingProfile
+            from winsdk.windows.media.transcoding import MediaTranscoder
+            from winsdk.windows.storage import StorageFile
+
+            async def _transcode(src_path: str, dst_path: str) -> bool:
+                source = await StorageFile.get_file_from_path_async(src_path)
+                open(dst_path, "wb").close()  # MF 要求目标文件已存在
+                dest = await StorageFile.get_file_from_path_async(dst_path)
+                transcoder = MediaTranscoder()
+                profile = MediaEncodingProfile.create_wav(AudioEncodingQuality.HIGH)
+                prep = await transcoder.prepare_file_transcode_async(source, dest, profile)
+                if not prep.can_transcode:
+                    return False
+                await prep.transcode_async()
+                return True
+
+            fd, wav_path = tempfile.mkstemp(suffix=".wav", prefix="fmcl_conv_")
+            os.close(fd)
+            try:
+                ok = asyncio.run(_transcode(filepath, wav_path))
+            except Exception:
+                ok = False
+            if ok:
+                result = _finish_ok(wav_path)
+                if result:
+                    logger.info(f"Media Foundation 转码成功: {filepath} -> {result}")
+                    return result
+        except Exception as e:
+            logger.warning(f"Media Foundation 转码失败: {e}")
+
+    # 2. ffmpeg 回退
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        try:
+            fd, out_path = tempfile.mkstemp(suffix=".wav", prefix="fmcl_conv_")
+            os.close(fd)
+            os.remove(out_path)
+            proc = subprocess.run(
+                [ffmpeg, "-y", "-i", filepath, "-acodec", "pcm_s16le", out_path],
+                capture_output=True,
+                timeout=120,
+            )
+            if proc.returncode == 0:
+                result = _finish_ok(out_path)
+                if result:
+                    logger.info(f"ffmpeg 转码成功: {filepath} -> {result}")
+                    return result
+            try:
+                os.remove(out_path)
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"ffmpeg 转码失败: {e}")
+
+    logger.warning(f"m4a 转码不可用（无 Media Foundation/ffmpeg），保留原文件: {filepath}")
+    return None
 
 
 class _SMTCController:
@@ -2983,28 +3090,163 @@ class MusicPlayerMixin(object):
 
         # 原音源失败 -> 跨源兜底（仅尝试一次，不递归）
         logger.info(f"原音源不可用 [{online_info.source}]: {online_info.name} - {online_info.singer}，开始跨源兜底")
-        try:
-            fallback = resolve_track(online_info, quality)
-        except Exception as e:
-            logger.warning(f"跨源兜底解析失败: {e}")
-            fallback = None
+        fallback = self._resolve_fallback(online_info, quality)
         if fallback:
-            fb_info, fb_url = fallback
-            logger.info(f"跨源兜底命中 [{fb_info.source}]: {fb_info.name} - {fb_info.singer}")
-            result_path = self._music_download_to_temp(
-                fb_url,
-                fb_info.name,
-                extra_headers=self._music_get_download_headers(fb_info.source),
-                extra_cookies=self._music_get_download_cookies(fb_info.source),
-            )
-            if result_path:
-                if _validate_audio_file_header(result_path) and _validate_audio_duration(result_path, fb_info.interval):
-                    self._notify_fallback_source(fb_info.source)
-                    return result_path, fb_info
-                self._discard_temp_file(result_path)
+            result = self._download_fallback_result(fallback)
+            if result:
+                return result
+
+        # B站触发风控时：弹验证码让用户手动完成，通过后带 grisk_id 自动重试兜底
+        risk_retry = self._music_try_bili_risk_retry(online_info, quality)
+        if risk_retry:
+            return risk_retry
+
         # 全部音源均失败：汇总一条日志（单源失败细节已在 resolve_track 内降为 debug）
         logger.warning(f"跨源兜底失败，所有音源均不可用: {online_info.name} - {online_info.singer} [{online_info.source}]")
         return None, result_info
+
+    def _resolve_fallback(self, online_info: OnlineMusicInfo, quality: str) -> Optional[Tuple[OnlineMusicInfo, str]]:
+        """跨源兜底解析：返回 (匹配歌曲, 播放URL) 或 None"""
+        try:
+            return resolve_track(online_info, quality)
+        except Exception as e:
+            logger.warning(f"跨源兜底解析失败: {e}")
+            return None
+
+    def _download_fallback_result(self, fallback: Tuple[OnlineMusicInfo, str]) -> Optional[Tuple[str, OnlineMusicInfo]]:
+        """下载兜底结果并校验，成功返回 (临时文件路径, 实际歌曲信息)"""
+        fb_info, fb_url = fallback
+        logger.info(f"跨源兜底命中 [{fb_info.source}]: {fb_info.name} - {fb_info.singer}")
+        result_path = self._music_download_to_temp(
+            fb_url,
+            fb_info.name,
+            extra_headers=self._music_get_download_headers(fb_info.source),
+            extra_cookies=self._music_get_download_cookies(fb_info.source),
+        )
+        if result_path:
+            if _validate_audio_file_header(result_path) and _validate_audio_duration(result_path, fb_info.interval):
+                self._notify_fallback_source(fb_info.source)
+                return result_path, fb_info
+            self._discard_temp_file(result_path)
+        return None
+
+    def _music_try_bili_risk_retry(self, online_info: OnlineMusicInfo, quality: str) -> Optional[Tuple[str, OnlineMusicInfo]]:
+        """B站风控验证：弹窗提示 + 浏览器滑块验证，通过后带 grisk_id 自动重试兜底。
+
+        Returns:
+            验证通过且兜底成功: (临时文件路径, 实际歌曲信息)；否则 None
+        """
+        src = MUSIC_SOURCES.get("bili")
+        if src is None:
+            return None
+        try:
+            risk = src.take_pending_risk()
+        except Exception:
+            return None
+        if not risk:
+            return None
+
+        dialog_ref: Dict[str, object] = {}
+        stop_event = threading.Event()
+
+        def on_status(text: str):
+            self.after(0, lambda: self._music_update_risk_dialog(dialog_ref, text))
+
+        self.after(0, lambda: self._music_open_risk_dialog(dialog_ref, stop_event))
+        try:
+            result = run_captcha_flow(risk["gt"], risk["challenge"], on_status=on_status, stop_event=stop_event)
+        except Exception as e:
+            logger.warning(f"风控验证流程异常: {e}")
+            result = None
+        finally:
+            self.after(0, lambda: self._music_close_risk_dialog(dialog_ref))
+        if not result:
+            return None
+
+        grisk_id = src.validate_risk(
+            risk["token"],
+            result["geetest_challenge"],
+            result["geetest_seccode"],
+            result["geetest_validate"],
+        )
+        if not grisk_id:
+            logger.warning("B站风控验证未通过")
+            return None
+        src.set_gaia_vtoken(grisk_id)
+        logger.info("B站风控验证通过，自动重试跨源兜底")
+        fallback = self._resolve_fallback(online_info, quality)
+        if not fallback:
+            return None
+        return self._download_fallback_result(fallback)
+
+    def _music_open_risk_dialog(self, dialog_ref: Dict[str, object], stop_event: threading.Event):
+        """打开风控验证提示窗口"""
+        try:
+            dlg = ctk.CTkToplevel(self)
+            dlg.title(_("music_risk_title"))
+            dlg.geometry("400x190")
+            dlg.resizable(False, False)
+            dlg.transient(self)
+            dlg.attributes("-topmost", True)
+
+            ctk.CTkLabel(
+                dlg,
+                text=_("music_risk_title"),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"),
+                text_color=COLORS["text_primary"],
+            ).pack(pady=(20, 6))
+
+            label = ctk.CTkLabel(
+                dlg,
+                text=_("music_risk_hint"),
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLORS["text_secondary"],
+                wraplength=350,
+                justify="center",
+            )
+            label.pack(padx=20, pady=(0, 14))
+
+            def on_close():
+                stop_event.set()
+                try:
+                    dlg.destroy()
+                except Exception:
+                    pass
+
+            dlg.protocol("WM_DELETE_WINDOW", on_close)
+            ctk.CTkButton(
+                dlg,
+                text=_("music_risk_cancel"),
+                width=100,
+                height=28,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                fg_color=COLORS["bg_light"],
+                hover_color=COLORS["card_border"],
+                command=on_close,
+            ).pack(pady=(0, 16))
+            dialog_ref["dialog"] = dlg
+            dialog_ref["label"] = label
+            self._theme_refs.append((label, {"text_color": "text_secondary"}))
+        except Exception as e:
+            logger.warning(f"打开风控验证窗口失败: {e}")
+            dialog_ref["dialog"] = None
+
+    def _music_update_risk_dialog(self, dialog_ref: Dict[str, object], text: str):
+        dlg = dialog_ref.get("dialog")
+        label = dialog_ref.get("label")
+        if dlg is not None and dlg.winfo_exists() and label is not None:
+            try:
+                label.configure(text=text)
+            except Exception:
+                pass
+
+    def _music_close_risk_dialog(self, dialog_ref: Dict[str, object]):
+        dlg = dialog_ref.get("dialog")
+        if dlg is not None:
+            try:
+                dlg.destroy()
+            except Exception:
+                pass
 
     def _notify_fallback_source(self, source_id: str):
         """左下角状态栏提示已切换到其它音源播放"""
@@ -3112,11 +3354,13 @@ class MusicPlayerMixin(object):
                 logger.warning(f"下载响应非音频（Content-Type: {content_type}）: {url[:120]}")
                 return None
             ext = ".mp3"
-            if "flac" in content_type or url.endswith(".flac"):
+            # 用 urlparse 取路径判断后缀：播放 URL 常带查询参数，endswith 会失效
+            url_path = urlparse(url).path.lower()
+            if "flac" in content_type or url_path.endswith(".flac"):
                 ext = ".flac"
-            elif "ogg" in content_type or url.endswith(".ogg"):
+            elif "ogg" in content_type or url_path.endswith(".ogg"):
                 ext = ".ogg"
-            elif "m4a" in content_type or url.endswith(".m4a") or url.endswith(".m4s"):
+            elif "m4a" in content_type or url_path.endswith(".m4a") or url_path.endswith(".m4s"):
                 ext = ".m4a"
             safe_name = "".join(c for c in name_hint if c.isalnum() or c in "._- ")[:50]
             fd, temp_path = tempfile.mkstemp(suffix=ext, prefix=f"fmcl_{safe_name}_")
@@ -3129,6 +3373,18 @@ class MusicPlayerMixin(object):
                 os.remove(temp_path)
                 return None
             self._music_temp_files.append(temp_path)
+            # pygame 的 SDL_mixer 不支持 m4a 容器（B站 dash/部分平台音源）：
+            # 下载后自动转码为 wav，转码失败则保留原文件交由 pygame 尝试
+            converted = _transcode_audio_to_wav(temp_path)
+            if converted:
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+                if temp_path in self._music_temp_files:
+                    self._music_temp_files.remove(temp_path)
+                self._music_temp_files.append(converted)
+                return converted
             # 限制临时文件数量
             while len(self._music_temp_files) > 10:
                 old = self._music_temp_files.pop(0)

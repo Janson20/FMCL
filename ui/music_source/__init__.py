@@ -24,7 +24,7 @@ import logging
 from typing import Iterable, List, Optional, Tuple
 
 from ui.music_source.base import BaseMusicSource, MusicInfo, QualityLevel, duration_matches
-from ui.music_source.bili import BiliBiliMusicSource
+from ui.music_source.bili import BiliBiliMusicSource, RiskControlError
 from ui.music_source.kg import KuGouMusicSource
 from ui.music_source.kw import KuWoMusicSource
 from ui.music_source.mg import MiGuMusicSource
@@ -138,6 +138,10 @@ def resolve_track(
             return None
         try:
             items = src.search(keyword, page=1, limit=limit)
+        except RiskControlError as e:
+            # 风控需用户交互验证，先跳过该源（UI 层会弹验证码并在完成后重试）
+            logger.debug(f"[resolve] {source_id} 触发风控: {e}")
+            return None
         except Exception as e:
             # 单源失败属兜底常态，降为 debug 避免刷屏（外层有汇总日志）
             logger.debug(f"[resolve] {source_id} 搜索失败: {e}")

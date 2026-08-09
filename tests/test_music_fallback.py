@@ -6,11 +6,17 @@
     - resolve_track 跨源兜底：排除原音源/时长过滤/候选排序/音质降级/全失败
     - _validate_audio_file_header 文件头魔数校验
     - _validate_audio_duration 试听片段时长校验
+    - B站风控验证：验证页回调流程/取消、register/validate API、风控源跳过
 
 运行: pytest tests/test_music_fallback.py -v
 """
 
+import json
+import os
 import sys
+import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -323,9 +329,251 @@ class TestBiliBiliSource:
         assert src.get_download_cookies() == {}
 
 
+# ═══════════════ 风控验证 ═══════════════
+
+
+class TestRiskCaptchaFlow:
+    """run_captcha_flow 本地验证页 + 回调流程"""
+
+    def _start_flow(self, monkeypatch, gt="gt1", challenge="ch1", stop=None):
+        import ui.music_risk_captcha as rc
+
+        opened = {}
+        monkeypatch.setattr(rc.webbrowser, "open", lambda url: opened.update(url=url))
+        statuses = []
+        box = {}
+
+        def _run():
+            box["result"] = rc.run_captcha_flow(
+                gt, challenge, on_status=statuses.append, stop_event=stop, timeout=30
+            )
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        # 等待浏览器打开（server 已就绪）
+        for _ in range(200):
+            if opened:
+                break
+            import time
+
+            time.sleep(0.05)
+        assert opened, "验证页未打开"
+        return rc, opened["url"], box, statuses
+
+    def _extract_token(self, page_html: str) -> str:
+        import re
+
+        m = re.search(r'token:\s*"([0-9a-f]+)"', page_html)
+        assert m, "页面未包含回调 token"
+        return m.group(1)
+
+    def test_complete_flow_returns_payload(self, monkeypatch):
+        rc, url, box, _ = self._start_flow(monkeypatch)
+        # 1. 打开验证页
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            page = resp.read().decode()
+        assert "initGeetest" in page
+        token = self._extract_token(page)
+        # 2. 模拟 geetest 回调
+        body = json.dumps({"token": token, "challenge": "c1", "seccode": "s1", "validate": "v1"}).encode()
+        req = urllib.request.Request(url.replace("/captcha", "/callback"), data=body,
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            assert resp.status == 200
+        for _ in range(100):
+            if box.get("result") is not None:
+                break
+            import time
+
+            time.sleep(0.05)
+        assert box["result"] == {"geetest_challenge": "c1", "geetest_seccode": "s1", "geetest_validate": "v1"}
+
+    def test_wrong_token_rejected(self, monkeypatch):
+        rc, url, box, _ = self._start_flow(monkeypatch)
+        body = json.dumps({"token": "WRONG", "challenge": "c", "seccode": "s", "validate": "v"}).encode()
+        req = urllib.request.Request(url.replace("/captcha", "/callback"), data=body,
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            urllib.request.urlopen(req, timeout=10)
+        assert exc.value.code == 403
+        # 流程仍在等待（未收到有效回调）
+        assert box.get("result") is None
+
+    def test_stop_event_aborts(self, monkeypatch):
+        stop = threading.Event()
+        rc, url, box, _ = self._start_flow(monkeypatch, stop=stop)
+        stop.set()
+        for _ in range(100):
+            if box.get("result") is not None:
+                break
+            import time
+
+            time.sleep(0.05)
+        assert box["result"] is None
+
+
+class TestBiliRiskApi:
+    def test_register_risk_parses(self, monkeypatch):
+        from ui.music_source.bili import BiliBiliMusicSource
+
+        monkeypatch.setattr(BiliBiliMusicSource, "_init_anonymous_cookies", lambda self: None)
+        src = BiliBiliMusicSource()
+        fake = MagicMock()
+        fake.json.return_value = {
+            "code": 0,
+            "data": {
+                "type": "geetest",
+                "token": "tok123",
+                "geetest": {"gt": "gt456", "challenge": "ch789"},
+            },
+        }
+        monkeypatch.setattr(src._session, "post", lambda *a, **k: fake)
+        risk = src.register_risk("voucher_xxx")
+        assert risk == {"v_voucher": "voucher_xxx", "token": "tok123", "gt": "gt456", "challenge": "ch789"}
+
+    def test_register_risk_error_code(self, monkeypatch):
+        from ui.music_source.bili import BiliBiliMusicSource
+
+        monkeypatch.setattr(BiliBiliMusicSource, "_init_anonymous_cookies", lambda self: None)
+        src = BiliBiliMusicSource()
+        fake = MagicMock()
+        fake.json.return_value = {"code": 100000, "message": "验证码获取失败"}
+        monkeypatch.setattr(src._session, "post", lambda *a, **k: fake)
+        assert src.register_risk("voucher_xxx") is None
+
+    def test_validate_risk_returns_grisk_id(self, monkeypatch):
+        from ui.music_source.bili import BiliBiliMusicSource
+
+        monkeypatch.setattr(BiliBiliMusicSource, "_init_anonymous_cookies", lambda self: None)
+        src = BiliBiliMusicSource()
+        fake = MagicMock()
+        fake.json.return_value = {"code": 0, "data": {"is_valid": 1, "grisk_id": "grisk_123"}}
+        monkeypatch.setattr(src._session, "post", lambda *a, **k: fake)
+        assert src.validate_risk("tok", "ch", "se", "va") == "grisk_123"
+
+    def test_validate_risk_invalid(self, monkeypatch):
+        from ui.music_source.bili import BiliBiliMusicSource
+
+        monkeypatch.setattr(BiliBiliMusicSource, "_init_anonymous_cookies", lambda self: None)
+        src = BiliBiliMusicSource()
+        fake = MagicMock()
+        fake.json.return_value = {"code": 0, "data": {"is_valid": 0}}
+        monkeypatch.setattr(src._session, "post", lambda *a, **k: fake)
+        assert src.validate_risk("tok", "ch", "se", "va") is None
+
+    def test_set_gaia_vtoken_and_pending_risk(self, monkeypatch):
+        from ui.music_source.bili import BiliBiliMusicSource
+
+        monkeypatch.setattr(BiliBiliMusicSource, "_init_anonymous_cookies", lambda self: None)
+        src = BiliBiliMusicSource()
+        src._pending_risk = {"token": "t"}
+        assert src.take_pending_risk() == {"token": "t"}
+        assert src.take_pending_risk() is None  # 取后清空
+        src.set_gaia_vtoken("grisk_1")
+        jar = src._session.cookies
+        assert any(c.name == "x-bili-gaia-vtoken" and c.value == "grisk_1" for c in jar)
+
+    def test_resolve_track_skips_risk_source(self, patch_sources):
+        """触发风控的源被跳过，其它源正常兜底"""
+        from ui.music_source.bili import RiskControlError
+
+        target = make_info(source="wy", songmid="1")
+
+        class RiskSource(FakeSource):
+            def search(self, keyword, page=1, limit=30):
+                self.search_calls.append((keyword, page, limit))
+                raise RiskControlError("voucher_x")
+
+        fakes = patch_sources(
+            {
+                "bili": RiskSource("bili"),
+                "tx": FakeSource("tx", results=[make_info(source="tx", songmid="t1")]),
+            }
+        )
+        result = ms.resolve_track(target)
+        assert result is not None
+        assert result[0].source == "tx"
+        assert fakes["bili"].search_calls  # 风控源确实被尝试过
+
+
+# ═══════════════ m4a 转码 ═══════════════
+
+
+class TestTranscodeAudioToWav:
+    def test_mp3_returns_none(self, tmp_path):
+        p = tmp_path / "a.mp3"
+        p.write_bytes(b"ID3" + b"\x00" * 13)
+        assert app_music._transcode_audio_to_wav(str(p)) is None
+
+    def test_flac_returns_none(self, tmp_path):
+        p = tmp_path / "a.flac"
+        p.write_bytes(b"fLaC" + b"\x00" * 12)
+        assert app_music._transcode_audio_to_wav(str(p)) is None
+
+    def test_no_backend_returns_none(self, monkeypatch, tmp_path):
+        """winsdk 不可用且无 ffmpeg 时保留原文件（返回 None）"""
+        monkeypatch.setattr(app_music, "_winsdk_available", False)
+        monkeypatch.setattr(app_music.shutil, "which", lambda name: None)
+        p = tmp_path / "a.m4a"
+        p.write_bytes(b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 20)
+        assert app_music._transcode_audio_to_wav(str(p)) is None
+
+    def test_ffmpeg_fallback_success(self, monkeypatch, tmp_path):
+        """ffmpeg 回退路径：转码成功返回 wav 路径"""
+
+        class FakeProc:
+            returncode = 0
+
+        def fake_run(args, **kwargs):
+            out_path = args[-1]
+            open(out_path, "wb").write(b"\x00" * 100)  # 模拟 ffmpeg 输出
+            return FakeProc()
+
+        monkeypatch.setattr(app_music, "_winsdk_available", False)
+        monkeypatch.setattr(app_music.shutil, "which", lambda name: "ffmpeg" if name == "ffmpeg" else None)
+        monkeypatch.setattr(app_music.subprocess, "run", fake_run)
+        p = tmp_path / "b.m4a"
+        p.write_bytes(b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 20)
+        result = app_music._transcode_audio_to_wav(str(p))
+        assert result is not None
+        assert result.endswith(".wav")
+        assert os.path.exists(result)
+
+    def test_mislabeled_mp3_with_ftyp_content_is_transcoded(self, monkeypatch, tmp_path):
+        """B站 dash URL 带查询参数导致文件被命名为 .mp3 时，按文件头检测仍转码"""
+
+        class FakeProc:
+            returncode = 0
+
+        def fake_run(args, **kwargs):
+            out_path = args[-1]
+            open(out_path, "wb").write(b"\x00" * 100)
+            return FakeProc()
+
+        monkeypatch.setattr(app_music, "_winsdk_available", False)
+        monkeypatch.setattr(app_music.shutil, "which", lambda name: "ffmpeg" if name == "ffmpeg" else None)
+        monkeypatch.setattr(app_music.subprocess, "run", fake_run)
+        p = tmp_path / "c.mp3"  # 扩展名错误，内容为 MP4 容器
+        p.write_bytes(b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 20)
+        result = app_music._transcode_audio_to_wav(str(p))
+        assert result is not None
+        assert result.endswith(".wav")
+
+    def test_ffmpeg_failure_returns_none(self, monkeypatch, tmp_path):
+        """ffmpeg 转码失败时返回 None（保留原文件）"""
+
+        class FakeProc:
+            returncode = 1
+
+        monkeypatch.setattr(app_music, "_winsdk_available", False)
+        monkeypatch.setattr(app_music.shutil, "which", lambda name: "ffmpeg" if name == "ffmpeg" else None)
+        monkeypatch.setattr(app_music.subprocess, "run", lambda *a, **k: FakeProc())
+        p = tmp_path / "c.m4a"
+        p.write_bytes(b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 20)
+        assert app_music._transcode_audio_to_wav(str(p)) is None
+
+
 # ═══════════════ 下载校验 ═══════════════
-
-
 class TestValidateAudioFileHeader:
     def _write(self, tmp_path, name, data: bytes) -> str:
         p = tmp_path / name

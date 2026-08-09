@@ -25,9 +25,26 @@ BILI_SEARCH_API = "https://api.bilibili.com/x/web-interface/wbi/search/type"
 BILI_NAV_API = "https://api.bilibili.com/x/web-interface/nav"
 BILI_PAGELIST_API = "https://api.bilibili.com/x/player/pagelist"
 BILI_PLAYURL_API = "https://api.bilibili.com/x/player/playurl"
+BILI_RISK_REGISTER_API = "https://api.bilibili.com/x/gaia-vgate/v1/register"
+BILI_RISK_VALIDATE_API = "https://api.bilibili.com/x/gaia-vgate/v1/validate"
 
 # 搜索结果标题中的 <em class="keyword"> 高亮标签
 _TITLE_TAG_RE = re.compile(r"<[^>]+>")
+
+# 风控验证交互用的请求头
+_RISK_HEADERS = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "Referer": "https://search.bilibili.com/",
+    "Origin": "https://search.bilibili.com",
+}
+
+
+class RiskControlError(Exception):
+    """B站触发风控，需要用户完成 geetest 滑块验证（无法自动通过）"""
+
+    def __init__(self, v_voucher: str):
+        super().__init__("B站触发 v_voucher 风控，需要完成滑块验证")
+        self.v_voucher = v_voucher
 
 # WBI 签名密钥打乱表（B站公开算法）
 _MIXIN_KEY_ENC_TAB = [
@@ -53,6 +70,8 @@ class BiliBiliMusicSource(BaseMusicSource):
         # WBI 密钥缓存
         self._wbi_keys: Optional[tuple] = None
         self._wbi_keys_expire: float = 0
+        # 最近一次触发风控的验证信息（待 UI 处理），处理完清除
+        self._pending_risk: Optional[dict] = None
 
     def _init_anonymous_cookies(self):
         """获取匿名 cookie（buvid3）
@@ -102,10 +121,15 @@ class BiliBiliMusicSource(BaseMusicSource):
                 logger.warning(f"B站搜索返回错误码: {data.get('code')} {data.get('message')}")
                 return []
             data = data.get("data") or {}
-            # v_voucher 风控（需 geetest 交互验证码，无法自动通过），放弃本次搜索
+            # v_voucher 风控（需 geetest 交互验证码）：登记验证信息并抛异常，
+            # 由调用方（UI 层）弹验证码，完成后带 grisk_id 重试
             if "v_voucher" in data:
-                logger.warning("B站搜索触发 v_voucher 风控，跳过该音源")
-                return []
+                vv = data["v_voucher"]
+                logger.warning("B站搜索触发 v_voucher 风控，等待用户完成滑块验证")
+                risk = self.register_risk(vv)
+                if risk:
+                    self._pending_risk = risk
+                raise RiskControlError(vv)
             raw_list = data.get("result") or []
             return self._parse_search_result(raw_list)
         except Exception as e:
@@ -224,6 +248,76 @@ class BiliBiliMusicSource(BaseMusicSource):
 
     def get_pic_url(self, info: MusicInfo) -> Optional[str]:
         return info.img
+
+    # ── 风控验证（gaia-vgate）────────────────────────
+
+    def register_risk(self, v_voucher: str) -> Optional[dict]:
+        """风控 register：获取 geetest 滑块参数。
+
+        Returns:
+            {"v_voucher", "token", "gt", "challenge"} 或 None
+        """
+        try:
+            resp = self._session.post(
+                BILI_RISK_REGISTER_API,
+                data={"v_voucher": v_voucher},
+                headers=_RISK_HEADERS,
+                timeout=12,
+            )
+            data = resp.json()
+            if data.get("code") != 0:
+                logger.warning(f"B站风控 register 失败: {data.get('code')} {data.get('message')}")
+                return None
+            d = data.get("data") or {}
+            geetest = d.get("geetest") or {}
+            token = str(d.get("token") or "")
+            gt = str(geetest.get("gt") or "")
+            challenge = str(geetest.get("challenge") or "")
+            if not (token and gt and challenge):
+                logger.warning("B站风控 register 未返回完整 geetest 参数")
+                return None
+            return {"v_voucher": v_voucher, "token": token, "gt": gt, "challenge": challenge}
+        except Exception as e:
+            logger.warning(f"B站风控 register 请求失败: {e}")
+            return None
+
+    def validate_risk(self, token: str, challenge: str, seccode: str, validate: str) -> Optional[str]:
+        """滑块通过后 validate：换取 grisk_id。
+
+        Returns:
+            grisk_id 或 None（验证未通过）
+        """
+        try:
+            resp = self._session.post(
+                BILI_RISK_VALIDATE_API,
+                data={
+                    "challenge": challenge,
+                    "seccode": seccode,
+                    "token": token,
+                    "validate": validate,
+                },
+                headers=_RISK_HEADERS,
+                timeout=12,
+            )
+            data = resp.json()
+            d = data.get("data") or {}
+            if d.get("is_valid") == 1 and d.get("grisk_id"):
+                return str(d["grisk_id"])
+            logger.warning(f"B站风控 validate 未通过: {data.get('code')} {data.get('message')}")
+            return None
+        except Exception as e:
+            logger.warning(f"B站风控 validate 请求失败: {e}")
+            return None
+
+    def set_gaia_vtoken(self, grisk_id: str):
+        """设置验证凭证 cookie，后续搜索请求自动携带"""
+        self._session.cookies.set("x-bili-gaia-vtoken", grisk_id, domain=".bilibili.com")
+
+    def take_pending_risk(self) -> Optional[dict]:
+        """取走待处理的验证信息（取后清空，UI 处理完应调用 set_gaia_vtoken）"""
+        risk = self._pending_risk
+        self._pending_risk = None
+        return risk
 
     # ── 下载附加请求头/ Cookie ────────────────────────
 
