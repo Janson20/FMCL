@@ -225,6 +225,16 @@ class BiliBiliMusicSource(BaseMusicSource):
     def get_pic_url(self, info: MusicInfo) -> Optional[str]:
         return info.img
 
+    # ── 下载附加请求头/ Cookie ────────────────────────
+
+    def get_download_headers(self) -> dict:
+        """upos CDN 校验 Referer，缺失返回 403"""
+        return {"Referer": "https://www.bilibili.com"}
+
+    def get_download_cookies(self) -> dict:
+        """dash URL 内的 buvid 参数必须与附带的 buvid3 cookie 一致"""
+        return dict(self._session.cookies)
+
 
 def _get_mixin_key(orig: str) -> str:
     """WBI mixin key：按打乱表重排并截取前 32 位"""

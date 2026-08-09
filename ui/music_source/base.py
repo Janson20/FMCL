@@ -149,6 +149,23 @@ class BaseMusicSource(abc.ABC):
         """
         ...
 
+    # ── 下载附加请求头/ Cookie ────────────────────────
+
+    def get_download_headers(self) -> Dict:
+        """下载播放 URL 时需附加的请求头（默认无）
+
+        部分平台的 CDN 要求特定 Referer（如 B站 upos 需
+        https://www.bilibili.com），否则返回 403。
+        """
+        return {}
+
+    def get_download_cookies(self) -> Dict:
+        """下载播放 URL 时需附带的 cookies（默认无）
+
+        B站 dash URL 内的 buvid 参数必须与请求附带的 buvid3 cookie 一致。
+        """
+        return {}
+
     # ── HTTP 辅助方法 ─────────────────────────────────
 
     def http_get(

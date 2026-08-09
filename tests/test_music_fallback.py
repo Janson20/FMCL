@@ -12,6 +12,7 @@
 
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -288,6 +289,38 @@ class TestBiliBiliSource:
         assert result is not None
         assert result[0].source == "bili"
         assert fakes["bili"].search_calls  # bili 被搜索过
+
+    def test_bili_download_headers_and_cookies(self, monkeypatch):
+        """B站 CDN 下载需 Referer + buvid cookie（upos 403 修复）"""
+        monkeypatch.setattr(BiliBiliMusicSource, "_init_anonymous_cookies", lambda self: None)
+        src = BiliBiliMusicSource()
+        assert src.get_download_headers() == {"Referer": "https://www.bilibili.com"}
+        src._session.cookies.set("buvid3", "TEST_BUVID3", domain=".bilibili.com")
+        assert src.get_download_cookies().get("buvid3") == "TEST_BUVID3"
+
+    def test_base_default_download_headers_empty(self):
+        """其他音源默认无需附加下载头/cookie"""
+        from ui.music_source.base import BaseMusicSource
+
+        class MinimalSource(BaseMusicSource):
+            source_id = "fake"
+            source_name = "fake"
+
+            def search(self, keyword, page=1, limit=30):
+                return []
+
+            def get_music_url(self, info, quality="128k"):
+                return None
+
+            def get_lyric(self, info):
+                return None
+
+            def get_pic_url(self, info):
+                return None
+
+        src = MinimalSource()
+        assert src.get_download_headers() == {}
+        assert src.get_download_cookies() == {}
 
 
 # ═══════════════ 下载校验 ═══════════════

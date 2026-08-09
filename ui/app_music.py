@@ -2991,7 +2991,12 @@ class MusicPlayerMixin(object):
         if fallback:
             fb_info, fb_url = fallback
             logger.info(f"跨源兜底命中 [{fb_info.source}]: {fb_info.name} - {fb_info.singer}")
-            result_path = self._music_download_to_temp(fb_url, fb_info.name)
+            result_path = self._music_download_to_temp(
+                fb_url,
+                fb_info.name,
+                extra_headers=self._music_get_download_headers(fb_info.source),
+                extra_cookies=self._music_get_download_cookies(fb_info.source),
+            )
             if result_path:
                 if _validate_audio_file_header(result_path) and _validate_audio_duration(result_path, fb_info.interval):
                     self._notify_fallback_source(fb_info.source)
@@ -3007,6 +3012,26 @@ class MusicPlayerMixin(object):
         name = getattr(src, "source_name", None) or source_id
         message = _("music_fallback_status", source=name)
         self.after(0, lambda: self.set_status(message, "info"))
+
+    def _music_get_download_headers(self, source_id: str) -> Dict:
+        """获取音源下载所需的附加请求头（如 B站 upos CDN 的 Referer）"""
+        src = MUSIC_SOURCES.get(source_id)
+        if src is not None:
+            try:
+                return src.get_download_headers()
+            except Exception:
+                pass
+        return {}
+
+    def _music_get_download_cookies(self, source_id: str) -> Optional[Dict]:
+        """获取音源下载所需的附加 cookies（如 B站 dash URL 的 buvid 一致性）"""
+        src = MUSIC_SOURCES.get(source_id)
+        if src is not None:
+            try:
+                return src.get_download_cookies()
+            except Exception:
+                pass
+        return None
 
     def _try_download_from_source(self, online_info: OnlineMusicInfo, quality: str) -> Tuple[Optional[str], Optional[str]]:
         """尝试从指定音源获取 URL 并下载，校验文件有效后返回 (临时文件路径, 实际URL)。"""
@@ -3060,15 +3085,26 @@ class MusicPlayerMixin(object):
         else:
             self._music_search_status.configure(text=_("music_url_failed"))
 
-    def _music_download_to_temp(self, url: str, name_hint: str = "") -> Optional[str]:
-        """下载在线音频流到临时文件"""
+    def _music_download_to_temp(
+        self,
+        url: str,
+        name_hint: str = "",
+        extra_headers: Optional[Dict] = None,
+        extra_cookies: Optional[Dict] = None,
+    ) -> Optional[str]:
+        """下载在线音频流到临时文件
+
+        Args:
+            url: 音频流地址
+            name_hint: 临时文件名提示
+            extra_headers: 附加请求头（如 B站 upos CDN 需要 Referer）
+            extra_cookies: 附加 cookies（如 B站 dash URL 的 buvid 与 cookie 一致性校验）
+        """
         try:
-            resp = requests.get(
-                url,
-                timeout=30,
-                stream=True,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-            )
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            if extra_headers:
+                headers.update(extra_headers)
+            resp = requests.get(url, timeout=30, stream=True, headers=headers, cookies=extra_cookies)
             resp.raise_for_status()
             content_type = resp.headers.get("Content-Type", "")
             # 快速失败：HTML 错误页/非音频响应不浪费带宽
