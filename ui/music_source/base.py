@@ -18,6 +18,18 @@ DEFAULT_TIMEOUT = 15
 MAX_RETRIES = 3
 # 重试间隔基数（秒）
 RETRY_BASE_DELAY = 1.0
+# 跨源兜底判定"同款歌"的时长容差（秒），用于排除翻唱/伴奏/Live 等版本
+DURATION_TOLERANCE = 15
+
+
+def duration_matches(info: "MusicInfo", target_seconds: int, tolerance: int = DURATION_TOLERANCE) -> bool:
+    """判断歌曲时长是否与目标歌曲匹配
+
+    双方时长任一未知（<=0）时放行，避免误杀无法解析时长的音源。
+    """
+    if target_seconds <= 0 or info.interval <= 0:
+        return True
+    return abs(info.interval - target_seconds) <= tolerance
 
 
 class QualityLevel:

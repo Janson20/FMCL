@@ -43,7 +43,7 @@ from ui.music_playlist import (
     PlaylistManager,
     PlaylistSong,
 )
-from ui.music_source import MUSIC_SOURCES, SOURCE_META, search_all
+from ui.music_source import MUSIC_SOURCES, SOURCE_META, resolve_track, search_all
 from ui.music_source.base import MusicInfo as OnlineMusicInfo
 
 _pygame_import_error = None
@@ -115,6 +115,19 @@ FADE_INTERVAL_MS = 50
 MUSIC_METADATA_CACHE_MAX = 200
 
 MUSIC_ORIGINAL_FEEDBACK_URL = "https://doc.weixin.qq.com/forms/AKgAhAf7ABQAUoAtgbcAHkCNf0v0B41mf"
+
+# ── 在线音频下载校验 ──────────────────────────────────
+# 文件头魔数 -> 扩展名（用于识别 HTML 错误页/空文件等无效响应）
+_AUDIO_FILE_MAGIC = (
+    (b"ID3", ".mp3"),  # MP3 (ID3v2)
+    (b"fLaC", ".flac"),  # FLAC
+    (b"OggS", ".ogg"),  # OGG/Opus
+    (b"RIFF", ".wav"),  # WAV
+)
+_M4A_FTYP_MAGIC = b"ftyp"  # M4A/MP4: 前4字节为 box 大小，offset 4 处为 ftyp
+# 时长校验：实际时长与预期相差比例容差 + 最小容差（秒），防 VIP 试听片段等截断文件
+_DURATION_TOLERANCE_RATIO = 0.2
+_DURATION_TOLERANCE_MIN_SEC = 10
 
 _hotkey_import_error = None
 try:
@@ -219,6 +232,45 @@ def _format_time(seconds: float) -> str:
     m = int(seconds // 60)
     s = int(seconds % 60)
     return f"{m}:{s:02d}"
+
+
+def _validate_audio_file_header(filepath: str) -> bool:
+    """校验文件头是否为有效音频（防 HTML 错误页/空文件伪装成音频）"""
+    try:
+        with open(filepath, "rb") as f:
+            head = f.read(16)
+    except OSError:
+        return False
+    if not head:
+        return False
+    for magic, _ext in _AUDIO_FILE_MAGIC:
+        if head.startswith(magic):
+            return True
+    # MP3 裸帧同步 (0xFF Ex)
+    if len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0:
+        return True
+    # M4A/MP4: offset 4 处为 ftyp box
+    if len(head) >= 8 and head[4:8] == _M4A_FTYP_MAGIC:
+        return True
+    return False
+
+
+def _validate_audio_duration(filepath: str, expected_seconds: int) -> bool:
+    """校验音频实际时长与预期是否一致（防 VIP 试听片段/截断文件）
+
+    双方时长任一未知（mutagen 不可用/解析失败/预期未知）时放行。
+    """
+    if expected_seconds <= 0 or _mutagen_import_error is not None:
+        return True
+    try:
+        meta = _extract_audio_metadata(filepath)
+    except Exception:
+        return True
+    actual = meta.get("duration", 0)
+    if actual <= 0:
+        return True
+    tolerance = max(_DURATION_TOLERANCE_MIN_SEC, expected_seconds * _DURATION_TOLERANCE_RATIO)
+    return abs(actual - expected_seconds) <= tolerance
 
 
 class _SMTCController:
@@ -403,6 +455,7 @@ class MusicPlayerMixin(object):
         self._music_is_online_playing: bool = False
         self._music_current_filepath: Optional[str] = None  # 当前播放的文件路径（本地/在线临时文件）
         self._music_temp_files: List[str] = []  # 缓存的临时文件列表
+        self._music_stream_seq: int = 0  # 在线播放请求序号（防旧线程覆盖新请求）
         # ── 歌词状态 ──
         self._music_lyric_parser: LyricParser = LyricParser()
         self._music_lyric_lines: List[LyricLine] = []
@@ -2895,44 +2948,102 @@ class MusicPlayerMixin(object):
         self._music_play_online_url(self._music_search_results[idx])
 
     def _music_play_online_url(self, online_info: OnlineMusicInfo):
-        """触发在线歌曲播放：获取URL -> 下载到临时文件 -> 播放"""
+        """触发在线歌曲播放：获取URL -> 下载到临时文件 -> 播放。
+
+        原音源获取 URL 失败、或下载文件无效（HTML 错误页/试听片段）时，
+        自动跨源兜底：在其它音源搜索同款歌并播放（YesPlayMusic UNM 风格）。
+        """
         self._music_stop(instant=True)
+        self._music_stream_seq += 1
+        seq = self._music_stream_seq
         self._music_search_status.configure(text=_("music_loading_url"))
         quality = self._music_quality_var.get()
 
         def _fetch_and_play():
-            result_path = None
-            result_info = online_info
             app = self  # 捕获主应用引用，避免线程间 self 丢失
-            tried_sources = [online_info.source]
-            for source_id in tried_sources:
-                try:
-                    src = MUSIC_SOURCES.get(source_id)
-                    if not src:
-                        continue
-                    url = src.get_music_url(online_info, quality)
-                    if not url:
-                        for fallback_q in ["128k", "320k", "flac"]:
-                            if fallback_q != quality:
-                                url = src.get_music_url(online_info, fallback_q)
-                                if url:
-                                    break
-                    if not url:
-                        logger.warning(f"无法获取播放URL [{source_id}]: {online_info.name}")
-                        continue
-                    result_path = app._music_download_to_temp(url, online_info.name)
-                    if result_path:
-                        break
-                except Exception as e:
-                    logger.warning(f"获取在线URL失败 [{source_id}]: {e}")
-                    continue
-
-            app.after(0, lambda tp=result_path, oi=result_info: app._music_on_stream_ready(tp, oi))
+            result_path, result_info = app._fetch_online_song(online_info, quality)
+            app.after(0, lambda: app._music_on_stream_ready(seq, result_path, result_info))
 
         threading.Thread(target=_fetch_and_play, daemon=True).start()
 
-    def _music_on_stream_ready(self, temp_path: Optional[str], online_info: OnlineMusicInfo):
-        """流媒体文件下载完成回调"""
+    def _fetch_online_song(self, online_info: OnlineMusicInfo, quality: str) -> Tuple[Optional[str], OnlineMusicInfo]:
+        """获取在线歌曲并下载到临时文件，失败时自动跨源兜底。
+
+        Returns:
+            (临时文件路径, 实际播放的歌曲信息)：全部失败时路径为 None（info 保持原值）
+        """
+        result_path = None
+        result_info = online_info
+        if online_info is None:
+            return None, result_info
+
+        result_path, _ = self._try_download_from_source(online_info, quality)
+        if result_path:
+            return result_path, result_info
+
+        # 原音源失败 -> 跨源兜底（仅尝试一次，不递归）
+        logger.info(f"原音源不可用 [{online_info.source}]: {online_info.name} - {online_info.singer}，开始跨源兜底")
+        try:
+            fallback = resolve_track(online_info, quality)
+        except Exception as e:
+            logger.warning(f"跨源兜底解析失败: {e}")
+            fallback = None
+        if fallback:
+            fb_info, fb_url = fallback
+            logger.info(f"跨源兜底命中 [{fb_info.source}]: {fb_info.name} - {fb_info.singer}")
+            result_path = self._music_download_to_temp(fb_url, fb_info.name)
+            if result_path:
+                if _validate_audio_file_header(result_path) and _validate_audio_duration(result_path, fb_info.interval):
+                    return result_path, fb_info
+                self._discard_temp_file(result_path)
+        return None, result_info
+
+    def _try_download_from_source(self, online_info: OnlineMusicInfo, quality: str) -> Tuple[Optional[str], Optional[str]]:
+        """尝试从指定音源获取 URL 并下载，校验文件有效后返回 (临时文件路径, 实际URL)。"""
+        src = MUSIC_SOURCES.get(online_info.source)
+        if src is None:
+            return None, None
+        url = None
+        try:
+            url = src.get_music_url(online_info, quality)
+            if not url:
+                for fallback_q in ["128k", "320k", "flac"]:
+                    if fallback_q != quality:
+                        url = src.get_music_url(online_info, fallback_q)
+                        if url:
+                            break
+        except Exception as e:
+            logger.warning(f"获取在线URL失败 [{online_info.source}]: {e}")
+        if not url:
+            logger.warning(f"无法获取播放URL [{online_info.source}]: {online_info.name}")
+            return None, None
+        temp_path = self._music_download_to_temp(url, online_info.name)
+        if not temp_path:
+            return None, url
+        # 文件头 + 时长双重校验：无效文件视为获取失败（触发跨源兜底）
+        if not _validate_audio_file_header(temp_path):
+            logger.warning(f"下载文件无效（非音频文件头）[{online_info.source}]: {online_info.name}")
+            self._discard_temp_file(temp_path)
+            return None, url
+        if not _validate_audio_duration(temp_path, online_info.interval):
+            logger.warning(f"下载文件为试听/截断片段 [{online_info.source}]: {online_info.name}")
+            self._discard_temp_file(temp_path)
+            return None, url
+        return temp_path, url
+
+    def _discard_temp_file(self, temp_path: str):
+        """删除无效的临时文件并移出缓存列表"""
+        try:
+            os.remove(temp_path)
+        except Exception:
+            pass
+        if temp_path in self._music_temp_files:
+            self._music_temp_files.remove(temp_path)
+
+    def _music_on_stream_ready(self, seq: int, temp_path: Optional[str], online_info: OnlineMusicInfo):
+        """流媒体文件下载完成回调（带请求序号守卫，旧请求不覆盖新播放）"""
+        if seq != self._music_stream_seq:
+            return  # 用户已切换播放目标，丢弃过期结果
         self._music_search_status.configure(text="")
         if temp_path:
             self._play_online_file(temp_path, online_info, 0)
@@ -2949,8 +3060,12 @@ class MusicPlayerMixin(object):
                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
             )
             resp.raise_for_status()
-            ext = ".mp3"
             content_type = resp.headers.get("Content-Type", "")
+            # 快速失败：HTML 错误页/非音频响应不浪费带宽
+            if "text/html" in content_type or content_type.startswith("text/") or "json" in content_type:
+                logger.warning(f"下载响应非音频（Content-Type: {content_type}）: {url[:120]}")
+                return None
+            ext = ".mp3"
             if "flac" in content_type or url.endswith(".flac"):
                 ext = ".flac"
             elif "ogg" in content_type or url.endswith(".ogg"):
