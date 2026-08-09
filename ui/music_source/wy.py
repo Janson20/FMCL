@@ -24,6 +24,7 @@ _VERSION_WORDS = (
     "重置", "重录", "官方", "official", "纯音乐", "钢琴", "吉他", "现场",
     "demo", "inst", "instrumental", "中文版", "日文版", "粤语版", "国语版",
     "日语", "填词", "合唱版", "男声版", "女声版", "mv", "清唱", "版",
+    "vocaloid", "翻调",
 )
 _VERSION_SUFFIX_RE = re.compile(
     r"[\s\u3000]*[（(\[]"
@@ -31,6 +32,12 @@ _VERSION_SUFFIX_RE = re.compile(
     + "|".join(_VERSION_WORDS)
     + r")[^（）()\[\]］]*[）)\]][\s\u3000]*$",
     re.IGNORECASE,
+)
+# 歌名开头的【标签】前缀（如【星尘】尘降、【诗岸翻唱】落花后日谈），
+# 分组时剥离；含版本词的标签视为版本标记（【翻唱】/【伴奏】/【英文版】等）
+_TAG_PREFIX_RE = re.compile(r"^【[^】]*】[\s\u3000]*")
+_VERSION_TAG_RE = re.compile(
+    r"^【[^】]*?(?:" + "|".join(_VERSION_WORDS) + r")[^】]*】"
 )
 # 歌手名首尾标点（"周杰伦-"、"BEYOND." 等），规范化时去除
 _ARTIST_EDGE_RE = re.compile(r"^[\s\-\.\,、'‘’。·]+|[\s\-\.\,、'‘’。·]+$")
@@ -86,18 +93,46 @@ CURATED_ORIGINALS = {
     "卡诺与时间塔的吟歌": "天崎默、洛天依、言和",
     "在下，言和 feat.言和": "iKz、言和",
     "我们正驶向黎明": "言和",
+    "无需夏天": "Melody_Fall、星尘、洛天依",
+    "再见了，我以恨意为燃料的人生...": "Calia-林焰、星尘",
+    "伴行": "朔时、鲨潜、诗岸、星尘",
+    "只有春天，禁止入内": "wukino、星尘infinity",
+    "100%矛盾集合体": "MaxXing、星尘infinity",
+    "人偶之梦 (星尘infinity 2022ver.)": "星尘",
+    "落花后日谈": "乌托邦P、星尘",
+    "孤独症侯群": "Calia-林焰、星尘infinity",
+    "有一天我会放弃音乐": "grassP、星尘、诗岸",
+    "巫山云 (星尘infinity version)": "旅行的蜗牛、星尘",
+    "万神纪": "海鲜面、星尘",
+    "彼岸花（诗岸&ナツメイツキ）": "しょりん、诗岸、ナツメイツキ",
+    "请不要带我走。": "奥莉安多幻想曲、诗岸",
+    "惊蛰正中央": "诗岸、歌爱ユキ、立入禁止",
+    "青鸟衔风": "忘川风华录、海伊、诗岸",
+    "虚构义": "MOCKER44.、诗岸",
+    "毁了我吧": "mayauzz、诗岸",
+    "我已见过夏天": "见过夏天P、星尘、诗岸",
+    "遗书（诗岸）": "しょりん、诗岸",
+    "因为今天就要死去（feat.诗岸）": "啰嗦、诗岸",
+    "我们终会在大地深处重逢 (feat. 诗岸)": "神经罐头、诗岸",
+    "避春讳": "穗小黎、诗岸",
+    "如果只转身后退就能回到那个夏天？": "诗岸",
 }
 
 # 同名不同曲表：多首互不相关的歌曲同名（如《蝴蝶》陶喆版与洛天依版、
 # 《哑巴》刘维版与Z新豪版、《千秋不负》妄尘组与洛天依Official版、
-# 《超能力》邓紫棋版与后海大鲨鱼版、《Side By Side》Kay Starr版与言和版等），
-# 算法无法判定用户搜索意图，命中时对整组结果不标记任何原唱。
+# 《超能力》邓紫棋版与后海大鲨鱼版、《Side By Side》Kay Starr版与言和版、
+# 《自由落体》Winky诗版/FREEFALL版/梁咏琪版等、《彼岸花》洛天依/王菲/周深版、
+# 《Babel》Gustavo Bravetti/Califair版等），算法无法判定用户搜索意图，
+# 命中时对整组结果不标记任何原唱。
 NO_ORIGINAL_SONGS = {
     "蝴蝶",
     "哑巴",
     "千秋不负",
     "超能力",
     "side by side",
+    "自由落体",
+    "彼岸花",
+    "babel",
 }
 
 
@@ -250,7 +285,9 @@ class NetEaseMusicSource(BaseMusicSource):
             10. 同名不同曲表（NO_ORIGINAL_SONGS）命中的搜索词，无法判定
                 用户意图，不标记任何原唱
             11. 单结果/无簇可比的歌曲：策展表兜底置顶首个干净同名版本
-            12. 仅将原唱前移置顶并打上原唱标签，其余结果保持热度排序不变
+            12. 搜索词精确命中某组（含版本词括号，如 彼岸花（诗岸&ナツメイツキ））
+                时只允许该组产生候选，避免模糊匹配的同名不同曲抢位
+            13. 仅将原唱前移置顶并打上原唱标签，其余结果保持热度排序不变
         """
         if len(results) < 1:
             return
@@ -277,6 +314,10 @@ class NetEaseMusicSource(BaseMusicSource):
         groups = {}
         for info in results:
             groups.setdefault(self._group_key(info.name), []).append(info)
+
+        # 搜索词精确命中某组时，只允许该组产生候选（模糊匹配的同名歌不参与）
+        exact_group = groups.get(kw)
+        restrict_exact = bool(exact_group) and any(self._is_clean_name(i.name) for i in exact_group)
 
         # 每个同名组的同曲簇分析
         group_clusters = {}
@@ -313,6 +354,8 @@ class NetEaseMusicSource(BaseMusicSource):
 
         candidates = []
         for key, metas in group_clusters.items():
+            if restrict_exact and key != kw:
+                continue
             chosen = self._group_choice(metas, kw_artists, album_times)
             # kw_artists 过滤误伤回退：搜索词含的歌手名恰为歌名一部分
             # （如"我是初音未来"含"初音未来"）时，全部候选被过滤则忽略约束重算
@@ -325,10 +368,12 @@ class NetEaseMusicSource(BaseMusicSource):
             candidates.append((name_match, chosen))
 
         if candidates:
+            # 有效日期优先（如《千本樱（中文版）》搜索中，有发布日期的
+            # 日文原版 千本桜 胜过无日期的 remix 簇），再按歌名匹配度、日期
             candidates.sort(
                 key=lambda x: (
-                    x[0],
                     0 if self._is_valid_date(x[1].publish_time) else 1,
+                    x[0],
                     x[1].publish_time,
                 )
             )
@@ -583,14 +628,22 @@ class NetEaseMusicSource(BaseMusicSource):
 
     @classmethod
     def _group_key(cls, name: str) -> str:
-        """规范化歌名分组键（忽略末尾括号版本后缀）"""
+        """规范化歌名分组键（忽略末尾括号版本后缀与开头【标签】前缀）"""
         text = cls._strip_version_suffix(name).strip().lower()
+        text = _TAG_PREFIX_RE.sub("", text)
         return text or cls._normalize_keyword(name)
 
     @classmethod
     def _is_clean_name(cls, name: str) -> bool:
-        """歌名是否无版本后缀（Live/伴奏/翻唱版等）"""
-        return cls._strip_version_suffix(name) == (name or "")
+        """歌名是否无版本后缀（Live/伴奏/翻唱版等）且开头标签不含版本词
+
+        如 【星尘】尘降 干净（标签是歌手名），【翻唱】xxx、【英文版】xxx 不干净。
+        """
+        text = (name or "").strip()
+        stripped = cls._strip_version_suffix(text)
+        if _VERSION_TAG_RE.match(stripped):
+            return False
+        return stripped == text
 
     @staticmethod
     def _normalize_keyword(text: str) -> str:
