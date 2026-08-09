@@ -133,6 +133,84 @@ class TestPlaylistManager:
         assert mgr.get_playlist(pl.id) is pl
         assert pl in mgr.playlists
 
+    def test_modifications_mark_dirty(self):
+        """所有修改操作都应标记脏标记，否则定时落盘不会写入"""
+        mgr = PlaylistManager()
+        assert mgr._dirty is False
+        pl = mgr.create_playlist("Test")
+        assert mgr._dirty is True
+        mgr._dirty = False
+
+        mgr.set_current_playlist(pl.id)
+        assert mgr._dirty is True
+        mgr._dirty = False
+
+        song = PlaylistSong(source_type="local", file_path="/a.mp3", display_title="A")
+        mgr.add_song(pl.id, song)
+        assert mgr._dirty is True
+        mgr._dirty = False
+
+        mgr.rename_playlist(pl.id, "NewName")
+        assert mgr._dirty is True
+        mgr._dirty = False
+
+        mgr.sort(pl.id, SORT_NAME_ASC)
+        assert mgr._dirty is True
+        mgr._dirty = False
+
+        mgr.remove_song(pl.id, 0)
+        assert mgr._dirty is True
+        mgr._dirty = False
+
+        mgr.add_song(pl.id, song)
+        mgr._dirty = False
+        mgr.remove_song_by_id(pl.id, song._id)
+        assert mgr._dirty is True
+        mgr._dirty = False
+
+        mgr.clear_playlist(pl.id)
+        assert mgr._dirty is True
+        mgr._dirty = False
+
+        mgr.delete_playlist(pl.id)
+        assert mgr._dirty is True
+
+    def test_failed_operations_do_not_mark_dirty(self):
+        """失败的修改操作（系统歌单保护/不存在）不应标记脏"""
+        mgr = PlaylistManager()
+        pl = mgr.create_playlist("Test")
+        history = mgr.get_or_create_history_playlist()
+        mgr._dirty = False
+
+        assert mgr.rename_playlist(history.id, "X") is False
+        assert mgr.delete_playlist(history.id) is False
+        assert mgr.clear_playlist(history.id) is False
+        assert mgr.remove_song(history.id, 0) is False
+        assert mgr.rename_playlist("nonexistent", "X") is False
+        assert mgr.sort(pl.id, "invalid_mode") is False
+        assert mgr._dirty is False
+
+    def test_save_if_dirty_persists_and_clears_flag(self, tmp_path):
+        """save_if_dirty 只在脏标记存在时落盘，并清除标记"""
+        mgr = PlaylistManager()
+        pl = mgr.create_playlist("PersistMe")
+        song = PlaylistSong(source_type="online", online_source="kw", online_songmid="1",
+                            online_name="T", display_title="T")
+        mgr.add_song(pl.id, song)
+        path = tmp_path / "music.json"
+        mgr.save_if_dirty(path)
+        assert path.exists()
+        assert mgr._dirty is False
+
+        # 无变更时不重复写盘（文件内容不变）
+        mtime = path.stat().st_mtime
+        mgr.save_if_dirty(path)
+        assert path.stat().st_mtime == mtime
+
+        restored = PlaylistManager()
+        restored.load(path)
+        assert len(restored.get_playlist(pl.id).songs) == 1
+
     def test_delete_playlist(self):
         mgr = PlaylistManager()
         pl = mgr.create_playlist("Test")
@@ -397,6 +475,7 @@ class TestPlaylistHistory:
         pl = mgr.get_or_create_history_playlist()
         assert len(pl.songs) == 1
         assert pl.songs[0]._id == song._id
+        assert mgr._dirty is True  # 历史记录应触发落盘标记
 
     def test_record_to_history_dedup(self):
         mgr = PlaylistManager()

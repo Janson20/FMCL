@@ -1483,8 +1483,15 @@ class MusicPlayerMixin(object):
             self._music_is_playing = False
             self._update_play_btn_ui()
 
-    def _play_online_file(self, filepath: str, online_info: OnlineMusicInfo, start_pos: float = 0):
-        """播放在线缓存的临时文件"""
+    def _play_online_file(self, filepath: str, online_info: OnlineMusicInfo, start_pos: float = 0, history_origin: Optional[OnlineMusicInfo] = None):
+        """播放在线缓存的临时文件
+
+        Args:
+            filepath: 临时音频文件路径
+            online_info: 实际播放的歌曲信息（跨源兜底后可能被替换）
+            start_pos: 起始播放位置（秒）
+            history_origin: 用户点播的原始歌曲（兜底时历史记录用原歌曲）
+        """
         if _pygame_import_error is not None:
             return
         self._music_cancel_fade()
@@ -1518,7 +1525,8 @@ class MusicPlayerMixin(object):
             self._music_fade_in()
             self._trigger_ach("music_first_play")
             self._trigger_ach("music_play_count")
-            self._music_record_play_history_online(online_info)
+            # 播放历史记录用户点播的原始歌曲（兜底播放时记录的也是原歌曲）
+            self._music_record_play_history_online(history_origin or online_info)
         except Exception as e:
             logger.error(f"在线播放失败: {e}")
             self._music_is_playing = False
@@ -2651,6 +2659,7 @@ class MusicPlayerMixin(object):
         meta = self._get_metadata(filepath)
         song = PlaylistSong.from_local_file(filepath, meta)
         self._music_playlist_manager.record_to_history(song)
+        self._music_refresh_history_ui()
 
     def _music_record_play_history_online(self, online_info):
         """记录在线歌曲到播放历史"""
@@ -2661,6 +2670,20 @@ class MusicPlayerMixin(object):
         except Exception:
             return
         self._music_playlist_manager.record_to_history(song)
+        self._music_refresh_history_ui()
+
+    def _music_refresh_history_ui(self):
+        """记录历史后刷新 UI（当前正停留在历史歌单视图时立即重绘）"""
+        try:
+            if self._music_tab_mode != "playlist":
+                return
+            mgr = self._music_playlist_manager
+            current = mgr.get_current_playlist()
+            if current is None or current.id != HISTORY_PLAYLIST_ID:
+                return
+            self._rebuild_playlist_song_list(current)
+        except Exception:
+            pass
 
     # ── 播放全部按钮 ──
 
@@ -3069,7 +3092,7 @@ class MusicPlayerMixin(object):
         def _fetch_and_play():
             app = self  # 捕获主应用引用，避免线程间 self 丢失
             result_path, result_info = app._fetch_online_song(online_info, quality)
-            app.after(0, lambda: app._music_on_stream_ready(seq, result_path, result_info))
+            app.after(0, lambda: app._music_on_stream_ready(seq, result_path, result_info, online_info))
 
         threading.Thread(target=_fetch_and_play, daemon=True).start()
 
@@ -3322,13 +3345,20 @@ class MusicPlayerMixin(object):
         if temp_path in self._music_temp_files:
             self._music_temp_files.remove(temp_path)
 
-    def _music_on_stream_ready(self, seq: int, temp_path: Optional[str], online_info: OnlineMusicInfo):
-        """流媒体文件下载完成回调（带请求序号守卫，旧请求不覆盖新播放）"""
+    def _music_on_stream_ready(self, seq: int, temp_path: Optional[str], online_info: OnlineMusicInfo, origin_info: Optional[OnlineMusicInfo] = None):
+        """流媒体文件下载完成回调（带请求序号守卫，旧请求不覆盖新播放）
+
+        Args:
+            seq: 播放请求序号
+            temp_path: 下载好的临时文件路径
+            online_info: 实际播放的歌曲信息（可能是跨源兜底后的）
+            origin_info: 用户点播的原始歌曲信息（兜底时用于播放历史记录）
+        """
         if seq != self._music_stream_seq:
             return  # 用户已切换播放目标，丢弃过期结果
         self._music_search_status.configure(text="")
         if temp_path:
-            self._play_online_file(temp_path, online_info, 0)
+            self._play_online_file(temp_path, online_info, 0, history_origin=origin_info)
         else:
             self._music_search_status.configure(text=_("music_url_failed"))
 

@@ -291,6 +291,7 @@ class PlaylistManager:
         """创建新歌单"""
         pl = Playlist(name=name)
         self._playlists.append(pl)
+        self.mark_dirty()
         return pl
 
     def delete_playlist(self, playlist_id: str) -> bool:
@@ -303,6 +304,7 @@ class PlaylistManager:
                 self._playlists.pop(i)
                 if self._current_playlist_id == playlist_id:
                     self._current_playlist_id = None
+                self.mark_dirty()
                 return True
         return False
 
@@ -312,6 +314,8 @@ class PlaylistManager:
         if pl is None or pl.is_system:
             return False
         pl.name = new_name
+        pl.updated_at = time.time()
+        self.mark_dirty()
         return True
 
     def get_playlist(self, playlist_id: str) -> Optional[Playlist]:
@@ -322,8 +326,9 @@ class PlaylistManager:
         return None
 
     def set_current_playlist(self, playlist_id: str):
-        """设置当前选中歌单"""
+        """切换当前选中歌单"""
         self._current_playlist_id = playlist_id
+        self.mark_dirty()
 
     # ── 播放历史 ──
 
@@ -350,6 +355,7 @@ class PlaylistManager:
         # 裁剪上限
         if len(pl.songs) > MAX_HISTORY:
             pl.songs = pl.songs[:MAX_HISTORY]
+        self.mark_dirty()
         return True
 
     # ── 歌曲操作 ──
@@ -370,6 +376,7 @@ class PlaylistManager:
         pl.songs.append(song)
         pl.updated_at = time.time()
         self._sort_playlist_internal(pl)
+        self.mark_dirty()
         return True
 
     def remove_song(self, playlist_id: str, song_index: int) -> bool:
@@ -379,6 +386,7 @@ class PlaylistManager:
             return False
         pl.songs.pop(song_index)
         pl.updated_at = time.time()
+        self.mark_dirty()
         return True
 
     def remove_song_by_id(self, playlist_id: str, song_id: str) -> bool:
@@ -390,6 +398,7 @@ class PlaylistManager:
             if s._id == song_id:
                 pl.songs.pop(i)
                 pl.updated_at = time.time()
+                self.mark_dirty()
                 return True
         return False
 
@@ -400,6 +409,7 @@ class PlaylistManager:
             return False
         pl.songs.clear()
         pl.updated_at = time.time()
+        self.mark_dirty()
         return True
 
     def is_song_in_any_playlist(self, file_path: str = "", online_source: str = "", online_songmid: str = "") -> bool:
@@ -460,6 +470,7 @@ class PlaylistManager:
             return False
         pl.sort_mode = mode
         self._sort_playlist_internal(pl)
+        self.mark_dirty()
         return True
 
     @staticmethod
