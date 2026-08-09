@@ -3294,7 +3294,12 @@ class MusicPlayerMixin(object):
         if not url:
             logger.warning(f"无法获取播放URL [{online_info.source}]: {online_info.name}")
             return None, None
-        temp_path = self._music_download_to_temp(url, online_info.name)
+        temp_path = self._music_download_to_temp(
+            url,
+            online_info.name,
+            extra_headers=self._music_get_download_headers(online_info.source),
+            extra_cookies=self._music_get_download_cookies(online_info.source),
+        )
         if not temp_path:
             return None, url
         # 文件头 + 时长双重校验：无效文件视为获取失败（触发跨源兜底）
