@@ -1804,6 +1804,9 @@ class MusicPlayerMixin(object):
                 album_name=song.online_album,
                 interval=song.online_interval,
                 img=song.online_img,
+                # 恢复加入歌单时的可用音质信息（自动音质解析与 URL 获取依赖）
+                types=[dict(t) for t in (song.online_types or [])],
+                _types=dict(song.online_type_detail or {}),
             )
             self._music_play_online_url(info)
 
@@ -3215,6 +3218,35 @@ class MusicPlayerMixin(object):
             logger.debug(f"自动音质解析失败，回退 128k: {e}")
             return "128k"
 
+    def _music_resolve_auto_quality_async(self, online_info: OnlineMusicInfo) -> Tuple[OnlineMusicInfo, str]:
+        """后台线程解析自动音质（含音质信息补齐）
+
+        歌单/播放历史恢复的歌曲由 PlaylistSong 重建，旧数据可能缺少
+        可用音质信息（types/_types）。此时先向音源重新搜索同款歌
+        （按 songmid 匹配）补齐，再取最高可用音质——否则自动解析
+        只能回退 128k，且 URL 获取缺少 hash 等详情。
+
+        Returns:
+            (补齐后的歌曲信息, 解析出的音质档位)
+        """
+        info = online_info
+        if info is None:
+            return info, "128k"
+        if info.types:
+            return info, self._music_resolve_auto_quality(info)
+        src = MUSIC_SOURCES.get(info.source)
+        if src is not None:
+            try:
+                keyword = f"{info.name} {info.singer}".strip() or info.name
+                items = src.search(keyword, page=1, limit=10)
+                for it in items or []:
+                    if it.songmid == info.songmid and it.types:
+                        info = it
+                        break
+            except Exception as e:
+                logger.debug(f"自动音质信息补齐失败 [{info.source}]: {e}")
+        return info, self._music_resolve_auto_quality(info)
+
     def _music_play_online_url(self, online_info: OnlineMusicInfo):
         """触发在线歌曲播放：获取URL -> 下载到临时文件 -> 播放。
 
@@ -3228,11 +3260,16 @@ class MusicPlayerMixin(object):
         # 用户原始选择（可能为 "auto"）：跨源兜底按此决定音质尝试顺序，
         # "auto" 时兜底从最高音质开始尝试，避免默认命中 128k
         raw_quality = self._music_quality_var.get()
-        quality = raw_quality if raw_quality != "auto" else self._music_resolve_auto_quality(online_info)
 
         def _fetch_and_play():
             app = self  # 捕获主应用引用，避免线程间 self 丢失
-            result_path, result_info, result_quality = app._fetch_online_song(online_info, quality, raw_quality)
+            play_info = online_info
+            play_quality = raw_quality
+            if raw_quality == "auto":
+                # 歌单/历史恢复的歌曲可能缺少音质信息（types），
+                # 在后台线程重新搜索补齐后再解析自动音质，避免默认 128k
+                play_info, play_quality = app._music_resolve_auto_quality_async(online_info)
+            result_path, result_info, result_quality = app._fetch_online_song(play_info, play_quality, raw_quality)
             app.after(0, lambda: app._music_on_stream_ready(seq, result_path, result_info, online_info, result_quality))
 
         threading.Thread(target=_fetch_and_play, daemon=True).start()

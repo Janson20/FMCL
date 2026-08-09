@@ -101,6 +101,10 @@ class PlaylistSong:
     online_album: str = ""  # 专辑名
     online_interval: int = 0  # 时长(秒)
     online_img: str = ""  # 封面图URL
+    # 可用音质列表与详情（来自搜索结果的 types/_types，用于恢复播放时
+    # 的自动音质解析与 URL 获取；缺失时播放端会重新搜索补齐）
+    online_types: List[Dict] = field(default_factory=list)  # [{"type": "flac", ...}, ...]
+    online_type_detail: Dict = field(default_factory=dict)  # {"flac": {...hash/media_mid...}, ...}
 
     # 显示字段
     display_title: str = ""
@@ -165,6 +169,8 @@ class PlaylistSong:
             online_album=info.album_name,
             online_interval=info.interval,
             online_img=info.img,
+            online_types=[dict(t) for t in (info.types or [])],
+            online_type_detail=dict(info._types or {}),
             display_title=info.name,
             display_artist=info.singer,
             added_at=time.time(),
