@@ -599,6 +599,11 @@ class NetEaseMusicSource(BaseMusicSource):
     WY_LOGIN_QR_BASE = "https://music.163.com/login?codekey="
     # 需要保留的基础 cookie（登录 Cookie 清除时不清除它们）
     _BASE_COOKIE_NAMES = {"os", "appver", "channel", "_ntes_nuid", "__remember_me"}
+    # Set-Cookie 属性分段（解析 Cookie 字符串时跳过，避免污染会话）
+    _COOKIE_ATTR_NAMES = {
+        "expires", "max-age", "domain", "path", "secure", "samesite",
+        "httponly", "priority", "partitioned",
+    }
 
     def login_qr_key(self) -> Optional[str]:
         """获取扫码登录 unikey，失败返回 None"""
@@ -615,18 +620,37 @@ class NetEaseMusicSource(BaseMusicSource):
     def login_qr_check(self, key: str) -> dict:
         """查询扫码登录状态
 
+        803 成功时登录 Cookie 可能位于响应体 cookie 字段，也可能仅存在于
+        Set-Cookie 响应头（不同接口实现），本方法将两种情况合并返回；
+        若响应体含 cookies 字典（name->value），一并转换。
+
         Returns:
             {code, cookie?}: 800 已过期 / 801 等待扫码 / 802 已扫码待确认 /
             803 授权成功（含 cookie 字段）
         """
-        resp = self._eapi_post("/api/login/qrcode/client/login", {"key": key, "type": 1})
-        return resp if isinstance(resp, dict) else {}
+        signed = wy_eapi("/api/login/qrcode/client/login", {"key": key, "type": 1})
+        resp = self._session.post(f"{WY_EAPI_BASE}/api/login/qrcode/client/login", data=signed, timeout=15)
+        try:
+            result = resp.json()
+        except ValueError:
+            result = {}
+        if not isinstance(result, dict):
+            result = {}
+        if not result.get("cookie"):
+            cookies_dict = result.get("cookies")
+            if isinstance(cookies_dict, dict) and cookies_dict:
+                result["cookie"] = "; ".join(f"{k}={v}" for k, v in cookies_dict.items())
+            else:
+                header_cookie = resp.headers.get("Set-Cookie") if resp.headers is not None else None
+                if header_cookie:
+                    result["cookie"] = header_cookie
+        return result
 
     def apply_cookie_str(self, cookie_str: str) -> None:
         """将 Set-Cookie 格式字符串解析并应用到会话（支持 'HTTPOnly' 等属性标记）
 
         如 "MUSIC_U=xxx; Max-Age=15552000; Expires=...; Path=/; Domain=.music.163.com; HTTPOnly"
-        仅取 key=value 对，忽略属性标记（无 '=' 的分段）。
+        仅取 key=value 对，跳过属性标记（无 '=' 或属于 Expires/Max-Age/Domain 等属性名）。
         """
         if not cookie_str:
             return
@@ -639,6 +663,8 @@ class NetEaseMusicSource(BaseMusicSource):
             name = name.strip()
             value = value.strip().strip('"')
             if not name or not value:
+                continue
+            if name.lower() in self._COOKIE_ATTR_NAMES:
                 continue
             try:
                 self._session.cookies.set(name, value, domain=".music.163.com")
@@ -687,16 +713,23 @@ class NetEaseMusicSource(BaseMusicSource):
         """获取当前登录用户信息（未登录/失败返回 None）
 
         Returns:
-            {"nickname": str, "avatar_url": str, "user_id": int}
+            {"nickname": str, "avatar_url": str, "user_id": int,
+             "vip_type": int, "has_music_package": bool}
+            vip_type 取值（服务器按账号返回）:
+                0 免费用户 / 1 音乐包 / 11 黑胶VIP / 20 黑胶SVIP
+            音乐包还可能以 vipRights.associator 形式返回（部分账号）。
         """
         try:
             resp = self._eapi_post("/api/nuser/account/get", {})
             if resp.get("code") == 200 and resp.get("profile"):
                 profile = resp["profile"]
+                rights = profile.get("vipRights") or {}
                 return {
                     "nickname": profile.get("nickname", ""),
                     "avatar_url": profile.get("avatarUrl", ""),
                     "user_id": profile.get("userId", 0),
+                    "vip_type": int(profile.get("vipType") or 0),
+                    "has_music_package": bool(rights.get("associator")),
                 }
             logger.debug(f"网易获取登录用户信息失败: code={resp.get('code')}")
         except Exception as e:

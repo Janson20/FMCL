@@ -1321,5 +1321,18 @@
   "wy_login_success": "Logged in successfully",
   "wy_login_refresh_btn": "Refresh QR Code",
   "wy_login_cancel_btn": "Cancel",
-  "wy_logout_success": "Logged out of NetEase Music"
+  "wy_logout_success": "Logged out of NetEase Music",
+
+  "wy_login_cookie_failed": "Login succeeded but failed to get cookie, please retry",
+
+  "music_quality_auto": "Auto",
+  "wy_vip_free": "Free User",
+  "wy_vip_package": "Music Package",
+  "wy_vip_vip": "Black Vinyl VIP",
+  "wy_vip_svip": "Black Vinyl SVIP",
+  "wy_vip_quality_free": "Standard 128k",
+  "wy_vip_quality_package": "High 320k",
+  "wy_vip_quality_vip": "Lossless FLAC",
+  "wy_vip_quality_svip": "Master 192kHz/24bit",
+  "settings_wy_logged_in_with_tier": "Logged in as: {name} ({tier} · {quality})"
 }

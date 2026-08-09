@@ -1440,10 +1440,34 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         if not self.winfo_exists():
             return
         if profile and profile.get("nickname"):
-            self._wy_nickname_label.configure(text=_("settings_wy_logged_in_as", name=profile["nickname"]))
+            tier, quality = self._wy_vip_display(profile)
+            self._wy_nickname_label.configure(
+                text=_("settings_wy_logged_in_with_tier", name=profile["nickname"], tier=tier, quality=quality)
+            )
         else:
             # 有本地 Cookie 但服务端校验失败：登录已失效，提示重新登录
             self._wy_nickname_label.configure(text=_("settings_wy_login_invalid"))
+
+    @staticmethod
+    def _wy_vip_display(profile):
+        """会员等级 -> (等级名, 对应可用音质)
+
+        参照网易云会员音质表：免费用户 128k / 音乐包 320k /
+        黑胶VIP 无损 FLAC / 黑胶SVIP 超清母带 192kHz/24bit。
+        vip_type 取值: 0=免费, 1=音乐包, 11=黑胶VIP, 20=黑胶SVIP。
+        """
+        vip_type = int(profile.get("vip_type") or 0)
+        has_pkg = bool(profile.get("has_music_package"))
+        if vip_type == 20:
+            return _("wy_vip_svip"), _("wy_vip_quality_svip")
+        if vip_type == 11:
+            return _("wy_vip_vip"), _("wy_vip_quality_vip")
+        if vip_type == 1 or has_pkg:
+            return _("wy_vip_package"), _("wy_vip_quality_package")
+        # 未知的非 0 取值按 VIP 处理（YesPlayMusic 同策略）
+        if vip_type != 0:
+            return _("wy_vip_vip"), _("wy_vip_quality_vip")
+        return _("wy_vip_free"), _("wy_vip_quality_free")
 
     def _on_wy_logout(self):
         """退出网易云音乐账号"""

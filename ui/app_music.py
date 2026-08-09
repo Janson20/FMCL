@@ -1248,8 +1248,13 @@ class MusicPlayerMixin(object):
             text_color=COLORS["text_secondary"],
         ).pack(side=ctk.LEFT)
 
-        self._music_quality_var = ctk.StringVar(value="128k")
-        for q_text, q_val in [("128K", "128k"), ("320K", "320k"), ("FLAC", "flac")]:
+        self._music_quality_var = ctk.StringVar(value="auto")
+        for q_text, q_val in [
+            (_("music_quality_auto"), "auto"),
+            ("128K", "128k"),
+            ("320K", "320k"),
+            ("FLAC", "flac"),
+        ]:
             ctk.CTkRadioButton(
                 quality_row,
                 text=q_text,
@@ -3110,6 +3115,24 @@ class MusicPlayerMixin(object):
         self._music_playlist_context_idx = -1
         self._music_play_online_url(self._music_search_results[idx])
 
+    def _music_resolve_auto_quality(self, online_info: OnlineMusicInfo) -> str:
+        """自动音质：取当前账号在该歌曲上可用的最高音质
+
+        音源搜索结果的 types/maxbr 由服务器按当前账号返回（免费用户
+        最高 128k、音乐包 320k、黑胶VIP 无损、SVIP 母带，登录与否
+        直接影响可用音质），自动模式即从高到低选第一个可用的。
+        """
+        if online_info is None:
+            return "128k"
+        src = MUSIC_SOURCES.get(online_info.source)
+        if src is None:
+            return "128k"
+        try:
+            return src.get_best_quality(online_info, "flac24bit")
+        except Exception as e:
+            logger.debug(f"自动音质解析失败，回退 128k: {e}")
+            return "128k"
+
     def _music_play_online_url(self, online_info: OnlineMusicInfo):
         """触发在线歌曲播放：获取URL -> 下载到临时文件 -> 播放。
 
@@ -3121,6 +3144,8 @@ class MusicPlayerMixin(object):
         seq = self._music_stream_seq
         self._music_search_status.configure(text=_("music_loading_url"))
         quality = self._music_quality_var.get()
+        if quality == "auto":
+            quality = self._music_resolve_auto_quality(online_info)
 
         def _fetch_and_play():
             app = self  # 捕获主应用引用，避免线程间 self 丢失

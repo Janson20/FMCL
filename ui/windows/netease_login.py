@@ -25,7 +25,13 @@ from logzero import logger
 
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
-from ui.music_source import wy_apply_cookie, wy_login_qr_check, wy_login_qr_key
+from ui.music_source import (
+    wy_apply_cookie,
+    wy_get_cookie_str,
+    wy_is_logged_in,
+    wy_login_qr_check,
+    wy_login_qr_key,
+)
 
 # 扫码状态码
 _QR_EXPIRED = 800  # 二维码已过期
@@ -186,8 +192,9 @@ class NeteaseLoginWindow(ctk.CTkToplevel):
                     self._ui_queue.put(("network_error", str(e)))
                 continue
             code = result.get("code")
-            if code == _QR_SUCCESS:
+            if code == _QR_SUCCESS or (code == 200 and result.get("cookie")):
                 self._poll_running = False
+                logger.info(f"网易云扫码授权成功，响应字段: {sorted(result.keys())}")
                 self._ui_queue.put(("poll", key, _QR_SUCCESS, result.get("cookie", "")))
             elif code == _QR_EXPIRED:
                 self._poll_running = False
@@ -315,32 +322,45 @@ class NeteaseLoginWindow(ctk.CTkToplevel):
         self.after(800, self._start_qr_flow)
 
     def _on_login_success(self, cookie: str):
+        """扫码授权成功：应用并持久化登录 Cookie（主线程）
+
+        Cookie 可能来自响应体 cookie 字段，也可能仅随 Set-Cookie 响应头
+        （requests 已自动写入会话）。此处多来源提取：
+            1. 响应体 cookie 字符串 → 应用到会话
+            2. 从会话导出全部登录 Cookie 用于持久化（覆盖 1 的更完整）
+            3. 最终以 MUSIC_U 是否就位判定登录是否真正成功
+        """
         if not self._running:
             return
-        if not cookie:
-            self._status_label.configure(text=_("wy_login_qr_fetch_failed"))
+        # 去除 ' HTTPOnly' 标记后解析应用（与 YesPlayMusic 一致）
+        cookie = (cookie or "").replace(" HTTPOnly", "")
+        if cookie:
+            wy_apply_cookie(cookie)
+        # 响应体无 cookie 字段时，Set-Cookie 响应头已被 requests 自动
+        # 写入会话，直接从会话导出完整登录 Cookie
+        saved_cookie = wy_get_cookie_str()
+        if not saved_cookie:
+            saved_cookie = cookie
+        if not wy_is_logged_in():
+            # 授权成功但会话中无登录态（MUSIC_U 缺失）：提示并允许重试
+            logger.warning(f"网易云扫码授权成功但未获取到登录 Cookie，响应 cookie 为空: {not cookie}")
+            self._status_label.configure(text=_("wy_login_cookie_failed"))
             self._refresh_btn.configure(state="normal")
             return
-        # 去除 ' HTTPOnly' 标记后解析应用（与 YesPlayMusic 一致）
-        cookie = cookie.replace(" HTTPOnly", "")
-        if wy_apply_cookie(cookie):
+        try:
+            self._parent.callbacks.get("set_wy_cookie", lambda c: None)(saved_cookie)
+        except Exception as e:
+            logger.warning(f"保存网易云登录 Cookie 失败: {e}")
+        self._status_label.configure(text=_("wy_login_success"), text_color=COLORS["success"])
+        self._refresh_btn.configure(state="disabled")
+        self._cancel_btn.configure(state="disabled")
+        if self._on_success is not None:
             try:
-                self._parent.callbacks.get("set_wy_cookie", lambda c: None)(cookie)
+                self._on_success()
             except Exception as e:
-                logger.warning(f"保存网易云登录 Cookie 失败: {e}")
-            self._status_label.configure(text=_("wy_login_success"), text_color=COLORS["success"])
-            self._refresh_btn.configure(state="disabled")
-            self._cancel_btn.configure(state="disabled")
-            if self._on_success is not None:
-                try:
-                    self._on_success()
-                except Exception as e:
-                    logger.warning(f"网易云登录成功回调异常: {e}")
-            # 短暂展示成功状态后自动关闭
-            self.after(900, self._on_close)
-        else:
-            self._status_label.configure(text=_("wy_login_qr_fetch_failed"))
-            self._refresh_btn.configure(state="normal")
+                logger.warning(f"网易云登录成功回调异常: {e}")
+        # 短暂展示成功状态后自动关闭
+        self.after(900, self._on_close)
 
     def _on_close(self):
         self._running = False

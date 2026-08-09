@@ -1317,5 +1317,18 @@
   "wy_login_success": "登入成功",
   "wy_login_refresh_btn": "重新整理 QR Code",
   "wy_login_cancel_btn": "取消",
-  "wy_logout_success": "已登出網易雲音樂帳號"
+  "wy_logout_success": "已登出網易雲音樂帳號",
+
+  "wy_login_cookie_failed": "登入成功但取得 Cookie 失敗，請重試",
+
+  "music_quality_auto": "自動",
+  "wy_vip_free": "免費用戶",
+  "wy_vip_package": "音樂包",
+  "wy_vip_vip": "黑膠VIP",
+  "wy_vip_svip": "黑膠SVIP",
+  "wy_vip_quality_free": "標準音質 128k",
+  "wy_vip_quality_package": "極高音質 320k",
+  "wy_vip_quality_vip": "無損音質 FLAC",
+  "wy_vip_quality_svip": "超清母帶 192kHz/24bit",
+  "settings_wy_logged_in_with_tier": "已登入: {name}（{tier} · {quality}）"
 }

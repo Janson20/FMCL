@@ -1321,5 +1321,18 @@
   "wy_login_success": "登录成功",
   "wy_login_refresh_btn": "刷新二维码",
   "wy_login_cancel_btn": "取消",
-  "wy_logout_success": "已退出网易云音乐账号"
+  "wy_logout_success": "已退出网易云音乐账号",
+
+  "wy_login_cookie_failed": "登录成功但获取 Cookie 失败，请重试",
+
+  "music_quality_auto": "自动",
+  "wy_vip_free": "免费用户",
+  "wy_vip_package": "音乐包",
+  "wy_vip_vip": "黑胶VIP",
+  "wy_vip_svip": "黑胶SVIP",
+  "wy_vip_quality_free": "标准音质 128k",
+  "wy_vip_quality_package": "极高音质 320k",
+  "wy_vip_quality_vip": "无损音质 FLAC",
+  "wy_vip_quality_svip": "超清母带 192kHz/24bit",
+  "settings_wy_logged_in_with_tier": "已登录: {name}（{tier} · {quality}）"
 }

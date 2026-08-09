@@ -1317,5 +1317,18 @@
   "wy_login_success": "ログイン成功",
   "wy_login_refresh_btn": "QRコード更新",
   "wy_login_cancel_btn": "キャンセル",
-  "wy_logout_success": "网易云音乐からログアウトしました"
+  "wy_logout_success": "网易云音乐からログアウトしました",
+
+  "wy_login_cookie_failed": "ログイン成功しましたが Cookie の取得に失敗しました。再試行してください",
+
+  "music_quality_auto": "自動",
+  "wy_vip_free": "無料ユーザー",
+  "wy_vip_package": "音楽パック",
+  "wy_vip_vip": "黑胶VIP",
+  "wy_vip_svip": "黑胶SVIP",
+  "wy_vip_quality_free": "標準音質 128k",
+  "wy_vip_quality_package": "高音質 320k",
+  "wy_vip_quality_vip": "ロスレス音質 FLAC",
+  "wy_vip_quality_svip": "マスター音質 192kHz/24bit",
+  "settings_wy_logged_in_with_tier": "ログイン中: {name}（{tier} · {quality}）"
 }
