@@ -53,7 +53,8 @@
   "accounts_file": null,
   "current_account_id": null,
   "account_migration_done": false,
-  "music_state": {}
+  "music_state": {},
+  "wy_cookie": "gAAAAABm...（Fernet 加密密文）"
 }
 ```
 
@@ -85,3 +86,4 @@
 | `current_account_id` | string/null | `null` | 当前选中账号的 UUID |
 | `account_migration_done` | bool | `false` | 旧版 `player_name` 是否已迁移为离线账号（首次启动自动执行） |
 | `music_state` | object | `{}` | 音乐播放器状态持久化（包含音量、播放模式、上次打开的文件夹路径等） |
+| `wy_cookie` | string/null | `null` | 网易云音乐登录 Cookie（Fernet 加密存储，不可手动编辑，用于播放 VIP 歌曲与获取 VIP 歌词；在 设置 → 账户 中扫码登录） |

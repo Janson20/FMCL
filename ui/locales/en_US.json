@@ -1299,5 +1299,27 @@
   "plugin_update_failed": "Update failed: {error}",
   "plugin_market_updates_available": "{count} update(s) available",
 
-  "minigame_play": "▶ Play Minigame"
+  "minigame_play": "▶ Play Minigame",
+
+  "settings_wy_login_title": "NetEase Music Account",
+  "settings_wy_login_desc": "Log in with a QR code to play VIP songs and fetch VIP lyrics (login is only used within this launcher)",
+  "settings_wy_status": "Login status",
+  "settings_wy_not_logged_in": "Not logged in",
+  "settings_wy_logged_in": "Logged in",
+  "settings_wy_logged_in_as": "Logged in as: {name}",
+  "settings_wy_login_invalid": "Login expired, please log in again",
+  "settings_wy_login_btn": "QR Code Login",
+  "settings_wy_logout_btn": "Log Out",
+  "wy_login_window_title": "NetEase Music QR Code Login",
+  "wy_login_qr_hint": "Scan with the NetEase Music app to log in",
+  "wy_login_qr_generating": "Generating QR code...",
+  "wy_login_qr_fetch_failed": "Failed to get QR code, please retry",
+  "wy_login_qr_waiting": "Waiting for scan...",
+  "wy_login_qr_scanned": "Scanned, please confirm on your phone",
+  "wy_login_qr_expired": "QR code expired, refreshing...",
+  "wy_login_network_error": "Network error: {error}",
+  "wy_login_success": "Logged in successfully",
+  "wy_login_refresh_btn": "Refresh QR Code",
+  "wy_login_cancel_btn": "Cancel",
+  "wy_logout_success": "Logged out of NetEase Music"
 }

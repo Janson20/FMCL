@@ -584,6 +584,125 @@ class NetEaseMusicSource(BaseMusicSource):
             pass
         return f"https://music.163.com/api/song/enhance/player/url?id={song_id}"
 
+    # ── 账号登录（扫码登录，支持 VIP 歌曲播放与 VIP 歌词） ──
+    #
+    # 登录流程（与 YesPlayMusic 一致，采用官方扫码接口）:
+    #   1. login_qr_key()   获取一次性 unikey（eapi /api/login/qrcode/unikey）
+    #   2. 用 unikey 生成二维码内容 https://music.163.com/login?codekey=<unikey>
+    #   3. login_qr_check() 轮询扫码状态: 800 已过期 / 801 等待扫码 /
+    #      802 已扫码待确认 / 803 授权成功（响应携带登录 Cookie）
+    #   4. 将 Cookie 应用到会话（apply_cookie_str），并持久化以便下次启动恢复
+    #
+    # 说明: 扫码接口走 eapi（与搜索等核心功能同一通道，兼容性最好）；
+    # 部分环境 weapi 域名会被风控拦截（空响应），eapi 不受影响。
+
+    WY_LOGIN_QR_BASE = "https://music.163.com/login?codekey="
+    # 需要保留的基础 cookie（登录 Cookie 清除时不清除它们）
+    _BASE_COOKIE_NAMES = {"os", "appver", "channel", "_ntes_nuid", "__remember_me"}
+
+    def login_qr_key(self) -> Optional[str]:
+        """获取扫码登录 unikey，失败返回 None"""
+        try:
+            resp = self._eapi_post("/api/login/qrcode/unikey", {"type": 1})
+            unikey = resp.get("unikey")
+            if resp.get("code") == 200 and unikey:
+                return unikey
+            logger.debug(f"网易获取登录 unikey 失败: code={resp.get('code')}")
+        except Exception as e:
+            logger.warning(f"网易获取登录 unikey 异常: {e}")
+        return None
+
+    def login_qr_check(self, key: str) -> dict:
+        """查询扫码登录状态
+
+        Returns:
+            {code, cookie?}: 800 已过期 / 801 等待扫码 / 802 已扫码待确认 /
+            803 授权成功（含 cookie 字段）
+        """
+        resp = self._eapi_post("/api/login/qrcode/client/login", {"key": key, "type": 1})
+        return resp if isinstance(resp, dict) else {}
+
+    def apply_cookie_str(self, cookie_str: str) -> None:
+        """将 Set-Cookie 格式字符串解析并应用到会话（支持 'HTTPOnly' 等属性标记）
+
+        如 "MUSIC_U=xxx; Max-Age=15552000; Expires=...; Path=/; Domain=.music.163.com; HTTPOnly"
+        仅取 key=value 对，忽略属性标记（无 '=' 的分段）。
+        """
+        if not cookie_str:
+            return
+        applied = 0
+        for part in cookie_str.split(";"):
+            part = part.strip()
+            if not part or "=" not in part:
+                continue
+            name, _, value = part.partition("=")
+            name = name.strip()
+            value = value.strip().strip('"')
+            if not name or not value:
+                continue
+            try:
+                self._session.cookies.set(name, value, domain=".music.163.com")
+                applied += 1
+            except Exception as e:
+                logger.debug(f"网易设置 cookie 失败 [{name}]: {e}")
+        if applied:
+            logger.info(f"网易云登录 Cookie 已应用: {applied} 项")
+
+    def get_cookie_str(self) -> str:
+        """导出会话中的音乐域名 cookie（用于持久化保存，登录退出后失效）"""
+        parts = []
+        for cookie in self._session.cookies:
+            domain = cookie.domain or ""
+            if "music.163.com" not in domain:
+                continue
+            parts.append(f"{cookie.name}={cookie.value}")
+        return "; ".join(parts)
+
+    def is_logged_in(self) -> bool:
+        """是否已登录（存在非空 MUSIC_U cookie）"""
+        for cookie in self._session.cookies:
+            if cookie.name == "MUSIC_U" and cookie.value:
+                return True
+        return False
+
+    def clear_cookies(self) -> None:
+        """清除登录 Cookie（保留 os/appver 等基础 cookie）"""
+        cleared = 0
+        for cookie in list(self._session.cookies):
+            if cookie.name in self._BASE_COOKIE_NAMES:
+                continue
+            try:
+                self._session.cookies.clear(
+                    domain=cookie.domain or ".music.163.com",
+                    path=cookie.path or "/",
+                    name=cookie.name,
+                )
+                cleared += 1
+            except Exception:
+                pass
+        if cleared:
+            logger.info(f"网易云登录 Cookie 已清除: {cleared} 项")
+
+    def fetch_login_profile(self) -> Optional[dict]:
+        """获取当前登录用户信息（未登录/失败返回 None）
+
+        Returns:
+            {"nickname": str, "avatar_url": str, "user_id": int}
+        """
+        try:
+            resp = self._eapi_post("/api/nuser/account/get", {})
+            if resp.get("code") == 200 and resp.get("profile"):
+                profile = resp["profile"]
+                return {
+                    "nickname": profile.get("nickname", ""),
+                    "avatar_url": profile.get("avatarUrl", ""),
+                    "user_id": profile.get("userId", 0),
+                }
+            logger.debug(f"网易获取登录用户信息失败: code={resp.get('code')}")
+        except Exception as e:
+            logger.warning(f"网易获取登录用户信息异常: {e}")
+        return None
+
     # ── 加密请求辅助 ────────────────────────────────
 
     def _eapi_post(self, path: str, data: dict) -> dict:

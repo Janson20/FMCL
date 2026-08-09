@@ -1295,5 +1295,27 @@
   "plugin_update_failed": "更新失敗: {error}",
   "plugin_market_updates_available": "發現 {count} 個可用更新",
 
-  "minigame_play": "▶ 等待小遊戲"
+  "minigame_play": "▶ 等待小遊戲",
+
+  "settings_wy_login_title": "網易雲音樂帳號",
+  "settings_wy_login_desc": "掃碼登入網易雲音樂帳號後，可播放 VIP 歌曲並取得 VIP 歌詞（登入狀態僅在啟動器內使用）",
+  "settings_wy_status": "登入狀態",
+  "settings_wy_not_logged_in": "未登入",
+  "settings_wy_logged_in": "已登入",
+  "settings_wy_logged_in_as": "已登入: {name}",
+  "settings_wy_login_invalid": "登入狀態已失效，請重新登入",
+  "settings_wy_login_btn": "掃碼登入",
+  "settings_wy_logout_btn": "登出",
+  "wy_login_window_title": "網易雲音樂掃碼登入",
+  "wy_login_qr_hint": "開啟網易雲音樂 APP 掃一掃登入",
+  "wy_login_qr_generating": "正在產生 QR Code...",
+  "wy_login_qr_fetch_failed": "取得 QR Code 失敗，請重試",
+  "wy_login_qr_waiting": "等待掃碼...",
+  "wy_login_qr_scanned": "掃描成功，請在手機上確認登入",
+  "wy_login_qr_expired": "QR Code 已失效，正在重新整理...",
+  "wy_login_network_error": "網路錯誤: {error}",
+  "wy_login_success": "登入成功",
+  "wy_login_refresh_btn": "重新整理 QR Code",
+  "wy_login_cancel_btn": "取消",
+  "wy_logout_success": "已登出網易雲音樂帳號"
 }

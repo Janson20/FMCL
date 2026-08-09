@@ -598,6 +598,7 @@ class MusicPlayerMixin(object):
             except Exception as e:
                 logger.error(f"pygame mixer 初始化失败: {e}")
         self._load_music_state()
+        self._music_apply_wy_saved_login()
         if self._music_playlist:
             self._rebuild_playlist_ui()
         # 启动定时保存（30 秒间隔，避免频繁写盘）
@@ -2819,6 +2820,38 @@ class MusicPlayerMixin(object):
                 self._music_playlist_manager.mark_dirty()
         except Exception as e:
             logger.debug(f"保存音乐状态失败: {e}")
+
+    def _music_apply_wy_saved_login(self, _retry_count: int = 0):
+        """将已保存的网易云音乐登录 Cookie 应用到网易云音源会话
+
+        登录后网易云音源可播放 VIP 歌曲并获取 VIP 歌词；
+        Cookie 由设置页扫码登录生成，加密持久化在配置中。
+        启动早期 callbacks 尚未就绪（主窗口先以空 dict 创建），
+        与 _load_music_state 相同：就绪前定时重试。
+        """
+        if not hasattr(self, "callbacks") or not self.callbacks:
+            if _retry_count < 60:
+                self.after(500, lambda: self._music_apply_wy_saved_login(_retry_count + 1))
+            return
+        get_fn = self.callbacks.get("get_wy_cookie")
+        if not get_fn:
+            if _retry_count < 60:
+                self.after(500, lambda: self._music_apply_wy_saved_login(_retry_count + 1))
+            return
+        try:
+            cookie = get_fn()
+        except Exception as e:
+            logger.debug(f"读取网易云登录 Cookie 失败: {e}")
+            return
+        if not cookie:
+            return
+        try:
+            from ui.music_source import wy_apply_cookie
+
+            wy_apply_cookie(cookie)
+            logger.info("已应用网易云音乐登录 Cookie")
+        except Exception as e:
+            logger.warning(f"应用网易云音乐登录 Cookie 失败: {e}")
 
     def _load_music_state(self, _retry_count: int = 0):
         if not hasattr(self, "callbacks"):

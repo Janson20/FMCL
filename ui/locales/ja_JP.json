@@ -1295,5 +1295,27 @@
   "plugin_update_failed": "更新失敗: {error}",
   "plugin_market_updates_available": "{count} 件の更新があります",
 
-  "minigame_play": "▶ 待機ミニゲーム"
+  "minigame_play": "▶ 待機ミニゲーム",
+
+  "settings_wy_login_title": "网易云音乐アカウント",
+  "settings_wy_login_desc": "QRコードでログインするとVIP楽曲の再生とVIP歌詞の取得ができます（ログイン状態はランチャー内でのみ使用）",
+  "settings_wy_status": "ログイン状態",
+  "settings_wy_not_logged_in": "未ログイン",
+  "settings_wy_logged_in": "ログイン済み",
+  "settings_wy_logged_in_as": "ログイン中: {name}",
+  "settings_wy_login_invalid": "ログイン状態が失効しました。再ログインしてください",
+  "settings_wy_login_btn": "QRコードログイン",
+  "settings_wy_logout_btn": "ログアウト",
+  "wy_login_window_title": "网易云音乐 QRコードログイン",
+  "wy_login_qr_hint": "网易云音乐アプリでスキャンしてログイン",
+  "wy_login_qr_generating": "QRコードを生成中...",
+  "wy_login_qr_fetch_failed": "QRコードの取得に失敗しました。再試行してください",
+  "wy_login_qr_waiting": "スキャン待機中...",
+  "wy_login_qr_scanned": "スキャン成功、携帯で確認してください",
+  "wy_login_qr_expired": "QRコードが失効しました。更新中...",
+  "wy_login_network_error": "ネットワークエラー: {error}",
+  "wy_login_success": "ログイン成功",
+  "wy_login_refresh_btn": "QRコード更新",
+  "wy_login_cancel_btn": "キャンセル",
+  "wy_logout_success": "网易云音乐からログアウトしました"
 }

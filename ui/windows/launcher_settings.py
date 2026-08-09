@@ -778,6 +778,78 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             self._account_info_frame.pack(fill=ctk.X, padx=12, pady=(0, 10))
             self.after(100, self._on_account_refresh)
 
+        # ── 网易云音乐账号（VIP 歌曲播放 / VIP 歌词） ──
+        wy_section = ctk.CTkFrame(account_container, fg_color=COLORS["bg_medium"], corner_radius=8)
+        wy_section.pack(fill=ctk.X, pady=(5, 5))
+        self._r(wy_section, fg_color="bg_medium")
+
+        wy_title = ctk.CTkLabel(
+            wy_section,
+            text=_("settings_wy_login_title"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        wy_title.pack(anchor=ctk.W, padx=12, pady=(10, 3))
+        self._r(wy_title, text_color="text_primary")
+
+        wy_desc = ctk.CTkLabel(
+            wy_section,
+            text=_("settings_wy_login_desc"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+            wraplength=440,
+        )
+        wy_desc.pack(anchor=ctk.W, padx=12, pady=(0, 5))
+        self._r(wy_desc, text_color="text_secondary")
+
+        self._wy_status_label = ctk.CTkLabel(
+            wy_section,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        )
+        self._wy_status_label.pack(anchor=ctk.W, padx=12, pady=(0, 3))
+        self._r(self._wy_status_label, text_color="text_secondary")
+
+        self._wy_nickname_label = ctk.CTkLabel(
+            wy_section,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["accent"],
+        )
+        self._wy_nickname_label.pack(anchor=ctk.W, padx=12, pady=(0, 3))
+        self._r(self._wy_nickname_label, text_color="accent")
+
+        wy_btn_row = ctk.CTkFrame(wy_section, fg_color="transparent")
+        wy_btn_row.pack(fill=ctk.X, padx=12, pady=(3, 10))
+
+        self._wy_login_btn = ctk.CTkButton(
+            wy_btn_row,
+            text=_("settings_wy_login_btn"),
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._on_wy_login_click,
+        )
+        self._wy_login_btn.pack(side=ctk.LEFT, padx=(0, 5))
+        self._r(self._wy_login_btn, fg_color="accent", hover_color="accent_hover")
+
+        self._wy_logout_btn = ctk.CTkButton(
+            wy_btn_row,
+            text=_("settings_wy_logout_btn"),
+            height=30,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_wy_logout,
+        )
+        self._wy_logout_btn.pack(side=ctk.LEFT)
+        self._r(self._wy_logout_btn, fg_color="bg_light", hover_color="card_border")
+
+        # 初始化登录状态显示（异步校验，不阻塞窗口）
+        self._wy_refresh_status()
+
         # ── 标签页3: AI 模型配置 ──
         self._build_ai_tab(tab_ai)
         self._build_plugin_tab(tab_plugin)
@@ -1303,6 +1375,88 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self._update_mc_account_quick_info()
         if self.parent and hasattr(self.parent, "_update_sidebar_account"):
             self.parent._update_sidebar_account()
+
+    # ── 网易云音乐账号（VIP 播放/歌词） ──
+
+    def _on_wy_login_click(self):
+        """打开网易云音乐扫码登录窗口"""
+        from ui.windows.netease_login import NeteaseLoginWindow
+
+        NeteaseLoginWindow(self, on_success=self._wy_refresh_status)
+
+    def _wy_refresh_status(self):
+        """刷新网易云登录状态显示（本地有 Cookie 时后台异步校验有效性）"""
+        if not self.winfo_exists():
+            return
+        from ui.music_source import wy_apply_cookie, wy_is_logged_in
+
+        # 确保已保存的 Cookie 已应用到音源会话（窗口在音乐页初始化前打开的场景）
+        try:
+            saved = self.callbacks.get("get_wy_cookie", lambda: None)()
+            if saved:
+                wy_apply_cookie(saved)
+        except Exception:
+            pass
+
+        logged_in = False
+        try:
+            logged_in = wy_is_logged_in()
+        except Exception:
+            pass
+
+        self._wy_nickname_label.configure(text="")
+        if logged_in:
+            self._wy_status_label.configure(
+                text=f"{_('settings_wy_status')}: {_('settings_wy_logged_in')}", text_color=COLORS["success"]
+            )
+            self._wy_login_btn.configure(state="disabled")
+            self._wy_logout_btn.configure(state="normal")
+            self._wy_fetch_profile_async()
+        else:
+            self._wy_status_label.configure(
+                text=f"{_('settings_wy_status')}: {_('settings_wy_not_logged_in')}",
+                text_color=COLORS["text_secondary"],
+            )
+            self._wy_login_btn.configure(state="normal")
+            self._wy_logout_btn.configure(state="disabled")
+
+    def _wy_fetch_profile_async(self):
+        """后台获取网易云登录用户信息并显示昵称"""
+        if not self.winfo_exists():
+            return
+
+        def _fetch():
+            try:
+                from ui.music_source import wy_fetch_profile
+
+                profile = wy_fetch_profile()
+            except Exception:
+                profile = None
+            self.after(0, lambda: self._wy_update_profile(profile))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _wy_update_profile(self, profile):
+        if not self.winfo_exists():
+            return
+        if profile and profile.get("nickname"):
+            self._wy_nickname_label.configure(text=_("settings_wy_logged_in_as", name=profile["nickname"]))
+        else:
+            # 有本地 Cookie 但服务端校验失败：登录已失效，提示重新登录
+            self._wy_nickname_label.configure(text=_("settings_wy_login_invalid"))
+
+    def _on_wy_logout(self):
+        """退出网易云音乐账号"""
+        try:
+            from ui.music_source import wy_clear_cookie
+
+            wy_clear_cookie()
+        except Exception as e:
+            logger.warning(f"清除网易云登录 Cookie 失败: {e}")
+        if "set_wy_cookie" in self.callbacks:
+            self.callbacks["set_wy_cookie"](None)
+        self._wy_refresh_status()
+        self.parent.set_status(_("wy_logout_success"), "info")
 
     # ── AI 模型配置 ──
 

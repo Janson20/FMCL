@@ -188,6 +188,93 @@ def _quality_attempt_order(preferred: str) -> List[str]:
     return [preferred] + order if preferred in RESOLVE_QUALITY_ORDER else order
 
 
+# ═══════════════ 网易云账号登录（VIP 播放/歌词） ═══════════════
+#
+# 扫码登录流程与 YesPlayMusic 一致（官方 weapi 接口），登录后网易云音源
+# 可播放 VIP 歌曲并获取 VIP 歌词。登录 Cookie 由 UI 层加密持久化，
+# 启动时通过 wy_apply_cookie 恢复到单例音源会话。
+
+def _wy_source() -> Optional[NetEaseMusicSource]:
+    """获取网易云音源单例（登录接口操作对象）"""
+    return MUSIC_SOURCES.get("wy")
+
+
+def wy_login_qr_key() -> Optional[str]:
+    """获取网易云扫码登录 unikey（二维码内容需要的内容）"""
+    src = _wy_source()
+    if src is None:
+        return None
+    return src.login_qr_key()
+
+
+def wy_login_qr_check(key: str) -> dict:
+    """查询网易云扫码登录状态: 800 过期 / 801 等待 / 802 待确认 / 803 成功（含 cookie）"""
+    src = _wy_source()
+    if src is None:
+        return {}
+    return src.login_qr_check(key)
+
+
+def wy_apply_cookie(cookie_str: str) -> bool:
+    """将登录 Cookie 字符串应用到网易云音源会话
+
+    Args:
+        cookie_str: Set-Cookie 格式字符串（含 'HTTPOnly' 等属性标记亦可）
+    Returns:
+        是否应用成功（含有效 cookie 项）
+    """
+    src = _wy_source()
+    if src is None or not cookie_str:
+        return False
+    try:
+        src.apply_cookie_str(cookie_str)
+        return True
+    except Exception as e:
+        logger.warning(f"应用网易云登录 Cookie 失败: {e}")
+        return False
+
+
+def wy_get_cookie_str() -> str:
+    """导出当前网易云音源会话中的音乐域名 cookie 字符串"""
+    src = _wy_source()
+    if src is None:
+        return ""
+    return src.get_cookie_str()
+
+
+def wy_clear_cookie() -> None:
+    """清除网易云音源会话的登录 Cookie（保留基础 cookie）"""
+    src = _wy_source()
+    if src is not None:
+        try:
+            src.clear_cookies()
+        except Exception as e:
+            logger.warning(f"清除网易云登录 Cookie 失败: {e}")
+
+
+def wy_is_logged_in() -> bool:
+    """网易云音源当前是否处于登录状态"""
+    src = _wy_source()
+    if src is None:
+        return False
+    try:
+        return src.is_logged_in()
+    except Exception:
+        return False
+
+
+def wy_fetch_profile() -> Optional[dict]:
+    """获取网易云当前登录用户信息，失败返回 None
+
+    Returns:
+        {"nickname": str, "avatar_url": str, "user_id": int}
+    """
+    src = _wy_source()
+    if src is None:
+        return None
+    return src.fetch_login_profile()
+
+
 __all__ = [
     "BaseMusicSource",
     "MusicInfo",
@@ -203,4 +290,11 @@ __all__ = [
     "SOURCE_META",
     "search_all",
     "resolve_track",
+    "wy_login_qr_key",
+    "wy_login_qr_check",
+    "wy_apply_cookie",
+    "wy_get_cookie_str",
+    "wy_clear_cookie",
+    "wy_is_logged_in",
+    "wy_fetch_profile",
 ]

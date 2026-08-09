@@ -2379,6 +2379,8 @@ class MinecraftLauncher:
             "set_java_custom_path": self.set_java_custom_path,
             "save_music_state": self.save_music_state,
             "load_music_state": self.load_music_state,
+            "get_wy_cookie": self.get_wy_cookie,
+            "set_wy_cookie": self.set_wy_cookie,
         }
 
     def get_player_name(self) -> str:
@@ -2684,3 +2686,12 @@ class MinecraftLauncher:
 
     def load_music_state(self) -> dict:
         return self.config.music_state if self.config.music_state else {}
+
+    def get_wy_cookie(self) -> Optional[str]:
+        """获取网易云音乐登录 Cookie（用于 VIP 歌曲播放与 VIP 歌词）"""
+        return self.config.wy_cookie
+
+    def set_wy_cookie(self, cookie: Optional[str]) -> None:
+        """保存网易云音乐登录 Cookie（加密存储，None 表示退出登录）"""
+        self.config.wy_cookie = cookie
+        self.config.save_config()

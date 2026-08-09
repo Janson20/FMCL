@@ -1299,5 +1299,27 @@
   "plugin_update_failed": "更新失败: {error}",
   "plugin_market_updates_available": "发现 {count} 个可用更新",
 
-  "minigame_play": "▶ 等待小游戏"
+  "minigame_play": "▶ 等待小游戏",
+
+  "settings_wy_login_title": "网易云音乐账号",
+  "settings_wy_login_desc": "扫码登录网易云音乐账号后，可播放 VIP 歌曲并获取 VIP 歌词（登录状态仅在启动器内使用）",
+  "settings_wy_status": "登录状态",
+  "settings_wy_not_logged_in": "未登录",
+  "settings_wy_logged_in": "已登录",
+  "settings_wy_logged_in_as": "已登录: {name}",
+  "settings_wy_login_invalid": "登录状态已失效，请重新登录",
+  "settings_wy_login_btn": "扫码登录",
+  "settings_wy_logout_btn": "退出登录",
+  "wy_login_window_title": "网易云音乐扫码登录",
+  "wy_login_qr_hint": "打开网易云音乐 APP 扫一扫登录",
+  "wy_login_qr_generating": "正在生成二维码...",
+  "wy_login_qr_fetch_failed": "获取二维码失败，请重试",
+  "wy_login_qr_waiting": "等待扫码...",
+  "wy_login_qr_scanned": "扫描成功，请在手机上确认登录",
+  "wy_login_qr_expired": "二维码已失效，正在刷新...",
+  "wy_login_network_error": "网络错误: {error}",
+  "wy_login_success": "登录成功",
+  "wy_login_refresh_btn": "刷新二维码",
+  "wy_login_cancel_btn": "取消",
+  "wy_logout_success": "已退出网易云音乐账号"
 }
