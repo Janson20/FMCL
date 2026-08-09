@@ -148,6 +148,7 @@ def _extract_audio_metadata(filepath: str) -> Dict[str, any]:
         "artist": "",
         "album": "",
         "duration": 0,
+        "bitrate": 0,
         "has_cover": False,
         "cover_data": None,
     }
@@ -158,6 +159,17 @@ def _extract_audio_metadata(filepath: str) -> Dict[str, any]:
         if audio is None:
             return result
         ext = os.path.splitext(filepath)[1].lower()
+
+        # 通用码率/时长提取（各格式均有 info.bitrate）
+        try:
+            if hasattr(audio, "info"):
+                info = audio.info
+                if hasattr(info, "bitrate"):
+                    result["bitrate"] = int(getattr(info, "bitrate", 0) or 0)
+                if hasattr(info, "length"):
+                    result["duration"] = info.length
+        except Exception:
+            pass
 
         if ext == ".mp3":
             if hasattr(audio, "info") and hasattr(audio.info, "length"):
@@ -235,6 +247,45 @@ def _format_time(seconds: float) -> str:
     m = int(seconds // 60)
     s = int(seconds % 60)
     return f"{m}:{s:02d}"
+
+
+# ── 音质显示 ─────────────────────────────────────────
+# 无损容器（即使码率字段缺失也按无损显示）
+_LOSSLESS_EXTENSIONS = {".flac", ".ape", ".wav", ".aiff", ".alac"}
+
+
+def _format_online_quality(quality: str) -> str:
+    """在线播放音质标签：音源实际获取到的音质档位"""
+    return {
+        "flac24bit": "FLAC",
+        "flac": "FLAC",
+        "320k": "320K",
+        "128k": "128K",
+    }.get(quality or "", "")
+
+
+def _format_local_quality(meta: dict, filepath: str = "") -> str:
+    """本地播放音质标签：按文件实际码率/格式判定
+
+    Returns:
+        "FLAC" / "320K" / "256K" / "192K" / "128K"，未知（码率缺失）返回空串
+    """
+    ext = os.path.splitext(filepath or "")[1].lower()
+    if ext in _LOSSLESS_EXTENSIONS:
+        return "FLAC"
+    bitrate = int(meta.get("bitrate") or 0)
+    if bitrate >= 900000:
+        return "FLAC"
+    kbps = bitrate // 1000
+    if kbps >= 320:
+        return "320K"
+    if kbps >= 256:
+        return "256K"
+    if kbps >= 192:
+        return "192K"
+    if kbps >= 128:
+        return "128K"
+    return ""
 
 
 def _validate_audio_file_header(filepath: str) -> bool:
@@ -561,6 +612,7 @@ class MusicPlayerMixin(object):
         self._music_current_online_info: Optional[OnlineMusicInfo] = None
         self._music_is_online_playing: bool = False
         self._music_current_filepath: Optional[str] = None  # 当前播放的文件路径（本地/在线临时文件）
+        self._music_current_quality: str = ""  # 在线播放实际获取到的音质档位（128k/320k/flac）
         self._music_temp_files: List[str] = []  # 缓存的临时文件列表
         self._music_stream_seq: int = 0  # 在线播放请求序号（防旧线程覆盖新请求）
         # ── 歌词状态 ──
@@ -801,13 +853,25 @@ class MusicPlayerMixin(object):
         )
         self._music_end_label.pack(side=ctk.RIGHT)
 
+        now_title_row = ctk.CTkFrame(panel, fg_color="transparent")
+        now_title_row.pack(padx=12, anchor=ctk.W, pady=(0, 2))
+
         self._music_now_label_top = ctk.CTkLabel(
-            panel,
+            now_title_row,
             text=_("music_no_track"),
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             text_color=COLORS["text_primary"],
         )
-        self._music_now_label_top.pack(padx=12, anchor=ctk.W, pady=(0, 2))
+        self._music_now_label_top.pack(side=ctk.LEFT)
+
+        # 当前播放音质标签（FLAC/320K/192K/128K）
+        self._music_quality_tag = ctk.CTkLabel(
+            now_title_row,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+            text_color=COLORS["accent"],
+        )
+        self._music_quality_tag.pack(side=ctk.LEFT, padx=(8, 0))
 
         self._music_now_label_sub = ctk.CTkLabel(
             panel, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=10), text_color=COLORS["text_secondary"]
@@ -842,6 +906,7 @@ class MusicPlayerMixin(object):
             )
         )
         self._theme_refs.append((self._music_now_label_top, {"text_color": "text_primary"}))
+        self._theme_refs.append((self._music_quality_tag, {"text_color": "accent"}))
         self._theme_refs.append((self._music_now_label_sub, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._music_cur_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._music_end_label, {"text_color": "text_secondary"}))
@@ -1342,6 +1407,14 @@ class MusicPlayerMixin(object):
             self._music_mode_btn.configure(text=mode_texts.get(self._music_play_mode, "🔁"))
 
     def _update_now_playing_info(self):
+        # 音质标签：在线歌曲按实际获取到的音质档位，本地歌曲按文件真实码率
+        if self._music_is_online_playing and self._music_current_online_info:
+            quality_text = _format_online_quality(getattr(self, "_music_current_quality", "") or "")
+        else:
+            cur_path = self._get_current_file()
+            quality_text = _format_local_quality(self._get_metadata(cur_path), cur_path) if cur_path else ""
+        self._music_quality_tag.configure(text=quality_text)
+
         # 在线播放优先
         if self._music_is_online_playing and self._music_current_online_info:
             oi = self._music_current_online_info
@@ -1355,7 +1428,7 @@ class MusicPlayerMixin(object):
             if album:
                 sub_text = f"{artist} - {album}" if artist else album
             self._music_now_label_sub.configure(text=sub_text)
-            self._music_mini_title.configure(text=title)
+            self._music_mini_title.configure(text=f"{title} · {quality_text}" if quality_text else title)
             self._music_end_label.configure(text=_format_time(duration))
             self._music_cover_label.configure(text="🎵")
             self._music_cover_artist.configure(text=artist)
@@ -1390,7 +1463,7 @@ class MusicPlayerMixin(object):
         if album:
             sub_text = f"{artist} - {album}" if artist else album
         self._music_now_label_sub.configure(text=sub_text)
-        self._music_mini_title.configure(text=title)
+        self._music_mini_title.configure(text=f"{title} · {quality_text}" if quality_text else title)
 
         self._music_end_label.configure(text=_format_time(duration))
 
@@ -1489,7 +1562,14 @@ class MusicPlayerMixin(object):
             self._music_is_playing = False
             self._update_play_btn_ui()
 
-    def _play_online_file(self, filepath: str, online_info: OnlineMusicInfo, start_pos: float = 0, history_origin: Optional[OnlineMusicInfo] = None):
+    def _play_online_file(
+        self,
+        filepath: str,
+        online_info: OnlineMusicInfo,
+        start_pos: float = 0,
+        history_origin: Optional[OnlineMusicInfo] = None,
+        quality: str = "",
+    ):
         """播放在线缓存的临时文件
 
         Args:
@@ -1497,6 +1577,7 @@ class MusicPlayerMixin(object):
             online_info: 实际播放的歌曲信息（跨源兜底后可能被替换）
             start_pos: 起始播放位置（秒）
             history_origin: 用户点播的原始歌曲（兜底时历史记录用原歌曲）
+            quality: 实际获取到的音质档位（128k/320k/flac，用于显示）
         """
         if _pygame_import_error is not None:
             return
@@ -1520,6 +1601,7 @@ class MusicPlayerMixin(object):
             self._music_is_paused = False
             self._music_is_online_playing = True
             self._music_current_online_info = online_info
+            self._music_current_quality = quality or ""
             self._music_seek_offset = start_pos if start_pos > 0 else 0
             self._music_current_filepath = filepath
             self._music_duration = online_info.interval
@@ -3143,48 +3225,60 @@ class MusicPlayerMixin(object):
         self._music_stream_seq += 1
         seq = self._music_stream_seq
         self._music_search_status.configure(text=_("music_loading_url"))
-        quality = self._music_quality_var.get()
-        if quality == "auto":
-            quality = self._music_resolve_auto_quality(online_info)
+        # 用户原始选择（可能为 "auto"）：跨源兜底按此决定音质尝试顺序，
+        # "auto" 时兜底从最高音质开始尝试，避免默认命中 128k
+        raw_quality = self._music_quality_var.get()
+        quality = raw_quality if raw_quality != "auto" else self._music_resolve_auto_quality(online_info)
 
         def _fetch_and_play():
             app = self  # 捕获主应用引用，避免线程间 self 丢失
-            result_path, result_info = app._fetch_online_song(online_info, quality)
-            app.after(0, lambda: app._music_on_stream_ready(seq, result_path, result_info, online_info))
+            result_path, result_info, result_quality = app._fetch_online_song(online_info, quality, raw_quality)
+            app.after(0, lambda: app._music_on_stream_ready(seq, result_path, result_info, online_info, result_quality))
 
         threading.Thread(target=_fetch_and_play, daemon=True).start()
 
-    def _fetch_online_song(self, online_info: OnlineMusicInfo, quality: str) -> Tuple[Optional[str], OnlineMusicInfo]:
+    def _fetch_online_song(
+        self, online_info: OnlineMusicInfo, quality: str, fallback_quality: Optional[str] = None
+    ) -> Tuple[Optional[str], OnlineMusicInfo, str]:
         """获取在线歌曲并下载到临时文件，失败时自动跨源兜底。
 
+        Args:
+            online_info: 用户点播的歌曲信息
+            quality: 原音源实际尝试的音质（"auto" 已解析为具体档位）
+            fallback_quality: 跨源兜底的音质选择（可为 "auto"，表示
+                从最高可用音质开始尝试；None 时沿用 quality）
+
         Returns:
-            (临时文件路径, 实际播放的歌曲信息)：全部失败时路径为 None（info 保持原值）
+            (临时文件路径, 实际播放的歌曲信息, 实际音质)：
+            全部失败时路径为 None（info 保持原值）
         """
         result_path = None
         result_info = online_info
+        result_quality = quality
         if online_info is None:
-            return None, result_info
+            return None, result_info, result_quality
 
-        result_path, _ = self._try_download_from_source(online_info, quality)
+        result_path, _, result_quality = self._try_download_from_source(online_info, quality)
         if result_path:
-            return result_path, result_info
+            return result_path, result_info, result_quality
 
+        fallback_q = fallback_quality or quality
         # 原音源失败 -> 跨源兜底（仅尝试一次，不递归）
         logger.info(f"原音源不可用 [{online_info.source}]: {online_info.name} - {online_info.singer}，开始跨源兜底")
-        fallback = self._resolve_fallback(online_info, quality)
+        fallback = self._resolve_fallback(online_info, fallback_q)
         if fallback:
-            result = self._download_fallback_result(fallback)
+            result = self._download_fallback_result(fallback, quality)
             if result:
                 return result
 
         # B站触发风控时：弹验证码让用户手动完成，通过后带 grisk_id 自动重试兜底
-        risk_retry = self._music_try_bili_risk_retry(online_info, quality)
+        risk_retry = self._music_try_bili_risk_retry(online_info, quality, fallback_q)
         if risk_retry:
             return risk_retry
 
         # 全部音源均失败：汇总一条日志（单源失败细节已在 resolve_track 内降为 debug）
         logger.warning(f"跨源兜底失败，所有音源均不可用: {online_info.name} - {online_info.singer} [{online_info.source}]")
-        return None, result_info
+        return None, result_info, result_quality
 
     def _resolve_fallback(self, online_info: OnlineMusicInfo, quality: str) -> Optional[Tuple[OnlineMusicInfo, str]]:
         """跨源兜底解析：返回 (匹配歌曲, 播放URL) 或 None"""
@@ -3194,8 +3288,14 @@ class MusicPlayerMixin(object):
             logger.warning(f"跨源兜底解析失败: {e}")
             return None
 
-    def _download_fallback_result(self, fallback: Tuple[OnlineMusicInfo, str]) -> Optional[Tuple[str, OnlineMusicInfo]]:
-        """下载兜底结果并校验，成功返回 (临时文件路径, 实际歌曲信息)"""
+    def _download_fallback_result(
+        self, fallback: Tuple[OnlineMusicInfo, str], quality: str
+    ) -> Optional[Tuple[str, OnlineMusicInfo, str]]:
+        """下载兜底结果并校验，成功返回 (临时文件路径, 实际歌曲信息, 音质)
+
+        跨源兜底内部会尝试多个音质，无法精确得知最终命中档位，
+        此处沿用用户请求的音质用于显示。
+        """
         fb_info, fb_url = fallback
         logger.info(f"跨源兜底命中 [{fb_info.source}]: {fb_info.name} - {fb_info.singer}")
         result_path = self._music_download_to_temp(
@@ -3207,15 +3307,17 @@ class MusicPlayerMixin(object):
         if result_path:
             if _validate_audio_file_header(result_path) and _validate_audio_duration(result_path, fb_info.interval):
                 self._notify_fallback_source(fb_info.source)
-                return result_path, fb_info
+                return result_path, fb_info, quality
             self._discard_temp_file(result_path)
         return None
 
-    def _music_try_bili_risk_retry(self, online_info: OnlineMusicInfo, quality: str) -> Optional[Tuple[str, OnlineMusicInfo]]:
+    def _music_try_bili_risk_retry(
+        self, online_info: OnlineMusicInfo, quality: str, fallback_quality: Optional[str] = None
+    ) -> Optional[Tuple[str, OnlineMusicInfo, str]]:
         """B站风控验证：弹窗提示 + 浏览器滑块验证，通过后带 grisk_id 自动重试兜底。
 
         Returns:
-            验证通过且兜底成功: (临时文件路径, 实际歌曲信息)；否则 None
+            验证通过且兜底成功: (临时文件路径, 实际歌曲信息, 音质)；否则 None
         """
         src = MUSIC_SOURCES.get("bili")
         if src is None:
@@ -3255,10 +3357,10 @@ class MusicPlayerMixin(object):
             return None
         src.set_gaia_vtoken(grisk_id)
         logger.info("B站风控验证通过，自动重试跨源兜底")
-        fallback = self._resolve_fallback(online_info, quality)
+        fallback = self._resolve_fallback(online_info, fallback_quality or quality)
         if not fallback:
             return None
-        return self._download_fallback_result(fallback)
+        return self._download_fallback_result(fallback, quality)
 
     def _music_open_risk_dialog(self, dialog_ref: Dict[str, object], stop_event: threading.Event):
         """打开风控验证提示窗口"""
@@ -3356,25 +3458,28 @@ class MusicPlayerMixin(object):
                 pass
         return None
 
-    def _try_download_from_source(self, online_info: OnlineMusicInfo, quality: str) -> Tuple[Optional[str], Optional[str]]:
-        """尝试从指定音源获取 URL 并下载，校验文件有效后返回 (临时文件路径, 实际URL)。"""
+    def _try_download_from_source(self, online_info: OnlineMusicInfo, quality: str) -> Tuple[Optional[str], Optional[str], str]:
+        """尝试从指定音源获取 URL 并下载，校验文件有效后返回 (临时文件路径, 实际URL, 实际音质)。"""
         src = MUSIC_SOURCES.get(online_info.source)
         if src is None:
-            return None, None
+            return None, None, quality
         url = None
+        actual_quality = quality
         try:
             url = src.get_music_url(online_info, quality)
             if not url:
-                for fallback_q in ["128k", "320k", "flac"]:
+                # 请求档位失败时按高到低回退（各音源对不可用音质返回 None）
+                for fallback_q in ["flac", "320k", "128k"]:
                     if fallback_q != quality:
                         url = src.get_music_url(online_info, fallback_q)
                         if url:
+                            actual_quality = fallback_q
                             break
         except Exception as e:
             logger.warning(f"获取在线URL失败 [{online_info.source}]: {e}")
         if not url:
             logger.warning(f"无法获取播放URL [{online_info.source}]: {online_info.name}")
-            return None, None
+            return None, None, quality
         temp_path = self._music_download_to_temp(
             url,
             online_info.name,
@@ -3382,17 +3487,17 @@ class MusicPlayerMixin(object):
             extra_cookies=self._music_get_download_cookies(online_info.source),
         )
         if not temp_path:
-            return None, url
+            return None, url, actual_quality
         # 文件头 + 时长双重校验：无效文件视为获取失败（触发跨源兜底）
         if not _validate_audio_file_header(temp_path):
             logger.warning(f"下载文件无效（非音频文件头）[{online_info.source}]: {online_info.name}")
             self._discard_temp_file(temp_path)
-            return None, url
+            return None, url, actual_quality
         if not _validate_audio_duration(temp_path, online_info.interval):
             logger.warning(f"下载文件为试听/截断片段 [{online_info.source}]: {online_info.name}")
             self._discard_temp_file(temp_path)
-            return None, url
-        return temp_path, url
+            return None, url, actual_quality
+        return temp_path, url, actual_quality
 
     def _discard_temp_file(self, temp_path: str):
         """删除无效的临时文件并移出缓存列表"""
@@ -3403,7 +3508,14 @@ class MusicPlayerMixin(object):
         if temp_path in self._music_temp_files:
             self._music_temp_files.remove(temp_path)
 
-    def _music_on_stream_ready(self, seq: int, temp_path: Optional[str], online_info: OnlineMusicInfo, origin_info: Optional[OnlineMusicInfo] = None):
+    def _music_on_stream_ready(
+        self,
+        seq: int,
+        temp_path: Optional[str],
+        online_info: OnlineMusicInfo,
+        origin_info: Optional[OnlineMusicInfo] = None,
+        quality: str = "",
+    ):
         """流媒体文件下载完成回调（带请求序号守卫，旧请求不覆盖新播放）
 
         Args:
@@ -3411,12 +3523,13 @@ class MusicPlayerMixin(object):
             temp_path: 下载好的临时文件路径
             online_info: 实际播放的歌曲信息（可能是跨源兜底后的）
             origin_info: 用户点播的原始歌曲信息（兜底时用于播放历史记录）
+            quality: 实际获取到的音质档位（128k/320k/flac，用于显示）
         """
         if seq != self._music_stream_seq:
             return  # 用户已切换播放目标，丢弃过期结果
         self._music_search_status.configure(text="")
         if temp_path:
-            self._play_online_file(temp_path, online_info, 0, history_origin=origin_info)
+            self._play_online_file(temp_path, online_info, 0, history_origin=origin_info, quality=quality)
         else:
             self._music_search_status.configure(text=_("music_url_failed"))
 

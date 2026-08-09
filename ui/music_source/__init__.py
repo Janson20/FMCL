@@ -52,8 +52,9 @@ SOURCE_META = [
 
 # 跨源兜底：每个音源搜索的候选条数
 RESOLVE_SEARCH_LIMIT = 20
-# 兜底音质尝试顺序（首选置顶，其余按此回退）
-RESOLVE_QUALITY_ORDER = ["128k", "320k", "flac"]
+# 兜底音质尝试顺序（从高到低：各音源对不可用音质返回 None，
+# 顺序决定最终拿到的音质，必须高音质在前，避免默认 128k）
+RESOLVE_QUALITY_ORDER = ["flac", "320k", "128k"]
 
 
 def search_all(keyword: str, page: int = 1, limit: int = 30):
@@ -111,7 +112,8 @@ def resolve_track(
 
     Args:
         info: 原音源播放失败的歌曲信息
-        quality: 用户期望音质
+        quality: 期望音质（"auto" 表示自动选择跨源可用的最高音质；
+                 具体档位则用户档位优先，其余按高到低回退）
         excluded_sources: 额外排除的音源 id 列表（默认仅排除 info.source）
         limit: 每个音源的候选搜索条数
 
@@ -183,7 +185,15 @@ def resolve_track(
 
 
 def _quality_attempt_order(preferred: str) -> List[str]:
-    """生成兜底音质尝试顺序：用户偏好置顶，其余按 128k/320k/flac 顺序回退"""
+    """生成兜底音质尝试顺序
+
+    - "auto"（自动选择）：从高到低尝试 flac -> 320k -> 128k
+    - 具体档位：用户档位优先，其余按高到低回退
+    （各音源对不可用音质返回 None，顺序即最终拿到的音质，
+    高音质必须在前，否则跨源兜底会默认命中 128k）
+    """
+    if preferred == "auto":
+        return list(RESOLVE_QUALITY_ORDER)
     order = [q for q in RESOLVE_QUALITY_ORDER if q != preferred]
     return [preferred] + order if preferred in RESOLVE_QUALITY_ORDER else order
 
