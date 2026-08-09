@@ -7,6 +7,7 @@
     - mg: 咪咕音乐
     - tx: QQ音乐
     - wy: 网易云音乐
+    - bili: 哔哩哔哩（仅参与跨源兜底，不显示在在线搜索主界面）
 
 跨源兜底 (resolve_track):
     当前音源无法播放（VIP/无版权等）时，自动在其它音源搜索同款歌并获取可播放
@@ -23,6 +24,7 @@ import logging
 from typing import Iterable, List, Optional, Tuple
 
 from ui.music_source.base import BaseMusicSource, MusicInfo, QualityLevel, duration_matches
+from ui.music_source.bili import BiliBiliMusicSource
 from ui.music_source.kg import KuGouMusicSource
 from ui.music_source.kw import KuWoMusicSource
 from ui.music_source.mg import MiGuMusicSource
@@ -37,6 +39,7 @@ MUSIC_SOURCES = {
     "mg": MiGuMusicSource(),
     "tx": QQMusicSource(),
     "wy": NetEaseMusicSource(),
+    "bili": BiliBiliMusicSource(),
 }
 
 SOURCE_META = [
@@ -122,7 +125,7 @@ def resolve_track(
 
     excluded = set(excluded_sources or [])
     excluded.add(info.source)
-    source_ids = [s["id"] for s in SOURCE_META if s["id"] not in excluded]
+    source_ids = [sid for sid in MUSIC_SOURCES if sid not in excluded]
     if not source_ids:
         return None
 
@@ -184,6 +187,7 @@ __all__ = [
     "MiGuMusicSource",
     "QQMusicSource",
     "NetEaseMusicSource",
+    "BiliBiliMusicSource",
     "MUSIC_SOURCES",
     "SOURCE_META",
     "search_all",

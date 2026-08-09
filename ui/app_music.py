@@ -2994,9 +2994,17 @@ class MusicPlayerMixin(object):
             result_path = self._music_download_to_temp(fb_url, fb_info.name)
             if result_path:
                 if _validate_audio_file_header(result_path) and _validate_audio_duration(result_path, fb_info.interval):
+                    self._notify_fallback_source(fb_info.source)
                     return result_path, fb_info
                 self._discard_temp_file(result_path)
         return None, result_info
+
+    def _notify_fallback_source(self, source_id: str):
+        """左下角状态栏提示已切换到其它音源播放"""
+        src = MUSIC_SOURCES.get(source_id)
+        name = getattr(src, "source_name", None) or source_id
+        message = _("music_fallback_status", source=name)
+        self.after(0, lambda: self.set_status(message, "info"))
 
     def _try_download_from_source(self, online_info: OnlineMusicInfo, quality: str) -> Tuple[Optional[str], Optional[str]]:
         """尝试从指定音源获取 URL 并下载，校验文件有效后返回 (临时文件路径, 实际URL)。"""
@@ -3070,7 +3078,7 @@ class MusicPlayerMixin(object):
                 ext = ".flac"
             elif "ogg" in content_type or url.endswith(".ogg"):
                 ext = ".ogg"
-            elif "m4a" in content_type or url.endswith(".m4a"):
+            elif "m4a" in content_type or url.endswith(".m4a") or url.endswith(".m4s"):
                 ext = ".m4a"
             safe_name = "".join(c for c in name_hint if c.isalnum() or c in "._- ")[:50]
             fd, temp_path = tempfile.mkstemp(suffix=ext, prefix=f"fmcl_{safe_name}_")

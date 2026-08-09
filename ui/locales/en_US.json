@@ -1032,6 +1032,7 @@
   "music_original_tag_with_name": "Original: {name}",
   "music_loading_url": "Loading stream URL...",
   "music_url_failed": "Failed to get stream URL, try another quality or source",
+  "music_fallback_status": "Original source unavailable, playing via {source} instead",
   "music_desktop_lyric": "Desktop Lyrics",
   "music_original_feedback": "Original singer mislabeled/missing? Give us feedback",
   "music_lyric_close": "Close Lyrics",

@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import ui.app_music as app_music  # noqa: E402
 import ui.music_source as ms  # noqa: E402
+from ui.music_source.bili import BiliBiliMusicSource  # noqa: E402
 
 MusicInfo = ms.MusicInfo
 
@@ -218,6 +219,51 @@ class TestResolveTrack:
         result = ms.resolve_track(target, excluded_sources=["kg"])
         assert result is None
         assert fakes["kg"].search_calls == []
+
+
+# ═══════════════ 哔哩哔哩音源 ═══════════════
+
+
+class TestBiliBiliSource:
+    def test_parse_duration(self):
+        assert BiliBiliMusicSource._parse_duration("04:05") == 245
+        assert BiliBiliMusicSource._parse_duration("1:02:03") == 3723
+        assert BiliBiliMusicSource._parse_duration("0:30") == 30
+        assert BiliBiliMusicSource._parse_duration("") == 0
+        assert BiliBiliMusicSource._parse_duration("abc") == 0
+        assert BiliBiliMusicSource._parse_duration("1:02:03:04") == 0  # 超过3段无效
+
+    def test_parse_search_result_strips_html(self):
+        src = BiliBiliMusicSource()
+        raw = [
+            {
+                "bvid": "BV1xx",
+                "title": '<em class="keyword">七里香</em> 周杰伦',
+                "author": "周杰伦",
+                "duration": "04:05",
+                "pic": "http://i0.hdslb.com/bfs/archive/x.jpg",
+            },
+            {"bvid": "", "title": "no bvid", "author": "x", "duration": "0:30"},
+        ]
+        results = src._parse_search_result(raw)
+        assert len(results) == 1
+        info = results[0]
+        assert info.songmid == "BV1xx"
+        assert info.name == "七里香 周杰伦"
+        assert info.singer == "周杰伦"
+        assert info.interval == 245
+        assert info.img.startswith("https://")
+
+    def test_bili_participates_in_fallback(self, patch_sources):
+        """bili 在 MUSIC_SOURCES 中时参与兜底"""
+        target = make_info(source="wy", songmid="1", interval=245)
+        fakes = patch_sources(
+            {"bili": FakeSource("bili", results=[make_info(source="bili", songmid="BV1xx", interval=246)])}
+        )
+        result = ms.resolve_track(target)
+        assert result is not None
+        assert result[0].source == "bili"
+        assert fakes["bili"].search_calls  # bili 被搜索过
 
 
 # ═══════════════ 下载校验 ═══════════════
