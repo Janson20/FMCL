@@ -16,15 +16,37 @@ logger = logging.getLogger("music_source.wy")
 WY_EAPI_BASE = "https://interface3.music.163.com/eapi"
 WY_API_BASE = "https://music.163.com/weapi"
 
-# 歌名末尾的版本后缀（Live/伴奏/翻唱等括号标注），分组判定原唱时忽略
-_VERSION_SUFFIX_RE = re.compile(r"[\s\u3000]*[（(\[][^（）()\[\]］]*[）)\]][\s\u3000]*$")
+# 歌名末尾的括号版本后缀（Live/伴奏/翻唱/中文版等标注），分组判定原唱时忽略。
+# 仅剥离"含版本词"的括号：真实歌名一部分的括号（如 幹物女(WeiWei)、
+# 逃避现实 (feat.洛天依)）不属于版本后缀，不剥离，避免原版被误判"不干净"。
+_VERSION_WORDS = (
+    "live", "cover", "伴奏", "翻唱", "翻自", "原唱", "remix", "重混",
+    "重置", "重录", "官方", "official", "纯音乐", "钢琴", "吉他", "现场",
+    "demo", "inst", "instrumental", "中文版", "日文版", "粤语版", "国语版",
+    "日语", "填词", "合唱版", "男声版", "女声版", "mv", "清唱", "版",
+)
+_VERSION_SUFFIX_RE = re.compile(
+    r"[\s\u3000]*[（(\[]"
+    r"[^（）()\[\]］]*?(?:"
+    + "|".join(_VERSION_WORDS)
+    + r")[^（）()\[\]］]*[）)\]][\s\u3000]*$",
+    re.IGNORECASE,
+)
 # 歌手名首尾标点（"周杰伦-"、"BEYOND." 等），规范化时去除
 _ARTIST_EDGE_RE = re.compile(r"^[\s\-\.\,、'‘’。·]+|[\s\-\.\,、'‘’。·]+$")
 # 歌手名中的括号别名（如 "冯沁苑(买辣椒也用券)" -> "买辣椒也用券"）
 _PAREN_ALIAS_RE = re.compile(r"[（(]([^（）()]*)[）)]")
 
-# 争议老歌策展表：大众熟知版本不是原唱的老歌（规范化歌名 -> 原唱）。
-# 算法无法从网易数据判定原唱时，用此表修正：
+# 争议歌曲策展表（规范化歌名 -> 原唱）：算法无法从网易数据判定原唱时，用此表修正。
+# 适用场景:
+#   1. 大众熟知版本不是原唱的老歌（如《突然的自我》大众熟知伍佰版，原唱黄小琥）
+#   2. 原唱版本发布日期为平台占位日期（如 2018-01-01）被 _is_valid_date 过滤，
+#      或翻唱上传日期早于原版，导致算法误判翻唱为原唱（如《异样的风暴中心》）
+#   3. 原唱版本发布日期缺失（N/A），算法在簇内按热度/日期兜底选中翻唱
+#      （如《烂掉的白月光》选了热度第一的摸之鱼版）
+#   4. 同名歌在结果中仅 1 个版本（无法组簇比较）或全为孤立锚点簇
+#      （如《加班的人啊》《弑神者》），策展兜底直接置顶
+# 修正方式:
 #   原唱版本在结果页内 -> 置顶其最早的有效版本；
 #   原唱版本缺失 -> 保持最热版本置顶，徽章显示真实原唱名。
 CURATED_ORIGINALS = {
@@ -44,6 +66,30 @@ CURATED_ORIGINALS = {
     "大碗宽面": "吴亦凡",
     "病名为爱": "镜音铃、镜音连",
     "七里香": "周杰伦",
+    "异样的风暴中心": "杉田朗、洛天依",
+    "人是猫": "张卡斯、洛天依",
+    "我是秦始皇": "WOVOP、洛天依",
+    "加班的人啊": "墨老板、洛天依Official",
+    "弑神者": "洛天依Official、QGRay",
+    "逃避现实 (feat.洛天依)": "QGRay、洛天依",
+    "烂掉的白月光": "洛天依、乐正绫、路明熹",
+    "一梦千宵": "苏逸_Suyi、洛天依Official",
+    "写给我第一个喜欢的女孩的歌": "ilem、洛天依Official",
+    "白鸟过河滩": "ilem、洛天依Official",
+    "童年": "张艾嘉",
+    "幹物女(weiwei)": "Z新豪、洛天依、乐正绫",
+    "上山岗": "ilem、洛天依Official",
+}
+
+# 同名不同曲表：多首互不相关的歌曲同名（如《蝴蝶》陶喆版与洛天依版、
+# 《哑巴》刘维版与Z新豪版、《千秋不负》妄尘组与洛天依Official版、
+# 《超能力》邓紫棋版与后海大鲨鱼版），算法无法判定用户搜索意图，
+# 命中时对整组结果不标记任何原唱。
+NO_ORIGINAL_SONGS = {
+    "蝴蝶",
+    "哑巴",
+    "千秋不负",
+    "超能力",
 }
 
 
@@ -186,18 +232,29 @@ class NetEaseMusicSource(BaseMusicSource):
             6. 专辑日期也没有时，按热度顺序（结果列表顺序）取第一条
                干净同名歌曲作为最终兜底
             7. 多个簇大小相同时，优先有被引用锚点的簇，再按候选日期最早者
-            8. 搜索词就是某歌手名且至少 2 条结果命中（歌手搜索场景），不标记
+            8. 搜索词是歌手名且至少 2 条结果命中（歌手搜索场景）时，歌名命中
+               不足 2 条才不标记；歌名与歌手同名且歌名命中较多时（如《非人哉》），
+               仍按歌曲搜索处理
             9. 搜索词中包含某歌手名（含括号别名，如 冯沁苑(买辣椒也用券)）
-               且至少 2 条结果命中时，原唱必须属于该歌手（避免把翻唱置顶）
-            10. 仅将原唱前移置顶并打上原唱标签，其余结果保持热度排序不变
+               且至少 2 条结果命中时，原唱必须属于该歌手（避免把翻唱置顶）；
+               若该约束导致全部候选被过滤（歌手名恰为歌名一部分的误伤，
+               如"我是初音未来"含"初音未来"），回退忽略约束重算
+            10. 同名不同曲表（NO_ORIGINAL_SONGS）命中的搜索词，无法判定
+               用户意图，不标记任何原唱
+            11. 仅将原唱前移置顶并打上原唱标签，其余结果保持热度排序不变
         """
         if len(results) < 2:
             return
         kw = self._normalize_keyword(keyword)
         if not kw:
             return
-        # 歌手搜索场景（搜索词是至少 2 条结果的歌手名），不标记原唱
-        if sum(kw in self._singer_artists(info) for info in results) >= 2:
+        # 同名不同曲表命中：多首互不相关的同名歌曲，不标记原唱
+        if self._group_key(kw) in NO_ORIGINAL_SONGS:
+            return
+        # 歌手搜索场景（搜索词是歌手名且歌名命中不足 2 条），不标记原唱；
+        # 歌名命中较多时是歌曲搜索（如《非人哉》歌名与乐队同名），继续标记
+        singer_hits = sum(kw in self._singer_artists(info) for info in results)
+        if singer_hits >= 2 and sum(self._group_key(info.name) == kw for info in results) < 2:
             return
 
         # 搜索词中包含、且至少 2 条结果命中的歌手名 → 原唱必须属于该歌手
@@ -219,6 +276,10 @@ class NetEaseMusicSource(BaseMusicSource):
                 continue
             for cluster in self._clusters(group):
                 if len(cluster) < 2:
+                    continue
+                # 簇内无锚点版本（原曲不在结果页内）时成员全是翻唱，
+                # 无法从簇内数据判定原唱，不参与候选（如《暗号》origin簇）
+                if not any(not info.origin_song_id for info in cluster):
                     continue
                 clean = [info for info in cluster if self._is_clean_name(info.name)]
                 if not clean:
@@ -243,33 +304,12 @@ class NetEaseMusicSource(BaseMusicSource):
 
         candidates = []
         for key, metas in group_clusters.items():
-            best = None  # 兜底: 簇大小优先 (size, referenced, valid, -date)
-            best_ref = None  # 有效被引用锚点竞争: 按被引用锚点日期最早者
-            for cluster, clean, ref_clean in metas:
-                candidate, eff, referenced, ref_eff = self._cluster_candidate(
-                    cluster, clean, ref_clean, album_times
-                )
-                if candidate is None:
-                    continue
-                if kw_artists and not (self._singer_artists(candidate) & kw_artists):
-                    continue
-                score = (
-                    len(cluster),
-                    referenced,
-                    0 if self._is_valid_date(eff) else 1,
-                    -eff if eff > 0 else 0,
-                )
-                if best is None or score > best[0]:
-                    best = (score, candidate)
-                # 有有效日期被引用锚点的簇：按被引用锚点日期最早者优先
-                if ref_eff and self._is_valid_date(ref_eff):
-                    if best_ref is None or ref_eff < best_ref[1]:
-                        best_ref = (candidate, ref_eff)
-            if best_ref:
-                chosen = best_ref[0]
-            elif best:
-                chosen = best[1]
-            else:
+            chosen = self._group_choice(metas, kw_artists, album_times)
+            # kw_artists 过滤误伤回退：搜索词含的歌手名恰为歌名一部分
+            # （如"我是初音未来"含"初音未来"）时，全部候选被过滤则忽略约束重算
+            if chosen is None and kw_artists:
+                chosen = self._group_choice(metas, set(), album_times)
+            if chosen is None:
                 continue
             # 歌名与搜索词匹配的组优先置顶（避免同名搜索里别的歌抢位）
             name_match = 0 if kw and key in kw else 1
@@ -324,6 +364,42 @@ class NetEaseMusicSource(BaseMusicSource):
             return None
         matches.sort(key=lambda x: (0 if self._is_valid_date(x.publish_time) else 1, x.publish_time))
         return matches[0]
+
+    def _group_choice(self, metas, kw_artists: set, album_times: dict) -> Optional[MusicInfo]:
+        """组内多簇竞争选原唱候选
+
+        metas: [(cluster, clean, ref_clean), ...]
+        kw_artists 非空时，候选必须属于其中某个歌手（搜索词含歌手名的约束）；
+        有效被引用锚点日期最早者优先，其次簇大小 (size, referenced, 有效日期, -日期)。
+        全部候选被约束过滤时返回 None，由调用方决定是否回退重算。
+        """
+        best = None  # 兜底: 簇大小优先 (size, referenced, valid, -date)
+        best_ref = None  # 有效被引用锚点竞争: 按被引用锚点日期最早者
+        for cluster, clean, ref_clean in metas:
+            candidate, eff, referenced, ref_eff = self._cluster_candidate(
+                cluster, clean, ref_clean, album_times
+            )
+            if candidate is None:
+                continue
+            if kw_artists and not (self._singer_artists(candidate) & kw_artists):
+                continue
+            score = (
+                len(cluster),
+                referenced,
+                0 if self._is_valid_date(eff) else 1,
+                -eff if eff > 0 else 0,
+            )
+            if best is None or score > best[0]:
+                best = (score, candidate)
+            # 有有效日期被引用锚点的簇：按被引用锚点日期最早者优先
+            if ref_eff and self._is_valid_date(ref_eff):
+                if best_ref is None or ref_eff < best_ref[1]:
+                    best_ref = (candidate, ref_eff)
+        if best_ref:
+            return best_ref[0]
+        if best:
+            return best[1]
+        return None
 
     def _cluster_candidate(self, cluster, clean, ref_clean, album_times):
         """簇内原唱候选：被引用锚点 > 全部干净候选 > 专辑日期 > 热度顺序
