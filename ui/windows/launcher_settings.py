@@ -1382,7 +1382,18 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         """打开网易云音乐扫码登录窗口"""
         from ui.windows.netease_login import NeteaseLoginWindow
 
-        NeteaseLoginWindow(self, on_success=self._wy_refresh_status)
+        NeteaseLoginWindow(
+            self,
+            on_success=lambda: (self._wy_refresh_status(), self._notify_music_wy_sync()),
+        )
+
+    def _notify_music_wy_sync(self):
+        """通知主窗口同步/清空网易云账号歌单（音乐页歌单列表）"""
+        try:
+            if self.parent is not None and hasattr(self.parent, "_music_wy_sync_remote_playlists"):
+                self.parent._music_wy_sync_remote_playlists()
+        except Exception as e:
+            logger.warning(f"通知网易云歌单同步失败: {e}")
 
     def _wy_refresh_status(self):
         """刷新网易云登录状态显示（本地有 Cookie 时后台异步校验有效性）"""
@@ -1481,6 +1492,8 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             self.callbacks["set_wy_cookie"](None)
         self._wy_refresh_status()
         self.parent.set_status(_("wy_logout_success"), "info")
+        # 通知主窗口清空网易云账号歌单（音乐页歌单列表）
+        self._notify_music_wy_sync()
 
     # ── AI 模型配置 ──
 

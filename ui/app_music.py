@@ -4,6 +4,7 @@ import json
 import math
 import os
 import platform
+import queue
 import shutil
 import subprocess
 import sys
@@ -14,7 +15,7 @@ import tkinter.filedialog as filedialog
 import webbrowser
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 import customtkinter as ctk
@@ -90,6 +91,15 @@ else:
     _winsdk_import_error = "非 Windows 平台"
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus", ".aiff"}
+
+# 网易云账号歌单（侧边栏同步，只读）:
+# 条目 id 前缀（区分本地歌单与远程歌单，远程歌单不进入 PlaylistManager，
+# 因此永不落盘、永不参与本地歌单的任何编辑操作）
+_WY_REMOTE_PREFIX = "wy:"
+# 远程歌单歌曲列表每页条数（超过 20 首时按页展示）
+_MUSIC_WY_PAGE_SIZE = 20
+# 定期自动刷新歌单列表的间隔（毫秒）
+_WY_REMOTE_PERIODIC_MS = 10 * 60 * 1000
 
 PLAY_MODE_SEQUENTIAL = 0
 PLAY_MODE_LOOP_LIST = 1
@@ -648,6 +658,20 @@ class MusicPlayerMixin(object):
         # ── 歌单上下文（播歌单中的歌曲时记录，供上下曲使用） ──
         self._music_playlist_context_songs: List[PlaylistSong] = []
         self._music_playlist_context_idx: int = -1
+        # ── 网易云账号歌单同步（只读，不落盘） ──
+        self._music_wy_remote_playlists: List[dict] = []  # [{id, name, track_count, cover_url}]
+        self._music_wy_remote_cache: Dict[str, List[PlaylistSong]] = {}  # 歌单id -> 歌曲（内存缓存）
+        self._music_wy_remote_view_id: Optional[str] = None  # 当前查看的远程歌单 id
+        self._music_wy_remote_view_songs: List[PlaylistSong] = []  # 当前查看的远程歌单歌曲
+        self._music_wy_loading_ids: Set[str] = set()  # 歌曲加载中的歌单 id（防重复请求）
+        self._music_wy_sync_busy: bool = False  # 歌单列表同步进行中
+        self._music_wy_sync_seq: int = 0  # 同步请求序号（防旧结果覆盖新请求）
+        self._music_wy_sync_failed: bool = False  # 最近一次列表同步是否失败
+        self._music_wy_remote_sort_mode: str = SORT_ADD_TIME_DESC  # 远程歌单内存排序模式
+        self._music_wy_remote_page: int = 1  # 远程歌单当前页码（每页 _MUSIC_WY_PAGE_SIZE 首）
+        self._music_wy_queue: "queue.Queue" = queue.Queue()  # 后台线程 -> 主线程事件队列
+        self._music_wy_dispatcher_id = None
+        self._music_wy_periodic_id = None
 
     def _init_music_lazy(self):
         if self._music_init_done:
@@ -671,6 +695,12 @@ class MusicPlayerMixin(object):
         self._music_apply_wy_saved_login()
         if self._music_playlist:
             self._rebuild_playlist_ui()
+        # 启动网易云账号歌单同步调度器与定期刷新（已登录时生效，未登录自动跳过）
+        try:
+            self._music_wy_dispatcher_id = self.after(200, self._music_wy_dispatcher_tick)
+            self._music_wy_start_periodic()
+        except Exception as e:
+            logger.debug(f"启动网易云歌单同步调度失败: {e}")
         # 启动定时保存（30 秒间隔，避免频繁写盘）
         self._music_start_periodic_save()
 
@@ -1050,6 +1080,49 @@ class MusicPlayerMixin(object):
         )
         self._music_playlist_scroll.pack(fill=ctk.BOTH, expand=True)
 
+        # ── 网易云远程歌单分页栏（超过 20 首时按页展示，默认隐藏） ──
+        pager = ctk.CTkFrame(right_frame, fg_color="transparent", height=30)
+        pager.pack(fill=ctk.X, pady=(4, 0))
+        pager.pack_propagate(False)
+
+        pager_btn_cfg = {
+            "font": ctk.CTkFont(family=FONT_FAMILY, size=11),
+            "fg_color": COLORS["bg_light"],
+            "hover_color": COLORS["accent"],
+            "height": 24,
+            "width": 90,
+        }
+
+        self._music_wy_pager_prev = ctk.CTkButton(
+            pager,
+            text=_("music_page_prev"),
+            command=lambda: self._music_wy_go_page(self._music_wy_remote_page - 1),
+            **pager_btn_cfg,
+        )
+        self._music_wy_pager_prev.pack(side=ctk.LEFT)
+
+        self._music_wy_pager_page_label = ctk.CTkLabel(
+            pager,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+        )
+        self._music_wy_pager_page_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
+
+        self._music_wy_pager_next = ctk.CTkButton(
+            pager,
+            text=_("music_page_next"),
+            command=lambda: self._music_wy_go_page(self._music_wy_remote_page + 1),
+            **pager_btn_cfg,
+        )
+        self._music_wy_pager_next.pack(side=ctk.RIGHT)
+
+        self._music_wy_pager_frame = pager
+        self._music_wy_pager_frame.pack_forget()
+        self._theme_refs.append((self._music_wy_pager_prev, {"fg_color": "bg_light", "hover_color": "accent"}))
+        self._theme_refs.append((self._music_wy_pager_next, {"fg_color": "bg_light", "hover_color": "accent"}))
+        self._theme_refs.append((self._music_wy_pager_page_label, {"text_color": "text_secondary"}))
+
         self._theme_refs.append((self._music_new_playlist_btn, {"fg_color": "bg_light", "hover_color": "accent"}))
 
         # 初始化状态
@@ -1232,6 +1305,10 @@ class MusicPlayerMixin(object):
         self._music_online_tab_btn.configure(fg_color=COLORS["bg_light"])
         self._music_playlist_tab_btn.configure(fg_color=COLORS["bg_light"])
         self._stop_search_loading()
+        # 全部歌曲视图：清除远程歌单查看状态（侧边栏高亮与分页栏随之失效）
+        self._music_wy_remote_view_id = None
+        self._music_wy_remote_view_songs = []
+        self._music_wy_update_pager()
         # 刷新全部歌曲列表
         self._rebuild_playlist_ui()
 
@@ -1885,6 +1962,28 @@ class MusicPlayerMixin(object):
 
     def _highlight_playlist_song(self, target_idx: int):
         """高亮歌单歌曲列表中指定索引的行"""
+        # 网易云远程歌单（分页）：目标歌曲不在当前页时自动翻页
+        if getattr(self, "_music_wy_remote_view_id", None):
+            if target_idx < 0:
+                return
+            page = target_idx // _MUSIC_WY_PAGE_SIZE + 1
+            if page != self._music_wy_remote_page and self._music_wy_remote_view_songs:
+                self._music_wy_remote_page = page
+                self._music_render_wy_remote_songs(
+                    self._music_wy_remote_view_id, self._music_wy_remote_view_songs
+                )
+            for w in self._music_playlist_widgets:
+                try:
+                    f = w.get("frame")
+                    if not f or not f.winfo_exists():
+                        continue
+                    if w.get("real_index") == target_idx:
+                        f.configure(fg_color=COLORS["accent"])
+                    else:
+                        f.configure(fg_color="transparent")
+                except Exception:
+                    pass
+            return
         for w in self._music_playlist_widgets:
             try:
                 f = w.get("frame")
@@ -2375,11 +2474,51 @@ class MusicPlayerMixin(object):
             item = self._build_sidebar_item(pl.id, display_name, is_active=(pl.id == current_id))
             self._music_playlist_sidebar_widgets.append(item)
 
+        # ── 网易云账号歌单（只读同步，不落盘，禁止编辑） ──
+        self._music_rebuild_wy_remote_sidebar()
+
         # 高亮当前选中
         self._highlight_sidebar_selection()
 
-    def _build_sidebar_item(self, playlist_id: Optional[str], text: str, is_active: bool = False) -> dict:
-        """构建单个侧边栏条目"""
+    def _music_rebuild_wy_remote_sidebar(self):
+        """重建侧边栏「网易云歌单」分组（只读，无右键菜单）"""
+        remote = self._music_wy_remote_playlists
+        if not remote:
+            return
+        # 分隔线
+        sep = ctk.CTkFrame(self._music_playlist_sidebar, fg_color=COLORS["card_border"], height=1)
+        sep.pack(fill=ctk.X, padx=12, pady=4)
+        self._music_playlist_sidebar_widgets.append({"frame": sep})
+        # 分组标题（最近一次同步失败时附加提示）
+        title = _("music_wy_playlists")
+        if self._music_wy_sync_failed:
+            title = f"{title}（{_('music_wy_sync_failed')}）"
+        header = ctk.CTkLabel(
+            self._music_playlist_sidebar,
+            text=title,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            text_color=COLORS["text_secondary"],
+        )
+        header.pack(anchor=ctk.W, padx=10, pady=(4, 2))
+        self._music_playlist_sidebar_widgets.append({"frame": header})
+        # 远程歌单条目（只读：不绑定右键菜单，禁止编辑）
+        for pl in remote:
+            display_name = f"{pl['name']} ({pl['track_count']})"
+            item = self._build_sidebar_item(
+                self._music_wy_remote_key(pl["id"]),
+                display_name,
+                is_active=(pl["id"] == self._music_wy_remote_view_id),
+            )
+            self._music_playlist_sidebar_widgets.append(item)
+
+    def _build_sidebar_item(
+        self, playlist_id: Optional[str], text: str, is_active: bool = False
+    ) -> dict:
+        """构建单个侧边栏条目
+
+        playlist_id 以 _WY_REMOTE_PREFIX 开头时为网易云远程歌单条目
+        （只读查看，无右键菜单，禁止编辑）。
+        """
         active_bg = COLORS["bg_light"]
         normal_bg = "transparent"
         frame = ctk.CTkFrame(
@@ -2406,6 +2545,12 @@ class MusicPlayerMixin(object):
             for t in click_targets:
                 t.bind("<Button-1>", lambda e: self._music_switch_to_local())
                 t.bind("<Double-Button-1>", lambda e: self._music_switch_to_local())
+        elif playlist_id.startswith(_WY_REMOTE_PREFIX):
+            # 远程歌单条目：只读查看，不绑定右键菜单（禁止编辑）
+            real_id = playlist_id[len(_WY_REMOTE_PREFIX):]
+            for t in click_targets:
+                t.bind("<Button-1>", lambda e, pid=real_id: self._music_show_wy_remote_playlist(pid))
+                t.bind("<Double-Button-1>", lambda e, pid=real_id: self._music_show_wy_remote_playlist(pid))
         else:
             for t in click_targets:
                 t.bind("<Button-1>", lambda e, pid=playlist_id: self._music_show_playlist(pid))
@@ -2419,6 +2564,8 @@ class MusicPlayerMixin(object):
         """高亮侧边栏当前选中项"""
         mgr = self._music_playlist_manager
         selected_id = mgr.current_playlist_id
+        wy_view_id = getattr(self, "_music_wy_remote_view_id", None)
+        wy_key = self._music_wy_remote_key(wy_view_id) if wy_view_id else None
 
         for w in self._music_playlist_sidebar_widgets:
             frame = w.get("frame")
@@ -2428,6 +2575,8 @@ class MusicPlayerMixin(object):
             if pid is None:
                 # "全部歌曲" — 仅在本地标签页时高亮
                 frame.configure(fg_color="transparent")
+            elif wy_key is not None and pid == wy_key:
+                frame.configure(fg_color=COLORS["bg_light"])
             elif pid == selected_id:
                 frame.configure(fg_color=COLORS["bg_light"])
             else:
@@ -2549,6 +2698,10 @@ class MusicPlayerMixin(object):
         # 先确保在歌单标签页
         if self._music_tab_mode != "playlist":
             self._music_switch_to_playlist_tab()
+        # 切换到本地歌单：清除远程歌单查看状态（防止两处同时高亮）
+        self._music_wy_remote_view_id = None
+        self._music_wy_remote_view_songs = []
+        self._music_wy_update_pager()
 
         mgr = self._music_playlist_manager
         pl = mgr.get_playlist(playlist_id)
@@ -2564,8 +2717,8 @@ class MusicPlayerMixin(object):
         self._rebuild_playlist_song_list(pl)
         self._rebuild_playlist_sidebar()
 
-    def _rebuild_playlist_song_list(self, pl: Playlist):
-        """渲染歌单中的歌曲列表"""
+    def _rebuild_playlist_song_list(self, pl: Playlist, readonly: bool = False):
+        """渲染歌单中的歌曲列表（readonly=True 时禁止编辑：无移除按钮、无右键菜单）"""
         # 清除旧列表
         for w in self._music_playlist_widgets:
             try:
@@ -2589,10 +2742,10 @@ class MusicPlayerMixin(object):
             return
 
         for idx, song in enumerate(pl.songs):
-            self._add_playlist_song_row(idx, song)
+            self._add_playlist_song_row(idx, song, readonly=readonly)
 
-    def _add_playlist_song_row(self, idx: int, song: "PlaylistSong"):
-        """渲染歌单中的单行歌曲"""
+    def _add_playlist_song_row(self, idx: int, song: "PlaylistSong", readonly: bool = False):
+        """渲染歌单中的单行歌曲（readonly=True 时无移除按钮）"""
         row = ctk.CTkFrame(self._music_playlist_scroll, fg_color="transparent", height=32)
         row.pack(fill=ctk.X, pady=1)
 
@@ -2636,19 +2789,20 @@ class MusicPlayerMixin(object):
                 width=28,
             ).pack(side=ctk.RIGHT, padx=(0, 2))
 
-        # 移除按钮
-        remove_btn = ctk.CTkButton(
-            row,
-            text="✕",
-            width=22,
-            height=22,
-            font=ctk.CTkFont(size=9),
-            fg_color="transparent",
-            hover_color=COLORS["accent"],
-            text_color=COLORS["text_secondary"],
-            command=lambda si=idx: self._music_remove_song_from_playlist(si),
-        )
-        remove_btn.pack(side=ctk.RIGHT, padx=(0, 4))
+        # 移除按钮（只读歌单不显示：禁止编辑）
+        if not readonly:
+            remove_btn = ctk.CTkButton(
+                row,
+                text="✕",
+                width=22,
+                height=22,
+                font=ctk.CTkFont(size=9),
+                fg_color="transparent",
+                hover_color=COLORS["accent"],
+                text_color=COLORS["text_secondary"],
+                command=lambda si=idx: self._music_remove_song_from_playlist(si),
+            )
+            remove_btn.pack(side=ctk.RIGHT, padx=(0, 4))
 
         # 点击播放
         self._bind_playlist_song_click(row, name_label, idx)
@@ -2657,6 +2811,21 @@ class MusicPlayerMixin(object):
 
     def _bind_playlist_song_click(self, row, label, idx: int):
         """绑定歌单歌曲点击事件"""
+        # 网易云远程歌单（只读，分页）：绑定完整歌曲列表中的真实索引
+        if self._music_wy_remote_view_id:
+            songs = self._music_wy_remote_view_songs
+            real_idx = (self._music_wy_remote_page - 1) * _MUSIC_WY_PAGE_SIZE + idx
+            if real_idx >= len(songs):
+                return
+
+            def _play_remote(e=None):
+                self._music_playlist_context_songs = list(songs)
+                self._play_playlist_context_song(real_idx)
+
+            for t in [row, label]:
+                t.bind("<Button-1>", _play_remote)
+                t.bind("<Double-Button-1>", _play_remote)
+            return
         pl = self._music_playlist_manager.get_current_playlist()
         if pl is None or idx >= len(pl.songs):
             return
@@ -2673,6 +2842,8 @@ class MusicPlayerMixin(object):
 
     def _music_remove_song_from_playlist(self, song_index: int):
         """从当前歌单中移除歌曲"""
+        if self._music_wy_remote_view_id:
+            return  # 远程歌单只读，禁止编辑
         pl = self._music_playlist_manager.get_current_playlist()
         if pl is None:
             return
@@ -2683,6 +2854,26 @@ class MusicPlayerMixin(object):
 
     def _music_do_sort(self, mode: str):
         """执行歌单排序"""
+        # 网易云远程歌单（只读）：仅内存内排序，不落盘；同模式再次点击切换方向
+        if self._music_wy_remote_view_id:
+            songs = self._music_wy_remote_view_songs
+            if not songs:
+                return
+            if self._music_wy_remote_sort_mode == mode:
+                if mode == SORT_ADD_TIME_DESC:
+                    mode = SORT_ADD_TIME_ASC
+                elif mode == SORT_ADD_TIME_ASC:
+                    mode = SORT_ADD_TIME_DESC
+                elif mode == SORT_NAME_ASC:
+                    mode = SORT_NAME_DESC
+                elif mode == SORT_NAME_DESC:
+                    mode = SORT_NAME_ASC
+            self._music_wy_remote_sort_mode = mode
+            transient = Playlist(id=self._music_wy_remote_key(self._music_wy_remote_view_id), songs=songs, sort_mode=mode)
+            PlaylistManager._sort_playlist_internal(transient)
+            self._update_sort_buttons(mode)
+            self._music_render_wy_remote_songs(self._music_wy_remote_view_id, songs)
+            return
         mgr = self._music_playlist_manager
         pl = mgr.get_current_playlist()
         if pl is None:
@@ -2849,10 +3040,286 @@ class MusicPlayerMixin(object):
         except Exception:
             pass
 
+    # ═══════════════ 网易云账号歌单（只读同步，不落盘） ═══════════════
+    #
+    # 登录网易云账号后，将账号创建的歌单同步到侧边栏「网易云歌单」分组。
+    # 远程歌单只保存在内存（列表 + 歌曲缓存），不进入 PlaylistManager，
+    # 因此永不写入 music.json、永不参与本地歌单的增删改（禁止编辑）。
+
+    def _music_wy_remote_key(self, pl_id: str) -> str:
+        """远程歌单的侧边栏条目 id（与本地歌单 id 区分）"""
+        return f"{_WY_REMOTE_PREFIX}{pl_id}"
+
+    def _music_wy_sync_remote_playlists(self):
+        """同步网易云登录账号创建的歌单列表（后台线程，结果经队列回主线程）
+
+        未登录时清空远程歌单与歌曲缓存；同步失败保留上次成功结果并标记提示。
+        """
+        if not hasattr(self, "_music_wy_queue") or self._music_wy_sync_busy:
+            return
+        self._music_wy_sync_busy = True
+        self._music_wy_sync_seq += 1
+        seq = self._music_wy_sync_seq
+        threading.Thread(target=self._music_wy_sync_worker, args=(seq,), daemon=True).start()
+
+    def _music_wy_sync_worker(self, seq: int):
+        """后台线程：检查登录态并拉取歌单列表（绝不触碰 Tk）"""
+        state, data = "ok", []
+        try:
+            from ui.music_source import wy_get_user_playlists, wy_is_logged_in
+
+            if not wy_is_logged_in():
+                state = "logged_out"
+            else:
+                data = wy_get_user_playlists()
+                if data is None:
+                    state = "error"
+        except Exception as e:
+            logger.warning(f"网易云歌单同步失败: {e}")
+            state = "error"
+        self._music_wy_queue.put(("sync", seq, state, data))
+
+    def _music_wy_dispatcher_tick(self):
+        """主线程调度器：统一处理后台线程投递的事件（worker 不直接触碰 Tk）"""
+        if not hasattr(self, "_music_wy_queue"):
+            return
+        try:
+            while True:
+                try:
+                    event = self._music_wy_queue.get_nowait()
+                except queue.Empty:
+                    break
+                self._music_wy_handle_event(event)
+        except Exception as e:
+            logger.debug(f"网易云歌单事件处理异常: {e}")
+        try:
+            self._music_wy_dispatcher_id = self.after(200, self._music_wy_dispatcher_tick)
+        except Exception:
+            pass
+
+    def _music_wy_handle_event(self, event):
+        kind = event[0]
+        try:
+            if kind == "sync":
+                self._music_wy_apply_sync(event[1], event[2], event[3])
+            elif kind == "tracks":
+                self._music_wy_apply_tracks(event[1], event[2])
+        except Exception as e:
+            logger.debug(f"网易云歌单事件执行异常: {e}")
+
+    def _music_wy_apply_sync(self, seq: int, state: str, playlists: List[dict]):
+        """主线程应用歌单列表同步结果"""
+        if seq != self._music_wy_sync_seq:
+            return  # 过期同步结果（已触发新的同步），丢弃
+        self._music_wy_sync_busy = False
+        if state == "logged_out":
+            # 账号已退出（设置页退出/登录失效）：清空远程歌单与歌曲缓存
+            if self._music_wy_remote_view_id:
+                self._music_wy_remote_view_id = None
+                self._music_wy_remote_view_songs = []
+                if self._music_tab_mode == "playlist":
+                    history = self._music_playlist_manager.get_or_create_history_playlist()
+                    self._music_show_playlist(history.id)
+            self._music_wy_remote_playlists = []
+            self._music_wy_remote_cache.clear()
+            self._music_wy_loading_ids.clear()
+            self._music_wy_sync_failed = False
+            self._rebuild_playlist_sidebar()
+            return
+        if state == "error":
+            # 网络/接口失败：保留上次成功结果，侧边栏标题标记同步失败
+            self._music_wy_sync_failed = True
+            return
+        self._music_wy_sync_failed = False
+        if self._music_wy_remote_playlists == playlists:
+            return  # 无变化，不重建侧边栏
+        old_ids = {p["id"] for p in self._music_wy_remote_playlists}
+        new_ids = {p["id"] for p in playlists}
+        # 清除已不在列表中的歌单的歌曲缓存与加载标记
+        for pid in old_ids - new_ids:
+            self._music_wy_remote_cache.pop(pid, None)
+            self._music_wy_loading_ids.discard(pid)
+        self._music_wy_remote_playlists = playlists
+        # 当前查看的远程歌单已被删除：切回播放历史
+        if self._music_wy_remote_view_id and self._music_wy_remote_view_id not in new_ids:
+            self._music_wy_remote_view_id = None
+            self._music_wy_remote_view_songs = []
+            if self._music_tab_mode == "playlist":
+                history = self._music_playlist_manager.get_or_create_history_playlist()
+                self._music_show_playlist(history.id)
+        self._rebuild_playlist_sidebar()
+
+    def _music_show_wy_remote_playlist(self, pl_id: str):
+        """在歌单标签页显示网易云远程歌单（只读）"""
+        if self._music_tab_mode != "playlist":
+            self._music_switch_to_playlist_tab()
+        self._music_wy_remote_view_id = pl_id
+        self._music_wy_remote_page = 1  # 切换歌单后回到第一页
+        self._update_sort_buttons(self._music_wy_remote_sort_mode)
+        cached = self._music_wy_remote_cache.get(pl_id)
+        if cached is not None:
+            # 缓存命中（含空歌单成功缓存 []）：直接渲染
+            self._music_render_wy_remote_songs(pl_id, cached)
+        else:
+            self._music_show_wy_remote_loading(pl_id)
+            self._music_wy_fetch_remote_songs(pl_id)
+        self._rebuild_playlist_sidebar()
+
+    def _music_wy_fetch_remote_songs(self, pl_id: str):
+        """后台拉取远程歌单歌曲（已在加载中则跳过）"""
+        if pl_id in self._music_wy_loading_ids:
+            return
+        self._music_wy_loading_ids.add(pl_id)
+        threading.Thread(target=self._music_wy_tracks_worker, args=(pl_id,), daemon=True).start()
+
+    def _music_wy_tracks_worker(self, pl_id: str):
+        """后台线程：拉取歌单歌曲（绝不触碰 Tk）"""
+        try:
+            from ui.music_source import wy_get_playlist_tracks
+
+            infos = wy_get_playlist_tracks(pl_id)
+        except Exception as e:
+            logger.warning(f"获取网易云歌单歌曲失败 [{pl_id}]: {e}")
+            infos = None
+        self._music_wy_queue.put(("tracks", pl_id, infos))
+
+    def _music_wy_apply_tracks(self, pl_id: str, infos):
+        """主线程应用歌单歌曲拉取结果（None=失败，[]=空歌单）"""
+        self._music_wy_loading_ids.discard(pl_id)
+        if self._music_wy_remote_view_id != pl_id:
+            # 用户已切换歌单：成功结果仅缓存，供下次点击直接使用
+            if infos is not None:
+                self._music_wy_remote_cache[pl_id] = [PlaylistSong.from_online_info(i) for i in infos]
+            return
+        if infos is None:
+            self._music_show_wy_remote_failed(pl_id)
+            return
+        songs = [PlaylistSong.from_online_info(i) for i in infos]
+        self._music_wy_remote_cache[pl_id] = songs
+        self._music_render_wy_remote_songs(pl_id, songs)
+
+    def _music_show_wy_remote_loading(self, pl_id: str):
+        """远程歌单加载中占位"""
+        for w in self._music_playlist_widgets:
+            try:
+                f = w.get("frame")
+                if f and f.winfo_exists():
+                    f.destroy()
+            except Exception:
+                pass
+        self._music_playlist_widgets.clear()
+        self._music_wy_remote_view_songs = []
+        self._music_wy_update_pager()
+        label = ctk.CTkLabel(
+            self._music_playlist_scroll,
+            text=_("music_wy_playlist_loading"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_secondary"],
+        )
+        label.pack(pady=30)
+        self._music_playlist_widgets.append({"frame": label})
+
+    def _music_show_wy_remote_failed(self, pl_id: str):
+        """远程歌单加载失败提示（再次点击侧边栏条目可重试）"""
+        for w in self._music_playlist_widgets:
+            try:
+                f = w.get("frame")
+                if f and f.winfo_exists():
+                    f.destroy()
+            except Exception:
+                pass
+        self._music_playlist_widgets.clear()
+        self._music_wy_remote_view_songs = []
+        self._music_wy_update_pager()
+        label = ctk.CTkLabel(
+            self._music_playlist_scroll,
+            text=_("music_wy_playlist_load_failed"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLORS["text_secondary"],
+        )
+        label.pack(pady=30)
+        self._music_playlist_widgets.append({"frame": label})
+
+    def _music_render_wy_remote_songs(self, pl_id: str, songs: List[PlaylistSong]):
+        """渲染远程歌单当前页歌曲列表（只读，禁止编辑，超过 20 首分页）"""
+        self._music_wy_remote_view_songs = songs
+        total = len(songs)
+        pages = max(1, math.ceil(total / _MUSIC_WY_PAGE_SIZE))
+        if self._music_wy_remote_page > pages:
+            self._music_wy_remote_page = pages
+        start = (self._music_wy_remote_page - 1) * _MUSIC_WY_PAGE_SIZE
+        page_songs = songs[start : start + _MUSIC_WY_PAGE_SIZE]
+        transient = Playlist(id=self._music_wy_remote_key(pl_id), name="", songs=page_songs)
+        self._rebuild_playlist_song_list(transient, readonly=True)
+        # 记录每行在完整歌单中的真实索引（高亮/自动翻页依赖）
+        for w in self._music_playlist_widgets:
+            if "index" in w and "real_index" not in w:
+                w["real_index"] = start + w["index"]
+        self._music_wy_update_pager()
+
+    def _music_wy_update_pager(self):
+        """更新远程歌单分页栏（<=20 首或非远程视图时隐藏）"""
+        frame = getattr(self, "_music_wy_pager_frame", None)
+        if frame is None or not frame.winfo_exists():
+            return
+        if not self._music_wy_remote_view_id:
+            frame.pack_forget()
+            return
+        songs = self._music_wy_remote_view_songs
+        total = len(songs)
+        if total <= _MUSIC_WY_PAGE_SIZE:
+            frame.pack_forget()
+            return
+        pages = max(1, math.ceil(total / _MUSIC_WY_PAGE_SIZE))
+        if self._music_wy_remote_page > pages:
+            self._music_wy_remote_page = pages
+        frame.pack(fill=ctk.X, pady=(4, 0))
+        self._music_wy_pager_page_label.configure(
+            text=_("music_wy_playlist_page", page=self._music_wy_remote_page, total=pages)
+        )
+        self._music_wy_pager_prev.configure(state="normal" if self._music_wy_remote_page > 1 else "disabled")
+        self._music_wy_pager_next.configure(state="normal" if self._music_wy_remote_page < pages else "disabled")
+
+    def _music_wy_go_page(self, page: int):
+        """远程歌单翻页（仅内存内展示切换，不影响完整播放列表）"""
+        if not self._music_wy_remote_view_id:
+            return
+        songs = self._music_wy_remote_view_songs
+        pages = max(1, math.ceil(len(songs) / _MUSIC_WY_PAGE_SIZE))
+        if page < 1 or page > pages or page == self._music_wy_remote_page:
+            return
+        self._music_wy_remote_page = page
+        self._music_render_wy_remote_songs(self._music_wy_remote_view_id, songs)
+
+    def _music_wy_start_periodic(self):
+        """启动网易云歌单定期刷新（未登录时同步逻辑自动跳过，开销可忽略）"""
+        if self._music_wy_periodic_id is not None:
+            return
+        self._music_wy_periodic_id = self.after(_WY_REMOTE_PERIODIC_MS, self._music_wy_periodic_tick)
+
+    def _music_wy_periodic_tick(self):
+        self._music_wy_periodic_id = None
+        try:
+            self._music_wy_sync_remote_playlists()
+        except Exception as e:
+            logger.debug(f"网易云歌单定时同步异常: {e}")
+        self._music_wy_start_periodic()
+
     # ── 播放全部按钮 ──
 
     def _music_play_playlist_all(self):
         """播放当前歌单的所有可播放歌曲（支持本地/在线混合）"""
+        # 网易云远程歌单：播放远程歌曲（全部为在线歌曲）
+        if self._music_wy_remote_view_id:
+            songs = self._music_wy_remote_view_songs
+            if not songs:
+                return
+            self._music_playlist_context_songs = list(songs)
+            for idx, s in enumerate(songs):
+                if s.source_type == "online":
+                    self._play_playlist_context_song(idx)
+                    return
+            return
         mgr = self._music_playlist_manager
         pl = mgr.get_current_playlist()
         if pl is None or not pl.songs:
@@ -3015,6 +3482,11 @@ class MusicPlayerMixin(object):
             logger.info("已应用网易云音乐登录 Cookie")
         except Exception as e:
             logger.warning(f"应用网易云音乐登录 Cookie 失败: {e}")
+        # 登录恢复成功后同步网易云账号歌单（未登录时由同步逻辑自动清空）
+        try:
+            self._music_wy_sync_remote_playlists()
+        except Exception as e:
+            logger.debug(f"启动网易云歌单同步失败: {e}")
 
     def _load_music_state(self, _retry_count: int = 0):
         if not hasattr(self, "callbacks"):

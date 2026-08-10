@@ -1069,6 +1069,11 @@
   "music_playlist_empty": "歌单是空的",
   "music_already_in_playlist": "已在歌单中",
   "music_playlist_name_placeholder": "输入歌单名称",
+  "music_wy_playlists": "网易云歌单",
+  "music_wy_playlist_loading": "正在加载歌单歌曲...",
+  "music_wy_playlist_load_failed": "歌单加载失败，请重试",
+  "music_wy_sync_failed": "同步失败",
+  "music_wy_playlist_page": "第 {page} / {total} 页",
 
   "tab_tools": "🔧 工具",
 

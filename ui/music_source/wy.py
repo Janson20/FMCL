@@ -7,6 +7,7 @@ import random
 import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
+from urllib.parse import urlencode
 
 from ui.music_source.base import BaseMusicSource, MusicInfo
 from ui.music_source.utils import decode_name, format_singer, wy_eapi, wy_weapi
@@ -15,6 +16,10 @@ logger = logging.getLogger("music_source.wy")
 
 WY_EAPI_BASE = "https://interface3.music.163.com/eapi"
 WY_API_BASE = "https://music.163.com/weapi"
+# weapi 加密体的备用域名前缀：部分接口（如 /user/playlist、老版
+# /playlist/detail）在 /weapi/ 前缀下返回空响应体，须改用 /api/ 前缀
+# 且参数放 URL 查询串（与 NeteaseCloudMusicApi 同路由）
+WY_API_ALT_BASE = "https://music.163.com/api"
 
 # 歌名末尾的括号版本后缀（Live/伴奏/翻唱/中文版等标注），分组判定原唱时忽略。
 # 仅剥离"含版本词"的括号：真实歌名一部分的括号（如 幹物女(WeiWei)、
@@ -256,24 +261,31 @@ class NetEaseMusicSource(BaseMusicSource):
         types = []
         _types = {}
         priv = item.get("privilege", {})
-        maxbr = priv.get("maxbr", 0)
+        maxbr = int(priv.get("maxbr") or 0)
+        # 无 privilege（eapi 歌单详情/老格式接口）时从音质子对象的 br/bitrate 反推
+        if not maxbr:
+            for key in ("sq", "sqMusic", "h", "hMusic", "m", "mMusic", "l", "lMusic"):
+                sub = item.get(key) or {}
+                br = int(sub.get("br") or sub.get("bitrate") or 0)
+                if br > maxbr:
+                    maxbr = br
 
         # flac (SQ)
         if maxbr >= 999000:
-            sq = item.get("sq", {})
+            sq = item.get("sq") or item.get("sqMusic") or {}
             if sq:
                 types.append({"type": "flac"})
                 _types["flac"] = {"id": sq.get("id", item.get("id", ""))}
 
         # 320k (HQ)
         if maxbr >= 320000:
-            hq = item.get("h", {})
+            hq = item.get("h") or item.get("hMusic") or {}
             if hq:
                 types.append({"type": "320k"})
                 _types["320k"] = {"id": hq.get("id", item.get("id", ""))}
 
         # 128k
-        low = item.get("l", {})
+        low = item.get("l") or item.get("lMusic") or {}
         if low:
             types.append({"type": "128k"})
             _types["128k"] = {"id": low.get("id", item.get("id", ""))}
@@ -956,6 +968,182 @@ class NetEaseMusicSource(BaseMusicSource):
             logger.warning(f"网易获取登录用户信息异常: {e}")
         return None
 
+    # ── 账号歌单（歌单列表同步，只读，不落盘） ──────────
+    #
+    # 实测（2026-08 登录态）: weapi 前缀（music.163.com/weapi/...）对
+    # /user/playlist 与 /playlist/detail 返回空响应体，eapi 通道与
+    # music.163.com/api/...（weapi 加密体 + URL 查询参数）可用。
+
+    def get_user_playlists(self) -> Optional[List[dict]]:
+        """获取当前登录用户创建的歌单列表（含「我喜欢的音乐」）
+
+        与 YesPlayMusic 一致: limit=2000 上限，仅保留
+        creator.userId == 当前登录用户 的歌单（排除收藏/订阅的）。
+
+        Returns:
+            [{"id": str, "name": str, "track_count": int, "cover_url": str}, ...]
+            保持服务端返回顺序（首项通常为「我喜欢的音乐」）；
+            未登录/失败返回 None
+        """
+        profile = self.fetch_login_profile()
+        if not profile or not profile.get("user_id"):
+            return None
+        uid = int(profile["user_id"])
+        data = {"uid": uid, "limit": 2000, "offset": 0}
+        resp = None
+        # 候选通道: eapi（最稳定）→ weapi + URL 查询参数（/api/ 前缀）
+        for kind in ("eapi", "weapi"):
+            try:
+                if kind == "eapi":
+                    resp = self._eapi_post("/api/user/playlist", data)
+                else:
+                    resp = self._weapi_post(
+                        "/user/playlist", data, query={"uid": uid, "limit": 2000, "offset": 0}, base=WY_API_ALT_BASE
+                    )
+            except Exception as e:
+                logger.debug(f"网易获取用户歌单异常 ({kind}): {e}")
+                continue
+            code = resp.get("code", 200)
+            if code != 200 or not resp.get("playlist"):
+                logger.debug(f"网易获取用户歌单失败: code={code} ({kind})")
+                continue
+            break
+        else:
+            logger.warning("网易获取用户歌单失败: 全部路由均不可用")
+            return None
+        try:
+            result = []
+            for pl in resp.get("playlist") or []:
+                try:
+                    creator = pl.get("creator") or {}
+                    if int(creator.get("userId") or 0) != uid:
+                        # 仅同步本人创建的歌单（收藏/订阅的歌单不显示）
+                        continue
+                    result.append(
+                        {
+                            "id": str(pl.get("id", "")),
+                            "name": decode_name(pl.get("name", "")),
+                            "track_count": int(pl.get("trackCount") or 0),
+                            "cover_url": pl.get("coverImgUrl", ""),
+                        }
+                    )
+                except Exception:
+                    continue
+            return result
+        except Exception as e:
+            logger.warning(f"网易获取用户歌单异常: {e}")
+            return None
+
+    def get_playlist_tracks(self, playlist_id: str) -> Optional[List[MusicInfo]]:
+        """获取歌单完整歌曲列表（需登录）
+
+        通道（逐个尝试，直到取得有效歌单数据）:
+            1. eapi /api/v6/playlist/detail（现代接口，登录后 tracks 完整、
+               trackIds 始终完整，歌曲为新格式含音质）
+            2. eapi /api/playlist/detail（老格式，result.tracks 登录后完整）
+            3. weapi /api/playlist/detail?id=...&s=8（老格式，参数在 URL）
+        tracks 不完整时（如未登录/接口截断）用 trackIds 分批
+        /api/v3/song/detail 补齐（YesPlayMusic 同策略）。
+
+        Args:
+            playlist_id: 歌单 ID
+
+        Returns:
+            歌曲信息列表；失败返回 None
+        """
+        if not playlist_id:
+            return None
+        pid = int(playlist_id)
+        playlist = None
+        # (通道, path, data, query, base)
+        candidates = [
+            ("eapi", "/api/v6/playlist/detail", {"id": pid, "n": 100000, "s": 8}, None, None),
+            ("eapi", "/api/playlist/detail", {"id": pid, "s": 8}, None, None),
+            ("weapi", "/playlist/detail", {"id": pid, "s": 8}, {"id": pid, "s": 8}, WY_API_ALT_BASE),
+        ]
+        for kind, path, data, query, base in candidates:
+            try:
+                if kind == "eapi":
+                    resp = self._eapi_post(path, data)
+                else:
+                    resp = self._weapi_post(path, data, query=query, base=base)
+            except Exception as e:
+                logger.debug(f"网易获取歌单详情异常 ({kind}/{path}): {e}")
+                continue
+            if resp.get("code") != 200:
+                logger.debug(f"网易获取歌单详情失败: code={resp.get('code')} ({kind}/{path})")
+                continue
+            pl = resp.get("playlist") or resp.get("result") or {}
+            if pl:
+                playlist = pl
+                break
+        if playlist is None:
+            logger.warning(f"网易获取歌单详情失败 [{playlist_id}]: 全部路由均不可用")
+            return None
+        try:
+            track_count = int(playlist.get("trackCount") or 0)
+            tracks = playlist.get("tracks") or []
+            if track_count > 0 and len(tracks) >= track_count:
+                return self._parse_song_detail_songs(tracks)
+            # tracks 不完整：trackIds（新格式）→ 分批 /api/v3/song/detail 补齐
+            track_ids = [str(t.get("id", "")) for t in (playlist.get("trackIds") or []) if t.get("id")]
+            if track_ids:
+                raw_songs = []
+                for i in range(0, len(track_ids), 1000):
+                    batch = [{"id": int(tid)} for tid in track_ids[i : i + 1000]]
+                    try:
+                        detail = self._eapi_post("/api/v3/song/detail", {"c": json.dumps(batch)})
+                    except Exception as e:
+                        logger.debug(f"网易补齐歌单歌曲失败: {e}")
+                        detail = {}
+                    raw_songs.extend(detail.get("songs") or [])
+                if raw_songs:
+                    return self._parse_song_detail_songs(raw_songs)
+            # 无 trackIds（老格式）或补齐失败：返回已有的 tracks（尽力而为）
+            return self._parse_song_detail_songs(tracks)
+        except Exception as e:
+            logger.warning(f"网易获取歌单歌曲异常 [{playlist_id}]: {e}")
+            return None
+
+    def _parse_song_detail_songs(self, raw_songs) -> List[MusicInfo]:
+        """解析歌曲详情数组为 MusicInfo 列表
+
+        兼容两种字段格式:
+            - 新格式: ar / al / dt / h / l / sq / privilege（v3/v6 详情接口）
+            - 老格式: artists / album / duration / hMusic / lMusic / sqMusic
+              （/api/playlist/detail 的 result.tracks、老版 /api/song/detail）
+        """
+        results = []
+        for item in raw_songs or []:
+            try:
+                raw_artists = item.get("ar") or item.get("artists") or []
+                singers = [format_singer(decode_name(s.get("name", ""))) for s in raw_artists]
+                album = item.get("al") or item.get("album") or {}
+                interval_raw = item.get("dt") or item.get("duration") or 0
+                interval = interval_raw // 1000 if interval_raw else 0
+                types, _types = self._parse_types(item)
+                origin = item.get("originSongSimpleData") or {}
+                info = MusicInfo(
+                    name=decode_name(item.get("name", "")),
+                    singer="、".join(singers),
+                    source=self.source_id,
+                    songmid=str(item.get("id", "")),
+                    album_name=decode_name(album.get("name", "") if album else ""),
+                    album_id=str(album.get("id", "") if album else ""),
+                    interval=interval,
+                    img=album.get("picUrl", "") if album else "",
+                    types=types,
+                    _types=_types,
+                    publish_time=int(item.get("publishTime") or 0),
+                    origin_song_id=str(origin.get("songId") or "") if origin else "",
+                    fee=int(item.get("fee") or 0),
+                )
+                results.append(info)
+            except Exception as e:
+                logger.debug(f"解析网易歌单歌曲失败: {e}")
+                continue
+        return results
+
     # ── 加密请求辅助 ────────────────────────────────
 
     def _eapi_post(self, path: str, data: dict) -> dict:
@@ -964,8 +1152,19 @@ class NetEaseMusicSource(BaseMusicSource):
         resp = self._session.post(f"{WY_EAPI_BASE}{path}", data=signed, timeout=15)
         return resp.json()
 
-    def _weapi_post(self, path: str, data: dict) -> dict:
-        """发送 weapi 加密请求"""
+    def _weapi_post(self, path: str, data: dict, query: Optional[dict] = None, base: str = "") -> dict:
+        """发送 weapi 加密请求
+
+        Args:
+            path: 接口路径
+            data: 加密参数
+            query: 附加到 URL 的查询参数（部分接口要求参数在 URL 中）
+            base: 请求域名前缀，默认 WY_API_BASE（/weapi/）；
+                  个别接口（/user/playlist 等）须用 /api/ 前缀（WY_API_ALT_BASE）
+        """
+        url = (base or WY_API_BASE) + path
+        if query:
+            url = f"{url}?{urlencode(query)}"
         signed = wy_weapi(data)
-        resp = self._session.post(f"{WY_API_BASE}{path}", data=signed, timeout=15)
+        resp = self._session.post(url, data=signed, timeout=15)
         return resp.json()

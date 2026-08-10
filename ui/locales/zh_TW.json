@@ -1069,6 +1069,11 @@
   "music_playlist_empty": "歌單是空的",
   "music_already_in_playlist": "已在歌單中",
   "music_playlist_name_placeholder": "輸入歌單名稱",
+  "music_wy_playlists": "網易雲歌單",
+  "music_wy_playlist_loading": "正在載入歌單歌曲...",
+  "music_wy_playlist_load_failed": "歌單載入失敗，請重試",
+  "music_wy_sync_failed": "同步失敗",
+  "music_wy_playlist_page": "第 {page} / {total} 頁",
 
   "tab_tools": "🔧 工具",
 

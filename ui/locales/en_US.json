@@ -1069,6 +1069,11 @@
   "music_playlist_empty": "Playlist is empty",
   "music_already_in_playlist": "Already in playlist",
   "music_playlist_name_placeholder": "Enter playlist name",
+  "music_wy_playlists": "NetEase Playlists",
+  "music_wy_playlist_loading": "Loading playlist tracks...",
+  "music_wy_playlist_load_failed": "Failed to load playlist, please retry",
+  "music_wy_sync_failed": "Sync Failed",
+  "music_wy_playlist_page": "Page {page} / {total}",
 
   "tab_tools": "🔧 Tools",
 

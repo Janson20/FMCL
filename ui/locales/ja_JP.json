@@ -1069,6 +1069,11 @@
   "music_playlist_empty": "プレイリストは空です",
   "music_already_in_playlist": "プレイリストに既に存在します",
   "music_playlist_name_placeholder": "プレイリスト名を入力",
+  "music_wy_playlists": "网易雲プレイリスト",
+  "music_wy_playlist_loading": "プレイリストの楽曲を読み込み中...",
+  "music_wy_playlist_load_failed": "プレイリストの読み込みに失敗しました。もう一度お試しください",
+  "music_wy_sync_failed": "同期失敗",
+  "music_wy_playlist_page": "{page} / {total} ページ",
 
   "tab_tools": "🔧 ツール",
 

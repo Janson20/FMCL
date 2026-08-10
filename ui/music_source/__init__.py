@@ -285,6 +285,27 @@ def wy_fetch_profile() -> Optional[dict]:
     return src.fetch_login_profile()
 
 
+def wy_get_user_playlists() -> Optional[List[dict]]:
+    """获取网易云当前登录用户创建的歌单列表（含「我喜欢的音乐」）
+
+    Returns:
+        [{"id": str, "name": str, "track_count": int, "cover_url": str}, ...]
+        未登录/失败返回 None
+    """
+    src = _wy_source()
+    if src is None:
+        return None
+    return src.get_user_playlists()
+
+
+def wy_get_playlist_tracks(playlist_id: str) -> Optional[List[MusicInfo]]:
+    """获取网易云歌单完整歌曲列表（需登录，失败返回 None）"""
+    src = _wy_source()
+    if src is None:
+        return None
+    return src.get_playlist_tracks(playlist_id)
+
+
 __all__ = [
     "BaseMusicSource",
     "MusicInfo",
@@ -307,4 +328,6 @@ __all__ = [
     "wy_clear_cookie",
     "wy_is_logged_in",
     "wy_fetch_profile",
+    "wy_get_user_playlists",
+    "wy_get_playlist_tracks",
 ]
