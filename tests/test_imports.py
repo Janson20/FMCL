@@ -14,11 +14,11 @@ def test_module_import(module):
     assert mod is not None
 
 
-def test_config_class():
-    """测试 Config 类的基本功能"""
+def test_config_class(tmp_path):
+    """测试 Config 类的基本功能（使用临时目录，避免依赖本地 config.json）"""
     from config import Config
 
-    cfg = Config()
+    cfg = Config(base_dir=str(tmp_path))
     assert hasattr(cfg, "mirror_enabled")
     assert hasattr(cfg, "download_threads")
     assert cfg.mirror_enabled is True

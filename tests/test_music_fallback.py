@@ -97,14 +97,14 @@ class TestDurationMatches:
 
 class TestQualityAttemptOrder:
     def test_preferred_first(self):
-        assert ms._quality_attempt_order("320k") == ["320k", "128k", "flac"]
-        assert ms._quality_attempt_order("flac") == ["flac", "128k", "320k"]
+        assert ms._quality_attempt_order("320k") == ["320k", "flac", "128k"]
+        assert ms._quality_attempt_order("flac") == ["flac", "320k", "128k"]
 
     def test_unknown_preferred_falls_back(self):
-        assert ms._quality_attempt_order("hq") == ["128k", "320k", "flac"]
+        assert ms._quality_attempt_order("hq") == ["flac", "320k", "128k"]
 
     def test_default_quality(self):
-        assert ms._quality_attempt_order("128k") == ["128k", "320k", "flac"]
+        assert ms._quality_attempt_order("128k") == ["128k", "flac", "320k"]
 
 
 # ═══════════════ resolve_track ═══════════════
@@ -163,14 +163,14 @@ class TestResolveTrack:
         assert fakes["kg"].url_calls[0][0] == "near"
 
     def test_quality_fallback_within_source(self, patch_sources):
-        """用户音质拿不到时按顺序降级"""
+        """用户音质拿不到时按从高到低顺序降级（flac 优先于 128k）"""
         target = make_info(source="wy", songmid="1")
         cand = make_info(source="kg", songmid="k1")
         url_map = {("k1", "128k"): "http://example.com/k1.mp3"}
         fakes = patch_sources({"kg": FakeSource("kg", results=[cand], url_map=url_map)})
         result = ms.resolve_track(target, quality="320k")
         assert result == (cand, "http://example.com/k1.mp3")
-        assert [q for _, q in fakes["kg"].url_calls] == ["320k", "128k"]
+        assert [q for _, q in fakes["kg"].url_calls] == ["320k", "flac", "128k"]
 
     def test_returns_first_successful_source(self, patch_sources):
         """多个音源中只要有一个成功即返回（失败的被跳过）"""
