@@ -1408,7 +1408,7 @@ class EventHandlerMixin(object):
         thread.start()
 
     def set_status(self, text: str, status_type: str = "info"):
-        """设置状态栏文本"""
+        """设置状态栏文本（非 loading 状态 10 秒后自动清空）"""
         icons = {"success": "✅", "error": "❌", "warning": "⚠️", "loading": "⏳", "info": "ℹ️"}
         colors = {
             "success": COLORS["success"],
@@ -1421,6 +1421,21 @@ class EventHandlerMixin(object):
         color = colors.get(status_type, COLORS["text_primary"])
         self.status_label.configure(text=f"{icon} {text}", text_color=color)
         self._update_game_btn_visibility(status_type)
+        if status_type != "loading":
+            self._schedule_status_clear()
+
+    def _schedule_status_clear(self):
+        """安排 10 秒后清空状态栏；新消息会使旧计时失效"""
+        token = (getattr(self, "_status_clear_token", 0) or 0) + 1
+        self._status_clear_token = token
+        self.after(10000, lambda: self._clear_status(token))
+
+    def _clear_status(self, token: int):
+        """清空状态栏，恢复为就绪文本；若期间有新消息则跳过"""
+        if getattr(self, "_status_clear_token", None) != token:
+            return
+        self.status_label.configure(text=_("status_ready"), text_color=COLORS["success"])
+        self._update_game_btn_visibility("info")
 
     def _update_game_btn_visibility(self, status_type: str):
         if not hasattr(self, "_game_btn"):
