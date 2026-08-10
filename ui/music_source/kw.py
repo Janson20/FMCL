@@ -121,23 +121,49 @@ class KuWoMusicSource(BaseMusicSource):
     def get_music_url(self, info: MusicInfo, quality: str = "128k") -> Optional[str]:
         br_map = {"flac24bit": "4000kflac24bit", "flac": "2000kflac", "320k": "320kmp3", "128k": "128kmp3"}
         br = br_map.get(quality, "128kmp3")
-        params = {
-            "format": "mp3",
-            "rid": f"MUSIC_{info.songmid}",
-            "response": "url",
-            "type": "convert_url3",
-            "br": br,
-            "from": "web",
-        }
+        # 新版 antiserver 接口（旧 www.kuwo.cn/url 已下线返回 404），
+        # 返回 JSON {"code": 200, "url": "..."}
         try:
-            # retries=1: URL 获取失败会立即触发跨源兜底换源，无需按搜索接口的标准重试
-            resp = self.http_get(KW_MUSIC_URL, params=params, timeout=10, retries=1)
+            resp = self.http_get(
+                "http://antiserver.kuwo.cn/anti.s",
+                params={
+                    "type": "convert_url3",
+                    "rid": f"MUSIC_{info.songmid}",
+                    "format": "mp3",
+                    "response": "url",
+                    "br": br,
+                },
+                timeout=10,
+                retries=1,
+            )
+            data = resp.json()
+            if isinstance(data, dict):
+                url = data.get("url", "")
+                if url:
+                    return url
+        except Exception as e:
+            # 单个候选失败属兜底流程常态，降为 debug 避免刷屏（外层有汇总日志）
+            logger.debug(f"酷我获取URL失败(antiserver) [{info.songmid}]: {e}")
+        # 旧接口兜底
+        try:
+            resp = self.http_get(
+                KW_MUSIC_URL,
+                params={
+                    "format": "mp3",
+                    "rid": f"MUSIC_{info.songmid}",
+                    "response": "url",
+                    "type": "convert_url3",
+                    "br": br,
+                    "from": "web",
+                },
+                timeout=10,
+                retries=1,
+            )
             data = resp.json()
             url = data.get("url", "")
             if url:
                 return url
         except Exception as e:
-            # 单个候选失败属兜底流程常态，降为 debug 避免刷屏（外层有汇总日志）
             logger.debug(f"酷我获取URL失败 [{info.songmid}]: {e}")
         return None
 
@@ -161,7 +187,10 @@ class KuWoMusicSource(BaseMusicSource):
                 lines.append(f"[ar:{artist}]")
             lines.append("[offset:0]")
             for item in lrc_list:
-                t = item.get("time", 0)
+                try:
+                    t = float(item.get("time", 0))
+                except (TypeError, ValueError):
+                    t = 0
                 txt = decode_name(item.get("lineLyric", ""))
                 m = int(t // 60)
                 s = t % 60
@@ -181,3 +210,7 @@ class KuWoMusicSource(BaseMusicSource):
         except Exception as e:
             logger.debug(f"酷我获取封面失败 [{info.songmid}]: {e}")
             return None
+
+    def get_download_headers(self):
+        # 酷我 CDN 校验 Referer
+        return {"Referer": "http://www.kuwo.cn/"}

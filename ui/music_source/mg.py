@@ -11,8 +11,7 @@ from ui.music_source.utils import MG_DEVICE_ID, decode_name, format_singer, mg_c
 logger = logging.getLogger("music_source.mg")
 
 MG_SEARCH_URL = "https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/search_all.do"
-MG_LYRIC_URL = "https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/queryLrcBySongId.do"
-MG_MUSIC_URL = "https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/product_info_resource.do"
+MG_LISTEN_URL = "https://app.c.nf.migu.cn/MIGUM3.0/v1.0/content/sub/listen.do"
 
 
 class MiGuMusicSource(BaseMusicSource):
@@ -74,7 +73,14 @@ class MiGuMusicSource(BaseMusicSource):
                 item = item[0] if item else None
             if not isinstance(item, dict):
                 continue
-            song_id = str(item.get("id", item.get("songId", item.get("contentId", ""))))
+            # songmid 取 18 位 contentId（listen.do 播放接口要求该 ID；旧版无此字段时回退 id）
+            song_id = str(
+                item.get("contentId")
+                or item.get("id")
+                or item.get("songId")
+                or item.get("copyrightId")
+                or ""
+            )
             if not song_id or song_id in seen:
                 continue
             seen.add(song_id)
@@ -114,6 +120,7 @@ class MiGuMusicSource(BaseMusicSource):
                     types=types,
                     _types=_types,
                     play_count=play_count,
+                    lrc=item.get("lyricUrl") or "",  # 搜索响应自带的歌词文件 URL
                 )
                 results.append(info)
             except Exception as e:
@@ -165,20 +172,42 @@ class MiGuMusicSource(BaseMusicSource):
             if not q_info:
                 return None
 
+        # 新版 MIGUM3.0 listen.do 接口（老 product_info_resource.do 已失效），
+        # 免费歌曲直接返回播放链接；VIP 歌曲返回 PE 参数格式错误 -> 触发跨源兜底
         params = {
+            "contentId": info.songmid,
+            "copyrightId": info.songmid,
+            "netType": "01",
+            "toneFlag": q_info.get("formatType", "PQ"),
+            "resourceType": q_info.get("resourceType", "2"),
+            "channel": "0",
             "ua": "Android_migu",
             "version": "5.0.1",
-            "copyrightId": info.songmid,
-            "resourceType": q_info.get("resourceType", "E"),
-            "formatType": q_info.get("formatType", "PQ"),
+            "appId": "yyapp2",
+            "deviceId": MG_DEVICE_ID,
         }
         try:
+            ts = int(time.time() * 1000)
             # retries=1: URL 获取失败会立即触发跨源兜底换源，无需按搜索接口的标准重试
-            resp = self.http_get(MG_MUSIC_URL, params=params, timeout=10, retries=1)
+            resp = self.http_get(
+                MG_LISTEN_URL,
+                params=params,
+                headers={
+                    "sign": mg_create_sign(ts, ""),
+                    "timestamp": str(ts),
+                    "mode": "android",
+                    "osVersion": "android 7.0",
+                },
+                timeout=10,
+                retries=1,
+            )
             data = resp.json()
-            url = data.get("data", {}).get("url", data.get("resource", [{}])[0].get("url", ""))
-            if url:
-                return url
+            if str(data.get("code")) == "000000":
+                listens = data.get("songListens") or []
+                if listens:
+                    url = listens[0].get("url", "")
+                    if url:
+                        return url
         except Exception as e:
             # 单个候选失败属兜底流程常态，降为 debug 避免刷屏（外层有汇总日志）
             logger.debug(f"咪咕获取URL失败 [{info.songmid}]: {e}")
@@ -187,25 +216,25 @@ class MiGuMusicSource(BaseMusicSource):
     # ── 获取歌词 ─────────────────────────────────────
 
     def get_lyric(self, info: MusicInfo) -> Optional[str]:
+        # 新版搜索响应自带歌词文件 URL（老 queryLrcBySongId.do 接口已失效）。
+        # 咪咕歌词为 "@migu music@" 头 + 纯文本行，无时间戳，转为逐行 4 秒 LRC 时间轴。
+        if not info.lrc:
+            return None
         try:
-            resp = self.http_get(
-                MG_LYRIC_URL,
-                params={"songId": info.songmid, "ua": "Android_migu", "version": "5.0.1", "formatType": "LRC"},
-                headers={
-                    "appId": "yyapp2",
-                    "mode": "android",
-                    "ua": "Android_migu",
-                    "version": "6.9.4",
-                    "osVersion": "android 7.0",
-                    "deviceId": MG_DEVICE_ID,
-                },
-                timeout=10,
-            )
-            data = resp.json()
-            if data.get("code") == "0":
-                lrc = data.get("data", {}).get("lrcLyric", "")
-                if lrc:
-                    return lrc
+            resp = self.http_get(info.lrc, timeout=10)
+            text = resp.content.decode("utf-8", errors="replace")
+            lines = []
+            t = 0
+            for line in text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("@"):
+                    continue
+                m = int(t // 60)
+                sec = t % 60
+                lines.append(f"[{m:02d}:{sec:05.2f}]{line}")
+                t += 4000
+            if lines:
+                return "\n".join(lines)
         except Exception as e:
             logger.warning(f"咪咕获取歌词失败 [{info.songmid}]: {e}")
         return None

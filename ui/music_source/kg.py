@@ -132,24 +132,60 @@ class KuGouMusicSource(BaseMusicSource):
         hash_val = info._types.get(quality, {}).get("hash", "")
         if not hash_val:
             return None
+        # 1. m.kugou.com playInfo：新接口直接返回播放链接（免费歌曲可用，
+        #    付费歌曲返回 url 为空 -> 触发跨源兜底）
         try:
-            # 先获取 key
-            # retries=1: URL 获取失败会立即触发跨源兜底换源，无需按搜索接口的标准重试
+            resp = self.http_get(
+                "https://m.kugou.com/app/i/getSongInfo.php",
+                params={"cmd": "playInfo", "hash": hash_val},
+                headers={"Referer": "https://m.kugou.com/"},
+                timeout=10,
+                retries=1,
+            )
+            data = resp.json()
+            url = data.get("url") or ""
+            if url:
+                return url
+            backup = data.get("backup_url")
+            if isinstance(backup, str) and backup:
+                return backup
+            if isinstance(backup, list):
+                for b in backup:
+                    if isinstance(b, str) and b:
+                        return b
+        except Exception as e:
+            # 单个候选失败属兜底流程常态，降为 debug 避免刷屏（外层有汇总日志）
+            logger.debug(f"酷狗获取URL失败(playInfo) [{info.songmid}]: {e}")
+        # 2. tracker 换 key -> getdata 取真实播放地址（trackerc.kugou.com 域名
+        #    已失效，用 trackercdn.kugou.com）
+        try:
             key_resp = self.http_get(
-                "https://trackerc.kugou.com/i/",
+                "https://trackercdn.kugou.com/i/",
                 params={"cmd": "4", "hash": hash_val, "key": info.songmid, "pid": "1", "acceptMp3": "1"},
                 headers={"Referer": "https://www.kugou.com/"},
                 timeout=10,
                 retries=1,
             )
-            key_data = key_resp.json()
-            key = key_data.get("key", "")
+            key = (key_resp.json().get("data") or {}).get("key", "")
             if key:
-                return f"https://kugou.com/yy/index.php?r=play/getdata&hash={hash_val}&key={key}"
+                data_resp = self.http_get(
+                    "https://wwwapi.kugou.com/yy/index.php",
+                    params={"r": "play/getdata", "hash": hash_val, "key": key, "mid": "135477665551482173"},
+                    headers={"Referer": "https://www.kugou.com/"},
+                    timeout=10,
+                    retries=1,
+                )
+                d = data_resp.json().get("data") or {}
+                url = d.get("play_url") or d.get("url") or ""
+                if url:
+                    return url
         except Exception as e:
-            # 单个候选失败属兜底流程常态，降为 debug 避免刷屏（外层有汇总日志）
             logger.debug(f"酷狗获取URL失败 [{info.songmid}]: {e}")
         return None
+
+    def get_download_headers(self):
+        # 酷狗 CDN 校验 Referer
+        return {"Referer": "https://m.kugou.com/"}
 
     # ── 获取歌词 ─────────────────────────────────────
 
@@ -179,11 +215,30 @@ class KuGouMusicSource(BaseMusicSource):
             accesskey = first.get("accesskey") if isinstance(first, dict) else None
             if not lyric_id or not accesskey:
                 return None
-            lrc_resp = self.http_get(KG_LYRIC_DOWNLOAD, params={"id": lyric_id, "accesskey": accesskey}, timeout=10)
+            # fmt/charset 参数必填，否则接口返回 400；content 为 base64 编码
+            lrc_resp = self.http_get(
+                KG_LYRIC_DOWNLOAD,
+                params={
+                    "id": lyric_id,
+                    "accesskey": accesskey,
+                    "fmt": "lrc",
+                    "charset": "utf8",
+                    "ver": "1",
+                    "client": "pc",
+                },
+                timeout=10,
+            )
             lrc_data = lrc_resp.json()
             content = lrc_data.get("content", "")
             if content:
-                return content
+                try:
+                    import base64
+
+                    content = base64.b64decode(content).decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+                if content:
+                    return content
         except Exception as e:
             logger.warning(f"酷狗获取歌词失败 [{info.songmid}]: {e}")
         return None
