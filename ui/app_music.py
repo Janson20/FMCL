@@ -1997,8 +1997,9 @@ class MusicPlayerMixin(object):
                 _types=dict(song.online_type_detail or {}),
             )
             play_info, play_quality = info, raw_quality
-            if raw_quality == "auto" and not info.types:
-                # 音质信息缺失时后台搜索补齐（与按需播放同一流程）
+            if raw_quality == "auto":
+                # 与按需播放同一流程：解析出具体音质（含 types 缺失时的搜索补齐），
+                # 避免 "auto" 透传到下载层导致音质标签为空且降级到 128k
                 play_info, play_quality = self._music_resolve_auto_quality_async(info)
             result_path, result_info, result_quality = self._fetch_online_song(play_info, play_quality, raw_quality)
             if result_path and os.path.exists(result_path):
