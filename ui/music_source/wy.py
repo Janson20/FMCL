@@ -44,78 +44,89 @@ _ARTIST_EDGE_RE = re.compile(r"^[\s\-\.\,、'‘’。·]+|[\s\-\.\,、'‘’�
 # 歌手名中的括号别名（如 "冯沁苑(买辣椒也用券)" -> "买辣椒也用券"）
 _PAREN_ALIAS_RE = re.compile(r"[（(]([^（）()]*)[）)]")
 
-# 争议歌曲策展表（规范化歌名 -> 原唱）：算法无法从网易数据判定原唱时，用此表修正。
+# 原唱歌曲 ID 策展表（网易平台原唱版本的歌曲 ID，平铺集合）：
+# 与网易云平台一致的"ID 级判定"——搜索结果中出现这些 ID 对应的歌曲
+# 即视为原唱（平台官方做法：同一歌名的多个官方版本都标原唱，如《脑壳疼》
+# 的 洛天依、ilem 版与 洛天依Official、ilem 版）。
 # 适用场景:
-#   1. 大众熟知版本不是原唱的老歌（如《突然的自我》大众熟知伍佰版，原唱黄小琥）
-#   2. 原唱版本发布日期为平台占位日期（如 2018-01-01）被 _is_valid_date 过滤，
-#      或翻唱上传日期早于原版，导致算法误判翻唱为原唱（如《异样的风暴中心》）
-#   3. 原唱版本发布日期缺失（N/A），算法在簇内按热度/日期兜底选中翻唱
-#      （如《烂掉的白月光》选了热度第一的摸之鱼版）
-#   4. 同名歌在结果中仅 1 个版本（无法组簇比较）或全为孤立锚点簇
-#      （如《加班的人啊》《弑神者》），策展兜底直接置顶
-# 修正方式:
-#   原唱版本在结果页内 -> 置顶其最早的有效版本；
-#   原唱版本缺失 -> 保持最热版本置顶，徽章显示真实原唱名。
-CURATED_ORIGINALS = {
+#   1. 算法无法判定原唱的歌（无 origin 引用/占位日期/同名同曲多版本竞争），
+#      直接指定平台原唱版本 ID（如《苍蝇》《大吉》《脑壳疼》）
+#   2. 原唱版本不在歌名搜索结果页内，但平台有音源（如《再回首》苏芮版、
+#      《耶利亚女郎》刘文正版、《后来》原曲 Kiroro《未来へ》），
+#      搜到这些版本时全局匹配标原唱（跨歌名匹配，如搜"未来へ"标原唱）
+# 规则: 命中 ID 的全部版本置顶（保持原热度顺序）并标原唱标签。
+CURATED_ORIGINAL_IDS = {
+    "477936261",  # 深夜诗人 - 洛天依Official、言和、ilem
+    "3392513819",  # 苍蝇 - ilem、赤羽
+    "3392513823",  # 大吉 - ilem、洛天依Official
+    "2716916349",  # 脑壳疼 - 洛天依、ilem
+    "2748721770",  # 脑壳疼 - 洛天依Official、ilem
+    "3392501133",  # 一样 - ilem、洛天依Official
+    "5283447",  # 冬天里的一把火 - 高凌风
+    "520564190",  # 弯弯的月亮 - 陈汝佳
+    "259710",  # 不必太在意 - 蓝心湄
+    "301577",  # 明天你是否依然爱我 - 王芷蕾
+    "29739000",  # 九儿 - 胡莎莎
+    "3365424126",  # 我是秦始皇 - WOVOP、洛天依
+    "3392500306",  # 写给我第一个喜欢的女孩的歌 - ilem、洛天依Official
+    "33705517",  # 飞跃乌托邦 - 乐正绫、动点
+    "3403313136",  # 我们正驶向黎明 - 言和
+    "459831628",  # 万神纪 - 海鲜面、星尘
+    "2631318598",  # 霜雪千年 - 洛天依、乐正绫
+    "535915977",  # 异样的风暴中心 - 杉田朗、洛天依
+    "3395708493",  # 人是猫 - 张卡斯、洛天依
+    "3417872225",  # 加班的人啊 - 墨老板、洛天依Official
+    "2034615993",  # 弑神者 - 洛天依Official、QGRay
+    "2033056779",  # 逃避现实 (feat.洛天依) - QGRay、洛天依
+    "2626464399",  # 烂掉的白月光 - 洛天依、乐正绫、路明熹
+    "1913873767",  # 一梦千宵 - 苏逸_Suyi、洛天依Official
+    "3392512962",  # 白鸟过河滩 - ilem、洛天依Official
+    "34775318",  # 幹物女(WeiWei) - Z新豪、洛天依、乐正绫
+    "3392513818",  # 上山岗 - ilem、洛天依Official
+    "3408812844",  # 众音絮响 - 天崎默、洛天依、乐正绫
+    "3408811234",  # 他的四季 - 天崎默、洛天依、乐正绫
+    "2621707544",  # 逃！ - 乐正绫、Mara
+    "3408812842",  # 卡诺与时间塔的吟歌 - 天崎默、洛天依、言和
+    "1966826240",  # 在下，言和 feat.言和 - iKz、言和
+    "3417726249",  # 无需夏天 - Melody_Fall、星尘、洛天依
+    "3340764179",  # 再见了，我以恨意为燃料的人生... - Calia-林焰、星尘
+    "3418366045",  # 伴行 - 朔时、鲨潜、诗岸、星尘
+    "2161506239",  # 只有春天，禁止入内 - wukino、星尘infinity
+    "2656798595",  # 100%矛盾集合体 - MaxXing、星尘infinity
+    "2051762956",  # 人偶之梦 (星尘Infinity 2022Ver.) - 星尘
+    "2727925602",  # 落花后日谈 - 乌托邦P、星尘
+    "2716065032",  # 孤独症侯群 - Calia-林焰、星尘infinity
+    "3409748037",  # 有一天我会放弃音乐 - grassP、星尘、诗岸
+    "1921741824",  # 巫山云 (星尘Infinity Version) - 旅行的蜗牛、星尘
+    "3355532615",  # 彼岸花（诗岸&ナツメイツキ） - しょりん、诗岸、ナツメイツキ
+    "2705295646",  # 请不要带我走。 - 奥莉安多幻想曲、诗岸
+    "2728468840",  # 惊蛰正中央 - 诗岸、歌爱ユキ、立入禁止
+    "1409603530",  # 青鸟衔风 - 忘川风华录、海伊、诗岸
+    "2680109503",  # 虚构义 - MOCKER44.、诗岸
+    "3417341746",  # 毁了我吧 - mayauzz、诗岸
+    "3415055899",  # 我已见过夏天 - 见过夏天P、星尘、诗岸
+    "3384372607",  # 遗书（诗岸） - しょりん、诗岸
+    "3365367154",  # 因为今天就要死去（feat.诗岸） - 啰嗦、诗岸
+    "3357617299",  # 我们终会在大地深处重逢 (feat. 诗岸) - 神经罐头、诗岸
+    "2717577716",  # 避春讳 - 穗小黎、诗岸
+    "2101145263",  # 如果只转身后退就能回到那个夏天？ - 诗岸
+    "287511",  # 再回首 - 苏芮
+    "118997",  # 耶利亚女郎 - 刘文正
+    "327429",  # 童年 - 张艾嘉
+    "60409",  # 对面的女孩看过来 - 阿牛
+    "22746049",  # 未来へ（后来 原曲） - Kiroro
+    "505474379",  # 病名は愛だった - Neru、鏡音レン、鏡音リン、z'5
+    "548648148",  # 病名は愛だった - Neru、鏡音レン、鏡音リン、z'5
+}
+
+# 无音源原唱表（规范化歌名 -> 原唱）：网易平台没有原唱版本录音的歌曲，
+# 搜索结果页内全是翻唱/大众熟知版本，算法只能置顶最热版本，
+# 由徽章显示真实原唱名（原唱版本缺失，无法用 ID 制修正）。
+NO_SOURCE_ORIGINALS = {
     "突然的自我": "黄小琥",
     "月亮代表我的心": "陈芬兰",
-    "冬天里的一把火": "高凌风",
-    "对面的女孩看过来": "阿牛",
-    "再回首": "苏芮",
-    "弯弯的月亮": "陈汝佳",
-    "耶利亚女郎": "刘文正",
-    "不必太在意": "蓝心湄",
-    "明天你是否依然爱我": "王芷蕾",
-    "后来": "Kiroro",
-    "九儿": "胡莎莎",
     "普通disco": "洛天依、言和",
-    "霜雪千年": "洛天依、乐正绫",
     "大碗宽面": "吴亦凡",
-    "病名为爱": "镜音铃、镜音连",
-    "七里香": "周杰伦",
-    "异样的风暴中心": "杉田朗、洛天依",
-    "人是猫": "张卡斯、洛天依",
-    "我是秦始皇": "WOVOP、洛天依",
-    "加班的人啊": "墨老板、洛天依Official",
-    "弑神者": "洛天依Official、QGRay",
-    "逃避现实 (feat.洛天依)": "QGRay、洛天依",
-    "烂掉的白月光": "洛天依、乐正绫、路明熹",
-    "一梦千宵": "苏逸_Suyi、洛天依Official",
-    "写给我第一个喜欢的女孩的歌": "ilem、洛天依Official",
-    "白鸟过河滩": "ilem、洛天依Official",
-    "童年": "张艾嘉",
-    "幹物女(weiwei)": "Z新豪、洛天依、乐正绫",
-    "上山岗": "ilem、洛天依Official",
-    "众音絮响": "天崎默、洛天依、乐正绫",
-    "他的四季": "天崎默、洛天依、乐正绫",
-    "逃！": "乐正绫、Mara",
-    "飞跃乌托邦": "乐正绫、动点",
-    "卡诺与时间塔的吟歌": "天崎默、洛天依、言和",
-    "在下，言和 feat.言和": "iKz、言和",
-    "我们正驶向黎明": "言和",
-    "无需夏天": "Melody_Fall、星尘、洛天依",
-    "再见了，我以恨意为燃料的人生...": "Calia-林焰、星尘",
-    "伴行": "朔时、鲨潜、诗岸、星尘",
-    "只有春天，禁止入内": "wukino、星尘infinity",
-    "100%矛盾集合体": "MaxXing、星尘infinity",
-    "人偶之梦 (星尘infinity 2022ver.)": "星尘",
-    "落花后日谈": "乌托邦P、星尘",
-    "孤独症侯群": "Calia-林焰、星尘infinity",
-    "有一天我会放弃音乐": "grassP、星尘、诗岸",
-    "巫山云 (星尘infinity version)": "旅行的蜗牛、星尘",
-    "万神纪": "海鲜面、星尘",
-    "彼岸花（诗岸&ナツメイツキ）": "しょりん、诗岸、ナツメイツキ",
-    "请不要带我走。": "奥莉安多幻想曲、诗岸",
-    "惊蛰正中央": "诗岸、歌爱ユキ、立入禁止",
-    "青鸟衔风": "忘川风华录、海伊、诗岸",
-    "虚构义": "MOCKER44.、诗岸",
-    "毁了我吧": "mayauzz、诗岸",
-    "我已见过夏天": "见过夏天P、星尘、诗岸",
-    "遗书（诗岸）": "しょりん、诗岸",
-    "因为今天就要死去（feat.诗岸）": "啰嗦、诗岸",
-    "我们终会在大地深处重逢 (feat. 诗岸)": "神经罐头、诗岸",
-    "避春讳": "穗小黎、诗岸",
-    "如果只转身后退就能回到那个夏天？": "诗岸",
 }
 
 # 同名不同曲表：多首互不相关的歌曲同名（如《蝴蝶》陶喆版与洛天依版、
@@ -270,24 +281,34 @@ class NetEaseMusicSource(BaseMusicSource):
                版本互不干扰，如费玉清版与汪峰版《春天里》）
             3. 簇内优先取被翻唱引用的锚点版本（原曲确实在结果中时），
                避免翻唱上传日期早于原版造成的误判
-            4. 发布日期为 1 月 1 日（占位日期）或早于 1975 年的视为无效
-            5. 候选无有效歌曲发布时间时，查专辑发布日期兜底（同样过滤假日期）
-            6. 专辑日期也没有时，按热度顺序（结果列表顺序）取第一条
+            4. 被引用锚点存在但日期无效（平台占位日期/缺失）时仍优先：
+               翻唱声明引用的就是原曲，锚点日期不可靠不代表不是原唱
+            5. 簇内含无 origin 引用的干净锚点（原曲家族上传版本）时，
+               优先于有有效日期的翻唱成员（如《稻香》周杰伦版本
+               日期缺失而 AI 翻唱有日期）
+            6. 发布日期为 1 月 1 日（占位日期）或早于 1975 年的视为无效
+            7. 候选无有效歌曲发布时间时，查专辑发布日期兜底（同样过滤假日期）
+            8. 专辑日期也没有时，按热度顺序（结果列表顺序）取第一条
                干净同名歌曲作为最终兜底
-            7. 多个簇大小相同时，优先有被引用锚点的簇，再按候选日期最早者
-            8. 搜索词是歌手名且至少 2 条结果命中（歌手搜索场景）时，歌名命中
-               不足 2 条才不标记；歌名与歌手同名且歌名命中较多时（如《非人哉》），
-               仍按歌曲搜索处理
-            9. 搜索词中包含某歌手名（含括号别名，如 冯沁苑(买辣椒也用券)）
-               且至少 2 条结果命中时，原唱必须属于该歌手（避免把翻唱置顶）；
-               若该约束导致全部候选被过滤（歌手名恰为歌名一部分的误伤，
-               如"我是初音未来"含"初音未来"），回退忽略约束重算
-            10. 同名不同曲表（NO_ORIGINAL_SONGS）命中的搜索词，无法判定
+            9. 多个簇大小相同时，优先有被引用锚点的簇，再按候选日期最早者
+            10. 搜索词是歌手名且至少 2 条结果命中（歌手搜索场景）时，歌名命中
+                不足 2 条才不标记；歌名与歌手同名且歌名命中较多时（如《非人哉》），
+                仍按歌曲搜索处理
+            11. 搜索词中包含某歌手名（含括号别名，如 冯沁苑(买辣椒也用券)）
+                且至少 2 条结果命中时，原唱必须属于该歌手（避免把翻唱置顶）；
+                若该约束导致全部候选被过滤（歌手名恰为歌名一部分的误伤，
+                如"我是初音未来"含"初音未来"），回退忽略约束重算
+            12. 同名不同曲表（NO_ORIGINAL_SONGS）命中的搜索词，无法判定
                 用户意图，不标记任何原唱
-            11. 单结果/无簇可比的歌曲：策展表兜底置顶首个干净同名版本
-            12. 搜索词精确命中某组（含版本词括号，如 彼岸花（诗岸&ナツメイツキ））
+            13. 原唱 ID 策展表（CURATED_ORIGINAL_IDS）全局匹配：搜索结果
+                中出现平台原唱 ID 的歌曲，全部置顶（保持原热度顺序）并标
+                原唱标签（平台官方做法，支持同一歌名多原唱）
+            14. 单结果/无簇可比的歌曲：无音源表（NO_SOURCE_ORIGINALS）
+                命中时置顶最热版本，由徽章显示真实原唱名（平台无原唱音源）；
+                其余无算法候选的歌曲不标记
+            15. 搜索词精确命中某组（含版本词括号，如 彼岸花（诗岸&ナツメイツキ））
                 时只允许该组产生候选，避免模糊匹配的同名不同曲抢位
-            13. 仅将原唱前移置顶并打上原唱标签，其余结果保持热度排序不变
+            16. 仅将原唱前移置顶并打上原唱标签，其余结果保持热度排序不变
         """
         if len(results) < 1:
             return
@@ -296,6 +317,13 @@ class NetEaseMusicSource(BaseMusicSource):
             return
         # 同名不同曲表命中：多首互不相关的同名歌曲，不标记原唱
         if self._group_key(kw) in NO_ORIGINAL_SONGS:
+            return
+        # 原唱 ID 全局匹配：结果中出现策展原唱 ID 的歌曲，全部置顶并标原唱
+        matched = [info for info in results if info.songmid in CURATED_ORIGINAL_IDS]
+        if matched:
+            for info in matched:
+                info.is_original = True
+            results[:] = matched + [info for info in results if info.songmid not in CURATED_ORIGINAL_IDS]
             return
         # 歌手搜索场景（搜索词是歌手名且歌名命中不足 2 条），不标记原唱；
         # 歌名命中较多时是歌曲搜索（如《非人哉》歌名与乐队同名），继续标记
@@ -379,45 +407,25 @@ class NetEaseMusicSource(BaseMusicSource):
             )
             original = candidates[0][1]
         else:
-            # 策展歌无算法候选时：置顶最热干净版本，由徽章修正原唱名
+            # 无算法候选时：无音源表（平台无原唱音源）命中则置顶最热干净
+            # 版本，由徽章显示真实原唱名；其余歌曲不标记（跟随平台：
+            # 原唱不在结果页内的歌不标原唱）
             original = None
             for info in results:
-                if self._group_key(info.name) in CURATED_ORIGINALS and self._is_clean_name(info.name):
+                if self._group_key(info.name) in NO_SOURCE_ORIGINALS and self._is_clean_name(info.name):
                     original = info
                     break
         if original is None:
             return
         original.is_original = True
-        # 策展表修正：原唱在结果页内则置顶其版本，缺失则徽章显示真实原唱名
-        curated = CURATED_ORIGINALS.get(self._group_key(original.name))
+        # 无音源表修正：徽章显示真实原唱名（原唱版本在平台无音源，无法置顶）
+        curated = NO_SOURCE_ORIGINALS.get(self._group_key(original.name))
         if curated:
             curated_norm = self._normalize_keyword(curated)
             if curated_norm and curated_norm not in self._singer_artists(original):
-                pinned = self._curated_pin(results, original, curated_norm)
-                if pinned:
-                    original.is_original = False
-                    original = pinned
-                    original.is_original = True
-                else:
-                    original.original_name = curated
+                original.original_name = curated
         results.remove(original)
         results.insert(0, original)
-
-    def _curated_pin(self, results: List[MusicInfo], original: MusicInfo, curated_norm: str) -> Optional[MusicInfo]:
-        """策展原唱在结果页内时，返回其最早的有效版本（无有效日期则取可用版本）"""
-        group_key = self._group_key(original.name)
-        target = re.sub(r"[、/]", "", curated_norm)
-        matches = []
-        for info in results:
-            if self._group_key(info.name) != group_key or not self._is_clean_name(info.name):
-                continue
-            singer_compact = re.sub(r"[、/]", "", info.singer.lower())
-            if target in singer_compact:
-                matches.append(info)
-        if not matches:
-            return None
-        matches.sort(key=lambda x: (0 if self._is_valid_date(x.publish_time) else 1, x.publish_time))
-        return matches[0]
 
     def _group_choice(self, metas, kw_artists: set, album_times: dict) -> Optional[MusicInfo]:
         """组内多簇竞争选原唱候选
@@ -456,22 +464,40 @@ class NetEaseMusicSource(BaseMusicSource):
         return None
 
     def _cluster_candidate(self, cluster, clean, ref_clean, album_times):
-        """簇内原唱候选：被引用锚点 > 全部干净候选 > 专辑日期 > 热度顺序
+        """簇内原唱候选：被引用锚点 > 无 origin 干净锚点 > 全部干净候选 > 专辑日期 > 热度顺序
 
         返回 (候选, 生效日期, 是否有被引用锚点, 被引用锚点的最早有效日期)。
-        fee=8（无版权/盗版条目）降级仅作用于被引用锚点池：
-        翻唱上传日期可能早于原版，需依赖 fee 区分；专辑/日期池中
+        被引用锚点分支中 fee=8（无版权/盗版条目）降级：
+        翻唱上传日期可能早于原版，需依赖 fee 区分；锚点/专辑/日期池中
         原唱本身也可能是 fee=8（如洛天依系作品），不能降级。
         """
         ref_timed = [i for i in ref_clean if self._is_valid_date(i.publish_time)]
         if ref_timed:
             c = self._pick_best(ref_timed)
             return c, c.publish_time, True, c.publish_time
+        if ref_clean:
+            # 被引用锚点存在但日期无效（占位日期如 2014-01-01 / 缺失）时仍优先：
+            # 翻唱的 originSongSimpleData 声明的就是原曲，锚点日期不可靠不代表不是原唱
+            c = sorted(
+                ref_clean,
+                key=lambda x: (1 if x.fee == 8 else 0, 0 if self._is_valid_date(x.publish_time) else 1, x.publish_time),
+            )[0]
+            return c, c.publish_time, True, 0
         ref_eff = 0
         for i in ref_clean:
             if self._is_valid_date(i.publish_time):
                 ref_eff = i.publish_time
                 break
+        anchors = [i for i in clean if not i.origin_song_id]
+        if anchors:
+            # 簇内含无 origin 引用的干净锚点（原曲家族的上传版本）时优先于翻唱成员：
+            # 翻唱可能引用页外原曲（origin 不在结果中）或翻唱上传日期早于原版，
+            # 锚点版本就是结果页内最近似原曲的版本
+            c = sorted(
+                anchors,
+                key=lambda x: (1 if x.fee == 8 else 0, 0 if self._is_valid_date(x.publish_time) else 1, x.publish_time),
+            )[0]
+            return c, c.publish_time, True, ref_eff
         timed = [i for i in clean if self._is_valid_date(i.publish_time)]
         if timed:
             timed.sort(key=lambda x: x.publish_time)

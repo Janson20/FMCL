@@ -42,6 +42,7 @@ COLUMN_ALIASES = {
     "result": ["期望结果", "期望行为", "expected_result"],
     "popular": ["更火版本歌手", "更火翻唱", "热门版本", "popular_cover"],
     "note": ["备注", "说明", "note", "remark"],
+    "multi": ["期望多原唱", "多原唱", "expected_multi"],
 }
 
 # 常见日文/中文名等价别名（网易返回日文名，测试数据用中文名时需匹配）
@@ -114,6 +115,7 @@ def _run_case(src, keyword, limit):
     pinned = bool(marked and results and marked.songmid == results[0].songmid)
     return {
         "results": results,
+        "marks": marks,
         "marked": marked,
         "pinned": pinned,
     }
@@ -122,6 +124,7 @@ def _run_case(src, keyword, limit):
 def _evaluate(row, outcome):
     expect_result = (row.get("result") or "标记").strip() or "标记"
     expectations = _expectations(row.get("expected"))
+    multi_expects = [p.strip() for p in str(row.get("multi") or "").split(",") if p.strip()]
     if "error" in outcome:
         return "ERROR", "搜索异常: %s" % outcome["error"]
     marked = outcome.get("marked")
@@ -138,6 +141,15 @@ def _evaluate(row, outcome):
             marked.name, marked.singer, row.get("expected"), marked.original_name or "无")
     if not outcome.get("pinned"):
         return "FAIL", "标记未置顶"
+    if multi_expects:
+        marked_names = [m.singer + (m.original_name or "") for m in outcome.get("marks", [])]
+        missing = [
+            e for e in multi_expects
+            if not any(e.lower() in mn.lower() for mn in marked_names)
+        ]
+        if missing:
+            return "FAIL", "期望多原唱未全部标记: %s (实际: %s)" % (
+                missing, [m.singer for m in outcome.get("marks", [])])
     return "PASS", ""
 
 
