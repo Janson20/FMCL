@@ -1309,11 +1309,7 @@ class MusicPlayerMixin(object):
         self._music_online_tab_btn.configure(fg_color=COLORS["bg_light"])
         self._music_playlist_tab_btn.configure(fg_color=COLORS["bg_light"])
         self._stop_search_loading()
-        # 全部歌曲视图：清除远程歌单查看状态（侧边栏高亮与分页栏随之失效）
-        self._music_wy_remote_view_id = None
-        self._music_wy_remote_view_songs = []
-        self._music_wy_update_pager()
-        # 刷新全部歌曲列表
+        # 刷新全部歌曲列表（保留歌单查看状态，返回歌单标签页时恢复）
         self._rebuild_playlist_ui()
 
     def _music_switch_to_online(self):
@@ -1338,6 +1334,20 @@ class MusicPlayerMixin(object):
         self._music_online_tab_btn.configure(fg_color=COLORS["bg_light"])
         self._stop_search_loading()
         self._rebuild_playlist_sidebar()
+        # 恢复之前打开的歌单视图（远程歌单或本地歌单），
+        # 避免从其它子标签页返回后歌单打开状态被清空
+        wy_view_id = self._music_wy_remote_view_id
+        if wy_view_id:
+            cached = self._music_wy_remote_cache.get(wy_view_id)
+            if cached is not None:
+                self._music_render_wy_remote_songs(wy_view_id, cached)
+            else:
+                self._music_show_wy_remote_loading(wy_view_id)
+                self._music_wy_fetch_remote_songs(wy_view_id)
+        else:
+            pl = self._music_playlist_manager.get_current_playlist()
+            if pl is not None:
+                self._rebuild_playlist_song_list(pl)
 
     # ═══════════════ 在线搜索面板 ═══════════════
 
