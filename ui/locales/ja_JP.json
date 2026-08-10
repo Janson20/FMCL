@@ -151,6 +151,7 @@
   "server_version_placeholder": "例: 1.21.4",
   "server_install_btn_text": "📥 サーバーをインストール",
   "server_modpack_btn": "📦 MODパックサーバー",
+  "server_mod_manage_btn": "🛠 MOD管理",
   "server_quick_select_title": "📋 クイック選択",
   "server_settings_title": "⚙ サーバー設定",
   "server_max_memory_label": "最大メモリ:",
@@ -787,6 +788,9 @@
   "mod_update_found_count": "{count} 個の更新が見つかりました",
 
   "mod_check_updates": "🔍 更新を確認",
+  "mod_filter_client_btn": "🗑 クライアント専用MODを除去",
+  "mod_filtering": "フィルタリング中...",
+  "mod_filtering_status": "MODをフィルタリング中（クライアント専用MODを識別中）...",
   "mod_checking_updates": "確認中...",
   "mod_checking_updates_progress": "更新を確認中... ({current}/{total})",
   "mod_updates_available": "{count} 個のMODに更新があります",

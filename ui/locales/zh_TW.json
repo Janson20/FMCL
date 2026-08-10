@@ -151,6 +151,7 @@
   "server_version_placeholder": "例如: 1.21.4",
   "server_install_btn_text": "📥 安裝伺服器",
   "server_modpack_btn": "📦 整合包伺服器",
+  "server_mod_manage_btn": "🛠 模組管理",
   "server_quick_select_title": "📋 快速選擇",
   "server_settings_title": "⚙ 伺服器設定",
   "server_max_memory_label": "最大記憶體:",
@@ -787,6 +788,9 @@
   "mod_update_found_count": "發現 {count} 個模組可更新",
 
   "mod_check_updates": "🔍 檢查更新",
+  "mod_filter_client_btn": "🗑 剔除客戶端",
+  "mod_filtering": "篩選中...",
+  "mod_filtering_status": "正在篩選模組（識別純客戶端模組）...",
   "mod_checking_updates": "檢查中...",
   "mod_checking_updates_progress": "檢查更新中... ({current}/{total})",
   "mod_updates_available": "{count} 個模組可更新",
