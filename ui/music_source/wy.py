@@ -146,6 +146,13 @@ NO_ORIGINAL_SONGS = {
     "babel",
 }
 
+# 特别规则：封茗囧菌、洛少爷以翻唱洛天依曲目为主，搜索结果中同时出现
+# 歌手含这些歌手的歌曲与歌手含"洛天依/洛天依Official"的同名歌曲时，
+# 只标洛天依版本为原唱置顶——有"洛天依Official"只标 Official 版本，
+# 否则标歌手里含"洛天依"且发表最早的一个（见 _mark_original 规则 17）。
+_COVER_ARTISTS = {"封茗囧菌", "洛少爷"}  # 以翻唱为主的歌手（规范化后）
+_LUOTIANYI_ARTISTS = {"洛天依", "洛天依official"}  # 洛天依（规范化后，含 Official 后缀）
+
 
 class NetEaseMusicSource(BaseMusicSource):
     source_id = "wy"
@@ -313,6 +320,11 @@ class NetEaseMusicSource(BaseMusicSource):
             15. 搜索词精确命中某组（含版本词括号，如 彼岸花（诗岸&ナツメイツキ））
                 时只允许该组产生候选，避免模糊匹配的同名不同曲抢位
             16. 仅将原唱前移置顶并打上原唱标签，其余结果保持热度排序不变
+            17. 翻唱歌手规则：结果中同时出现歌手含"封茗囧菌/洛少爷"的歌曲与
+                歌手含"洛天依/洛天依Official"的同名歌曲时，只标洛天依版本：
+                有"洛天依Official"只标全部 Official 版本，否则标歌手里含
+                "洛天依"且发表最早的一个（两首须为不同歌曲，歌手集合互斥
+                防合唱误判）
         """
         if len(results) < 1:
             return
@@ -334,6 +346,46 @@ class NetEaseMusicSource(BaseMusicSource):
         singer_hits = sum(kw in self._singer_artists(info) for info in results)
         if singer_hits >= 2 and sum(self._group_key(info.name) == kw for info in results) < 2:
             return
+
+        # 17. 特别规则：封茗囧菌/洛少爷翻唱 -> 洛天依版为原唱。
+        # 结果中同时存在歌手含"封茗囧菌/洛少爷"的歌曲（翻唱）与歌手含
+        # "洛天依/洛天依Official"的同名歌曲（原唱）时，只标洛天依版本：
+        #   1. 存在歌手含"洛天依Official"的版本 -> 只标全部 Official 版本
+        #   2. 否则 -> 只标歌手里含"洛天依"（非 Official）且发表最早的一个
+        # 两首须为不同歌曲：各自歌手集合互斥，避免合唱被同时计入。
+        artist_sets = [(info, self._singer_artists(info)) for info in results]
+        original_hits = [
+            info
+            for info, artists in artist_sets
+            if (artists & _LUOTIANYI_ARTISTS) and not (artists & _COVER_ARTISTS)
+        ]
+        cover_hits = [
+            info
+            for info, artists in artist_sets
+            if (artists & _COVER_ARTISTS) and not (artists & _LUOTIANYI_ARTISTS)
+        ]
+        if original_hits and cover_hits:
+            shared_keys = {self._group_key(i.name) for i in original_hits} & {
+                self._group_key(i.name) for i in cover_hits
+            }
+            original_hits = [i for i in original_hits if self._group_key(i.name) in shared_keys]
+            if original_hits:
+                official_hits = [i for i in original_hits if "洛天依official" in self._singer_artists(i)]
+                if official_hits:
+                    # 有 Official 版本：只标全部 Official 版本
+                    matched = official_hits
+                else:
+                    # 无 Official 版本：标歌手里含洛天依且发表最早的一个
+                    # （发布日期无效/缺失时按结果热度序取第一个）
+                    timed = [i for i in original_hits if self._is_valid_date(i.publish_time)]
+                    if timed:
+                        matched = [min(timed, key=lambda i: i.publish_time)]
+                    else:
+                        matched = [original_hits[0]]
+                for info in matched:
+                    info.is_original = True
+                results[:] = matched + [i for i in results if i not in matched]
+                return
 
         # 搜索词中包含、且至少 2 条结果命中的歌手名 → 原唱必须属于该歌手
         artist_count = {}
