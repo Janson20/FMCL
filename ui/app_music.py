@@ -658,6 +658,10 @@ class MusicPlayerMixin(object):
         # ── 歌单上下文（播歌单中的歌曲时记录，供上下曲使用） ──
         self._music_playlist_context_songs: List[PlaylistSong] = []
         self._music_playlist_context_idx: int = -1
+        # ── 歌单下一首预取（播放过半时后台加载，放完秒播） ──
+        self._music_prefetch_seq: int = 0  # 预取请求序号（任何新播放都会使其失效）
+        self._music_prefetch_slot: Optional[dict] = None  # 预取就绪槽位 {seq, idx, song_key, temp_path, ...}
+        self._music_prefetch_started: bool = False  # 当前歌曲是否已触发过预取（每首只触发一次）
         # ── 网易云账号歌单同步（只读，不落盘） ──
         self._music_wy_remote_playlists: List[dict] = []  # [{id, name, track_count, cover_url}]
         self._music_wy_remote_cache: Dict[str, List[PlaylistSong]] = {}  # 歌单id -> 歌曲（内存缓存）
@@ -1676,6 +1680,8 @@ class MusicPlayerMixin(object):
         if _pygame_import_error is not None:
             logger.warning("pygame 不可用，无法播放")
             return
+        # 新播放开始：使在途/已完成的歌单预取失效
+        self._music_invalidate_prefetch()
         self._music_cancel_fade()
         self._stop_lyric_poll()
         # 应用音效处理
@@ -1731,6 +1737,8 @@ class MusicPlayerMixin(object):
         """
         if _pygame_import_error is not None:
             return
+        # 新播放开始：使在途/已完成的歌单预取失效
+        self._music_invalidate_prefetch()
         self._music_cancel_fade()
         self._stop_lyric_poll()
         # 应用音效处理
@@ -1896,6 +1904,8 @@ class MusicPlayerMixin(object):
     def _music_stop(self, instant: bool = False):
         if _pygame_import_error is not None:
             return
+        # 停止/切换播放：在途与已完成的歌单预取全部失效
+        self._music_invalidate_prefetch()
         self._music_cancel_fade()
         if not instant and self._music_is_playing and not self._music_is_paused:
             self._music_fade_out_target = "stop"
@@ -1921,6 +1931,100 @@ class MusicPlayerMixin(object):
         self._music_cur_label.configure(text="0:00")
         self._music_smtc.set_stopped()
 
+    def _music_invalidate_prefetch(self):
+        """新播放开始/停止：使在途与已完成的歌单预取全部失效"""
+        self._music_prefetch_seq += 1
+        self._music_prefetch_slot = None
+        self._music_prefetch_started = False
+
+    def _music_maybe_prefetch_next(self):
+        """当前歌曲播放过半时，后台预取歌单中的下一首在线歌曲（放完秒播）
+
+        仅预取在线歌曲（本地文件加载快，无需预取）；预取为尽力而为，
+        未完成/失败时播完仍走常规按需加载流程，不影响原行为。
+        """
+        if self._music_prefetch_started:
+            return
+        if not self._music_playlist_context_songs:
+            return
+        # 播放过半才触发（太早预取可能因用户切歌浪费流量）
+        if self._music_duration <= 0 or self._music_progress < self._music_duration * 0.5:
+            return
+        self._music_prefetch_started = True
+        n = len(self._music_playlist_context_songs)
+        cur = self._music_playlist_context_idx
+        if n <= 1 or cur < 0:
+            return
+        # 下一首索引（与 _music_next 播放模式逻辑保持一致，预取后直接复用）
+        if self._music_play_mode == PLAY_MODE_RANDOM:
+            import random
+
+            random.seed()
+            nidx = random.randrange(n)
+            if nidx == cur:
+                nidx = (nidx + 1) % n
+        else:
+            nidx = (cur + 1) % n
+        if nidx == cur:
+            return
+        song = self._music_playlist_context_songs[nidx]
+        if song.source_type != "online":
+            return  # 本地文件加载快，无需预取
+        slot = self._music_prefetch_slot
+        if slot is not None and slot.get("seq") == self._music_prefetch_seq and slot.get("idx") == nidx:
+            return  # 该歌曲的预取已就绪，无需重复预取
+        # 主线程读取用户音质偏好（后台线程绝不触碰 Tk 变量）
+        raw_quality = self._music_quality_var.get()
+        self._music_prefetch_seq += 1
+        seq = self._music_prefetch_seq
+        threading.Thread(target=self._music_prefetch_worker, args=(seq, nidx, song, raw_quality), daemon=True).start()
+
+    def _music_prefetch_worker(self, seq: int, idx: int, song: PlaylistSong, raw_quality: str):
+        """后台线程：预取歌单下一首（绝不触碰 Tk，结果经队列回主线程）"""
+        event = ("prefetch_fail", seq)
+        try:
+            from ui.music_source.base import MusicInfo
+
+            info = MusicInfo(
+                name=song.online_name,
+                singer=song.online_singer,
+                source=song.online_source,
+                songmid=song.online_songmid,
+                album_name=song.online_album,
+                interval=song.online_interval,
+                img=song.online_img,
+                types=[dict(t) for t in (song.online_types or [])],
+                _types=dict(song.online_type_detail or {}),
+            )
+            play_info, play_quality = info, raw_quality
+            if raw_quality == "auto" and not info.types:
+                # 音质信息缺失时后台搜索补齐（与按需播放同一流程）
+                play_info, play_quality = self._music_resolve_auto_quality_async(info)
+            result_path, result_info, result_quality = self._fetch_online_song(play_info, play_quality, raw_quality)
+            if result_path and os.path.exists(result_path):
+                event = ("prefetch", seq, idx, result_path, result_info, info, result_quality)
+        except Exception as e:
+            logger.debug(f"预取歌单下一首异常: {e}")
+        try:
+            self._music_wy_queue.put(event)
+        except Exception:
+            pass
+
+    def _music_on_prefetch_ready(self, seq, idx, temp_path, result_info, origin_info, quality):
+        """预取下载完成（主线程）：序号仍有效则存入预取槽位，否则丢弃临时文件"""
+        if seq != self._music_prefetch_seq:
+            self._discard_temp_file(temp_path)
+            return
+        self._music_prefetch_slot = {
+            "seq": seq,
+            "idx": idx,
+            "song_key": (origin_info.source, origin_info.songmid),
+            "temp_path": temp_path,
+            "result_info": result_info,
+            "origin_info": origin_info,
+            "quality": quality,
+        }
+
     def _play_playlist_context_song(self, idx: int):
         """播歌单上下文中指定索引的歌曲（支持本地/在线混合）"""
         songs = self._music_playlist_context_songs
@@ -1944,6 +2048,27 @@ class MusicPlayerMixin(object):
             self._music_progress = 0
             self._play_file(song.file_path)
         else:
+            # 优先消费预取结果（序号 + 索引 + 歌曲指纹 + 文件存在校验），放完秒播
+            slot = self._music_prefetch_slot
+            if (
+                slot is not None
+                and slot.get("seq") == self._music_prefetch_seq
+                and slot.get("idx") == idx
+                and slot.get("song_key") == (song.online_source, song.online_songmid)
+                and slot.get("temp_path")
+                and os.path.exists(slot["temp_path"])
+            ):
+                self._music_prefetch_slot = None
+                # 使在途的按需下载结果失效（防旧线程覆盖本次预取播放）
+                self._music_stream_seq += 1
+                self._play_online_file(
+                    slot["temp_path"],
+                    slot["result_info"],
+                    0,
+                    history_origin=slot["origin_info"],
+                    quality=slot["quality"],
+                )
+                return
             from ui.music_source.base import MusicInfo
 
             info = MusicInfo(
@@ -2032,7 +2157,24 @@ class MusicPlayerMixin(object):
             n = len(self._music_playlist_context_songs)
             if n == 0:
                 return
-            if self._music_play_mode == PLAY_MODE_RANDOM:
+            # 预取已就绪（序号有效 + 索引合法 + 歌曲指纹一致）时直接切到预取目标，
+            # 与预取时的播放模式逻辑保持同一结果（随机模式无需重新掷骰）
+            slot = self._music_prefetch_slot
+            prefetched = (
+                slot is not None
+                and slot.get("seq") == self._music_prefetch_seq
+                and 0 <= slot.get("idx", -1) < n
+            )
+            if prefetched:
+                target = self._music_playlist_context_songs[slot["idx"]]
+                if target.source_type != "online" or slot.get("song_key") != (
+                    target.online_source,
+                    target.online_songmid,
+                ):
+                    prefetched = False
+            if prefetched:
+                new_idx = slot["idx"]
+            elif self._music_play_mode == PLAY_MODE_RANDOM:
                 import random
 
                 random.seed()
@@ -2153,6 +2295,8 @@ class MusicPlayerMixin(object):
                     pct = (pos / self._music_duration) * 100
                     if 0 <= pct <= 100:
                         self._music_progress_bar.set(pct)
+                # 播放过半时后台预取歌单下一首（放完秒播）
+                self._music_maybe_prefetch_next()
             if not mixer.music.get_busy() and self._music_is_playing:
                 self._on_track_end()
         except Exception:
@@ -3104,6 +3248,9 @@ class MusicPlayerMixin(object):
                 self._music_wy_apply_sync(event[1], event[2], event[3])
             elif kind == "tracks":
                 self._music_wy_apply_tracks(event[1], event[2])
+            elif kind == "prefetch":
+                self._music_on_prefetch_ready(event[1], event[2], event[3], event[4], event[5], event[6])
+            # "prefetch_fail"：预取失败不设槽位，播完时走常规按需流程
         except Exception as e:
             logger.debug(f"网易云歌单事件执行异常: {e}")
 
