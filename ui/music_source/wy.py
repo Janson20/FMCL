@@ -150,6 +150,9 @@ NO_ORIGINAL_SONGS = {
 class NetEaseMusicSource(BaseMusicSource):
     source_id = "wy"
     source_name = "网易云音乐"
+    # 搜索接口 /api/search/song/list/page 服务端硬性限制每页最多返回 20 条
+    # （limit>20 一律截断为 20），UI 按此数值作为该音源的每页条数
+    limits = {"search": 20, "lyric": 1, "url": 1}
 
     def __init__(self):
         super().__init__()
@@ -183,6 +186,7 @@ class NetEaseMusicSource(BaseMusicSource):
                 logger.debug(f"网易搜索返回错误码: {resp.get('code')}")
                 return []
             raw_list = (resp.get("data") or {}).get("resources") or []
+            self.set_search_total((resp.get("data") or {}).get("totalCount"))
             results = self._parse_search_result(raw_list)
             try:
                 self._mark_original(results, keyword)

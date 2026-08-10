@@ -18,6 +18,8 @@ MG_MUSIC_URL = "https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/product_info_reso
 class MiGuMusicSource(BaseMusicSource):
     source_id = "mg"
     source_name = "咪咕音乐"
+    # 搜索接口 resultList 每页最多返回 20 条（pageSize 再大也被截断）
+    limits = {"search": 20, "lyric": 1, "url": 1}
 
     # ── 搜索 ────────────────────────────────────────
 
@@ -51,10 +53,13 @@ class MiGuMusicSource(BaseMusicSource):
             resp = self.http_get(MG_SEARCH_URL, params=params, headers=headers, timeout=15)
             raw = resp.json()
             song_data = raw.get("songResultData", {})
-            if song_data.get("code") != "0":
+            # 新版接口歌曲列表键为 resultList（旧版为 result），每项是包含
+            # 单个歌曲 dict 的 list（[song] 形式）；无结果时直接返回
+            raw_list = song_data.get("resultList") or song_data.get("result") or []
+            if not raw_list:
                 return []
-            songs = song_data.get("result", [])
-            return self._parse_search_result(songs)
+            self.set_search_total(song_data.get("totalCount"))
+            return self._parse_search_result(raw_list)
         except Exception as e:
             logger.warning(f"咪咕搜索失败: {e}")
             return []
@@ -62,7 +67,13 @@ class MiGuMusicSource(BaseMusicSource):
     def _parse_search_result(self, raw_list) -> List[MusicInfo]:
         results = []
         seen = set()
-        for item in raw_list or []:
+        for raw_item in raw_list or []:
+            # 新版 resultList 每项为 [song]（单个 dict 的 list），旧版为 dict
+            item = raw_item
+            if isinstance(item, list):
+                item = item[0] if item else None
+            if not isinstance(item, dict):
+                continue
             song_id = str(item.get("id", item.get("songId", item.get("contentId", ""))))
             if not song_id or song_id in seen:
                 continue
@@ -78,8 +89,14 @@ class MiGuMusicSource(BaseMusicSource):
                 else:
                     singer = format_singer(decode_name(str(singers)))
 
-                album_img = item.get("albumImgs", [])
+                album_img = item.get("albumImgs") or item.get("imgItems") or []
                 img = album_img[0].get("img", "") if album_img else ""
+
+                play_count_raw = item.get("listenCount") or item.get("playCount") or item.get("listen_cnt") or 0
+                try:
+                    play_count = int(play_count_raw)
+                except (TypeError, ValueError):
+                    play_count = 0
 
                 info = MusicInfo(
                     name=decode_name(item.get("name", item.get("songName", ""))),
@@ -96,6 +113,7 @@ class MiGuMusicSource(BaseMusicSource):
                     img=img,
                     types=types,
                     _types=_types,
+                    play_count=play_count,
                 )
                 results.append(info)
             except Exception as e:

@@ -56,8 +56,15 @@ class KuWoMusicSource(BaseMusicSource):
     def _parse_search_result(self, raw_data) -> List[MusicInfo]:
         if not raw_data:
             return []
+        # 酷我 r.s 接口新版返回 dict（歌曲在 abslist，TOTAL 为总数），旧版为 list
+        if isinstance(raw_data, dict):
+            items = raw_data.get("abslist") or []
+            self.set_search_total(raw_data.get("TOTAL"))
+        else:
+            items = raw_data
+            self.set_search_total(0)
         results = []
-        for item in raw_data:
+        for item in items:
             try:
                 song_id = item.get("MUSICRID", "").replace("MUSIC_", "")
                 if not song_id:
@@ -79,6 +86,7 @@ class KuWoMusicSource(BaseMusicSource):
                     interval=interval if interval > 0 else 0,
                     types=types,
                     _types=_types,
+                    play_count=self._parse_play_count(item),
                 )
                 results.append(info)
             except Exception as e:
@@ -98,6 +106,15 @@ class KuWoMusicSource(BaseMusicSource):
                 _types[q] = {"size": size}
         types.reverse()
         return types, _types
+
+    @staticmethod
+    def _parse_play_count(item: dict) -> int:
+        """解析播放量（酷我搜索响应字段名不稳定，多键兜底）"""
+        raw = item.get("PLAYCNT") or item.get("playCnt") or item.get("playCount") or 0
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0
 
     # ── 获取播放URL ─────────────────────────────────
 

@@ -1,6 +1,7 @@
 """ModernApp 音乐播放器 Mixin - 音乐标签页相关方法"""
 
 import json
+import math
 import os
 import platform
 import shutil
@@ -247,6 +248,16 @@ def _format_time(seconds: float) -> str:
     m = int(seconds // 60)
     s = int(seconds % 60)
     return f"{m}:{s:02d}"
+
+
+def _format_play_count(count: int) -> str:
+    """播放量格式化：<1万 显示完整数字，>=1万 显示 x.xw（整数时省略小数，如 12345→1.2w、10000→1w）"""
+    if count <= 0:
+        return ""
+    if count < 10000:
+        return str(count)
+    text = f"{count / 10000.0:.1f}".rstrip("0").rstrip(".")
+    return f"{text}w"
 
 
 # ── 音质显示 ─────────────────────────────────────────
@@ -609,6 +620,13 @@ class MusicPlayerMixin(object):
         self._music_search_thread_id = None
         self._music_selected_source: str = "kw"
         self._music_search_keyword: str = ""
+        self._music_search_page: int = 1  # 当前搜索页码（从 1 开始）
+        self._music_search_page_size: int = 30  # 每页搜索条数
+        self._music_search_has_more: bool = False  # 当前页是否满页（可能存在下一页）
+        self._music_search_total_pages: int = 0  # 搜索结果总页数（音源提供总数时一次性算出，0=未知）
+        self._music_search_busy: bool = False  # 搜索请求进行中标记
+        self._music_search_seq: int = 0  # 搜索请求序号（防旧请求覆盖新请求）
+        self._music_pager_widgets: List[dict] = []  # 分页页码按钮组件列表
         self._music_current_online_info: Optional[OnlineMusicInfo] = None
         self._music_is_online_playing: bool = False
         self._music_current_filepath: Optional[str] = None  # 当前播放的文件路径（本地/在线临时文件）
@@ -1390,6 +1408,61 @@ class MusicPlayerMixin(object):
         self._music_online_scroll.pack(fill=ctk.BOTH, expand=True, padx=8, pady=(5, 10))
         self._theme_refs.append((self._music_online_scroll, {"scrollbar_button_color": "bg_light"}))
         self._theme_refs.append((result_frame, {"fg_color": "card_bg"}))
+
+        # 分页栏（上一页 / 页码按钮 / 下一页）
+        pager_frame = ctk.CTkFrame(result_frame, fg_color="transparent", height=46)
+        pager_frame.pack(fill=ctk.X, padx=12, pady=(0, 8))
+        pager_frame.pack_propagate(False)
+        self._music_pager_frame = pager_frame
+
+        pager_btn_cfg = {
+            "height": 24,
+            "font": ctk.CTkFont(family=FONT_FAMILY, size=10),
+            "fg_color": COLORS["bg_light"],
+            "hover_color": COLORS["accent"],
+        }
+
+        page_prev_key = "music_page_prev"
+        page_prev_text = _(page_prev_key)
+        if page_prev_text == page_prev_key:
+            page_prev_text = "◀ 上一页"
+        self._music_pager_prev = ctk.CTkButton(
+            pager_frame, text=page_prev_text, width=78, command=self._music_search_prev_page, **pager_btn_cfg
+        )
+        self._music_pager_prev.pack(side=ctk.LEFT, padx=(0, 4))
+
+        # 页码按钮横向滚动容器（音源总数多时页数可达上百，超出窗口宽度可横向滚动）
+        self._music_pager_page_box = ctk.CTkScrollableFrame(
+            pager_frame,
+            fg_color="transparent",
+            scrollbar_button_color=COLORS["bg_light"],
+            orientation="horizontal",
+            height=40,
+        )
+        self._music_pager_page_box.pack(side=ctk.LEFT, fill=ctk.X, expand=True)
+        self._theme_refs.append((self._music_pager_page_box, {"scrollbar_button_color": "bg_light"}))
+
+        page_next_key = "music_page_next"
+        page_next_text = _(page_next_key)
+        if page_next_text == page_next_key:
+            page_next_text = "下一页 ▶"
+        self._music_pager_next = ctk.CTkButton(
+            pager_frame, text=page_next_text, width=78, command=self._music_search_next_page, **pager_btn_cfg
+        )
+        self._music_pager_next.pack(side=ctk.RIGHT, padx=(4, 0))
+
+        self._music_pager_label = ctk.CTkLabel(
+            pager_frame,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+        )
+        self._music_pager_label.pack(side=ctk.RIGHT, padx=(0, 8))
+
+        self._theme_refs.append((self._music_pager_prev, {"fg_color": "bg_light", "hover_color": "accent"}))
+        self._theme_refs.append((self._music_pager_next, {"fg_color": "bg_light", "hover_color": "accent"}))
+        self._theme_refs.append((self._music_pager_label, {"text_color": "text_secondary"}))
+        self._music_rebuild_pager()
 
     def _music_select_source(self, source_id: str):
         self._music_selected_source = source_id
@@ -3075,25 +3148,56 @@ class MusicPlayerMixin(object):
         if not keyword:
             return
         self._music_search_keyword = keyword
+        self._music_start_search(1)
+
+    def _music_start_search(self, page: int):
+        """发起搜索请求（页码从 1 开始），带忙碌标记与请求序号防并发覆盖"""
+        if self._music_search_busy:
+            return
+        if page < 1:
+            return
+        self._music_search_page = page
+        self._music_search_busy = True
+        self._music_search_total_pages = 0  # 新请求未返回前不沿用旧音源的页数
+        # 每页条数按当前音源的服务端限制（如网易云每页最多 20 条）
+        src = MUSIC_SOURCES.get(self._music_selected_source)
+        self._music_search_page_size = src.limits.get("search", 30) if src else 30
+        self._music_search_seq += 1
+        seq = self._music_search_seq
         self._music_search_btn.configure(state="disabled", text="...")
         self._music_search_status.configure(text=_("music_loading_url"))
-        threading.Thread(target=self._music_online_search_thread, args=(keyword,), daemon=True).start()
+        self._music_rebuild_pager()
+        threading.Thread(
+            target=self._music_online_search_thread, args=(self._music_search_keyword, page, seq), daemon=True
+        ).start()
 
-    def _music_online_search_thread(self, keyword: str):
+    def _music_online_search_thread(self, keyword: str, page: int, seq: int):
         try:
             source_id = self._music_selected_source
             src = MUSIC_SOURCES.get(source_id)
             if src:
-                results = src.search(keyword, page=1, limit=30)
+                results = src.search(keyword, page=page, limit=self._music_search_page_size)
             else:
                 results = []
         except Exception as e:
             logger.warning(f"在线搜索失败 [{source_id}]: {e}")
             results = []
-        self.after(0, lambda: self._music_rebuild_search_results(results))
+        self.after(0, lambda: self._music_rebuild_search_results(results, seq))
 
-    def _music_rebuild_search_results(self, results):
+    def _music_rebuild_search_results(self, results, seq: Optional[int] = None):
+        if seq is not None and seq != self._music_search_seq:
+            return  # 过期请求（用户已重新搜索/翻页），丢弃
+        self._music_search_busy = False
         self._music_search_results = results
+        # 音源提供总数时一次性算出总页数；否则按满页启发式判断下一页
+        src = MUSIC_SOURCES.get(self._music_selected_source)
+        total = src.last_search_total if src else 0
+        if total > 0:
+            self._music_search_total_pages = max(1, math.ceil(total / self._music_search_page_size))
+            self._music_search_has_more = self._music_search_page < self._music_search_total_pages
+        else:
+            self._music_search_total_pages = 0
+            self._music_search_has_more = len(results) >= self._music_search_page_size
         for w in self._music_search_widgets:
             try:
                 f = w.get("frame")
@@ -3104,13 +3208,100 @@ class MusicPlayerMixin(object):
         self._music_search_widgets.clear()
         for idx, info in enumerate(results):
             self._music_add_search_row(idx, info)
-        count = len(results)
-        song_count_key = "music_song_count"
-        count_text = _(song_count_key, count=count)
-        if count_text == song_count_key:
-            count_text = f"{count} 首"
-        self._music_search_status.configure(text=count_text if count > 0 else _("music_search_no_results"))
+        if results:
+            count = len(results)
+            song_count_key = "music_song_count"
+            count_text = _(song_count_key, count=count)
+            if count_text == song_count_key:
+                count_text = f"{count} 首"
+            self._music_search_status.configure(text=count_text)
+        elif self._music_search_page > 1:
+            # 非首页但无结果：已到最后一页
+            no_more_key = "music_search_no_more"
+            no_more_text = _(no_more_key)
+            if no_more_text == no_more_key:
+                no_more_text = "没有更多结果"
+            self._music_search_status.configure(text=no_more_text)
+        else:
+            self._music_search_status.configure(text=_("music_search_no_results"))
         self._music_search_btn.configure(state="normal", text=_("music_search_btn"))
+        self._music_rebuild_pager()
+
+    def _music_search_go_page(self, page: int):
+        """跳转到指定页码"""
+        if page < 1 or self._music_search_busy:
+            return
+        if not self._music_search_keyword:
+            return
+        if page == self._music_search_page and self._music_search_results:
+            return
+        self._music_start_search(page)
+
+    def _music_search_prev_page(self):
+        self._music_search_go_page(self._music_search_page - 1)
+
+    def _music_search_next_page(self):
+        self._music_search_go_page(self._music_search_page + 1)
+
+    def _music_rebuild_pager(self):
+        """重建分页栏：全部页码按钮（一次性按总页数生成）+ 上一页/下一页状态"""
+        if not hasattr(self, "_music_pager_frame"):
+            return
+        cur = self._music_search_page
+        busy = self._music_search_busy
+
+        # 音源提供总数时直接生成全部页码；否则满页时推测下一页存在，逐页追加
+        if self._music_search_total_pages > 0:
+            last = self._music_search_total_pages
+        elif self._music_search_has_more:
+            last = cur + 1
+        else:
+            last = cur
+        pages = list(range(1, last + 1))
+
+        for w in self._music_pager_widgets:
+            try:
+                f = w.get("frame")
+                if f and f.winfo_exists():
+                    f.destroy()
+            except Exception:
+                pass
+        self._music_pager_widgets.clear()
+
+        for p in pages:
+            btn = ctk.CTkButton(
+                self._music_pager_page_box,
+                text=str(p),
+                width=30,
+                height=24,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                fg_color=COLORS["accent"] if p == cur else COLORS["bg_light"],
+                hover_color=COLORS["accent"],
+                command=lambda pg=p: self._music_search_go_page(pg),
+            )
+            btn.pack(side=ctk.LEFT, padx=2)
+            self._music_pager_widgets.append({"frame": btn, "page": p})
+            self._theme_refs.append((btn, {"fg_color": "bg_light", "hover_color": "accent"}))
+
+        # 自动横向滚动到当前页（按钮宽度一致，按位置比例估算）
+        try:
+            box = self._music_pager_page_box
+            box.update_idletasks()
+            if len(pages) > 1:
+                box._parent_canvas.xview_moveto((cur - 1) / (len(pages) - 1))
+        except Exception:
+            pass
+
+        self._music_pager_prev.configure(state=ctk.NORMAL if (cur > 1 and not busy) else ctk.DISABLED)
+        self._music_pager_next.configure(
+            state=ctk.NORMAL if (self._music_search_has_more and not busy) else ctk.DISABLED
+        )
+
+        page_key = "music_search_page"
+        page_text = _(page_key, page=cur)
+        if page_text == page_key:
+            page_text = f"第 {cur} 页"
+        self._music_pager_label.configure(text=page_text)
 
     def _music_add_search_row(self, idx: int, info: OnlineMusicInfo):
         is_original = info.is_original
@@ -3163,6 +3354,17 @@ class MusicPlayerMixin(object):
                 text_color=COLORS["text_secondary"],
                 width=40,
             ).pack(side=ctk.RIGHT)
+
+        # 播放量（音源未提供时为 0，不显示）
+        play_text = _format_play_count(info.play_count)
+        if play_text:
+            ctk.CTkLabel(
+                row,
+                text=play_text,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+                text_color=COLORS["text_secondary"],
+                width=44,
+            ).pack(side=ctk.RIGHT, padx=(0, 4))
 
         source_label = ctk.CTkLabel(
             row,
@@ -3651,11 +3853,15 @@ class MusicPlayerMixin(object):
         self._music_temp_files.clear()
 
     def _stop_search_loading(self):
-        """停止搜索加载状态"""
+        """停止搜索加载状态（切换标签页时调用）"""
+        if hasattr(self, "_music_search_busy"):
+            self._music_search_busy = False
         if hasattr(self, "_music_search_btn") and self._music_search_btn.winfo_exists():
             self._music_search_btn.configure(state="normal", text=_("music_search_btn"))
         if hasattr(self, "_music_search_status") and self._music_search_status.winfo_exists():
             self._music_search_status.configure(text="")
+        if hasattr(self, "_music_pager_frame"):
+            self._music_rebuild_pager()
 
     # ═══════════════ 桌面歌词管理 ═══════════════
 

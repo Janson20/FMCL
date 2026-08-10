@@ -82,6 +82,7 @@ class QQMusicSource(BaseMusicSource):
             data = req_result.get("data", {})
             body_data = data.get("body", {})
             songs = body_data.get("song", {})
+            self.set_search_total(songs.get("totalnum"))
             raw_list = songs.get("list", [])
             return self._parse_search_result(raw_list)
         except Exception as e:

@@ -131,6 +131,10 @@ class BiliBiliMusicSource(BaseMusicSource):
                     self._pending_risk = risk
                 raise RiskControlError(vv)
             raw_list = data.get("result") or []
+            # 总结果数：numResults 优先，缺失时用 numPages * 每页条数估算
+            num_results = data.get("numResults") or 0
+            num_pages = data.get("numPages") or 0
+            self.set_search_total(num_results or (num_pages * limit if num_pages else 0))
             return self._parse_search_result(raw_list)
         except Exception as e:
             logger.warning(f"B站搜索失败: {e}")
@@ -174,6 +178,7 @@ class BiliBiliMusicSource(BaseMusicSource):
                         songmid=bvid,
                         interval=self._parse_duration(item.get("duration") or ""),
                         img=(item.get("pic") or "").replace("http://", "https://"),
+                        play_count=int(item.get("play") or 0),
                     )
                 )
             except Exception as e:

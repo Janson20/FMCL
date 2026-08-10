@@ -36,7 +36,9 @@ class KuGouMusicSource(BaseMusicSource):
         try:
             resp = self.http_get(KG_SEARCH_URL, params=params, timeout=15)
             body = resp.json()
-            lists = body.get("data", {}).get("lists", [])
+            data = body.get("data", {})
+            self.set_search_total(data.get("total"))
+            lists = data.get("lists", [])
             return self._parse_search_result(lists)
         except Exception as e:
             logger.warning(f"酷狗搜索失败: {e}")
@@ -67,6 +69,7 @@ class KuGouMusicSource(BaseMusicSource):
                     interval=interval,
                     types=types,
                     _types=_types,
+                    play_count=int(item.get("TotalPlayCnt") or 0),
                 )
                 results.append(info)
 
@@ -88,6 +91,7 @@ class KuGouMusicSource(BaseMusicSource):
                         interval=child_interval,
                         types=child_types,
                         _types=child_types_dict,
+                        play_count=int(child.get("TotalPlayCnt") or 0),
                     )
                     results.append(child_info)
 

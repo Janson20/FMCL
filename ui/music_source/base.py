@@ -73,6 +73,7 @@ class MusicInfo:
     origin_artists: List[str] = field(default_factory=list)  # 原曲歌手名
     fee: int = 0  # 版权费用状态 (网易 fee, 8=无版权/旧盗版条目)
     original_name: str = ""  # 策展表修正后的原唱名（网易页缺失原唱录音时）
+    play_count: int = 0  # 播放量（音源搜索结果提供时填充，用于列表展示；缺失为 0）
 
     def __repr__(self):
         return f"MusicInfo({self.name} - {self.singer}, {self.source}/{self.songmid})"
@@ -95,6 +96,16 @@ class BaseMusicSource(abc.ABC):
 
     def __init__(self):
         self._session = create_session()
+        # 最近一次 search() 返回的结果总数（0 = 接口未提供/未知），
+        # 供 UI 一次性计算总页数，避免逐页探测
+        self.last_search_total = 0
+
+    def set_search_total(self, total):
+        """记录最近一次搜索的结果总数（各音源在 search() 内调用）"""
+        try:
+            self.last_search_total = int(total or 0)
+        except (TypeError, ValueError):
+            self.last_search_total = 0
 
     # ── 抽象接口 ──────────────────────────────────────
 
