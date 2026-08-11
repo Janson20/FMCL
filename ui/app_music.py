@@ -643,6 +643,10 @@ class MusicPlayerMixin(object):
         self._music_current_quality: str = ""  # 在线播放实际获取到的音质档位（128k/320k/flac）
         self._music_temp_files: List[str] = []  # 缓存的临时文件列表
         self._music_stream_seq: int = 0  # 在线播放请求序号（防旧线程覆盖新请求）
+        # ── 复制歌名/歌手 ──
+        self._music_now_title: str = ""  # 当前播放的歌名（供复制按钮使用）
+        self._music_now_artist: str = ""  # 当前播放的歌手（供复制按钮使用）
+        self._music_copy_feedback_timer = None  # 复制反馈文字恢复定时器
         # ── 歌词状态 ──
         self._music_lyric_parser: LyricParser = LyricParser()
         self._music_lyric_lines: List[LyricLine] = []
@@ -925,6 +929,26 @@ class MusicPlayerMixin(object):
         )
         self._music_quality_tag.pack(side=ctk.LEFT, padx=(8, 0))
 
+        # 歌名/歌手复制按钮
+        copy_btn_cfg = {
+            "width": 64,
+            "height": 22,
+            "font": ctk.CTkFont(family=FONT_FAMILY, size=10),
+            "fg_color": COLORS["bg_light"],
+            "hover_color": COLORS["card_border"],
+            "state": "disabled",
+        }
+
+        self._music_copy_title_btn = ctk.CTkButton(
+            now_title_row, text=_("music_copy_title"), command=self._music_copy_title, **copy_btn_cfg
+        )
+        self._music_copy_title_btn.pack(side=ctk.LEFT, padx=(8, 0))
+
+        self._music_copy_artist_btn = ctk.CTkButton(
+            now_title_row, text=_("music_copy_artist"), command=self._music_copy_artist, **copy_btn_cfg
+        )
+        self._music_copy_artist_btn.pack(side=ctk.LEFT, padx=(4, 0))
+
         self._music_now_label_sub = ctk.CTkLabel(
             panel, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=10), text_color=COLORS["text_secondary"]
         )
@@ -959,6 +983,12 @@ class MusicPlayerMixin(object):
         )
         self._theme_refs.append((self._music_now_label_top, {"text_color": "text_primary"}))
         self._theme_refs.append((self._music_quality_tag, {"text_color": "accent"}))
+        self._theme_refs.append(
+            (self._music_copy_title_btn, {"fg_color": "bg_light", "hover_color": "card_border"})
+        )
+        self._theme_refs.append(
+            (self._music_copy_artist_btn, {"fg_color": "bg_light", "hover_color": "card_border"})
+        )
         self._theme_refs.append((self._music_now_label_sub, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._music_cur_label, {"text_color": "text_secondary"}))
         self._theme_refs.append((self._music_end_label, {"text_color": "text_secondary"}))
@@ -1609,6 +1639,9 @@ class MusicPlayerMixin(object):
             self._music_cover_label.configure(text="🎵")
             self._music_cover_artist.configure(text=artist)
             self._music_cover_album.configure(text=album)
+            self._music_now_title = title
+            self._music_now_artist = artist
+            self._music_refresh_copy_btn_state()
 
             if oi.img:
                 self._fetch_and_display_online_cover(oi.img)
@@ -1623,6 +1656,9 @@ class MusicPlayerMixin(object):
             self._music_cover_artist.configure(text="")
             self._music_cover_album.configure(text="")
             self._music_mini_title.configure(text=_("music_no_track"))
+            self._music_now_title = ""
+            self._music_now_artist = ""
+            self._music_refresh_copy_btn_state()
             self._music_progress_bar.set(0)
             self._music_cur_label.configure(text="0:00")
             self._music_end_label.configure(text="0:00")
@@ -1651,8 +1687,55 @@ class MusicPlayerMixin(object):
         self._music_cover_artist.configure(text=artist if artist else "")
         self._music_cover_album.configure(text=album if album else "")
 
+        self._music_now_title = title
+        self._music_now_artist = artist
+        self._music_refresh_copy_btn_state()
+
         cover_bytes = meta.get("cover_data") if meta.get("has_cover") else None
         self._music_smtc.update_now_playing(title, artist, album, cover_bytes)
+
+    def _music_refresh_copy_btn_state(self):
+        """根据当前播放状态启用/禁用歌名、歌手复制按钮"""
+        if not (hasattr(self, "_music_copy_title_btn") and hasattr(self, "_music_copy_artist_btn")):
+            return
+        has_track = bool(self._music_now_title)
+        for btn in (self._music_copy_title_btn, self._music_copy_artist_btn):
+            if btn.winfo_exists():
+                btn.configure(state="normal" if has_track else "disabled")
+
+    def _music_copy_title(self):
+        self._music_copy_to_clipboard(self._music_now_title, self._music_copy_title_btn)
+
+    def _music_copy_artist(self):
+        self._music_copy_to_clipboard(self._music_now_artist, self._music_copy_artist_btn)
+
+    def _music_copy_to_clipboard(self, text: str, btn: ctk.CTkButton):
+        if not text:
+            return
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+        except Exception as e:
+            logger.debug(f"复制到剪贴板失败: {e}")
+            return
+        self._music_show_copy_feedback(btn)
+
+    def _music_show_copy_feedback(self, btn: ctk.CTkButton):
+        if self._music_copy_feedback_timer:
+            try:
+                self.after_cancel(self._music_copy_feedback_timer)
+            except Exception:
+                pass
+            self._music_copy_feedback_timer = None
+        original = getattr(btn, "_music_copy_orig_text", "") or btn.cget("text")
+        btn._music_copy_orig_text = original
+        btn.configure(text=_("music_copied"))
+
+        def _restore():
+            if btn.winfo_exists():
+                btn.configure(text=original)
+
+        self._music_copy_feedback_timer = self.after(1500, _restore)
 
     def _fetch_and_display_online_cover(self, url: str):
         """异步获取在线封面图并显示"""
