@@ -265,6 +265,13 @@ class ModernAppBase(ctk.CTk):
         self.game_tab = self.tabview.add(_("tab_game"))
         self.game_tab.configure(fg_color="transparent")
 
+        # 添加"基岩"标签页（仅 Windows 可用）
+        if platform.system().lower() == "windows":
+            self.bedrock_tab = self.tabview.add(_("tab_bedrock"))
+            self.bedrock_tab.configure(fg_color="transparent")
+        else:
+            self.bedrock_tab = None
+
         self.backup_tab = self.tabview.add(_("tab_backup"))
         self.backup_tab.configure(fg_color="transparent")
 
@@ -306,6 +313,8 @@ class ModernAppBase(ctk.CTk):
         }
         if self.online_tab is not None:
             self._tab_builders[_("tab_online")] = self._build_online_tab_content
+        if self.bedrock_tab is not None:
+            self._tab_builders[_("tab_bedrock")] = self._build_bedrock_tab_content
 
         # 设置默认标签页为"游戏"（不触发 command 回调）
         self.tabview.set(_("tab_game"))
@@ -1482,6 +1491,8 @@ class ModernAppBase(ctk.CTk):
         self._refresh_version_list_colors()
         if hasattr(self, "_refresh_server_colors"):
             self._refresh_server_colors()
+        if hasattr(self, "_refresh_bedrock_colors"):
+            self._refresh_bedrock_colors()
         if hasattr(self, "_refresh_backup_colors"):
             self._refresh_backup_colors()
         if hasattr(self, "_refresh_agent_colors"):

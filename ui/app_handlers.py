@@ -1045,6 +1045,12 @@ class EventHandlerMixin(object):
             if handled:
                 return
 
+        # 基岩版相关任务
+        if hasattr(self, "_handle_bedrock_task"):
+            handled = self._handle_bedrock_task(task_type, data)
+            if handled:
+                return
+
         if task_type == "init_done":
             self.set_status("环境初始化完成", "success")
             self._refresh_versions()

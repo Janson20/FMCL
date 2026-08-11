@@ -9,6 +9,7 @@ from ui.app_about import AboutTabMixin
 from ui.app_achievements import AchievementTabMixin
 from ui.app_backup import BackupTabMixin
 from ui.app_base import ModernAppBase
+from ui.app_bedrock import BedrockMixin
 from ui.app_crash import CrashHandlerMixin
 from ui.app_handlers import EventHandlerMixin
 from ui.app_monitor import MonitorMixin
@@ -23,6 +24,7 @@ class ModernApp(
     CrashHandlerMixin,
     EventHandlerMixin,
     BackupTabMixin,
+    BedrockMixin,
     OnlineTabMixin,
     ServerTabMixin,
     AchievementTabMixin,

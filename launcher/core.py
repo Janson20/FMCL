@@ -2383,7 +2383,151 @@ class MinecraftLauncher:
             "set_music_baike_original_enabled": self.set_music_baike_original_enabled,
             "get_wy_cookie": self.get_wy_cookie,
             "set_wy_cookie": self.set_wy_cookie,
+            # 基岩版相关（仅 Windows 可用，其他平台返回空实现）
+            "bedrock_get_available_versions": self._bedrock_get_available_versions,
+            "bedrock_get_installed_versions": self._bedrock_get_installed_versions,
+            "bedrock_install_version": self._bedrock_install_version,
+            "bedrock_launch_version": self._bedrock_launch_version,
+            "bedrock_remove_version": self._bedrock_remove_version,
+            "bedrock_check_environment": self._bedrock_check_environment,
+            "bedrock_is_running": self._bedrock_is_running,
+            "bedrock_get_root": self._bedrock_get_root,
         }
+
+    # ─── 基岩版支持 ─────────────────────────────────────────
+
+    def _get_bedrock_manager(self):
+        """惰性创建基岩版管理器（非 Windows 平台返回 None）"""
+        if platform.system().lower() != "windows":
+            return None
+        if getattr(self, "_bedrock_manager", None) is None:
+            from launcher.bedrock import BedrockManager
+
+            root = Path(self.config.minecraft_dir) / "bedrock_versions"
+            manager = BedrockManager(
+                root,
+                notify_cb=lambda text: self._bedrock_notify(text),
+                progress_cb=lambda cur, total, status: self._bedrock_progress(cur, total, status),
+            )
+            self._bedrock_manager = manager
+        return self._bedrock_manager
+
+    def _bedrock_notify(self, text: str) -> None:
+        if self.on_progress:
+            try:
+                self.on_progress(0, 0, text)
+            except Exception:
+                pass
+
+    def _bedrock_progress(self, current: int, total: int, status: str) -> None:
+        if self.on_progress:
+            try:
+                self.on_progress(current, total, status)
+            except Exception:
+                pass
+
+    def _bedrock_get_available_versions(self, refresh: bool = False) -> list:
+        manager = self._get_bedrock_manager()
+        if manager is None:
+            return []
+        try:
+            return manager.get_available_versions(refresh=refresh)
+        except Exception as e:
+            logger.error(f"获取基岩版版本列表失败: {e}")
+            return []
+
+    def _bedrock_get_installed_versions(self) -> list:
+        manager = self._get_bedrock_manager()
+        if manager is None:
+            return []
+        try:
+            return manager.get_installed_versions()
+        except Exception as e:
+            logger.error(f"获取已安装基岩版失败: {e}")
+            return []
+
+    def _bedrock_install_version(self, version: str, name: str = "", refresh_db: bool = False) -> tuple:
+        """安装基岩版版本，返回 (成功, 信息字典或错误信息)"""
+        manager = self._get_bedrock_manager()
+        if manager is None:
+            return False, "基岩版仅支持 Windows 系统"
+        try:
+            info = manager.install_version(version, name=name or None, refresh_db=refresh_db)
+            return True, info
+        except Exception as e:
+            logger.error(f"基岩版安装失败: {e}")
+            return False, str(e)
+
+    def _bedrock_launch_version(self, name: str, args: str = "") -> tuple:
+        """启动基岩版版本（后台线程），返回 (是否已启动, 信息)"""
+        manager = self._get_bedrock_manager()
+        if manager is None:
+            return False, "基岩版仅支持 Windows 系统"
+        try:
+            threading.Thread(
+                target=self._bedrock_launch_worker,
+                args=(manager, name, args),
+                daemon=True,
+            ).start()
+            return True, "启动中"
+        except Exception as e:
+            logger.error(f"基岩版启动失败: {e}")
+            return False, str(e)
+
+    def _bedrock_launch_worker(self, manager, name: str, args: str) -> None:
+        try:
+            manager.launch_version(name, args=args, on_exit=lambda code: self._bedrock_notify(f"基岩版已退出 (代码 {code})"))
+        except Exception as e:
+            logger.error(f"基岩版启动异常: {e}")
+            self._bedrock_notify(f"基岩版启动失败: {e}")
+
+    def _bedrock_remove_version(self, name: str) -> tuple:
+        manager = self._get_bedrock_manager()
+        if manager is None:
+            return False, "基岩版仅支持 Windows 系统"
+        try:
+            manager.remove_version(name)
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+
+    def _bedrock_check_environment(self) -> dict:
+        manager = self._get_bedrock_manager()
+        if manager is None:
+            return {"supported": False}
+        try:
+            report = self._bedrock_check_env_report()
+            return {"supported": True, **report}
+        except Exception as e:
+            logger.error(f"基岩版环境检测失败: {e}")
+            return {"supported": True, "error": str(e)}
+
+    def _bedrock_check_env_report(self) -> dict:
+        from launcher.bedrock.env import check_environment
+
+        report = check_environment()
+        return {
+            "developer_mode": report.developer_mode,
+            "gaming_services": report.gaming_services,
+            "vc_uwp": report.vc_uwp,
+            "vc_win32": report.vc_win32,
+            "game_input": report.game_input,
+        }
+
+    def _bedrock_is_running(self, game_type: str = "release") -> bool:
+        manager = self._get_bedrock_manager()
+        if manager is None:
+            return False
+        try:
+            return manager.is_game_running(game_type)
+        except Exception:
+            return False
+
+    def _bedrock_get_root(self) -> str:
+        manager = self._get_bedrock_manager()
+        if manager is None:
+            return ""
+        return str(manager.versions_root)
 
     def get_player_name(self) -> str:
         """获取自定义玩家名"""
