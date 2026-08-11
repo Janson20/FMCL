@@ -1604,6 +1604,11 @@ class EventHandlerMixin(object):
                 "url": "https://github.com/qk-yiyihehe/auto-mod-classifier",
                 "license_url": "https://github.com/qk-yiyihehe/auto-mod-classifier/blob/main/LICENSE",
             },
+            {
+                "name": "CapsWriter-Offline",
+                "url": "https://github.com/HaujetZhao/CapsWriter-Offline",
+                "license_url": "https://github.com/HaujetZhao/CapsWriter-Offline/blob/master/LICENSE"
+            }
         ]
 
         for ack in acknowledgments:
