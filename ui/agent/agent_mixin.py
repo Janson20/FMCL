@@ -41,6 +41,11 @@ class AgentMixin(object):
 
     def _refresh_agent_colors(self):
         self._sync_agent_status()
+        if hasattr(self, "_agent_chat") and self._agent_chat and hasattr(self._agent_chat, "_voice_btn"):
+            try:
+                self._agent_chat._voice_btn.refresh_theme()
+            except Exception:
+                pass
 
     def _on_agent_clear_log(self):
         """AGENT 已不再单独维护日志侧边栏，保留接口兼容"""

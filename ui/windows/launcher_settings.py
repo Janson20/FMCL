@@ -1587,6 +1587,9 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         bing_key = config.bing_api_key if config else ""
         self._bing_key_entry.insert(0, bing_key)
 
+        # ── 语音输入模型 ──
+        self._build_voice_section(container)
+
         # ── 保存按钮 ──
         save_ai_btn = ctk.CTkButton(
             container,
@@ -1851,6 +1854,189 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 self.after(0, lambda err=str(e): messagebox.showerror("FMCL", f"测试失败: {err}"))
 
         threading.Thread(target=_do_test, daemon=True).start()
+
+    # ── 语音输入模型配置 ──
+
+    def _build_voice_section(self, container):
+        """构建语音输入模型配置区块（AI 标签页内）"""
+        from ui.agent.voice.models import MODEL_MANUAL_HINT_URL, model_dir
+
+        import queue as _queue
+
+        self._voice_import_queue = _queue.Queue()
+        self._voice_import_polling = False
+
+        section = ctk.CTkFrame(container, fg_color=COLORS["bg_medium"], corner_radius=8)
+        section.pack(fill=ctk.X, pady=(5, 5))
+        self._r(section, fg_color="bg_medium")
+
+        title = ctk.CTkLabel(
+            section,
+            text=_("settings_voice_section"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+        )
+        title.pack(anchor=ctk.W, padx=12, pady=(10, 3))
+        self._r(title, text_color="text_primary")
+
+        # 模型状态
+        self._voice_status_label = ctk.CTkLabel(
+            section,
+            text="",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_secondary"],
+            wraplength=460,
+            justify=ctk.LEFT,
+        )
+        self._voice_status_label.pack(anchor=ctk.W, padx=12, pady=(0, 5))
+        self._r(self._voice_status_label, text_color="text_secondary")
+
+        # 按钮行
+        btn_frame = ctk.CTkFrame(section, fg_color="transparent")
+        btn_frame.pack(fill=ctk.X, padx=12, pady=(0, 5))
+
+        self._voice_import_btn = ctk.CTkButton(
+            btn_frame,
+            text=_("settings_voice_import_btn"),
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_voice_import,
+        )
+        self._voice_import_btn.pack(side=ctk.LEFT)
+
+        ctk.CTkButton(
+            btn_frame,
+            text=_("settings_voice_open_dir"),
+            height=28,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=lambda: self._open_dir(str(model_dir())),
+        ).pack(side=ctk.LEFT, padx=(8, 0))
+
+        # 说明与网盘提示
+        desc = ctk.CTkLabel(
+            section,
+            text=_("settings_voice_desc"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+            wraplength=460,
+            justify=ctk.LEFT,
+        )
+        desc.pack(anchor=ctk.W, padx=12, pady=(0, 3))
+        self._r(desc, text_color="text_secondary")
+
+        netdisk = ctk.CTkLabel(
+            section,
+            text=_("settings_voice_netdisk"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+            wraplength=460,
+            justify=ctk.LEFT,
+        )
+        netdisk.pack(anchor=ctk.W, padx=12, pady=(0, 2))
+        self._r(netdisk, text_color="text_secondary")
+
+        link = ctk.CTkLabel(
+            section,
+            text=MODEL_MANUAL_HINT_URL,
+            font=ctk.CTkFont(family="Consolas", size=9),
+            text_color=COLORS["accent"],
+            cursor="hand2",
+        )
+        link.pack(anchor=ctk.W, padx=12, pady=(0, 2))
+        link.bind("<Button-1>", lambda e: self._open_dir(MODEL_MANUAL_HINT_URL))
+        self._r(link, text_color="accent")
+
+        models_hint = ctk.CTkLabel(
+            section,
+            text=_("settings_voice_netdisk_models"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=9),
+            text_color=COLORS["text_secondary"],
+            wraplength=460,
+            justify=ctk.LEFT,
+        )
+        models_hint.pack(anchor=ctk.W, padx=12, pady=(0, 10))
+        self._r(models_hint, text_color="text_secondary")
+
+        self._refresh_voice_status()
+
+    def _refresh_voice_status(self):
+        """刷新语音模型状态显示"""
+        from ui.agent.voice.models import is_model_ready, model_version
+
+        if is_model_ready():
+            self._voice_status_label.configure(
+                text=_("settings_voice_status_ready", ver=model_version() or "?"), text_color=COLORS["success"]
+            )
+        else:
+            self._voice_status_label.configure(
+                text=_("settings_voice_status_missing"), text_color=COLORS["warning"]
+            )
+
+    def _on_voice_import(self):
+        """选择本地模型压缩包并导入"""
+        path = filedialog.askopenfilename(
+            title=_("settings_voice_import_btn"),
+            filetypes=[("ZIP 压缩包", "*.zip"), ("所有文件", "*.*")],
+        )
+        if not path:
+            return
+        self._voice_import_btn.configure(state=ctk.DISABLED, text=_("settings_voice_importing"))
+        self._voice_status_label.configure(text=_("settings_voice_importing"), text_color=COLORS["text_secondary"])
+        threading.Thread(target=self._voice_import_worker, args=(path,), daemon=True).start()
+        if not self._voice_import_polling:
+            self._voice_import_polling = True
+            self.after(200, self._voice_poll_import)
+
+    def _voice_import_worker(self, path):
+        """后台线程导入模型"""
+        from ui.agent.voice_input import VoiceInputManager
+
+        try:
+            version = VoiceInputManager.instance().import_model_zip(path)
+            self._voice_import_queue.put(("ok", version))
+        except Exception as e:
+            logger.warning(f"[Voice] 模型导入失败: {e}")
+            self._voice_import_queue.put(("err", str(e)))
+
+    def _voice_poll_import(self):
+        """轮询导入结果（主线程）"""
+        import queue as _queue
+
+        self._voice_import_polling = False
+        try:
+            kind, payload = self._voice_import_queue.get_nowait()
+        except _queue.Empty:
+            self._voice_import_polling = True
+            self.after(200, self._voice_poll_import)
+            return
+        self._voice_import_btn.configure(state=ctk.NORMAL, text=_("settings_voice_import_btn"))
+        if kind == "ok":
+            self._refresh_voice_status()
+            self.parent.set_status(_("settings_voice_import_ok", ver=payload), "success")
+        else:
+            self._refresh_voice_status()
+            from ui.dialogs import show_notification
+
+            show_notification(_("voice_error_title"), _("settings_voice_import_err", err=payload), notify_type="error")
+
+    @staticmethod
+    def _open_dir(path: str):
+        """打开目录或网页链接"""
+        import os
+        import webbrowser
+
+        try:
+            if path.startswith("http"):
+                webbrowser.open(path)
+                return
+            os.makedirs(path, exist_ok=True)
+            os.startfile(path)
+        except Exception as e:
+            logger.warning(f"打开路径失败 {path}: {e}")
 
     def _build_plugin_tab(self, tab):
         """构建插件管理标签页"""

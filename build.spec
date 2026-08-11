@@ -121,18 +121,34 @@ if platform == 'win':
     if tcl_lib_dir.exists():
         binaries_tkinter.append((str(tcl_lib_dir), '.'))
 
+# ── 语音输入 (sounddevice + onnxruntime + sentencepiece) 动态库收集 ──
+from PyInstaller.utils.hooks import collect_dynamic_libs
+
+voice_binaries = []
+try:
+    voice_binaries += collect_dynamic_libs('_sounddevice_data')
+    voice_binaries += collect_dynamic_libs('onnxruntime')
+    voice_binaries += collect_dynamic_libs('sentencepiece')
+except Exception:
+    pass
+voice_hidden_imports = [
+    'sounddevice', '_sounddevice_data', 'numpy', 'sentencepiece',
+    'onnxruntime', 'ui.agent.voice_input', 'ui.agent.voice',
+    'ui.agent.voice.sensevoice', 'ui.agent.voice.models',
+]
+
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=binaries_tkinter if platform == 'win' else [],
+    binaries=binaries_tkinter + voice_binaries if platform == 'win' else binaries_tkinter,
     datas=datas,
-    hiddenimports=hidden_imports,
+    hiddenimports=hidden_imports + voice_hidden_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
         'PyQt5', 'PyQt6', 'PySide2', 'PySide6',
-        'matplotlib', 'numpy', 'pandas', 'scipy',
+        'matplotlib', 'pandas', 'scipy',
         'IPython', 'jupyter', 'notebook',
     ],
     win_no_prefer_redirects=False,

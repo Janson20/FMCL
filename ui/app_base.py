@@ -161,6 +161,12 @@ class ModernAppBase(ctk.CTk):
         self._agent_quick_input.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(20, 10))
         self._agent_quick_input.bind("<Return>", self._on_agent_quick_send)
 
+        # 语音输入按钮（点击开始录音，再次点击结束并填入识别结果）
+        from ui.agent.voice_input import VoiceMicButton
+
+        self._agent_voice_btn = VoiceMicButton(header, entry=self._agent_quick_input, height=35)
+        self._agent_voice_btn.pack(side=ctk.LEFT, padx=(0, 10))
+
         # 刷新按钮
         self.refresh_btn = ctk.CTkButton(
             header,
@@ -1484,6 +1490,11 @@ class ModernAppBase(ctk.CTk):
             self._refresh_links_colors()
         if hasattr(self, "_refresh_ach_colors"):
             self._refresh_ach_colors()
+        if hasattr(self, "_agent_voice_btn"):
+            try:
+                self._agent_voice_btn.refresh_theme()
+            except Exception:
+                pass
 
     def _refresh_links_colors(self):
         pass

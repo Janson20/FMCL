@@ -94,3 +94,6 @@ data/
 data/agent/
 themes/
 skills/
+
+# 语音识别模型（首次使用时自动下载）
+models/

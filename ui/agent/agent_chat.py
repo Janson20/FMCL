@@ -924,6 +924,12 @@ class AgentChatView(ctk.CTkFrame):
         self._input_entry.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(0, 6))
         self._input_entry.bind("<Return>", lambda e: self._on_send())
 
+        # 语音输入按钮（点击开始录音，再次点击结束并填入识别结果）
+        from ui.agent.voice_input import VoiceMicButton
+
+        self._voice_btn = VoiceMicButton(input_frame, entry=self._input_entry, height=34)
+        self._voice_btn.pack(side=ctk.LEFT, padx=(0, 6))
+
         self._send_btn = ctk.CTkButton(
             input_frame,
             text=_("agent_send"),

@@ -1,2 +1,4 @@
 -r requirements.txt
 winsdk>=1.0.0b10
+# Windows: DirectML 推理后端（自带 CPU 后端），用于语音识别
+onnxruntime-directml>=1.20

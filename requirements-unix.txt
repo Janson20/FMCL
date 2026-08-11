@@ -1,1 +1,3 @@
 -r requirements.txt
+# Linux/macOS: CPU 推理后端（Windows 使用 onnxruntime-directml）
+onnxruntime>=1.20

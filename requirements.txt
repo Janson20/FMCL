@@ -20,4 +20,7 @@ nvidia-ml-py>=12.535
 gpu-detector>=0.3.0
 pillow>=10.0.0
 qrcode>=8.0
+sounddevice>=0.4.6
+numpy>=1.24.0
+sentencepiece>=0.1.99
 
