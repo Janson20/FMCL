@@ -1373,5 +1373,7 @@
   "wy_vip_quality_package": "高音質 320k",
   "wy_vip_quality_vip": "ロスレス音質 FLAC",
   "wy_vip_quality_svip": "マスター音質 192kHz/24bit",
-  "settings_wy_logged_in_with_tier": "ログイン中: {name}（{tier} · {quality}）"
+  "settings_wy_logged_in_with_tier": "ログイン中: {name}（{tier} · {quality}）",
+  "settings_music_baike_original": "百度百科オリジナル歌手フォールバック",
+  "settings_music_baike_original_desc": "アルゴリズムでオリジナル歌手を判定できない場合、百度百科の「原唱」欄を非同期で検索してマークを補充します（百度のセキュリティ認証が発生する可能性があります）"
 }

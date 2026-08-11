@@ -1373,5 +1373,7 @@
   "wy_vip_quality_package": "High 320k",
   "wy_vip_quality_vip": "Lossless FLAC",
   "wy_vip_quality_svip": "Master 192kHz/24bit",
-  "settings_wy_logged_in_with_tier": "Logged in as: {name} ({tier} · {quality})"
+  "settings_wy_logged_in_with_tier": "Logged in as: {name} ({tier} · {quality})",
+  "settings_music_baike_original": "Baidu Baike Original Singer Fallback",
+  "settings_music_baike_original_desc": "When the algorithm cannot determine the original singer, asynchronously look up the \"original singer\" field on Baidu Baike and backfill the marker (may trigger Baidu security checks)"
 }

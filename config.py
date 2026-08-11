@@ -309,6 +309,9 @@ class Config:
         # 音乐播放器状态
         self.music_state: dict = {}
 
+        # 网易云音乐百度百科原唱兜底（算法无法判定原唱时，异步查询百度百科回填）
+        self.music_baike_original_enabled: bool = True
+
         # 网易云音乐登录 Cookie（加密存储，用于 VIP 歌曲播放与 VIP 歌词）
         self.wy_cookie: Optional[str] = None
 
@@ -418,6 +421,8 @@ class Config:
                 self._account_migration_done = data["account_migration_done"]
             if "music_state" in data:
                 self.music_state = data["music_state"]
+            if "music_baike_original_enabled" in data:
+                self.music_baike_original_enabled = bool(data["music_baike_original_enabled"])
             if "wy_cookie" in data:
                 stored = data["wy_cookie"]
                 if stored:
@@ -465,6 +470,7 @@ class Config:
                 "current_account_id": self.current_account_id,
                 "account_migration_done": self._account_migration_done,
                 "music_state": self.music_state,
+                "music_baike_original_enabled": self.music_baike_original_enabled,
                 "wy_cookie": encrypt_token(self.wy_cookie) if self.wy_cookie else None,
             }
             content = _json_dumps(data, indent=2, ensure_ascii=False)

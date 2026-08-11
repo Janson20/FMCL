@@ -1373,5 +1373,7 @@
   "wy_vip_quality_package": "極高音質 320k",
   "wy_vip_quality_vip": "無損音質 FLAC",
   "wy_vip_quality_svip": "超清母帶 192kHz/24bit",
-  "settings_wy_logged_in_with_tier": "已登入: {name}（{tier} · {quality}）"
+  "settings_wy_logged_in_with_tier": "已登入: {name}（{tier} · {quality}）",
+  "settings_music_baike_original": "百度百科原唱兜底",
+  "settings_music_baike_original_desc": "演算法無法判定原唱時，非同步查詢百度百科詞條「原唱」欄位回填標記（可能觸發百度安全驗證）"
 }

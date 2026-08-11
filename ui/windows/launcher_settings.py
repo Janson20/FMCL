@@ -847,6 +847,53 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         self._wy_logout_btn.pack(side=ctk.LEFT)
         self._r(self._wy_logout_btn, fg_color="bg_light", hover_color="card_border")
 
+        # 百度百科原唱兜底开关（算法无法判定原唱时，异步查询百科回填）
+        baike_row = ctk.CTkFrame(wy_section, fg_color="transparent")
+        baike_row.pack(fill=ctk.X, padx=12, pady=(0, 2))
+
+        baike_label = ctk.CTkLabel(
+            baike_row,
+            text=_("settings_music_baike_original"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLORS["text_primary"],
+        )
+        baike_label.pack(side=ctk.LEFT)
+        self._r(baike_label, text_color="text_primary")
+
+        self.baike_original_var = ctk.BooleanVar(
+            value=self.callbacks.get("get_music_baike_original_enabled", lambda: True)()
+        )
+        self.baike_original_switch = ctk.CTkSwitch(
+            baike_row,
+            text="",
+            variable=self.baike_original_var,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            fg_color=COLORS["accent"],
+            button_color=COLORS["text_primary"],
+            button_hover_color=COLORS["text_secondary"],
+            progress_color=COLORS["accent_hover"],
+            command=self._on_baike_original_toggle,
+        )
+        self.baike_original_switch.pack(side=ctk.RIGHT)
+        self._r(
+            self.baike_original_switch,
+            fg_color="accent",
+            button_color="text_primary",
+            button_hover_color="text_secondary",
+            progress_color="accent_hover",
+        )
+
+        baike_desc = ctk.CTkLabel(
+            wy_section,
+            text=_("settings_music_baike_original_desc"),
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLORS["text_secondary"],
+            wraplength=440,
+            anchor="w",
+        )
+        baike_desc.pack(anchor=ctk.W, padx=12, pady=(0, 10))
+        self._r(baike_desc, text_color="text_secondary")
+
         # 初始化登录状态显示（异步校验，不阻塞窗口）
         self._wy_refresh_status()
 
@@ -1479,6 +1526,11 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         if vip_type != 0:
             return _("wy_vip_vip"), _("wy_vip_quality_vip")
         return _("wy_vip_free"), _("wy_vip_quality_free")
+
+    def _on_baike_original_toggle(self):
+        enabled = self.baike_original_var.get()
+        if "set_music_baike_original_enabled" in self.callbacks:
+            self.callbacks["set_music_baike_original_enabled"](enabled)
 
     def _on_wy_logout(self):
         """退出网易云音乐账号"""

@@ -2379,6 +2379,8 @@ class MinecraftLauncher:
             "set_java_custom_path": self.set_java_custom_path,
             "save_music_state": self.save_music_state,
             "load_music_state": self.load_music_state,
+            "get_music_baike_original_enabled": self.get_music_baike_original_enabled,
+            "set_music_baike_original_enabled": self.set_music_baike_original_enabled,
             "get_wy_cookie": self.get_wy_cookie,
             "set_wy_cookie": self.set_wy_cookie,
         }
@@ -2686,6 +2688,23 @@ class MinecraftLauncher:
 
     def load_music_state(self) -> dict:
         return self.config.music_state if self.config.music_state else {}
+
+    def get_music_baike_original_enabled(self) -> bool:
+        """获取网易云百度百科原唱兜底开关状态"""
+        return self.config.music_baike_original_enabled
+
+    def set_music_baike_original_enabled(self, enabled: bool) -> None:
+        """设置网易云百度百科原唱兜底开关并同步到网易云音源单例"""
+        self.config.music_baike_original_enabled = bool(enabled)
+        self.config.save_config()
+        try:
+            from ui.music_source import MUSIC_SOURCES
+
+            wy_src = MUSIC_SOURCES.get("wy")
+            if wy_src is not None and hasattr(wy_src, "set_baike_enabled"):
+                wy_src.set_baike_enabled(bool(enabled))
+        except Exception as e:
+            logger.warning(f"同步网易云百度百科原唱开关失败: {e}")
 
     def get_wy_cookie(self) -> Optional[str]:
         """获取网易云音乐登录 Cookie（用于 VIP 歌曲播放与 VIP 歌词）"""

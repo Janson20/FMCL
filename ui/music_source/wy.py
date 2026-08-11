@@ -5,9 +5,14 @@ import json
 import logging
 import random
 import re
+import threading
+import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from urllib.parse import urlencode
+
+import requests
 
 from ui.music_source.base import BaseMusicSource, MusicInfo
 from ui.music_source.utils import decode_name, format_singer, wy_eapi, wy_weapi
@@ -122,16 +127,27 @@ CURATED_ORIGINAL_IDS = {
     "22746049",  # 未来へ（后来 原曲） - Kiroro
     "505474379",  # 病名は愛だった - Neru、鏡音レン、鏡音リン、z'5
     "548648148",  # 病名は愛だった - Neru、鏡音レン、鏡音リン、z'5
+    "429460239",  # 世末歌者 - 乐正绫、COP
 }
 
-# 无音源原唱表（规范化歌名 -> 原唱）：网易平台没有原唱版本录音的歌曲，
-# 搜索结果页内全是翻唱/大众熟知版本，算法只能置顶最热版本，
-# 由徽章显示真实原唱名（原唱版本缺失，无法用 ID 制修正）。
+# 徽章原唱表（规范化歌名 -> 原唱）：算法候选不可靠时，置顶结果页最热
+# 干净版本并由徽章显示真实原唱名（is_original + original_name）。
+# 适用场景:
+#   1. 无音源原唱表：网易平台没有原唱版本录音的歌曲，搜索结果页内全是
+#      翻唱/大众熟知版本，算法只能置顶最热版本，由徽章显示真实原唱名
+#      （原唱版本缺失，无法用 ID 制修正，如《突然的自我》黄小琥）
+#   2. 原唱版本不在结果页：平台有原唱录音但搜索页内搜不到（如《弯弯的月亮》
+#      陈汝佳、《明天你是否依然爱我》王芷蕾），算法会误把更火的大众熟知版
+#      （刘欢/童安格）标为原唱，须用徽章覆盖
+# 命中时直接置顶最热干净版本并打徽章（先于算法候选与特别规则）；若该版本的
+# 歌手本身就是原唱（结果页恰好有原唱版本），则只标原唱不画蛇添足打徽章。
 NO_SOURCE_ORIGINALS = {
     "突然的自我": "黄小琥",
     "月亮代表我的心": "陈芬兰",
     "普通disco": "洛天依、言和",
     "大碗宽面": "吴亦凡",
+    "弯弯的月亮": "陈汝佳",
+    "明天你是否依然爱我": "王芷蕾",
 }
 
 # 同名不同曲表：多首互不相关的歌曲同名（如《蝴蝶》陶喆版与洛天依版、
@@ -158,6 +174,249 @@ NO_ORIGINAL_SONGS = {
 _COVER_ARTISTS = {"封茗囧菌", "洛少爷"}  # 以翻唱为主的歌手（规范化后）
 _LUOTIANYI_ARTISTS = {"洛天依", "洛天依official"}  # 洛天依（规范化后，含 Official 后缀）
 
+# 规则 17 排除表（规范化歌名）：洛天依并非原唱的歌曲（如《世末歌者》
+# 原唱为乐正绫，洛天依Official 版是官方翻唱），结果中同时出现
+# 封茗囧菌/洛少爷翻唱与洛天依版本时，禁止规则 17 把洛天依版置顶。
+# 正常场景由 CURATED_ORIGINAL_IDS 标乐正绫原版，此表兜底防止原版
+# 不在结果页时误判。
+_COVER_RULE_EXCLUDED_SONGS = {"世末歌者"}
+
+# ── 百度百科原唱兜底 ─────────────────────────────────
+#
+# 算法无法判定原唱（无 origin 引用/无有效日期/结果页内无原唱版本）时，
+# 异步查询百度百科词条的「原唱」卡片字段回填：优先在结果中匹配该歌手的
+# 版本标原唱置顶，匹配不到则对最热干净版本打徽章（同 NO_SOURCE_ORIGINALS
+# 行为）。查询在后台线程执行，不阻塞搜索返回；结果由 UI 层注册的回调刷新。
+# 实现移植自独立工具 baike_singer.py（百度百科移动版页面解析）。
+
+
+class _BaikeOriginalLookup:
+    """百度百科原唱歌手查询客户端（异步兜底用）
+
+    解析策略（参考独立工具 baike_singer.py）:
+        1. 直接访问词条页 /item/<歌名>，解析 __NEXT_DATA__ 义项数据
+           定位同名歌曲词条（义项描述含歌曲/演唱等关键词的候选）
+        2. /search/word 搜索接口兜底（被安全验证限流时自动跳过）
+        3. 候选词条逐个抓取，找到含「原唱」卡片字段的即返回
+
+    线程安全: 每次 lookup() 创建独立 Session（requests.Session 非线程安全，
+    参考工具官方建议多线程场景各线程独立实例）；实例级搜索接口健康标记
+    由锁保护。
+    """
+
+    WAP_BAIKE_BASE = "https://wapbaike.baidu.com"
+    _UA = (
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
+        "Mobile/15E148 Safari/604.1"
+    )
+    # 词条页信息卡（index_cardName__xxx 字段名 / index_cardValue__xxx 值）
+    _CARD_ITEM_RE = re.compile(
+        r'<div class="index_cardName__[^"]*">([^<]+)</div>'
+        r'\s*<div class="index_cardValue__[^"]*">(.*?)</div>',
+        re.DOTALL,
+    )
+    _TAG_RE = re.compile(r"<[^>]+>")
+    _WS_RE = re.compile(r"\s+")
+    _NEXT_DATA_RE = re.compile(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+        re.DOTALL,
+    )
+    _ITEM_LINK_RE = re.compile(r'href="(/item/[^"]*)"[^>]*>(.*?)</a>', re.DOTALL)
+    _SONG_KEYWORDS = ("歌曲", "演唱", "歌手", "音乐", "歌", "曲")
+    _SONG_CLASSIFY = ("音乐作品", "歌曲", "音乐")
+    _CAPTCHA_PATHS = ("captcha", "anticrawl")
+
+    def __init__(
+        self,
+        timeout: float = 10,
+        max_retries: int = 1,
+        request_interval: float = 0.5,
+        max_candidates: int = 4,
+    ) -> None:
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.request_interval = request_interval
+        self.max_candidates = max_candidates
+        self._search_healthy = True
+        self._lock = threading.Lock()
+
+    def lookup(self, name: str) -> Optional[str]:
+        """按歌名查询原唱歌手，无词条/被拦截/网络失败返回 None（异常内部消化）"""
+        if not name or not name.strip():
+            return None
+        session = requests.Session()
+        session.headers.update(
+            {
+                "User-Agent": self._UA,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+            }
+        )
+        try:
+            return self._extract_by_name(name.strip(), session)
+        except Exception as e:
+            logger.debug(f"百度百科原唱查询异常 [{name}]: {e}")
+            return None
+
+    def _fetch(self, session: requests.Session, url: str) -> Optional[requests.Response]:
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                resp = session.get(url, timeout=self.timeout, allow_redirects=True)
+                if resp.status_code == 200 and resp.text:
+                    if self.request_interval:
+                        time.sleep(self.request_interval)
+                    return resp
+                last_error = f"HTTP {resp.status_code}"
+            except requests.RequestException as exc:
+                last_error = exc
+            if attempt < self.max_retries - 1:
+                time.sleep(0.5)
+        logger.debug(f"百度百科抓取失败 ({url}): {last_error}")
+        return None
+
+    def _is_captcha(self, resp: requests.Response) -> bool:
+        path = urllib.parse.urlparse(resp.url).path.lower()
+        if any(p in path for p in self._CAPTCHA_PATHS):
+            return True
+        return "安全验证" in resp.text[:2000]
+
+    @staticmethod
+    def _parse_next_data(html: str) -> Optional[dict]:
+        match = _BaikeOriginalLookup._NEXT_DATA_RE.search(html)
+        if not match:
+            return None
+        try:
+            data = json.loads(match.group(1))
+            return data["props"]["pageProps"]["pageData"]
+        except (ValueError, KeyError, TypeError):
+            return None
+
+    @classmethod
+    def _find_original_singer(cls, html: str) -> Optional[Tuple[str, str]]:
+        """在词条页信息卡中查找「原唱」字段，返回 (字段名, 歌手文本)"""
+        cards: List[Tuple[str, str]] = []
+        for match in cls._CARD_ITEM_RE.finditer(html):
+            name = match.group(1).strip()
+            value = re.sub(r"</(?:span|a)>", "/", match.group(2))
+            text = cls._WS_RE.sub(" ", cls._TAG_RE.sub("", value)).strip().strip("/")
+            if name and text:
+                cards.append((name, text.replace(" ", "")))
+        exact = [c for c in cards if c[0] == "原唱"]
+        contains = [c for c in cards if "原唱" in c[0]]
+        for name, text in exact or contains:
+            return name, text
+        return None
+
+    @staticmethod
+    def _is_song_lemma(candidate: dict) -> bool:
+        classify = " ".join(candidate.get("classify") or [])
+        desc = candidate.get("lemmaDesc") or ""
+        return any(k in classify for k in _BaikeOriginalLookup._SONG_CLASSIFY) or any(
+            k in desc for k in _BaikeOriginalLookup._SONG_KEYWORDS
+        )
+
+    def _item_candidates(
+        self, session: requests.Session, name: str
+    ) -> Tuple[str, Optional[requests.Response], List[Tuple[str, str, str]]]:
+        """直接访问 /item/<歌名> 词条页，返回 (词条名, 响应, 同名歌曲义项候选)"""
+        url = self.WAP_BAIKE_BASE + "/item/" + urllib.parse.quote(name)
+        resp = self._fetch(session, url)
+        if resp is None:
+            return name, None, []
+        page = self._parse_next_data(resp.text) or {}
+        title = page.get("lemmaTitle") or name
+        current_id = page.get("lemmaId")
+        candidates: List[Tuple[str, str, str]] = []
+        for lemma in (page.get("navigation") or {}).get("lemmas") or []:
+            if lemma.get("lemmaId") == current_id:
+                continue
+            if lemma.get("lemmaTitle") and self._is_song_lemma(lemma):
+                candidates.append(
+                    (
+                        self.WAP_BAIKE_BASE
+                        + "/item/"
+                        + urllib.parse.quote(lemma["lemmaTitle"])
+                        + "/" + str(lemma["lemmaId"]),
+                        lemma["lemmaTitle"],
+                        lemma.get("lemmaDesc") or "",
+                    )
+                )
+        return title, resp, candidates
+
+    def _search_candidates(
+        self, session: requests.Session, name: str
+    ) -> Optional[List[Tuple[str, str, str]]]:
+        with self._lock:
+            healthy = self._search_healthy
+        if not healthy:
+            return None
+        resp = self._fetch(
+            session, self.WAP_BAIKE_BASE + "/search/word?word=" + urllib.parse.quote(name)
+        )
+        if resp is None:
+            return None
+        if self._is_captcha(resp):
+            with self._lock:
+                self._search_healthy = False
+            return None
+        path = urllib.parse.urlparse(resp.url).path
+        if path.startswith("/item/"):
+            return [(resp.url, urllib.parse.unquote(path.split("/")[2]), "")]
+        candidates: List[Tuple[str, str, str]] = []
+        seen = set()
+        for match in self._ITEM_LINK_RE.finditer(resp.text):
+            url = self.WAP_BAIKE_BASE + match.group(1)
+            if url in seen:
+                continue
+            seen.add(url)
+            title = self._WS_RE.sub(" ", self._TAG_RE.sub("", match.group(2))).strip()
+            if not title or not any(k in title for k in self._SONG_KEYWORDS):
+                continue
+            candidates.append((url, title, ""))
+        return candidates
+
+    def _try_candidates(
+        self, session: requests.Session, candidates: List[Tuple[str, str, str]], visited: set
+    ) -> Optional[Tuple[str, str]]:
+        tried = 0
+        for url, title, desc in candidates:
+            if url in visited:
+                continue
+            visited.add(url)
+            if tried >= self.max_candidates:
+                break
+            tried += 1
+            resp = self._fetch(session, url)
+            if resp is None:
+                continue
+            result = self._find_original_singer(resp.text)
+            if result is not None:
+                return title, result[1]
+        return None
+
+    def _extract_by_name(self, name: str, session: requests.Session) -> Optional[str]:
+        visited: set = set()
+        title, resp, candidates = self._item_candidates(session, name)
+        if resp is not None:
+            if self._is_captcha(resp):
+                logger.debug(f"百度百科词条页被安全验证拦截: {name}")
+                return None
+            result = self._find_original_singer(resp.text)
+            if result is not None:
+                return result[1]
+        if candidates:
+            found = self._try_candidates(session, candidates, visited)
+            if found is not None:
+                return found[1]
+        candidates = self._search_candidates(session, name)
+        if candidates:
+            found = self._try_candidates(session, candidates, visited)
+            if found is not None:
+                return found[1]
+        return None
+
 
 class NetEaseMusicSource(BaseMusicSource):
     source_id = "wy"
@@ -178,6 +437,15 @@ class NetEaseMusicSource(BaseMusicSource):
         )
         self._session.cookies.set("MUSIC_U", "", domain=".music.163.com")
         self._session.cookies.set("__remember_me", "true", domain=".music.163.com")
+        # ── 百度百科原唱兜底状态 ──
+        self._baike_enabled = True  # 开关（由 UI 层同步，见 set_baike_enabled）
+        self._original_fallback_callback = None  # 异步回填回调（UI 层注册）
+        self._baike_lookup = _BaikeOriginalLookup()
+        # 内存缓存：规范化歌名 -> 原唱名（空串 = 负缓存，避免重复查询）
+        self._baike_cache = {}
+        # 进行中的查询：规范化歌名 -> 等待回填的结果列表（同歌多页并发去重）
+        self._baike_pending: dict = {}
+        self._baike_lock = threading.Lock()
 
     # ── 搜索 ────────────────────────────────────────
 
@@ -204,6 +472,8 @@ class NetEaseMusicSource(BaseMusicSource):
                 self._mark_original(results, keyword)
             except Exception as e:
                 logger.warning(f"网易标记原唱失败: {e}")
+            # 算法无原唱候选时，异步触发百度百科兜底（不阻塞搜索返回）
+            self._maybe_baike_fallback(results, keyword)
             return results
         except Exception as e:
             logger.warning(f"网易云搜索失败: {e}")
@@ -326,9 +596,10 @@ class NetEaseMusicSource(BaseMusicSource):
             13. 原唱 ID 策展表（CURATED_ORIGINAL_IDS）全局匹配：搜索结果
                 中出现平台原唱 ID 的歌曲，全部置顶（保持原热度顺序）并标
                 原唱标签（平台官方做法，支持同一歌名多原唱）
-            14. 单结果/无簇可比的歌曲：无音源表（NO_SOURCE_ORIGINALS）
-                命中时置顶最热版本，由徽章显示真实原唱名（平台无原唱音源）；
-                其余无算法候选的歌曲不标记
+            14. 徽章原唱表（NO_SOURCE_ORIGINALS）命中（无原唱音源或原唱版本
+                不在结果页）：直接置顶最热干净版本，由徽章显示真实原唱名，
+                先于算法候选与特别规则（避免更火的大众熟知版被误标，如
+                《弯弯的月亮》刘欢版）；其余无算法候选的歌曲不标记
             15. 搜索词精确命中某组（含版本词括号，如 彼岸花（诗岸&ナツメイツキ））
                 时只允许该组产生候选，避免模糊匹配的同名不同曲抢位
             16. 仅将原唱前移置顶并打上原唱标签，其余结果保持热度排序不变
@@ -359,6 +630,26 @@ class NetEaseMusicSource(BaseMusicSource):
         if singer_hits >= 2 and sum(self._group_key(info.name) == kw for info in results) < 2:
             return
 
+        # 徽章原唱表命中（无音源/原唱版本不在结果页）：置顶最热干净版本，
+        # 由徽章显示真实原唱名。先于算法候选与特别规则，避免把更火的
+        # 大众熟知版误标为原唱（如《弯弯的月亮》刘欢版、《明天你是否依然
+        # 爱我》童安格版）；命中版本的歌手本身就是原唱时不打徽章。
+        badge_target = None
+        badge_original = ""
+        for info in results:
+            key = self._group_key(info.name)
+            if key in NO_SOURCE_ORIGINALS and self._is_clean_name(info.name):
+                badge_target, badge_original = info, NO_SOURCE_ORIGINALS[key]
+                break
+        if badge_target is not None:
+            badge_norm = self._normalize_keyword(badge_original)
+            if badge_norm and badge_norm not in self._singer_artists(badge_target):
+                badge_target.original_name = badge_original
+            badge_target.is_original = True
+            results.remove(badge_target)
+            results.insert(0, badge_target)
+            return
+
         # 17. 特别规则：封茗囧菌/洛少爷翻唱 -> 洛天依版为原唱。
         # 结果中同时存在歌手含"封茗囧菌/洛少爷"的歌曲（翻唱）与歌手含
         # "洛天依/洛天依Official"的同名歌曲（原唱）时，只标洛天依版本：
@@ -376,6 +667,10 @@ class NetEaseMusicSource(BaseMusicSource):
             for info, artists in artist_sets
             if (artists & _COVER_ARTISTS) and not (artists & _LUOTIANYI_ARTISTS)
         ]
+        if original_hits and cover_hits:
+            # 排除表命中（如《世末歌者》原唱是乐正绫而非洛天依）时，规则 17 不适用
+            if any(self._group_key(i.name) in _COVER_RULE_EXCLUDED_SONGS for i in original_hits):
+                original_hits = []
         if original_hits and cover_hits:
             shared_keys = {self._group_key(i.name) for i in original_hits} & {
                 self._group_key(i.name) for i in cover_hits
@@ -475,25 +770,164 @@ class NetEaseMusicSource(BaseMusicSource):
             )
             original = candidates[0][1]
         else:
-            # 无算法候选时：无音源表（平台无原唱音源）命中则置顶最热干净
-            # 版本，由徽章显示真实原唱名；其余歌曲不标记（跟随平台：
-            # 原唱不在结果页内的歌不标原唱）
+            # 无算法候选：不标记（跟随平台，原唱不在结果页内的歌不标原唱）
             original = None
-            for info in results:
-                if self._group_key(info.name) in NO_SOURCE_ORIGINALS and self._is_clean_name(info.name):
-                    original = info
-                    break
         if original is None:
             return
         original.is_original = True
-        # 无音源表修正：徽章显示真实原唱名（原唱版本在平台无音源，无法置顶）
-        curated = NO_SOURCE_ORIGINALS.get(self._group_key(original.name))
-        if curated:
-            curated_norm = self._normalize_keyword(curated)
-            if curated_norm and curated_norm not in self._singer_artists(original):
-                original.original_name = curated
         results.remove(original)
         results.insert(0, original)
+
+    # ── 百度百科原唱兜底（异步） ─────────────────────
+
+    def set_baike_enabled(self, enabled: bool) -> None:
+        """设置百度百科原唱兜底开关（False 时不再触发新的百科查询）"""
+        self._baike_enabled = bool(enabled)
+
+    def is_baike_enabled(self) -> bool:
+        """百度百科原唱兜底是否开启"""
+        return self._baike_enabled
+
+    def set_original_fallback_callback(self, callback) -> None:
+        """注册异步回填回调（UI 层调用）
+
+        百科查询完成并回填 results 后在后台线程触发该回调，
+        回调需自行将 Tk 操作转回主线程（如 self.after(0, ...)）。
+        """
+        self._original_fallback_callback = callback
+
+    def _maybe_baike_fallback(self, results: List[MusicInfo], keyword: str) -> None:
+        """算法无原唱候选时触发百度百科兜底（仅当开关开启且 UI 已注册回调）
+
+        排除场景（与 _mark_original 一致的判定）:
+            - 已有原唱标记的结果
+            - 同名不同曲表命中的搜索词（无法判定用户意图）
+            - 歌手搜索场景（搜索词是歌手名且歌名命中不足 2 条）
+        """
+        if not self._baike_enabled:
+            return
+        if self._original_fallback_callback is None:
+            return
+        if not results or any(info.is_original for info in results):
+            return
+        kw = self._normalize_keyword(keyword)
+        if not kw or self._group_key(kw) in NO_ORIGINAL_SONGS:
+            return
+        singer_hits = sum(kw in self._singer_artists(info) for info in results)
+        if singer_hits >= 2 and sum(self._group_key(info.name) == kw for info in results) < 2:
+            return
+        # 查询名：取结果中首条干净歌名（剥离版本后缀），否则用搜索词
+        query_name = ""
+        for info in results:
+            if self._is_clean_name(info.name):
+                query_name = self._strip_version_suffix(info.name).strip()
+                break
+        if not query_name:
+            query_name = kw
+        if not query_name:
+            return
+        self._spawn_baike_lookup(query_name, results)
+
+    def _spawn_baike_lookup(self, query_name: str, results: List[MusicInfo]) -> None:
+        """按规范化歌名去重后启动后台查询线程（缓存命中则直接回填并通知 UI）
+
+        同一歌名并发多次搜索（翻页/重复搜索）时只发一次百科请求，
+        其余结果列表挂到 pending 队列，查询完成后统一回填通知
+        （UI 回调自行校验列表是否仍为当前展示页）。
+        """
+        key = self._normalize_keyword(query_name)
+        with self._baike_lock:
+            if key in self._baike_cache:
+                cached = self._baike_cache[key]
+                inflight = False
+            elif key in self._baike_pending:
+                self._baike_pending[key].append(results)
+                return
+            else:
+                self._baike_pending[key] = [results]
+                cached, inflight = None, True
+        if not inflight:
+            if cached:
+                self._notify_baike_backfill(results, cached)
+            return
+
+        def _worker():
+            try:
+                singer = self._baike_lookup.lookup(query_name)
+            except Exception as e:
+                logger.debug(f"百度百科原唱查询异常 [{query_name}]: {e}")
+                singer = None
+            with self._baike_lock:
+                pending = self._baike_pending.pop(key, [])
+                # 负结果也缓存（空串），避免同一首歌重复触发百科请求
+                self._baike_cache[key] = singer or ""
+                if len(self._baike_cache) > 500:
+                    self._trim_baike_cache()
+            if not singer:
+                logger.debug(f"百度百科未找到原唱: {query_name}")
+                return
+            for lst in pending:
+                self._notify_baike_backfill(lst, singer)
+
+        threading.Thread(
+            target=_worker, daemon=True, name=f"BaikeOriginal-{key[:16]}"
+        ).start()
+
+    def _notify_baike_backfill(self, results: List[MusicInfo], singer: str) -> None:
+        """应用百科回填并通知 UI 刷新（缓存命中/后台查询完成后共用）"""
+        try:
+            self._apply_baike_result(results, singer)
+        except Exception as e:
+            logger.debug(f"百度百科原唱回填异常: {e}")
+            return
+        callback = self._original_fallback_callback
+        if callback is not None:
+            try:
+                callback(results)
+            except Exception as e:
+                logger.debug(f"百度百科原唱回填回调异常: {e}")
+
+    def _trim_baike_cache(self) -> None:
+        """淘汰最旧条目（dict 保持插入顺序，弹出最早插入的键）"""
+        while len(self._baike_cache) > 500:
+            self._baike_cache.pop(next(iter(self._baike_cache)))
+
+    def _apply_baike_result(self, results: List[MusicInfo], singer: str) -> None:
+        """按百科原唱名回填结果（须持有列表独占权，调用方保证不在主线程遍历）
+
+        1. 拆分规范化百科原唱名（/、等分隔符 + 括号别名）
+        2. 结果中歌手匹配百科原唱的全部干净版本标原唱并前移置顶（保持热度序）
+        3. 无匹配时对最热干净版本打徽章显示原唱名（同 NO_SOURCE_ORIGINALS 行为）
+        """
+        if not singer or not results:
+            return
+        expect: set = set()
+        for part in re.split(r"[、/|,，;；]", singer):
+            name = self._sanitize_artist(part)
+            if len(name) >= 2:
+                expect.add(name)
+            for m in _PAREN_ALIAS_RE.finditer(part):
+                alias = self._sanitize_artist(m.group(1))
+                if len(alias) >= 2:
+                    expect.add(alias)
+        if not expect:
+            return
+        matched = []
+        for info in results:
+            if self._is_clean_name(info.name) and (self._singer_artists(info) & expect):
+                matched.append(info)
+        if matched:
+            for info in matched:
+                info.is_original = True
+            results[:] = matched + [info for info in results if info not in matched]
+            return
+        for info in results:
+            if self._is_clean_name(info.name):
+                info.is_original = True
+                info.original_name = singer
+                results.remove(info)
+                results.insert(0, info)
+                return
 
     def _group_choice(self, metas, kw_artists: set, album_times: dict) -> Optional[MusicInfo]:
         """组内多簇竞争选原唱候选

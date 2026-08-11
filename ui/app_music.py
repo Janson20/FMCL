@@ -1411,6 +1411,18 @@ class MusicPlayerMixin(object):
 
         self._music_select_source(self._music_selected_source)
 
+        # 网易云百度百科原唱兜底：同步开关状态并注册异步回填回调
+        # （查询在后台线程执行，回填后经 after(0,...) 转主线程刷新置顶行）
+        wy_src = MUSIC_SOURCES.get("wy")
+        if wy_src is not None:
+            try:
+                from config import config as _cfg
+
+                wy_src.set_baike_enabled(bool(getattr(_cfg, "music_baike_original_enabled", True)))
+            except Exception as e:
+                logger.warning(f"同步网易云百度百科原唱开关失败: {e}")
+            wy_src.set_original_fallback_callback(self._music_original_backfill_cb)
+
         # 音质选择
         quality_row = ctk.CTkFrame(search_bar, fg_color="transparent")
         quality_row.pack(fill=ctk.X, padx=12, pady=(0, 8))
@@ -3828,16 +3840,7 @@ class MusicPlayerMixin(object):
         else:
             self._music_search_total_pages = 0
             self._music_search_has_more = len(results) >= self._music_search_page_size
-        for w in self._music_search_widgets:
-            try:
-                f = w.get("frame")
-                if f and f.winfo_exists():
-                    f.destroy()
-            except Exception:
-                pass
-        self._music_search_widgets.clear()
-        for idx, info in enumerate(results):
-            self._music_add_search_row(idx, info)
+        self._music_render_search_rows(results)
         if results:
             count = len(results)
             song_count_key = "music_song_count"
@@ -3856,6 +3859,41 @@ class MusicPlayerMixin(object):
             self._music_search_status.configure(text=_("music_search_no_results"))
         self._music_search_btn.configure(state="normal", text=_("music_search_btn"))
         self._music_rebuild_pager()
+
+    def _music_render_search_rows(self, results: List[OnlineMusicInfo]):
+        """重建搜索结果行（先销毁旧行，再按当前结果渲染）
+
+        供搜索完成与百度百科原唱异步回填共用；回填时结果列表对象与
+        _music_search_results 为同一引用，直接重渲染即可刷新徽章。
+        """
+        for w in self._music_search_widgets:
+            try:
+                f = w.get("frame")
+                if f and f.winfo_exists():
+                    f.destroy()
+            except Exception:
+                pass
+        self._music_search_widgets.clear()
+        for idx, info in enumerate(results):
+            self._music_add_search_row(idx, info)
+
+    def _music_original_backfill_cb(self, results: List[OnlineMusicInfo]):
+        """百度百科原唱查询完成后的回填回调（后台线程触发，转主线程渲染）"""
+        try:
+            self.after(0, lambda: self._music_apply_original_backfill(results))
+        except Exception as e:
+            logger.warning(f"百度百科原唱回填调度失败: {e}")
+
+    def _music_apply_original_backfill(self, results: List[OnlineMusicInfo]):
+        """主线程应用百度百科原唱回填：仅当结果仍是当前展示的搜索页时刷新"""
+        if results is not self._music_search_results:
+            return
+        if not getattr(self, "_music_online_frame", None) or not self._music_online_frame.winfo_exists():
+            return
+        try:
+            self._music_render_search_rows(results)
+        except Exception as e:
+            logger.warning(f"百度百科原唱回填渲染失败: {e}")
 
     def _music_search_go_page(self, page: int):
         """跳转到指定页码"""
