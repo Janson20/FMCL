@@ -338,6 +338,83 @@ def test_xvd_header_offsets():
     assert header.resilient_data_offset == 0x1234
 
 
+def test_hash_tree_pages_include_top_level():
+    """真实 mcappx GDK 包（423044 页）的哈希树含顶层页：2506 页、4 层"""
+    pages, levels = xvd.calculate_number_hash_pages(423044, False)
+    assert pages == 2506
+    assert levels == 4
+    # 小数据量：单页哈希树不加顶层
+    pages1, levels1 = xvd.calculate_number_hash_pages(100, False)
+    assert pages1 == 1
+    assert levels1 == 1
+    # resilient 双倍
+    pages2, _ = xvd.calculate_number_hash_pages(423044, True)
+    assert pages2 == 2506 * 2
+
+
+def test_segment_metadata_with_prefix():
+    """真实包的 SegmentMetadata.bin 带 16 字节文本前缀，头部偏移 0x10，需自动回退"""
+    header_length = 100
+    segments = [("LargeLogo.png", 1843), ("Minecraft.Windows.exe", 4002)]
+    path_blobs = []
+    entries = []
+    for name, size in segments:
+        raw = name.encode("utf-16-le")
+        entries.append(struct.pack("<HHIQ", 0, len(raw) // 2, len(b"".join(path_blobs)), size))
+        path_blobs.append(raw)
+    file_paths_length = len(b"".join(path_blobs))
+    body = bytearray()
+    body += struct.pack("<IIIIII", 0x58465020, 4, 2, header_length, len(segments), file_paths_length)
+    body += b"\x11" * 16  # PDUID
+    body += b"\x00" * 60  # Unknown
+    body += b"".join(entries)
+    body += b"".join(path_blobs)
+    prefixed = b'6100.1897" } }{}' + bytes(body)  # 16 字节文本前缀（真实 mcappx 包）
+    meta = xvd.SegmentMetadata(prefixed)
+    assert meta.segment_count == 2
+    assert meta.header_length == 100
+    assert meta.paths == ["LargeLogo.png", "Minecraft.Windows.exe"]
+    assert meta.entries[0][3] == 1843
+    # 无前缀的标准包同样可解析
+    meta2 = xvd.SegmentMetadata(bytes(body))
+    assert meta2.segment_count == 2
+
+
+def test_xts_decrypt_matches_reference():
+    """自定义 XTS-AES 解密与 cryptography 标准 XTS 一致（IEEE 1619 向量）"""
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    dkey = bytes.fromhex("c7d15c25f9546344549391d16857391f")
+    tkey = bytes.fromhex("c9a969fbfcbbf5f46d71250af226cf6a")
+    tweak = bytes(range(16))
+    ciphertext = bytes(range(256)) * 16
+    ref = Cipher(algorithms.AES(dkey + tkey), modes.XTS(tweak)).decryptor()
+    ref_plain = ref.update(ciphertext) + ref.finalize()
+    mine = xvd.XtsAesDecryptor(dkey, tkey).decrypt_page(bytearray(ciphertext), tweak)
+    assert bytes(mine) == ref_plain
+
+    # IEEE 1619 XTS-AES-128 向量 1（全 0 密钥）：解密密文得全 0 明文
+    vec = bytes.fromhex(
+        "917cf69ebd68b2ec9b9fe9a3eadda692"
+        "cd43d2f59598ed162c4a3d7cb38e29e0"
+        "6a1f2a7b2f6d4649f7d53d1f3d5b5d0d"
+        "060faf7f5e9a88d9a05d35551f1f86ac"
+    )
+    plain = xvd.XtsAesDecryptor(bytes(16), bytes(16)).decrypt_page(bytearray(vec), bytes(16))
+    assert plain[:16] == bytes(16)
+
+
+def test_cik_keys():
+    """CIK 密钥：release/preview 各 48 字节，DKey/TKey 均为 16 字节且非零"""
+    d_rel, t_rel = xvd.get_cik_key("release")
+    d_pre, t_pre = xvd.get_cik_key("preview")
+    d_beta, t_beta = xvd.get_cik_key("beta")
+    for d, t in ((d_rel, t_rel), (d_pre, t_pre), (d_beta, t_beta)):
+        assert len(d) == 16 and len(t) == 16
+        assert any(d) and any(t)
+    assert d_rel != d_pre  # release 与 preview 密钥不同
+
+
 # ─── appx.py：AppX 解包与清单修改 ────────────────────────────
 
 SAMPLE_MANIFEST = """<?xml version="1.0" encoding="utf-8"?>

@@ -310,6 +310,7 @@ class BedrockManager:
             folder,
             progress_cb=lambda cur, total, fname: self._progress(cur, total, f"正在解包 {fname}"),
             stop_event=stop_event,
+            game_type=game_type,
         )
         if not (folder / launch_mod.GDK_EXE).exists():
             raise BedrockError("解包结果缺少 Minecraft.Windows.exe，包可能已损坏")

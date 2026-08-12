@@ -177,24 +177,22 @@ def compute_hash_block_index(
 
 
 def calculate_number_hash_pages(hashed_pages_count: int, resilient: bool) -> Tuple[int, int]:
-    """计算哈希树页数与层数（对齐 C# CalculateNumberHashPages）"""
+    """计算哈希树页数与层数
+
+    标准 XVD 哈希树：L0 = ceil(N/0xAA)，每层哈希上一层页数（ceil(prev/0xAA)），
+    直到 1 页为止，最后再补 1 页顶层哈希（实测 mcappx GDK 包比
+    BedrockLauncher.Core 的算法多这 1 页）。
+    """
     hash_tree_page_count = (hashed_pages_count + HASH_ENTRIES_IN_PAGE - 1) // HASH_ENTRIES_IN_PAGE
     hash_tree_levels = 1
+    current = hash_tree_page_count
+    while current > 1:
+        current = (current + HASH_ENTRIES_IN_PAGE - 1) // HASH_ENTRIES_IN_PAGE
+        hash_tree_page_count += current
+        hash_tree_levels += 1
     if hash_tree_page_count > 1:
-        result = 2
-        while result > 1:
-            # 第 0 层对应 0xAA^1，第 1 层对应 0xAA^2，依此类推
-            if hash_tree_levels == 0:
-                blocks = (hashed_pages_count + _pow_aa(1) - 1) // _pow_aa(1)
-            elif hash_tree_levels == 1:
-                blocks = (hashed_pages_count + _pow_aa(2) - 1) // _pow_aa(2)
-            elif hash_tree_levels == 2:
-                blocks = (hashed_pages_count + _pow_aa(3) - 1) // _pow_aa(3)
-            else:
-                blocks = (hashed_pages_count + _pow_aa(4) - 1) // _pow_aa(4)
-            result = blocks
-            hash_tree_levels += 1
-            hash_tree_page_count += result
+        hash_tree_page_count += 1  # 顶层哈希页
+        hash_tree_levels += 1
     if resilient:
         hash_tree_page_count *= 2
     return hash_tree_page_count, hash_tree_levels
@@ -204,7 +202,12 @@ def calculate_number_hash_pages(hashed_pages_count: int, resilient: bool) -> Tup
 
 
 class SegmentMetadata:
-    """SegmentMetadata.bin 解析结果：段清单"""
+    """SegmentMetadata.bin 解析结果：段清单
+
+    注意：真实包（mcappx 重新打包）的 SegmentMetadata.bin 开头有 16 字节
+    文本前缀（如 b"6100.1897\" } }{}"），SegmentMetadataHeader 实际从
+    偏移 0x10 开始；解析时自动回退。
+    """
 
     _HEADER = "<IIIII I16x 60x"  # Magic, Version0, Version1, HeaderLength, SegmentCount, FilePathsLength + 0x10 PDUID + 0x3c Unknown
     _ENTRY = "<HHIQ"  # Flags(u16), PathLength(u16), PathOffset(u32), FileSize(u64)
@@ -212,15 +215,16 @@ class SegmentMetadata:
     def __init__(self, raw: bytes):
         if len(raw) < 80:
             raise XvdParseError("SegmentMetadata.bin 数据过短")
-        try:
-            (magic, version0, version1, header_length, segment_count, file_paths_length) = struct.unpack_from(
-                self._HEADER, raw
-            )
-        except struct.error as e:
-            raise XvdParseError(f"SegmentMetadata 头解析失败: {e}") from e
+        header_base = 0
+        header_length, segment_count, file_paths_length = self._parse_header(raw, 0)
+        # 头部合理性校验：不合理的头部（mcappx 包带 0x10 文本前缀）回退到偏移 0x10
+        if not (0x40 <= header_length < len(raw) and 0 < segment_count < 1000000):
+            header_base = 0x10
+            header_length, segment_count, file_paths_length = self._parse_header(raw, 0x10)
         self.segment_count = segment_count
         self.header_length = header_length
-        entries_offset = 24 + 16 + 60  # 头固定长度
+        self.file_paths_length = file_paths_length
+        entries_offset = header_base + header_length
         entries = []
         for i in range(segment_count):
             try:
@@ -232,7 +236,7 @@ class SegmentMetadata:
             entries.append((flags, path_length, path_offset, file_size))
         self.entries: List[Tuple[int, int, int, int]] = entries
         self.paths: List[str] = []
-        paths_start = self.header_length + segment_count * 0x10
+        paths_start = header_base + self.header_length + segment_count * 0x10
         for _, path_length, path_offset, _ in entries:
             start = paths_start + path_offset
             end = start + path_length * 2
@@ -240,6 +244,18 @@ class SegmentMetadata:
                 raise XvdParseError(f"段路径越界: offset={path_offset}, length={path_length}")
             path_bytes = raw[start:end]
             self.paths.append(path_bytes.decode("utf-16-le", errors="replace"))
+
+    @staticmethod
+    def _parse_header(raw: bytes, base: int) -> Tuple[int, int, int]:
+        if base + 24 > len(raw):
+            raise XvdParseError("SegmentMetadata 头越界")
+        try:
+            (_magic, _v0, _v1, header_length, segment_count, file_paths_length) = struct.unpack_from(
+                SegmentMetadata._HEADER, raw, base
+            )
+        except struct.error as e:
+            raise XvdParseError(f"SegmentMetadata 头解析失败: {e}") from e
+        return header_length, segment_count, file_paths_length
 
 
 class SegmentIndex:
@@ -302,10 +318,10 @@ def _gf128_mul(iv: bytearray) -> bytearray:
     carry_bit127 = (iv[15] >> 7) & 1
     carry_bit63 = (iv[7] >> 7) & 1
     for i in range(7, 0, -1):
-        iv[i] = (iv[i] << 1) | (iv[i - 1] >> 7)
+        iv[i] = ((iv[i] << 1) | (iv[i - 1] >> 7)) & 0xFF
     iv[0] = (iv[0] << 1) & 0xFF
     for i in range(15, 8, -1):
-        iv[i] = (iv[i] << 1) | (iv[i - 1] >> 7)
+        iv[i] = ((iv[i] << 1) | (iv[i - 1] >> 7)) & 0xFF
     iv[8] = (iv[8] << 1) & 0xFF
     if carry_bit63:
         iv[8] ^= 0x01
@@ -315,14 +331,15 @@ def _gf128_mul(iv: bytearray) -> bytearray:
 
 
 class XtsAesDecryptor:
-    """XTS-AES 解密器（128 位密钥，ECB 原始 AES）"""
+    """XTS-AES 解密器（128 位密钥，XEX 模式：AES 解密数据块 + AES 加密 tweak）"""
 
     def __init__(self, d_key: bytes, t_key: bytes):
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
         if len(d_key) < 16 or len(t_key) < 16:
             raise XvdParseError("XTS-AES 密钥长度不足")
-        self._d_encryptor = Cipher(algorithms.AES(d_key[:16]), modes.ECB()).encryptor()
+        # 数据块用 AES 解密方向；tweak 用 AES 加密方向（对齐 BedrockLauncher.Core DecryptSoftware）
+        self._d_decryptor = Cipher(algorithms.AES(d_key[:16]), modes.ECB()).decryptor()
         self._t_encryptor = Cipher(algorithms.AES(t_key[:16]), modes.ECB()).encryptor()
 
     def decrypt_page(self, page: bytearray, tweak_iv: bytes) -> bytearray:
@@ -334,7 +351,7 @@ class XtsAesDecryptor:
         while remaining >= 16:
             block_in = page[offset : offset + 16]
             temp = bytes(a ^ b for a, b in zip(block_in, tweak))
-            dec = self._d_encryptor.update(temp)
+            dec = self._d_decryptor.update(temp)
             out.extend(bytes(a ^ b for a, b in zip(dec, tweak)))
             tweak = _gf128_mul(tweak)
             offset += 16
@@ -343,7 +360,7 @@ class XtsAesDecryptor:
             final_tweak = _gf128_mul(tweak)
             block_in = page[offset : offset + 16]
             temp = bytes(a ^ b for a, b in zip(block_in, final_tweak))
-            dec = self._d_encryptor.update(temp)
+            dec = self._d_decryptor.update(temp)
             out.extend(bytes(a ^ b for a, b in zip(dec, final_tweak)))
         return out
 
@@ -432,6 +449,7 @@ class XvdExtractor:
         output_dir: Path,
         progress_cb: Optional[Callable[[int, int, str], None]] = None,
         stop_event: Optional[threading.Event] = None,
+        game_type: str = "release",
     ) -> int:
         """提取全部文件到输出目录，返回文件数"""
         stop_event = stop_event or threading.Event()
@@ -443,7 +461,8 @@ class XvdExtractor:
 
         decryptor: Optional[XtsAesDecryptor] = None
         if header.is_encrypted:
-            decryptor = XtsAesDecryptor(bytes(16), bytes(16))  # 占位密钥，见 _DEFINE_REF2
+            d_key, t_key = get_cik_key(game_type)
+            decryptor = XtsAesDecryptor(d_key, t_key)
 
         first_segment_offset = _page_to_offset(self.xvc_info.update_segments[0])
         extractable = [
@@ -572,9 +591,34 @@ class XvdExtractor:
         return file_count
 
 
-def extract_gdk_package(package_path: Path, output_dir: Path, progress_cb=None, stop_event=None) -> int:
-    """解包 GDK 游戏包（.msixvc / .insPack）到指定目录"""
+def extract_gdk_package(
+    package_path: Path,
+    output_dir: Path,
+    progress_cb=None,
+    stop_event=None,
+    game_type: str = "release",
+) -> int:
+    """解包 GDK 游戏包（.msixvc / .insPack）到指定目录
+
+    game_type: release / preview / beta，决定 XTS-AES 解密使用的 CIK 密钥
+    """
     extractor = XvdExtractor(package_path).parse()
-    return extractor.extract(output_dir, progress_cb=progress_cb, stop_event=stop_event)
+    return extractor.extract(output_dir, progress_cb=progress_cb, stop_event=stop_event, game_type=game_type)
+
+
+# CIK 密钥（来自 BedrockLauncher.Core NuGet 2.0.4.9 反编译 _DEFINE_REF2，
+# 格式: Guid(0x10) + TKey(0x10) + DKey(0x10)）
+_CIK_RELEASE = bytes.fromhex(
+    "***REMOVED***"
+)
+_CIK_PREVIEW = bytes.fromhex(
+    "***REMOVED***"
+)
+
+
+def get_cik_key(game_type: str) -> Tuple[bytes, bytes]:
+    """返回 (DKey, TKey)；game_type: release / preview / beta"""
+    cik = _CIK_RELEASE if game_type == "release" else _CIK_PREVIEW
+    return cik[0x20:0x30], cik[0x10:0x20]
 
 
