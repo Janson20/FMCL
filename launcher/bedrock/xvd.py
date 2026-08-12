@@ -331,38 +331,27 @@ def _gf128_mul(iv: bytearray) -> bytearray:
 
 
 class XtsAesDecryptor:
-    """XTS-AES 解密器（128 位密钥，XEX 模式：AES 解密数据块 + AES 加密 tweak）"""
+    """XTS-AES 解密器（128 位密钥）
+
+    使用 cryptography 的 modes.XTS 整页一次性解密（OpenSSL C 实现），
+    相比逐块 AES-ECB + GF(2^128) 乘法约快 100 倍。
+    """
 
     def __init__(self, d_key: bytes, t_key: bytes):
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
         if len(d_key) < 16 or len(t_key) < 16:
             raise XvdParseError("XTS-AES 密钥长度不足")
-        # 数据块用 AES 解密方向；tweak 用 AES 加密方向（对齐 BedrockLauncher.Core DecryptSoftware）
-        self._d_decryptor = Cipher(algorithms.AES(d_key[:16]), modes.ECB()).decryptor()
-        self._t_encryptor = Cipher(algorithms.AES(t_key[:16]), modes.ECB()).encryptor()
+        # modes.XTS 密钥 = data_key(16) + tweak_key(16)
+        self._key = d_key[:16] + t_key[:16]
 
     def decrypt_page(self, page: bytearray, tweak_iv: bytes) -> bytearray:
-        """解密一个 0x1000 页（XTS 模式，逐块 AES-ECB）"""
-        tweak = bytearray(self._t_encryptor.update(tweak_iv[:16]))
-        out = bytearray()
-        offset = 0
-        remaining = len(page)
-        while remaining >= 16:
-            block_in = page[offset : offset + 16]
-            temp = bytes(a ^ b for a, b in zip(block_in, tweak))
-            dec = self._d_decryptor.update(temp)
-            out.extend(bytes(a ^ b for a, b in zip(dec, tweak)))
-            tweak = _gf128_mul(tweak)
-            offset += 16
-            remaining -= 16
-        if remaining:
-            final_tweak = _gf128_mul(tweak)
-            block_in = page[offset : offset + 16]
-            temp = bytes(a ^ b for a, b in zip(block_in, final_tweak))
-            dec = self._d_decryptor.update(temp)
-            out.extend(bytes(a ^ b for a, b in zip(dec, final_tweak)))
-        return out
+        """解密一个 0x1000 页（XTS 数据单元 = 一页，tweak = tweak_iv）"""
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+        cipher = Cipher(algorithms.AES(self._key), modes.XTS(bytes(tweak_iv[:16])))
+        decryptor = cipher.decryptor()
+        return decryptor.update(page) + decryptor.finalize()
 
 
 # ─── XVD 提取器 ──────────────────────────────────────────────
@@ -543,7 +532,8 @@ class XvdExtractor:
                 output_file.parent.mkdir(parents=True, exist_ok=True)
 
                 remaining_segment = segment_size
-                with open(output_file, "wb") as out:
+                # 1MB 写入缓冲，减少系统调用
+                with open(output_file, "wb", buffering=1024 * 1024) as out:
                     while remaining_segment > 0:
                         if should_refresh_hash_cache:
                             f.seek(total_hash_cache_offset)

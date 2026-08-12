@@ -415,6 +415,34 @@ def test_cik_keys():
     assert d_rel != d_pre  # release 与 preview 密钥不同
 
 
+def test_is_valid_msi(tmp_path):
+    """MSI 有效性校验：OLE 复合文档头判定（mcappx 包错配文本应判无效）"""
+    from launcher.bedrock.env import is_valid_msi
+
+    msi = tmp_path / "GameInputRedist.msi"
+    msi.write_bytes(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" + b"\x00" * 64)
+    assert is_valid_msi(msi)
+    msi.write_bytes(b"Realms Plus \xe6\x98\xaf\xe8\xae\xa2\xe9\x98\x85\xe6\x9c\x8d\xe5\x8a\xa1")
+    assert not is_valid_msi(msi)
+
+
+def test_is_xbox_signed_in(tmp_path, monkeypatch):
+    """Xbox 登录检测：LocalState 有数据视为已登录"""
+    from launcher.bedrock import env as env_mod
+
+    fake_local = tmp_path / "LocalAppData"
+    fake_local.mkdir()
+    monkeypatch.setenv("LOCALAPPDATA", str(fake_local))
+    assert not env_mod.is_xbox_signed_in()  # 目录不存在
+    state = fake_local / "Packages" / env_mod.XBOX_APP_PACKAGE / "LocalState"
+    state.mkdir(parents=True)
+    assert not env_mod.is_xbox_signed_in()  # 空目录
+    (state / "auth_cache.dat").write_bytes(b"token-data")
+    assert env_mod.is_xbox_signed_in()  # 有数据
+    monkeypatch.delenv("LOCALAPPDATA")
+    assert not env_mod.is_xbox_signed_in()  # 无 LOCALAPPDATA 时返回 False
+
+
 # ─── appx.py：AppX 解包与清单修改 ────────────────────────────
 
 SAMPLE_MANIFEST = """<?xml version="1.0" encoding="utf-8"?>

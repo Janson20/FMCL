@@ -230,6 +230,7 @@ def _soap_post_powershell(body: str, timeout: int = 30) -> str:
         ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
         capture_output=True,
         text=True,
+        errors="replace",
         timeout=timeout + 60,
     )
     if proc.returncode != 0:

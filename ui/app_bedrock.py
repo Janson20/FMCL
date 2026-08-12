@@ -92,7 +92,7 @@ class BedrockMixin:
         card = ctk.CTkFrame(self.bedrock_installed_list, fg_color=COLORS["bg_light"], corner_radius=8)
         card.pack(fill=ctk.X, padx=2, pady=4)
         card.pack_propagate(False)
-        card.configure(height=86)
+        card.configure(height=100)
 
         name_label = ctk.CTkLabel(
             card,
@@ -119,8 +119,8 @@ class BedrockMixin:
         launch_btn = ctk.CTkButton(
             btn_frame,
             text=_("bedrock_launch"),
-            height=28,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            height=36,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             command=lambda n=name: self._on_bedrock_launch(n),
@@ -130,9 +130,9 @@ class BedrockMixin:
         remove_btn = ctk.CTkButton(
             btn_frame,
             text=_("bedrock_delete"),
-            height=28,
-            width=70,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            height=36,
+            width=80,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13),
             fg_color=COLORS["bg_medium"],
             hover_color=COLORS["error"],
             text_color=COLORS["text_secondary"],

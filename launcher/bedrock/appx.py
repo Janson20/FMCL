@@ -194,6 +194,7 @@ def register_appx(version_dir: Path, timeout: int = 180) -> None:
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as e:
@@ -213,6 +214,7 @@ def is_package_installed(package_name: str) -> bool:
             ["powershell.exe", "-NoProfile", "-Command", cmd],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=30,
         )
         return proc.returncode == 0 and package_name.lower() in proc.stdout.lower()
@@ -229,6 +231,7 @@ def get_package_install_location(package_name: str) -> Optional[str]:
             ["powershell.exe", "-NoProfile", "-Command", cmd],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=30,
         )
         location = (proc.stdout or "").strip()
@@ -246,6 +249,7 @@ def remove_appx_package(package_name: str) -> bool:
             ["powershell.exe", "-NoProfile", "-Command", cmd],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=180,
         )
         return proc.returncode == 0

@@ -7,6 +7,7 @@
 - GameInput（GDK 首次启动必需，msiexec 安装包内 MSI）
 """
 
+import os
 import subprocess
 import threading
 from pathlib import Path
@@ -24,13 +25,14 @@ _ENV_LOCK = threading.Lock()
 
 
 def _run_powershell(command: str, timeout: int = 60, run_as_admin: bool = False) -> subprocess.CompletedProcess:
-    """执行 PowerShell 命令"""
+    """执行 PowerShell 命令（errors=replace 防止 GBK 解码崩溃）"""
     if run_as_admin:
         full = f"Start-Process powershell -Verb RunAs -Wait -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-Command', '{command}')"
         proc = subprocess.run(
             ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", full],
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=timeout + 60,
         )
         return proc
@@ -38,6 +40,7 @@ def _run_powershell(command: str, timeout: int = 60, run_as_admin: bool = False)
         ["powershell.exe", "-NoProfile", "-Command", command],
         capture_output=True,
         text=True,
+        errors="replace",
         timeout=timeout,
     )
 
@@ -190,24 +193,84 @@ def is_game_input_installed() -> bool:
         return False
 
 
+MSI_OLE_MAGIC = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"
+
+
+def is_valid_msi(path: Path) -> bool:
+    """校验文件是否为有效 MSI（OLE 复合文档头）"""
+    try:
+        with open(path, "rb") as f:
+            return f.read(8) == MSI_OLE_MAGIC
+    except OSError:
+        return False
+
+
 def install_game_input(msi_path: Path) -> Tuple[bool, str]:
-    """通过 msiexec 静默安装 GameInput 运行时（需要 UAC）"""
+    """通过 msiexec 静默安装 GameInput 运行时（需要 UAC 提权，对齐 BedrockBoot runas）
+
+    注意：部分第三方重打包包（如 mcappx）中 GameInputRedist.msi 内容被
+    错配为其他文件（Realms Plus 文本），此类包直接跳过安装。
+    """
     if not msi_path.exists():
         return False, f"未找到 GameInput 安装包: {msi_path}"
+    if not is_valid_msi(msi_path):
+        logger.warning(f"GameInputRedist.msi 内容无效（非 MSI 格式，疑似打包错配），跳过安装: {msi_path}")
+        return False, "包内 GameInput 文件无效（可能是第三方打包错配），已跳过安装"
     logger.info(f"安装 GameInput: {msi_path}")
+    script = (
+        f"$p = Start-Process msiexec.exe -ArgumentList '/i','\"{msi_path}\"','/qb' "
+        "-Verb RunAs -Wait -PassThru; exit $p.ExitCode"
+    )
     try:
         proc = subprocess.run(
-            ["msiexec.exe", "/i", str(msi_path), "/qb"],
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
             capture_output=True,
             text=True,
-            timeout=600,
+            errors="replace",
+            timeout=660,
         )
         if proc.returncode == 0:
             logger.info("GameInput 安装成功")
             return True, ""
-        return False, f"GameInput 安装失败，错误码 {proc.returncode}"
+        return False, f"GameInput 安装失败，错误码 {proc.returncode}（可能被用户取消或权限不足）"
+    except subprocess.TimeoutExpired:
+        return False, "GameInput 安装超时（11 分钟）"
     except Exception as e:
         return False, f"GameInput 安装失败: {e}"
+
+
+# ─── Xbox 登录状态 ─────────────────────────────────────────
+
+XBOX_APP_PACKAGE = "Microsoft.XboxApp_8wekyb3d8bbwe"
+
+
+def is_xbox_signed_in() -> bool:
+    """检查 Xbox 应用是否已登录微软账户
+
+    GDK 版游戏启动依赖 Xbox 认证（XblSignInSilently 读取 Xbox Identity
+    Provider 缓存的登录状态）；Xbox 应用从未登录时 GDK 游戏会静默退出。
+    """
+    local_appdata = os.environ.get("LOCALAPPDATA", "")
+    if not local_appdata:
+        return False
+    state_dir = Path(local_appdata) / "Packages" / XBOX_APP_PACKAGE / "LocalState"
+    if not state_dir.exists():
+        return False
+    try:
+        for entry in state_dir.rglob("*"):
+            if entry.is_file() and entry.stat().st_size > 0:
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def open_xbox_app() -> None:
+    """打开 Xbox 应用引导用户登录微软账户"""
+    subprocess.Popen(
+        ["explorer.exe", f"shell:appsFolder\\{XBOX_APP_PACKAGE}!Microsoft.XboxApp"],
+        shell=False,
+    )
 
 
 # ─── 统一检测 ────────────────────────────────────────────────

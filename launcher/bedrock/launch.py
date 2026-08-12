@@ -13,7 +13,13 @@ from typing import Callable, Optional
 from logzero import logger
 
 from launcher.bedrock.appx import get_package_install_location, register_appx
-from launcher.bedrock.env import install_game_input, is_game_input_installed, repair_environment
+from launcher.bedrock.env import (
+    install_game_input,
+    is_game_input_installed,
+    is_xbox_signed_in,
+    open_xbox_app,
+    repair_environment,
+)
 
 PACKAGE_FAMILIES = {
     "release": "Microsoft.MinecraftUWP_8wekyb3d8bbwe",
@@ -91,13 +97,28 @@ def launch_gdk(
 ) -> subprocess.Popen:
     """启动 GDK 版本
 
+    GDK 版依赖 Xbox 认证（XblSignInSilently），未登录 Xbox 应用时游戏
+    会静默退出；启动前检查并引导登录。
     首次启动自动安装包内 GameInput 运行时（需要 UAC）
     """
+    # GDK 游戏静默认证依赖 Xbox 应用登录状态
+    if not is_xbox_signed_in():
+        if notify:
+            notify("GDK 版需要 Xbox 登录，正在打开 Xbox 应用...")
+        open_xbox_app()
+        raise BedrockLaunchError(
+            "GDK 版启动需要 Xbox 登录（XblSignInSilently 认证），当前系统未检测到 Xbox 身份。"
+            "请任选一种方式登录微软账户后重试：\n"
+            "1. 在打开的 Xbox 应用中登录（如闪退请用方式 2）\n"
+            "2. 按 Win+G 打开 Xbox Game Bar，点击头像登录\n"
+            "3. 打开微软商店登录同一账户"
+        )
+
     game_exe = version_dir / GDK_EXE
     if not game_exe.exists():
         raise BedrockLaunchError(f"未找到游戏主程序: {game_exe}（GDK 包可能未完整解包）")
 
-    # 首次启动安装 GameInput（BedrockBoot 逻辑）
+    # 首次启动安装 GameInput（对齐 BedrockBoot：安装失败不阻断启动）
     if not is_game_input_installed():
         msi = version_dir / "Installers" / "GameInputRedist.msi"
         if not msi.exists():
@@ -107,7 +128,7 @@ def launch_gdk(
                 notify("正在安装 GameInput 运行时（需要 UAC 确认）...")
             ok, err = install_game_input(msi)
             if not ok:
-                raise BedrockLaunchError(err)
+                logger.warning(f"GameInput 安装失败，继续启动游戏: {err}")
         else:
             logger.warning("未找到 GameInputRedist.msi，跳过 GameInput 安装")
 

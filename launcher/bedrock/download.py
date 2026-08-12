@@ -11,8 +11,8 @@ from logzero import logger
 
 from launcher.bedrock.source import USER_AGENT
 
-DEFAULT_THREADS = 8
-CHUNK_SIZE = 1024 * 256
+DEFAULT_THREADS = 16
+CHUNK_SIZE = 1024 * 1024
 
 
 class DownloadError(RuntimeError):
