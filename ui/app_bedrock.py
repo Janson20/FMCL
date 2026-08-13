@@ -446,11 +446,40 @@ class BedrockMixin:
 
     def _launch_bedrock_worker(self, name: str):
         try:
-            success, msg = self.callbacks["bedrock_launch_version"](name, "")
+            # GDK 版且系统无 Xbox 身份时，先走微软账户设备码登录（认证注入）
+            access_token = ""
+            installed = self.callbacks.get("bedrock_get_installed_versions", lambda: [])()
+            info = next((v for v in installed if v.get("name") == name), None)
+            if info and info.get("build_type") == "GDK":
+                try:
+                    from launcher.bedrock.env import is_xbox_signed_in
+
+                    if not is_xbox_signed_in():
+                        access_token = self._msa_login_flow()
+                except ImportError:
+                    pass
+            success, msg = self.callbacks["bedrock_launch_version"](name, "", access_token)
             self._task_queue.put(("bedrock_launch_done", (name, success, msg)))
         except Exception as e:
             logger.error(f"基岩版启动异常: {e}")
             self._task_queue.put(("bedrock_launch_done", (name, False, str(e))))
+
+    def _msa_login_flow(self) -> str:
+        """微软账户设备码登录（在后台线程运行），返回 access_token"""
+        from launcher.bedrock import msauth
+
+        device = msauth.request_device_code()
+        code = device.get("user_code", "")
+        uri = device.get("verification_uri") or "https://www.microsoft.com/link"
+        # 主线程弹窗提示 + 打开浏览器
+        self._task_queue.put(("bedrock_msa_code", (code, uri)))
+        token = msauth.poll_device_code(
+            device["device_code"],
+            interval=int(device.get("interval", 5)),
+            status_cb=lambda text: self._task_queue.put(("bedrock_msa_status", text)),
+        )
+        self._task_queue.put(("bedrock_msa_done", (token.get("access_token", ""), "")))
+        return token["access_token"]
 
     def _on_bedrock_remove(self, name: str):
         import tkinter.messagebox
@@ -519,6 +548,31 @@ class BedrockMixin:
                 self._run_in_thread(self._load_bedrock_installed)
             else:
                 self.set_status(_("bedrock_install_failed").format(version=version, error=info), "error")
+            return True
+
+        if task_type == "bedrock_msa_code":
+            code, uri = data
+            import tkinter.messagebox
+            import webbrowser
+
+            webbrowser.open(uri)
+            tkinter.messagebox.showinfo(
+                _("bedrock_msa_title"),
+                _("bedrock_msa_code_hint").format(code=code, uri=uri),
+                parent=self,
+            )
+            return True
+
+        if task_type == "bedrock_msa_status":
+            self.set_status(str(data), "loading")
+            return True
+
+        if task_type == "bedrock_msa_done":
+            token, error = data
+            if token:
+                self.set_status(_("bedrock_msa_success"), "success")
+            else:
+                self.set_status(_("bedrock_msa_failed").format(error=error), "error")
             return True
 
         if task_type == "bedrock_launch_done":

@@ -90,29 +90,106 @@ def prepare_environment(
         raise BedrockLaunchError(msg)
 
 
+def _launch_gdk_injected(
+    version_dir: Path,
+    access_token: str,
+    args: str = "",
+    notify: Optional[Callable[[str], None]] = None,
+) -> int:
+    """认证注入启动 GDK 版本（BedrockBoot 多用户模式方案）：
+
+    1. 构建 BedrockGdkHelper（.NET 10，首次自动编译）
+    2. helper 完成：XUserHook.dll PE 注入 + Xbox 认证链（XBL/XSTS/SISU）+
+       挂起启动 + 命名管道传认证
+    """
+    from launcher.bedrock.env import is_xgameruntime_installed, open_xgameruntime_store
+    from launcher.bedrock.native.build_helper import build
+
+    # XUserHook 依赖系统 XboxGamingRuntime（xgameruntime.dll）安装 QueryApiImpl hook
+    if not is_xgameruntime_installed():
+        open_xgameruntime_store()
+        raise BedrockLaunchError(
+            "GDK 认证注入需要 XboxGamingRuntime（xgameruntime.dll）系统组件，"
+            "当前系统未安装。\n"
+            "请任选一种方式安装后重试：\n"
+            "1. 在已打开的商店页面搜索 XboxGamingRuntime 并安装\n"
+            "2. 在微软商店安装任意 Xbox/Game Pass 的 GDK 游戏（如 Age of Empires II、Asphalt 9 等），"
+            "系统会自动安装该组件"
+        )
+
+    if notify:
+        notify("正在构建/准备认证注入组件...")
+    try:
+        helper = build()
+    except RuntimeError as e:
+        raise BedrockLaunchError(str(e)) from e
+
+    cmd = [str(helper), str(version_dir), access_token]
+    if args:
+        cmd.append(args)
+    logger.info(f"认证注入启动 GDK: {version_dir.name}")
+    if notify:
+        notify("正在执行 Xbox 认证并注入游戏...")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    game_pid: Optional[int] = None
+    error_lines: list = []
+    if proc.stdout:
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            logger.info(f"[GdkHelper] {line}")
+            if line.startswith("GAME_PID:"):
+                try:
+                    game_pid = int(line.split(":", 1)[1])
+                except ValueError:
+                    pass
+            elif line.startswith("ERROR"):
+                error_lines.append(line)
+    proc.wait(timeout=120)
+    if proc.returncode != 0:
+        detail = "\n".join(error_lines[-5:]) or f"退出码 {proc.returncode}"
+        raise BedrockLaunchError(f"认证注入启动失败: {detail}")
+    if game_pid is None:
+        raise BedrockLaunchError("认证注入未返回游戏进程 ID")
+    logger.info(f"GDK 游戏已启动（注入认证），PID: {game_pid}")
+    return game_pid
+
+
 def launch_gdk(
     version_dir: Path,
     args: str = "",
     notify: Optional[Callable[[str], None]] = None,
-) -> subprocess.Popen:
-    """启动 GDK 版本
+    msa_access_token: str = "",
+) -> int:
+    """启动 GDK 版本，返回游戏进程 PID
 
-    GDK 版依赖 Xbox 认证（XblSignInSilently），未登录 Xbox 应用时游戏
-    会静默退出；启动前检查并引导登录。
+    GDK 版依赖 Xbox 认证（XblSignInSilently）：
+    - 系统已有 Xbox 身份（Xbox 应用/Game Bar 登录过）→ 直接启动
+    - 否则需提供 msa_access_token → 认证注入启动（BedrockBoot 方案）
     首次启动自动安装包内 GameInput 运行时（需要 UAC）
     """
-    # GDK 游戏静默认证依赖 Xbox 应用登录状态
     if not is_xbox_signed_in():
-        if notify:
-            notify("GDK 版需要 Xbox 登录，正在打开 Xbox 应用...")
-        open_xbox_app()
-        raise BedrockLaunchError(
-            "GDK 版启动需要 Xbox 登录（XblSignInSilently 认证），当前系统未检测到 Xbox 身份。"
-            "请任选一种方式登录微软账户后重试：\n"
-            "1. 在打开的 Xbox 应用中登录（如闪退请用方式 2）\n"
-            "2. 按 Win+G 打开 Xbox Game Bar，点击头像登录\n"
-            "3. 打开微软商店登录同一账户"
-        )
+        if not msa_access_token:
+            if notify:
+                notify("GDK 版需要 Xbox 登录，正在打开 Xbox 应用...")
+            open_xbox_app()
+            raise BedrockLaunchError(
+                "GDK 版启动需要 Xbox 登录（XblSignInSilently 认证），当前系统未检测到 Xbox 身份。"
+                "请任选一种方式：\n"
+                "1. 在打开的 Xbox 应用中登录（如闪退请用方式 2/3）\n"
+                "2. 按 Win+G 打开 Xbox Game Bar，点击头像登录\n"
+                "3. 使用 FMCL 的微软账户登录（启动器内引导）"
+            )
+        return _launch_gdk_injected(version_dir, msa_access_token, args, notify)
 
     game_exe = version_dir / GDK_EXE
     if not game_exe.exists():
@@ -139,7 +216,7 @@ def launch_gdk(
         proc = subprocess.Popen(cmdline, cwd=str(version_dir), shell=True)
     else:
         proc = subprocess.Popen([str(game_exe)], cwd=str(version_dir))
-    return proc
+    return proc.pid
 
 
 def launch_uwp(

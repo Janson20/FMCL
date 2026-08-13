@@ -241,27 +241,42 @@ def install_game_input(msi_path: Path) -> Tuple[bool, str]:
 
 # ─── Xbox 登录状态 ─────────────────────────────────────────
 
+XBOX_IDP_PACKAGE = "Microsoft.XboxIdentityProvider_8wekyb3d8bbwe"
 XBOX_APP_PACKAGE = "Microsoft.XboxApp_8wekyb3d8bbwe"
+IDENTITY_CRL_PATH = r"Software\Microsoft\IdentityCRL\TokenCache"
 
 
 def is_xbox_signed_in() -> bool:
-    """检查 Xbox 应用是否已登录微软账户
+    """检查系统是否存在 Xbox 身份（GDK 游戏 XblSignInSilently 可用）
 
-    GDK 版游戏启动依赖 Xbox 认证（XblSignInSilently 读取 Xbox Identity
-    Provider 缓存的登录状态）；Xbox 应用从未登录时 GDK 游戏会静默退出。
+    指标（对齐 BedrockBoot XboxLoginStatusChecker）：
+    1. HKCU\\Software\\Microsoft\\IdentityCRL\\TokenCache 含 Xbox/live.com 相关条目
+    2. XboxIdentityProvider 的登录缓存目录有数据
+    注意：不能检查 XboxApp 的 LocalState（崩溃日志会误判）
     """
-    local_appdata = os.environ.get("LOCALAPPDATA", "")
-    if not local_appdata:
-        return False
-    state_dir = Path(local_appdata) / "Packages" / XBOX_APP_PACKAGE / "LocalState"
-    if not state_dir.exists():
-        return False
+    # 1. IdentityCRL TokenCache（BedrockBoot CheckWindowsTokenCache 同款）
     try:
-        for entry in state_dir.rglob("*"):
-            if entry.is_file() and entry.stat().st_size > 0:
-                return True
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, IDENTITY_CRL_PATH) as key:
+            sub_count = winreg.QueryInfoKey(key)[0]
+            for i in range(sub_count):
+                name = winreg.EnumKey(key, i).lower()
+                if any(k in name for k in ("xbox", "live.com", "xbl", "xsts")):
+                    return True
     except OSError:
         pass
+    # 2. XboxIdentityProvider 登录缓存
+    local_appdata = os.environ.get("LOCALAPPDATA", "")
+    if local_appdata:
+        idp = Path(local_appdata) / "Packages" / XBOX_IDP_PACKAGE / "LocalState"
+        if idp.exists():
+            try:
+                for entry in idp.rglob("*"):
+                    if entry.is_file() and entry.stat().st_size > 0:
+                        return True
+            except OSError:
+                pass
     return False
 
 
@@ -271,6 +286,29 @@ def open_xbox_app() -> None:
         ["explorer.exe", f"shell:appsFolder\\{XBOX_APP_PACKAGE}!Microsoft.XboxApp"],
         shell=False,
     )
+
+
+def is_xgameruntime_installed() -> bool:
+    """检查 GDK 游戏运行时（XboxGamingRuntime / xgameruntime.dll）
+
+    XUserHook 需要加载 xgameruntime.dll 以 hook QueryApiImpl 注入认证；
+    该组件随微软商店的 GDK 游戏（Xbox/Game Pass 游戏）安装。
+    """
+    proc = _run_powershell("Get-AppxPackage Microsoft.XboxGamingRuntime", timeout=30)
+    if proc.returncode == 0 and "XboxGamingRuntime" in proc.stdout:
+        return True
+    local_appdata = os.environ.get("LOCALAPPDATA", "")
+    if local_appdata:
+        for pkg_dir in Path(local_appdata).glob("Microsoft.XboxGamingRuntime*"):
+            for f in pkg_dir.rglob("xgameruntime.dll"):
+                if f.is_file() and f.stat().st_size > 0:
+                    return True
+    return False
+
+
+def open_xgameruntime_store() -> None:
+    """打开微软商店 XboxGamingRuntime 相关页面引导用户安装"""
+    subprocess.Popen(["explorer.exe", "https://www.microsoft.com/store/search?query=XboxGamingRuntime"], shell=False)
 
 
 # ─── 统一检测 ────────────────────────────────────────────────

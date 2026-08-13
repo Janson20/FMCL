@@ -1408,6 +1408,10 @@
   "bedrock_type_beta": "測試版",
 
   "bedrock_page_prev": "◀ 上一頁",
-  "bedrock_page_next": "下一頁 ▶"
+  "bedrock_page_next": "下一頁 ▶",
 
+  "bedrock_msa_title": "微軟帳戶登入",
+  "bedrock_msa_code_hint": "已開啟瀏覽器，請登入微軟帳戶並輸入代碼：\n\n  {code}\n\n輸入位址：\n{uri}\n\n登入完成後啟動器會自動繼續。",
+  "bedrock_msa_success": "微軟帳戶登入成功",
+  "bedrock_msa_failed": "微軟帳戶登入失敗: {error}"
 }

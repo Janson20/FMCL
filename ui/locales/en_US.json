@@ -1408,6 +1408,10 @@
   "bedrock_type_beta": "Beta",
 
   "bedrock_page_prev": "◀ Prev",
-  "bedrock_page_next": "Next ▶"
+  "bedrock_page_next": "Next ▶",
 
+  "bedrock_msa_title": "Microsoft Account Login",
+  "bedrock_msa_code_hint": "A browser has been opened. Sign in and enter the code:\n\n  {code}\n\nat:\n{uri}\n\nThe launcher will continue automatically after sign-in.",
+  "bedrock_msa_success": "Microsoft account logged in",
+  "bedrock_msa_failed": "Microsoft account login failed: {error}"
 }

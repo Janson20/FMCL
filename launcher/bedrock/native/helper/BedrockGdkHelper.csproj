@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>BedrockGdkHelper</AssemblyName>
+    <RootNamespace>BedrockGdkHelper</RootNamespace>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 认证注入核心（XUserLauncher.Core + XUserHook.dll 资源） -->
+    <Reference Include="XUserLauncher.Core">
+      <HintPath>..\assets\XUserLauncher.Core.dll</HintPath>
+    </Reference>
+    <!-- PE 导入表修改（PeNet NuGet，与 BedrockBoot 同系 API） -->
+    <PackageReference Include="PeNet" Version="6.1.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- PreLoad.NET.dll：游戏 exe 启动时被 PE 导入表加载，随后加载 preload 目录的 hook DLL -->
+    <None Include="..\assets\PreLoad.NET.dll" Link="PreLoad.NET.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

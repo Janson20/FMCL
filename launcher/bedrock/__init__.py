@@ -339,6 +339,7 @@ class BedrockManager:
         args: str = "",
         on_exit: Optional[Callable[[int], None]] = None,
         stop_event: Optional[threading.Event] = None,
+        msa_access_token: str = "",
     ) -> bool:
         """启动已安装的基岩版版本（阻塞直至游戏退出）
 
@@ -347,6 +348,8 @@ class BedrockManager:
             args: 附加启动参数（如 minecraft://creator/?Editor=true）
             on_exit: 游戏退出回调（后台线程触发）
             stop_event: 取消事件
+            msa_access_token: 微软账户 access_token（GDK 版系统无 Xbox
+                身份时用于认证注入启动）
 
         Returns:
             True 表示启动成功（调用方在 on_exit 中感知退出）
@@ -363,19 +366,54 @@ class BedrockManager:
         launch_mod.prepare_environment(build_type, self._notify)
 
         if build_type == "GDK":
-            proc = launch_mod.launch_gdk(folder, args, self._notify)
+            game_pid = launch_mod.launch_gdk(folder, args, self._notify, msa_access_token=msa_access_token)
+            return self._wait_gdk(game_pid, on_exit, stop_event)
         else:
             launch_mod.launch_uwp(folder, game_type, args, self._notify)
-            proc = None
+            return self._wait_uwp(game_type, on_exit, stop_event)
+
+    def _wait_gdk(
+        self,
+        game_pid: int,
+        on_exit: Optional[Callable[[int], None]],
+        stop_event: Optional[threading.Event],
+    ) -> bool:
+        """等待 GDK 游戏进程退出"""
+        import time
 
         self._notify("游戏已启动")
-        if proc is not None:
-            exit_code = proc.wait()
-            if on_exit:
-                on_exit(exit_code)
-            return True
+        if stop_event and stop_event.is_set():
+            return False
+        try:
+            import psutil
 
-        # UWP 版本：轮询游戏进程直到退出
+            proc = psutil.Process(game_pid)
+        except psutil.NoSuchProcess:
+            self._notify("游戏进程异常退出")
+            if on_exit:
+                on_exit(-1)
+            return True
+        while True:
+            if stop_event and stop_event.is_set():
+                return False
+            if not proc.is_running():
+                break
+            time.sleep(1)
+        try:
+            exit_code = proc.wait(timeout=1)
+        except Exception:
+            exit_code = 0
+        if on_exit:
+            on_exit(exit_code)
+        return True
+
+    def _wait_uwp(
+        self,
+        game_type: str,
+        on_exit: Optional[Callable[[int], None]],
+        stop_event: Optional[threading.Event],
+    ) -> bool:
+        """等待 UWP 游戏进程退出（轮询游戏进程名）"""
         import time
 
         while not (stop_event and stop_event.is_set()):

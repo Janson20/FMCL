@@ -2458,15 +2458,18 @@ class MinecraftLauncher:
             logger.error(f"基岩版安装失败: {e}")
             return False, str(e)
 
-    def _bedrock_launch_version(self, name: str, args: str = "") -> tuple:
-        """启动基岩版版本（后台线程），返回 (是否已启动, 信息)"""
+    def _bedrock_launch_version(self, name: str, args: str = "", access_token: str = "") -> tuple:
+        """启动基岩版版本（后台线程），返回 (是否已启动, 信息)
+
+        access_token: GDK 版无系统 Xbox 身份时的微软账户 access_token（认证注入）
+        """
         manager = self._get_bedrock_manager()
         if manager is None:
             return False, "基岩版仅支持 Windows 系统"
         try:
             threading.Thread(
                 target=self._bedrock_launch_worker,
-                args=(manager, name, args),
+                args=(manager, name, args, access_token),
                 daemon=True,
             ).start()
             return True, "启动中"
@@ -2474,9 +2477,14 @@ class MinecraftLauncher:
             logger.error(f"基岩版启动失败: {e}")
             return False, str(e)
 
-    def _bedrock_launch_worker(self, manager, name: str, args: str) -> None:
+    def _bedrock_launch_worker(self, manager, name: str, args: str, access_token: str) -> None:
         try:
-            manager.launch_version(name, args=args, on_exit=lambda code: self._bedrock_notify(f"基岩版已退出 (代码 {code})"))
+            manager.launch_version(
+                name,
+                args=args,
+                msa_access_token=access_token,
+                on_exit=lambda code: self._bedrock_notify(f"基岩版已退出 (代码 {code})"),
+            )
         except Exception as e:
             logger.error(f"基岩版启动异常: {e}")
             self._bedrock_notify(f"基岩版启动失败: {e}")

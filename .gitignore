@@ -58,6 +58,11 @@ ModTranslations/
 *.deb
 *.rpm
 *.AppImage
+
+# .NET helper 构建产物（源码与 native/assets 入库，构建在用户环境完成）
+launcher/bedrock/native/helper/bin/
+launcher/bedrock/native/helper/obj/
+launcher/bedrock/native/bin/
 FMCL-Setup-*.exe
 FMCL-*-mac-*.dmg
 FMCL-*-linux-*.deb

@@ -427,20 +427,91 @@ def test_is_valid_msi(tmp_path):
 
 
 def test_is_xbox_signed_in(tmp_path, monkeypatch):
-    """Xbox 登录检测：LocalState 有数据视为已登录"""
+    """Xbox 登录检测：IdentityProvider 缓存/注册表条目；崩溃日志不误判"""
     from launcher.bedrock import env as env_mod
 
     fake_local = tmp_path / "LocalAppData"
     fake_local.mkdir()
     monkeypatch.setenv("LOCALAPPDATA", str(fake_local))
-    assert not env_mod.is_xbox_signed_in()  # 目录不存在
-    state = fake_local / "Packages" / env_mod.XBOX_APP_PACKAGE / "LocalState"
-    state.mkdir(parents=True)
-    assert not env_mod.is_xbox_signed_in()  # 空目录
-    (state / "auth_cache.dat").write_bytes(b"token-data")
-    assert env_mod.is_xbox_signed_in()  # 有数据
+    assert not env_mod.is_xbox_signed_in()  # 无任何身份
+
+    # IdentityProvider 空目录不算登录
+    idp = fake_local / "Packages" / env_mod.XBOX_IDP_PACKAGE / "LocalState"
+    idp.mkdir(parents=True)
+    assert not env_mod.is_xbox_signed_in()
+    # 有数据才算
+    (idp / "auth.bin").write_bytes(b"xbox-token")
+    assert env_mod.is_xbox_signed_in()
+    idp.unlink() if False else None
+    import shutil
+
+    shutil.rmtree(idp)
+    # 注册表条目（模拟 IdentityCRL TokenCache 含 xbox 条目）
+    import winreg
+
+    test_key = r"Software\IdentityCRL\TokenCache"
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, test_key) as key:
+        winreg.CreateKey(key, "xboxlive.com")
+    monkeypatch.setattr(env_mod, "IDENTITY_CRL_PATH", test_key)
+    try:
+        assert env_mod.is_xbox_signed_in()
+    finally:
+        try:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, test_key + r"\xboxlive.com")
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, test_key)
+        except OSError:
+            pass
     monkeypatch.delenv("LOCALAPPDATA")
-    assert not env_mod.is_xbox_signed_in()  # 无 LOCALAPPDATA 时返回 False
+    assert not env_mod.is_xbox_signed_in()
+
+
+def test_msa_device_code_flow(monkeypatch):
+    """微软账户设备码 OAuth：请求代码 → 轮询（mock 网络端点）"""
+    from launcher.bedrock import msauth
+
+    calls = []
+
+    poll_count = [0]
+
+    def fake_post(url, data=None, headers=None, timeout=30):
+        fields = dict(data or {})
+        calls.append(fields.get("grant_type") or fields.get("response_type") or "unknown")
+        if fields.get("response_type") == "device_code":
+            return {
+                "device_code": "DEV123",
+                "user_code": "ABC12",
+                "verification_uri": "https://www.microsoft.com/link",
+                "interval": 1,
+                "expires_in": 900,
+            }
+        if fields.get("device_code") == "DEV123":
+            poll_count[0] += 1
+            if poll_count[0] < 2:
+                return {"error": "authorization_pending"}
+            return {"access_token": "AT-123", "refresh_token": "RT-1", "expires_in": 3600}
+        return {"access_token": "AT-123", "refresh_token": "RT-1", "expires_in": 3600}
+
+    monkeypatch.setattr(msauth, "_post_form", fake_post)
+    device = msauth.request_device_code()
+    assert device["user_code"] == "ABC12"
+    assert msauth.MSA_CLIENT_ID == "0000000048183522"
+    token = msauth.poll_device_code(device["device_code"], interval=0)
+    assert token["access_token"] == "AT-123"
+    assert calls[0] == "device_code"
+    assert poll_count[0] == 2
+
+
+def test_msa_refresh_token(monkeypatch):
+    """refresh_token 刷新 access_token"""
+    from launcher.bedrock import msauth
+
+    def fake_post(url, data=None, headers=None, timeout=30):
+        assert data["grant_type"] == "refresh_token"
+        return {"access_token": "NEW-AT", "refresh_token": "NEW-RT"}
+
+    monkeypatch.setattr(msauth, "_post_form", fake_post)
+    result = msauth.refresh_access_token("RT-OLD")
+    assert result["access_token"] == "NEW-AT"
 
 
 # ─── appx.py：AppX 解包与清单修改 ────────────────────────────

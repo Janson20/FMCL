@@ -1408,6 +1408,10 @@
   "bedrock_type_beta": "测试版",
 
   "bedrock_page_prev": "◀ 上一页",
-  "bedrock_page_next": "下一页 ▶"
+  "bedrock_page_next": "下一页 ▶",
 
+  "bedrock_msa_title": "微软账户登录",
+  "bedrock_msa_code_hint": "已打开浏览器，请登录微软账户并输入代码：\n\n  {code}\n\n输入地址：\n{uri}\n\n登录完成后启动器会自动继续。",
+  "bedrock_msa_success": "微软账户登录成功",
+  "bedrock_msa_failed": "微软账户登录失败: {error}"
 }

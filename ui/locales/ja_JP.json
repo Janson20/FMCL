@@ -1408,6 +1408,10 @@
   "bedrock_type_beta": "ベータ版",
 
   "bedrock_page_prev": "◀ 前へ",
-  "bedrock_page_next": "次へ ▶"
+  "bedrock_page_next": "次へ ▶",
 
+  "bedrock_msa_title": "Microsoft アカウントのログイン",
+  "bedrock_msa_code_hint": "ブラウザを開きました。Microsoft アカウントにログインしてコードを入力してください：\n\n  {code}\n\n入力先：\n{uri}\n\nログイン完了後、ランチャーが自動的に続行します。",
+  "bedrock_msa_success": "Microsoft アカウントにログインしました",
+  "bedrock_msa_failed": "Microsoft アカウントのログインに失敗: {error}"
 }
