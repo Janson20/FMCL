@@ -1613,8 +1613,13 @@ class EventHandlerMixin(object):
             {
                 "name": "CapsWriter-Offline",
                 "url": "https://github.com/HaujetZhao/CapsWriter-Offline",
-                "license_url": "https://github.com/HaujetZhao/CapsWriter-Offline/blob/master/LICENSE"
-            }
+                "license_url": "https://github.com/HaujetZhao/CapsWriter-Offline/blob/master/LICENSE",
+            },
+            {
+                "name": "BedrockBoot",
+                "url": "https://github.com/Round-Studio/BedrockBoot",
+                "license_url": "https://github.com/Round-Studio/BedrockBoot/blob/2.0-develop/LICENSE",
+            },
         ]
 
         for ack in acknowledgments:
