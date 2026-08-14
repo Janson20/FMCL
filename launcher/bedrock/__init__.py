@@ -315,12 +315,12 @@ class BedrockManager:
         if not (folder / launch_mod.GDK_EXE).exists():
             raise BedrockError("解包结果缺少 Minecraft.Windows.exe，包可能已损坏")
 
-        # mcappx 解包的 exe 是修补版，与官方构建不同会稳定崩溃；
-        # 若系统存在官方版（商店/Xbox 版），用其 exe 替换
+        # 校验 exe 与官方构建一致（解包版与官方同源，一般直接通过；
+        # 若系统存在官方版且 exe 不一致，用其替换）
         try:
             ok, msg = env_mod.ensure_official_gdk_exe(folder, self._notify)
             if not ok:
-                logger.warning(f"官方 exe 修复未生效: {msg}")
+                logger.warning(f"官方 exe 校验未生效: {msg}")
         except Exception as e:
             logger.warning(f"官方 exe 修复失败（不影响安装）: {e}")
 

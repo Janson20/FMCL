@@ -534,7 +534,7 @@ class XvdExtractor:
                 remaining_segment = segment_size
                 # 1MB 写入缓冲，减少系统调用
                 with open(output_file, "wb", buffering=1024 * 1024) as out:
-                    while remaining_segment > 0:
+                    while True:
                         if should_refresh_hash_cache:
                             f.seek(total_hash_cache_offset)
                             hash_cache = bytearray(f.read(self.PAGE_CACHE_SIZE))
@@ -574,6 +574,10 @@ class XvdExtractor:
                             should_refresh_page_cache = True
 
                         processed_page_count += 1
+                        # 0 字节段（如 hbui 的 MGE 标记文件）在数据流中仍占一页
+                        # （打包器按页写占位零），必须消费该页否则后续段全部错位
+                        if remaining_segment <= 0:
+                            break
                 file_count += 1
                 if progress_cb:
                     progress_cb(current_segment_index + 1, len(segments), segment_path)

@@ -195,9 +195,10 @@ def launch_gdk(
     if not game_exe.exists():
         raise BedrockLaunchError(f"未找到游戏主程序: {game_exe}（GDK 包可能未完整解包）")
 
-    # mcappx 解包的 exe 是修补版（与官方构建不同，无 AppX 包身份时稳定崩溃 0x4ab8027）。
-    # 官方版（商店版/Xbox 版）exe 为原始构建，任何工作目录可正常启动。
-    # 若系统存在官方版游戏目录，直接用其 exe 启动（工作目录仍用解包目录，已验证可行）。
+    # 解包版 exe 与官方构建哈希一致（mcappx 同源），可直接启动。
+    # 历史崩溃（0x4ab8027）根因是解包器对 0 字节段不推进页偏移，
+    # 导致 MGE 标记文件之后的全部文件数据错位（见 xvd.py），
+    # 修复后解包版可稳定运行。若系统存在官方版目录仍优先使用（兜底）。
     try:
         official_dir = find_official_minecraft_dir()
         if official_dir is not None and (official_dir / GDK_EXE).exists():
@@ -206,10 +207,7 @@ def launch_gdk(
             if notify:
                 notify("检测到官方版 Minecraft，使用官方构建启动...")
         else:
-            logger.warning(
-                "未找到官方版 Minecraft（商店版/Xbox 版），将使用解包版 exe——"
-                "mcappx 解包的 exe 可能不稳定（崩溃 0x4ab8027）"
-            )
+            logger.info("未找到官方版 Minecraft（商店版/Xbox 版），使用解包版 exe 启动（已修复 0 字节段错位，可稳定运行）")
     except Exception as e:
         logger.warning(f"查找官方版游戏失败（继续使用解包版）: {e}")
 

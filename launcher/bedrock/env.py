@@ -5,7 +5,7 @@
 - Gaming Services（UWP 启动必需，缺失时打开微软商店页面）
 - VC++ 运行时（x64 原生 + UWP VCLibs）
 - GameInput（GDK 首次启动必需，msiexec 安装包内 MSI）
-- 官方 exe 修复（mcappx 解包 exe 与官方构建不同会崩溃，需用商店版 exe 替换）
+- 官方 exe 兜底（解包版 exe 与官方同源；存在官方版时优先使用/校验替换）
 """
 
 import os
@@ -419,7 +419,7 @@ def repair_environment(
         return True, ""
 
 
-# ─── 官方 exe 修复（mcappx 解包 exe 与官方构建不同会崩溃）─────────────
+# ─── 官方版目录查找（解包版 exe 与官方同源，官方目录作为兜底数据源）──────
 
 MC_PACKAGE_NAMES = ("Microsoft.MinecraftUWP", "Microsoft.MinecraftWindowsBeta")
 # Xbox 应用游戏安装目录（可自定义位置，如 D:\XboxGames）
@@ -429,9 +429,10 @@ XBOX_GAMES_DIR_NAMES = ("XboxGames",)
 def find_official_minecraft_dir() -> Optional[Path]:
     """查找官方版 Minecraft（商店版/Xbox 版）的安装目录
 
-    mcappx 解包的 GDK 版 exe 与官方构建内容不同（修补过），会稳定崩溃在
-    0x4ab8027；官方版（商店/Xbox 安装）exe 为原始构建，任何目录可正常启动。
-    此函数返回官方版游戏根目录（含 Minecraft.Windows.exe），找不到返回 None。
+    解包版 exe 与官方构建哈希一致（mcappx 同源），可直接启动；历史崩溃
+    （0x4ab8027）根因是解包器对 0 字节段不推进页偏移导致数据错位（xvd.py
+    已修复）。此函数作为兜底：返回官方版游戏根目录（含 Minecraft.Windows.exe），
+    找不到返回 None。
 
     查找顺序：
     1. 已注册 AppX 包（Microsoft.MinecraftUWP / Beta）的 InstallLocation
@@ -473,11 +474,10 @@ def ensure_official_gdk_exe(
     version_dir: Path,
     notify: Optional[Callable[[str], None]] = None,
 ) -> Tuple[bool, str]:
-    """确保 GDK 解包目录使用官方版 Minecraft.Windows.exe
+    """确保 GDK 解包目录的 Minecraft.Windows.exe 为官方构建
 
-    mcappx 解包的 exe 是修补版（支持裸跑/多开），与官方构建不同，
-    在无完整 AppX 包身份时会稳定崩溃（0x4ab8027）。若系统存在官方版
-    （商店版/Xbox 版），将其 exe 复制到解包目录替换。
+    解包版 exe 与官方构建哈希一致（mcappx 同源），此函数仅作校验兜底：
+    若系统存在官方版（商店版/Xbox 版）且 exe 大小不一致，则复制替换。
 
     Returns:
         (是否成功, 说明)
