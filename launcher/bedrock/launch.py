@@ -193,12 +193,12 @@ def launch_gdk(
 
     game_exe = version_dir / GDK_EXE
     if not game_exe.exists():
-        raise BedrockLaunchError(f"未找到游戏主程序: {game_exe}（GDK 包可能未完整解包）")
+        raise BedrockLaunchError(f"未找到游戏主程序: {game_exe}（GDK 包可能未完整解压）")
 
-    # 解包版 exe 与官方构建哈希一致（mcappx 同源），可直接启动。
-    # 历史崩溃（0x4ab8027）根因是解包器对 0 字节段不推进页偏移，
+    # 解压版 exe 与官方构建哈希一致（mcappx 同源），可直接启动。
+    # 历史崩溃（0x4ab8027）根因是解压器对 0 字节段不推进页偏移，
     # 导致 MGE 标记文件之后的全部文件数据错位（见 xvd.py），
-    # 修复后解包版可稳定运行。若系统存在官方版目录仍优先使用（兜底）。
+    # 修复后解压版可稳定运行。若系统存在官方版目录仍优先使用（兜底）。
     try:
         official_dir = find_official_minecraft_dir()
         if official_dir is not None and (official_dir / GDK_EXE).exists():
@@ -207,9 +207,9 @@ def launch_gdk(
             if notify:
                 notify("检测到官方版 Minecraft，使用官方构建启动...")
         else:
-            logger.info("未找到官方版 Minecraft（商店版/Xbox 版），使用解包版 exe 启动（已修复 0 字节段错位，可稳定运行）")
+            logger.info("未找到官方版 Minecraft（商店版/Xbox 版），使用解压版 exe 启动（已修复 0 字节段错位，可稳定运行）")
     except Exception as e:
-        logger.warning(f"查找官方版游戏失败（继续使用解包版）: {e}")
+        logger.warning(f"查找官方版游戏失败（继续使用解压版）: {e}")
 
     # 首次启动安装 GameInput（对齐 BedrockBoot：安装失败不阻断启动）
     if not is_game_input_installed():

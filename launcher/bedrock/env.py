@@ -5,7 +5,7 @@
 - Gaming Services（UWP 启动必需，缺失时打开微软商店页面）
 - VC++ 运行时（x64 原生 + UWP VCLibs）
 - GameInput（GDK 首次启动必需，msiexec 安装包内 MSI）
-- 官方 exe 兜底（解包版 exe 与官方同源；存在官方版时优先使用/校验替换）
+- 官方 exe 兜底（解压版 exe 与官方同源；存在官方版时优先使用/校验替换）
 """
 
 import os
@@ -419,7 +419,7 @@ def repair_environment(
         return True, ""
 
 
-# ─── 官方版目录查找（解包版 exe 与官方同源，官方目录作为兜底数据源）──────
+# ─── 官方版目录查找（解压版 exe 与官方同源，官方目录作为兜底数据源）──────
 
 MC_PACKAGE_NAMES = ("Microsoft.MinecraftUWP", "Microsoft.MinecraftWindowsBeta")
 # Xbox 应用游戏安装目录（可自定义位置，如 D:\XboxGames）
@@ -429,8 +429,8 @@ XBOX_GAMES_DIR_NAMES = ("XboxGames",)
 def find_official_minecraft_dir() -> Optional[Path]:
     """查找官方版 Minecraft（商店版/Xbox 版）的安装目录
 
-    解包版 exe 与官方构建哈希一致（mcappx 同源），可直接启动；历史崩溃
-    （0x4ab8027）根因是解包器对 0 字节段不推进页偏移导致数据错位（xvd.py
+    解压版 exe 与官方构建哈希一致（mcappx 同源），可直接启动；历史崩溃
+    （0x4ab8027）根因是解压器对 0 字节段不推进页偏移导致数据错位（xvd.py
     已修复）。此函数作为兜底：返回官方版游戏根目录（含 Minecraft.Windows.exe），
     找不到返回 None。
 
@@ -474,9 +474,9 @@ def ensure_official_gdk_exe(
     version_dir: Path,
     notify: Optional[Callable[[str], None]] = None,
 ) -> Tuple[bool, str]:
-    """确保 GDK 解包目录的 Minecraft.Windows.exe 为官方构建
+    """确保 GDK 解压目录的 Minecraft.Windows.exe 为官方构建
 
-    解包版 exe 与官方构建哈希一致（mcappx 同源），此函数仅作校验兜底：
+    解压版 exe 与官方构建哈希一致（mcappx 同源），此函数仅作校验兜底：
     若系统存在官方版（商店版/Xbox 版）且 exe 大小不一致，则复制替换。
 
     Returns:
@@ -488,7 +488,7 @@ def ensure_official_gdk_exe(
 
     official_dir = find_official_minecraft_dir()
     if official_dir is None:
-        return False, "未找到官方版 Minecraft（商店版/Xbox 版），解包版 exe 可能不稳定"
+        return False, "未找到官方版 Minecraft（商店版/Xbox 版），解压版 exe 可能不稳定"
 
     official_exe = official_dir / "Minecraft.Windows.exe"
     if not official_exe.exists():
@@ -497,7 +497,7 @@ def ensure_official_gdk_exe(
     # 已是最新官方 exe 则跳过
     try:
         if game_exe.stat().st_size == official_exe.stat().st_size:
-            return True, "解包版 exe 已与官方版一致"
+            return True, "解压版 exe 已与官方版一致"
     except OSError:
         pass
 
@@ -515,7 +515,7 @@ def ensure_official_gdk_exe(
         if proc.returncode == 0 and game_exe.stat().st_size == official_exe.stat().st_size:
             logger.info(f"已用官方 exe 替换: {official_exe} -> {game_exe}")
             return True, "已用官方 exe 替换"
-        # 提权失败则尝试直接复制（解包目录通常可写）
+        # 提权失败则尝试直接复制（解压目录通常可写）
         shutil.copy2(official_exe, game_exe)
         if game_exe.stat().st_size == official_exe.stat().st_size:
             logger.info(f"已用官方 exe 替换（直接复制）: {game_exe}")

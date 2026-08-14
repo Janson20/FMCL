@@ -638,7 +638,7 @@ def test_msa_cache_v2_corrupt_dropped(tmp_path):
     assert msauth.get_cached_access_token() == ""
 
 
-# ─── appx.py：AppX 解包与清单修改 ────────────────────────────
+# ─── appx.py：AppX 解压与清单修改 ────────────────────────────
 
 SAMPLE_MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:mp="http://schemas.microsoft.com/appx/manifest/foundation/windows10/2015/5" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3" IgnorableNamespaces="uap uap3">
@@ -720,7 +720,7 @@ def test_manager_install_and_remove(tmp_path, monkeypatch):
 
     def fake_download_file(urls, dest, progress_cb=None, threads=8, stop_event=None, timeout=30):
         payload = b"MZ-uwp-package"
-        # 仅写文件头，便于测试；UWP 解包用 zip 校验，这里直接构造 zip
+        # 仅写文件头，便于测试；UWP 解压用 zip 校验，这里直接构造 zip
         with zipfile.ZipFile(dest, "w") as zf:
             zf.writestr("AppxManifest.xml", SAMPLE_MANIFEST)
         return dest

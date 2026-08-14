@@ -1,4 +1,4 @@
-"""GDK 版游戏包（MSIXVC/XVD 容器）解包
+"""GDK 版游戏包（MSIXVC/XVD 容器）解压
 
 移植自 BedrockLauncher.Core (MIT) 的 MsiXVDStream / MsiXVDDecoder：
 - 解析 XVD 文件头（卷属性、页数、用户数据/XVC 数据偏移）
@@ -592,7 +592,7 @@ def extract_gdk_package(
     stop_event=None,
     game_type: str = "release",
 ) -> int:
-    """解包 GDK 游戏包（.msixvc / .insPack）到指定目录
+    """解压 GDK 游戏包（.msixvc / .insPack）到指定目录
 
     game_type: release / preview / beta，决定 XTS-AES 解密使用的 CIK 密钥
     """

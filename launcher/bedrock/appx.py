@@ -1,7 +1,7 @@
-"""UWP 版游戏包安装：AppX 解包、清单修改、开发者模式注册
+"""UWP 版游戏包安装：AppX 解压、清单修改、开发者模式注册
 
 移植自 BedrockLauncher.Core (MIT)：
-- AppX 包本质为 zip，解包到版本目录
+- AppX 包本质为 zip，解压到版本目录
 - 删除 AppxSignature.p7x（签名文件会阻止开发模式注册）
 - 修改 AppxManifest.xml（版本号 +1、DisplayName、runFullTrust 能力、扩展等）
 - 写入 CustomCapability.SCCD
@@ -71,7 +71,7 @@ class AppxError(RuntimeError):
 
 
 def extract_appx(package_path: Path, dest_dir: Path, progress_cb: Optional[Callable[[int, int], None]] = None) -> None:
-    """解包 AppX（zip 格式）到目标目录，删除签名文件"""
+    """解压 AppX（zip 格式）到目标目录，删除签名文件"""
     dest_dir.mkdir(parents=True, exist_ok=True)
     try:
         with zipfile.ZipFile(package_path) as zf:
@@ -82,7 +82,7 @@ def extract_appx(package_path: Path, dest_dir: Path, progress_cb: Optional[Calla
                     continue
                 target = dest_dir / member.filename
                 if not str(target.resolve()).startswith(str(dest_dir.resolve())):
-                    raise AppxError(f"解包路径越界: {member.filename}")
+                    raise AppxError(f"解压路径越界: {member.filename}")
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(member) as src, open(target, "wb") as dst:
                     while True:

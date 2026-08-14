@@ -3,7 +3,7 @@
 实现 FMCL 的基岩版（Bedrock Edition）支持，流程对齐 BedrockBoot：
 1. 版本库: mcappx.com bedrock.json（多源回退）
 2. 下载:   GDK 直链 / UWP SOAP 解析，多线程下载 + MD5 校验，镜像自动回退
-3. 安装:   GDK 解包 XVD 容器；UWP 解包 AppX + 修改清单 + 开发模式注册
+3. 安装:   GDK 解压 XVD 容器；UWP 解压 AppX + 修改清单 + 开发模式注册
 4. 启动:   GDK 运行 Minecraft.Windows.exe；UWP 注册后激活；环境自动修复
 5. 存储:   <minecraft_dir>/bedrock_versions/<名称>/，配置与 BedrockBoot 兼容
 """
@@ -303,19 +303,19 @@ class BedrockManager:
         name: str,
         stop_event: Optional[threading.Event],
     ) -> None:
-        """安装 GDK 版本（解包 XVD 容器）"""
-        self._notify("正在解包游戏（GDK）...")
+        """安装 GDK 版本（解压 XVD 容器）"""
+        self._notify("正在解压游戏（GDK）...")
         xvd_mod.extract_gdk_package(
             package_path,
             folder,
-            progress_cb=lambda cur, total, fname: self._progress(cur, total, f"正在解包 {fname}"),
+            progress_cb=lambda cur, total, fname: self._progress(cur, total, f"正在解压 {fname}"),
             stop_event=stop_event,
             game_type=game_type,
         )
         if not (folder / launch_mod.GDK_EXE).exists():
-            raise BedrockError("解包结果缺少 Minecraft.Windows.exe，包可能已损坏")
+            raise BedrockError("解压结果缺少 Minecraft.Windows.exe，包可能已损坏")
 
-        # 校验 exe 与官方构建一致（解包版与官方同源，一般直接通过；
+        # 校验 exe 与官方构建一致（解压版与官方同源，一般直接通过；
         # 若系统存在官方版且 exe 不一致，用其替换）
         try:
             ok, msg = env_mod.ensure_official_gdk_exe(folder, self._notify)
@@ -325,12 +325,12 @@ class BedrockManager:
             logger.warning(f"官方 exe 修复失败（不影响安装）: {e}")
 
     def _install_uwp(self, package_path: Path, folder: Path, game_type: str, name: str) -> None:
-        """安装 UWP 版本（解包 + 修改清单 + 注册）"""
-        self._notify("正在解包游戏（UWP）...")
+        """安装 UWP 版本（解压 + 修改清单 + 注册）"""
+        self._notify("正在解压游戏（UWP）...")
         appx_mod.extract_appx(
             package_path,
             folder,
-            progress_cb=lambda cur, total: self._progress(cur, total, "正在解包游戏（UWP）"),
+            progress_cb=lambda cur, total: self._progress(cur, total, "正在解压游戏（UWP）"),
         )
         self._notify("正在修改应用清单...")
         appx_mod.edit_manifest(folder, name)
