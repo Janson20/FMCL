@@ -619,9 +619,10 @@ class BedrockMixin:
             name, success, msg = data
             if success:
                 self.set_status(_("bedrock_remove_success").format(name=name), "success")
-                self._run_in_thread(self._load_bedrock_installed)
             else:
                 self.set_status(_("bedrock_remove_failed").format(error=msg), "error")
+            # 无论成败都刷新已安装列表（失败时同步真实状态，避免残留显示）
+            self._run_in_thread(self._load_bedrock_installed)
             return True
 
         return False

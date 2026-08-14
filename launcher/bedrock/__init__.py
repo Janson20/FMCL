@@ -462,7 +462,15 @@ class BedrockManager:
                         appx_mod.remove_appx_package(package_name)
                 except Exception as e:
                     logger.warning(f"注销 AppX 包失败: {e}")
-        shutil.rmtree(folder, ignore_errors=True)
+        # 先检查游戏是否在运行（占用 exe/dll 会导致目录删除失败）
+        if self.is_game_running(info.get("game_type", "release") if info else "release"):
+            raise BedrockError(f"版本 '{name}' 正在运行，请先退出游戏再删除")
+        try:
+            shutil.rmtree(folder)
+        except OSError as e:
+            raise BedrockError(f"删除版本目录失败（文件可能被占用，请先关闭游戏后重试）: {e}") from e
+        if folder.exists():
+            raise BedrockError("删除版本目录失败：目录仍存在（文件可能被占用，请先关闭游戏后重试）")
         self._notify(f"已删除版本 {name}")
 
     # ─── 运行状态 ─────────────────────────────────────────────
