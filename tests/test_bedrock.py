@@ -433,6 +433,9 @@ def test_is_xbox_signed_in(tmp_path, monkeypatch):
     fake_local = tmp_path / "LocalAppData"
     fake_local.mkdir()
     monkeypatch.setenv("LOCALAPPDATA", str(fake_local))
+    # 隔离真实系统的 IdentityCRL KeyCache（避免本机已登录的凭据干扰测试）
+    test_keycache = r"Software\IdentityCRL\KeyCache\__fmcl_test__"
+    monkeypatch.setattr(env_mod, "IDENTITY_CRL_KEYCACHE", test_keycache)
     assert not env_mod.is_xbox_signed_in()  # 无任何身份
 
     # IdentityProvider 空目录不算登录
@@ -512,6 +515,127 @@ def test_msa_refresh_token(monkeypatch):
     monkeypatch.setattr(msauth, "_post_form", fake_post)
     result = msauth.refresh_access_token("RT-OLD")
     assert result["access_token"] == "NEW-AT"
+
+
+def test_msa_credential_cache_roundtrip(tmp_path, monkeypatch):
+    """凭证缓存：保存→读取 往返一致（加密存储）"""
+    from launcher.bedrock import msauth
+
+    monkeypatch.setattr(msauth, "set_cache_dir", lambda d: msauth._set_cache_dir_for_test(tmp_path))
+
+    # 手动保存（不走 set_cache_dir 全局状态，避免影响其他测试）
+    msauth._cache_dir = tmp_path
+    ok = msauth.save_credentials("AT-123", "RT-456")
+    assert ok
+    creds = msauth.load_credentials()
+    assert creds.get("access_token") == "AT-123"
+    assert creds.get("refresh_token") == "RT-456"
+    assert creds.get("saved_at", 0) > 0
+    # 缓存文件本身不含明文
+    raw = (tmp_path / msauth.CACHE_FILE_NAME).read_text(encoding="utf-8")
+    assert "AT-123" not in raw
+    assert "RT-456" not in raw
+    # 清理
+    msauth.clear_credentials()
+    assert msauth.load_credentials() == {}
+
+
+def test_msa_cached_token_refresh(monkeypatch, tmp_path):
+    """缓存凭证存在时自动刷新并返回新 access_token"""
+    from launcher.bedrock import msauth
+
+    msauth._cache_dir = tmp_path
+    msauth.save_credentials("OLD-AT", "RT-789")
+
+    def fake_post(url, data=None, headers=None, timeout=30):
+        assert data["grant_type"] == "refresh_token"
+        return {"access_token": "FRESH-AT", "refresh_token": "FRESH-RT"}
+
+    monkeypatch.setattr(msauth, "_post_form", fake_post)
+    token = msauth.get_cached_access_token()
+    assert token == "FRESH-AT"
+    # 刷新成功后缓存被更新
+    creds = msauth.load_credentials()
+    assert creds.get("access_token") == "FRESH-AT"
+    assert creds.get("refresh_token") == "FRESH-RT"
+
+
+def test_msa_cached_token_missing(tmp_path, monkeypatch):
+    """无缓存凭证时返回空字符串"""
+    from launcher.bedrock import msauth
+
+    msauth._cache_dir = tmp_path
+    assert msauth.get_cached_access_token() == ""
+
+
+def test_msa_cache_v2_encrypted(tmp_path):
+    """v2 格式：凭证必须加密存储，明文 token 不会误判为已加密"""
+    from launcher.bedrock import msauth
+    import json
+
+    msauth._cache_dir = tmp_path
+    # 用真实的 MSA 风格 base64 token（gAAAA 开头，会被 is_encrypted 误判）
+    fake_at = "EwDoA+pvBAAUKods63Ys1fGlwiccIFJ+qE1hANsAAVXpfBiOam83eqSz1deRe7pooNBj"
+    fake_rt = "gAAAAABqfcKsSjqBjaI3JcpWY6oXOrYcO3Yo8XZAFB-RX51IIQRrMrnzbLv7QLkI1ulxTxGf"
+    ok = msauth.save_credentials(fake_at, fake_rt)
+    assert ok
+    # 缓存文件必须是密文（不含明文 token）
+    raw = (tmp_path / msauth.CACHE_FILE_NAME).read_text(encoding="utf-8")
+    data = json.loads(raw)
+    assert data.get("format_version") == 2
+    assert fake_at not in raw
+    assert fake_rt not in raw
+    # 读取还原
+    creds = msauth.load_credentials()
+    assert creds.get("access_token") == fake_at
+    assert creds.get("refresh_token") == fake_rt
+
+
+def test_msa_cache_v1_plaintext_migrate(tmp_path):
+    """旧版 v1 缓存（明文误存）：读取可用并自动迁移为 v2 加密"""
+    from launcher.bedrock import msauth
+    import json
+
+    msauth._cache_dir = tmp_path
+    fake_at = "EwDoA+pvBAAUKods63Ys1fGlwiccIFJ+qE1hANsAAVXpfBiOam83eqSz1deRe7pooNBj"
+    fake_rt = "gAAAAABqfcKsSjqBjaI3JcpWY6oXOrYcO3Yo8XZAFB-RX51IIQRrMrnzbLv7QLkI1ulxTxGf"
+    cache_file = tmp_path / msauth.CACHE_FILE_NAME
+    cache_file.write_text(
+        json.dumps({"access_token": fake_at, "refresh_token": fake_rt, "saved_at": 1786626732}),
+        encoding="utf-8",
+    )
+    creds = msauth.load_credentials()
+    assert creds.get("access_token") == fake_at
+    assert creds.get("refresh_token") == fake_rt
+    # 已迁移为 v2（加密）
+    raw = cache_file.read_text(encoding="utf-8")
+    assert '"format_version": 2' in raw
+    assert fake_at not in raw
+
+
+def test_msa_cache_v2_corrupt_dropped(tmp_path):
+    """v2 格式损坏字段（无法解密）应被丢弃，避免用坏 token 启动"""
+    from launcher.bedrock import msauth
+    import json
+
+    msauth._cache_dir = tmp_path
+    cache_file = tmp_path / msauth.CACHE_FILE_NAME
+    cache_file.write_text(
+        json.dumps(
+            {
+                "format_version": 2,
+                "access_token": "gAAAAABcorrupted-corrupted-corrupted",
+                "refresh_token": "gAAAAABcorrupted-corrupted-corrupted",
+                "saved_at": 1786626732,
+            }
+        ),
+        encoding="utf-8",
+    )
+    creds = msauth.load_credentials()
+    # 损坏字段被丢弃（saved_at 元数据保留），无有效 token → 重新登录
+    assert "access_token" not in creds
+    assert "refresh_token" not in creds
+    assert msauth.get_cached_access_token() == ""
 
 
 # ─── appx.py：AppX 解包与清单修改 ────────────────────────────

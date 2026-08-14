@@ -315,6 +315,15 @@ class BedrockManager:
         if not (folder / launch_mod.GDK_EXE).exists():
             raise BedrockError("解包结果缺少 Minecraft.Windows.exe，包可能已损坏")
 
+        # mcappx 解包的 exe 是修补版，与官方构建不同会稳定崩溃；
+        # 若系统存在官方版（商店/Xbox 版），用其 exe 替换
+        try:
+            ok, msg = env_mod.ensure_official_gdk_exe(folder, self._notify)
+            if not ok:
+                logger.warning(f"官方 exe 修复未生效: {msg}")
+        except Exception as e:
+            logger.warning(f"官方 exe 修复失败（不影响安装）: {e}")
+
     def _install_uwp(self, package_path: Path, folder: Path, game_type: str, name: str) -> None:
         """安装 UWP 版本（解包 + 修改清单 + 注册）"""
         self._notify("正在解包游戏（UWP）...")

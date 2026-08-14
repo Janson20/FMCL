@@ -1,5 +1,6 @@
 """ModernApp 基岩版标签页 Mixin - 下载、启动、删除基岩版版本"""
 
+import threading
 from typing import Any, Dict, List, Optional
 
 import customtkinter as ctk
@@ -9,6 +10,11 @@ from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
 
 _TYPE_LABEL_KEY = {"release": "bedrock_type_release", "preview": "bedrock_type_preview", "beta": "bedrock_type_beta"}
+
+# 登录流程互斥锁：多线程并发点击时只允许一个设备码登录流程
+_MSA_LOGIN_LOCK = threading.Lock()
+# 启动流程互斥锁：同一时刻只允许一个基岩版启动流程（防重复点击/并发触发）
+_BEDROCK_LAUNCH_LOCK = threading.Lock()
 
 
 class BedrockMixin:
@@ -445,6 +451,10 @@ class BedrockMixin:
         self._run_in_thread(self._launch_bedrock_worker, name)
 
     def _launch_bedrock_worker(self, name: str):
+        # 防重入：同一次启动流程中重复触发的并发线程直接跳过
+        if not _BEDROCK_LAUNCH_LOCK.acquire(blocking=False):
+            logger.warning(f"基岩版启动已在执行中，忽略重复触发: {name}")
+            return
         try:
             # GDK 版且系统无 Xbox 身份时，先走微软账户设备码登录（认证注入）
             access_token = ""
@@ -463,23 +473,45 @@ class BedrockMixin:
         except Exception as e:
             logger.error(f"基岩版启动异常: {e}")
             self._task_queue.put(("bedrock_launch_done", (name, False, str(e))))
+        finally:
+            _BEDROCK_LAUNCH_LOCK.release()
 
     def _msa_login_flow(self) -> str:
-        """微软账户设备码登录（在后台线程运行），返回 access_token"""
+        """获取微软账户 access_token（优先用缓存的凭证自动刷新，无缓存才走设备码登录）
+
+        多线程并发点击时互斥：只允许一个线程发起设备码登录弹窗，
+        其余线程等待其完成并复用缓存的凭证，避免弹出多个登录窗口。
+        """
         from launcher.bedrock import msauth
 
-        device = msauth.request_device_code()
-        code = device.get("user_code", "")
-        uri = device.get("verification_uri") or "https://www.microsoft.com/link"
-        # 主线程弹窗提示 + 打开浏览器
-        self._task_queue.put(("bedrock_msa_code", (code, uri)))
-        token = msauth.poll_device_code(
-            device["device_code"],
-            interval=int(device.get("interval", 5)),
-            status_cb=lambda text: self._task_queue.put(("bedrock_msa_status", text)),
+        # 快速路径：已有缓存凭证时直接使用，无需等待锁
+        cached = msauth.get_cached_access_token(
+            status_cb=lambda text: self._task_queue.put(("bedrock_msa_status", text))
         )
-        self._task_queue.put(("bedrock_msa_done", (token.get("access_token", ""), "")))
-        return token["access_token"]
+        if cached:
+            return cached
+
+        with _MSA_LOGIN_LOCK:
+            # 持锁后再次尝试缓存（可能前面的线程刚完成登录并写入了缓存）
+            cached = msauth.get_cached_access_token(
+                status_cb=lambda text: self._task_queue.put(("bedrock_msa_status", text))
+            )
+            if cached:
+                return cached
+
+            device = msauth.request_device_code()
+            code = device.get("user_code", "")
+            uri = device.get("verification_uri") or "https://www.microsoft.com/link"
+            # 主线程弹窗提示 + 打开浏览器
+            self._task_queue.put(("bedrock_msa_code", (code, uri)))
+            token = msauth.poll_device_code(
+                device["device_code"],
+                interval=int(device.get("interval", 5)),
+                status_cb=lambda text: self._task_queue.put(("bedrock_msa_status", text)),
+            )
+            msauth.save_credentials(token.get("access_token", ""), token.get("refresh_token", ""))
+            self._task_queue.put(("bedrock_msa_done", (token.get("access_token", ""), "")))
+            return token["access_token"]
 
     def _on_bedrock_remove(self, name: str):
         import tkinter.messagebox

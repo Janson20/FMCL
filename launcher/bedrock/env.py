@@ -5,6 +5,7 @@
 - Gaming Services（UWP 启动必需，缺失时打开微软商店页面）
 - VC++ 运行时（x64 原生 + UWP VCLibs）
 - GameInput（GDK 首次启动必需，msiexec 安装包内 MSI）
+- 官方 exe 修复（mcappx 解包 exe 与官方构建不同会崩溃，需用商店版 exe 替换）
 """
 
 import os
@@ -244,6 +245,7 @@ def install_game_input(msi_path: Path) -> Tuple[bool, str]:
 XBOX_IDP_PACKAGE = "Microsoft.XboxIdentityProvider_8wekyb3d8bbwe"
 XBOX_APP_PACKAGE = "Microsoft.XboxApp_8wekyb3d8bbwe"
 IDENTITY_CRL_PATH = r"Software\Microsoft\IdentityCRL\TokenCache"
+IDENTITY_CRL_KEYCACHE = r"Software\Microsoft\IdentityCRL\KeyCache"
 
 
 def is_xbox_signed_in() -> bool:
@@ -252,6 +254,8 @@ def is_xbox_signed_in() -> bool:
     指标（对齐 BedrockBoot XboxLoginStatusChecker）：
     1. HKCU\\Software\\Microsoft\\IdentityCRL\\TokenCache 含 Xbox/live.com 相关条目
     2. XboxIdentityProvider 的登录缓存目录有数据
+    3. IdentityCRL\\KeyCache 存在有效的 Xbox 认证凭据（StrongCredentialKey，
+       新 Xbox 应用/GamingApp 登录后写在这里）
     注意：不能检查 XboxApp 的 LocalState（崩溃日志会误判）
     """
     # 1. IdentityCRL TokenCache（BedrockBoot CheckWindowsTokenCache 同款）
@@ -277,6 +281,22 @@ def is_xbox_signed_in() -> bool:
                         return True
             except OSError:
                 pass
+    # 3. IdentityCRL KeyCache（Xbox 认证凭据，新 Xbox 应用登录后写入）
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, IDENTITY_CRL_KEYCACHE) as key:
+            sub_count = winreg.QueryInfoKey(key)[0]
+            for i in range(sub_count):
+                name = winreg.EnumKey(key, i)
+                with winreg.OpenKey(key, name) as sub:
+                    try:
+                        winreg.QueryValueEx(sub, "StrongCredentialKey")
+                        return True
+                    except OSError:
+                        continue
+    except OSError:
+        pass
     return False
 
 
@@ -289,25 +309,29 @@ def open_xbox_app() -> None:
 
 
 def is_xgameruntime_installed() -> bool:
-    """检查 GDK 游戏运行时（XboxGamingRuntime / xgameruntime.dll）
+    """检查 GDK 游戏运行时（xgameruntime.dll）是否可用
 
-    XUserHook 需要加载 xgameruntime.dll 以 hook QueryApiImpl 注入认证；
-    该组件随微软商店的 GDK 游戏（Xbox/Game Pass 游戏）安装。
+    XUserHook 需要加载 xgameruntime.dll 以 hook QueryApiImpl 注入认证。
+    该组件由以下任一途径提供（任意一个安装即可）：
+    - Microsoft.XboxGamingRuntime 包（随商店 GDK 游戏自动安装）
+    - Microsoft.GamingServices 包（Gaming Services，其 DLL 同样部署到 System32）
+    最可靠指标：System32 下存在 xgameruntime.dll。
     """
-    proc = _run_powershell("Get-AppxPackage Microsoft.XboxGamingRuntime", timeout=30)
-    if proc.returncode == 0 and "XboxGamingRuntime" in proc.stdout:
+    system32 = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "xgameruntime.dll"
+    if system32.is_file() and system32.stat().st_size > 0:
         return True
-    local_appdata = os.environ.get("LOCALAPPDATA", "")
-    if local_appdata:
-        for pkg_dir in Path(local_appdata).glob("Microsoft.XboxGamingRuntime*"):
-            for f in pkg_dir.rglob("xgameruntime.dll"):
-                if f.is_file() and f.stat().st_size > 0:
-                    return True
+    proc = _run_powershell(
+        "Get-AppxPackage -Name 'Microsoft.XboxGamingRuntime','Microsoft.GamingServices'", timeout=30
+    )
+    if proc.returncode == 0 and any(
+        name in proc.stdout for name in ("XboxGamingRuntime", "GamingServices")
+    ):
+        return True
     return False
 
 
 def open_xgameruntime_store() -> None:
-    """打开微软商店 XboxGamingRuntime 相关页面引导用户安装"""
+    """打开微软商店相关页面引导用户安装 GDK 游戏运行时"""
     subprocess.Popen(["explorer.exe", "https://www.microsoft.com/store/search?query=XboxGamingRuntime"], shell=False)
 
 
@@ -393,3 +417,110 @@ def repair_environment(
             if not install_vc_runtime(notify):
                 return False, "VC++ 运行时安装失败，请手动安装后重试"
         return True, ""
+
+
+# ─── 官方 exe 修复（mcappx 解包 exe 与官方构建不同会崩溃）─────────────
+
+MC_PACKAGE_NAMES = ("Microsoft.MinecraftUWP", "Microsoft.MinecraftWindowsBeta")
+# Xbox 应用游戏安装目录（可自定义位置，如 D:\XboxGames）
+XBOX_GAMES_DIR_NAMES = ("XboxGames",)
+
+
+def find_official_minecraft_dir() -> Optional[Path]:
+    """查找官方版 Minecraft（商店版/Xbox 版）的安装目录
+
+    mcappx 解包的 GDK 版 exe 与官方构建内容不同（修补过），会稳定崩溃在
+    0x4ab8027；官方版（商店/Xbox 安装）exe 为原始构建，任何目录可正常启动。
+    此函数返回官方版游戏根目录（含 Minecraft.Windows.exe），找不到返回 None。
+
+    查找顺序：
+    1. 已注册 AppX 包（Microsoft.MinecraftUWP / Beta）的 InstallLocation
+    2. Xbox 应用游戏安装目录（C:/D:/... 盘根的 XboxGames\\<GUID>\\Content）
+    """
+    # 1. 已注册 AppX 包
+    try:
+        for pkg_name in MC_PACKAGE_NAMES:
+            proc = _run_powershell(
+                f"(Get-AppxPackage -Name '{pkg_name}' | Select-Object -First 1).InstallLocation", timeout=30
+            )
+            loc = (proc.stdout or "").strip()
+            if loc and (Path(loc) / "Minecraft.Windows.exe").exists():
+                return Path(loc)
+    except Exception as e:
+        logger.warning(f"查找商店版 Minecraft 失败: {e}")
+
+    # 2. Xbox 应用游戏目录（各盘根 XboxGames\\<GUID>\\Content）
+    try:
+        for drive in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+            root = Path(f"{drive}:\\")
+            if not root.exists():
+                continue
+            for games_dir_name in XBOX_GAMES_DIR_NAMES:
+                games_dir = root / games_dir_name
+                if not games_dir.is_dir():
+                    continue
+                for entry in games_dir.iterdir():
+                    content = entry / "Content"
+                    if (content / "Minecraft.Windows.exe").exists():
+                        return content
+    except Exception as e:
+        logger.warning(f"查找 Xbox 游戏目录失败: {e}")
+
+    return None
+
+
+def ensure_official_gdk_exe(
+    version_dir: Path,
+    notify: Optional[Callable[[str], None]] = None,
+) -> Tuple[bool, str]:
+    """确保 GDK 解包目录使用官方版 Minecraft.Windows.exe
+
+    mcappx 解包的 exe 是修补版（支持裸跑/多开），与官方构建不同，
+    在无完整 AppX 包身份时会稳定崩溃（0x4ab8027）。若系统存在官方版
+    （商店版/Xbox 版），将其 exe 复制到解包目录替换。
+
+    Returns:
+        (是否成功, 说明)
+    """
+    game_exe = version_dir / "Minecraft.Windows.exe"
+    if not game_exe.exists():
+        return False, "缺少 Minecraft.Windows.exe"
+
+    official_dir = find_official_minecraft_dir()
+    if official_dir is None:
+        return False, "未找到官方版 Minecraft（商店版/Xbox 版），解包版 exe 可能不稳定"
+
+    official_exe = official_dir / "Minecraft.Windows.exe"
+    if not official_exe.exists():
+        return False, f"官方版目录缺少 exe: {official_exe}"
+
+    # 已是最新官方 exe 则跳过
+    try:
+        if game_exe.stat().st_size == official_exe.stat().st_size:
+            return True, "解包版 exe 已与官方版一致"
+    except OSError:
+        pass
+
+    if notify:
+        notify("检测到官方版 Minecraft，正在复制官方 exe 修复启动...")
+    try:
+        # 官方 exe 在 WindowsApps/Xbox 目录受保护，需提权复制
+        import shutil
+
+        proc = _run_powershell(
+            f"Copy-Item '{official_exe}' '{game_exe}' -Force",
+            timeout=120,
+            run_as_admin=True,
+        )
+        if proc.returncode == 0 and game_exe.stat().st_size == official_exe.stat().st_size:
+            logger.info(f"已用官方 exe 替换: {official_exe} -> {game_exe}")
+            return True, "已用官方 exe 替换"
+        # 提权失败则尝试直接复制（解包目录通常可写）
+        shutil.copy2(official_exe, game_exe)
+        if game_exe.stat().st_size == official_exe.stat().st_size:
+            logger.info(f"已用官方 exe 替换（直接复制）: {game_exe}")
+            return True, "已用官方 exe 替换"
+        return False, "复制官方 exe 失败"
+    except Exception as e:
+        logger.warning(f"复制官方 exe 失败: {e}")
+        return False, f"复制官方 exe 失败: {e}"

@@ -14,6 +14,7 @@ from logzero import logger
 
 from launcher.bedrock.appx import get_package_install_location, register_appx
 from launcher.bedrock.env import (
+    find_official_minecraft_dir,
     install_game_input,
     is_game_input_installed,
     is_xbox_signed_in,
@@ -109,12 +110,11 @@ def _launch_gdk_injected(
     if not is_xgameruntime_installed():
         open_xgameruntime_store()
         raise BedrockLaunchError(
-            "GDK 认证注入需要 XboxGamingRuntime（xgameruntime.dll）系统组件，"
-            "当前系统未安装。\n"
+            "GDK 认证注入需要 xgameruntime.dll 系统组件，当前系统未安装。\n"
             "请任选一种方式安装后重试：\n"
             "1. 在已打开的商店页面搜索 XboxGamingRuntime 并安装\n"
-            "2. 在微软商店安装任意 Xbox/Game Pass 的 GDK 游戏（如 Age of Empires II、Asphalt 9 等），"
-            "系统会自动安装该组件"
+            "2. 安装 Microsoft.GamingServices（Gaming Services）或任意 Xbox/Game Pass 的 GDK 游戏，"
+            "系统会自动部署该组件"
         )
 
     if notify:
@@ -194,6 +194,24 @@ def launch_gdk(
     game_exe = version_dir / GDK_EXE
     if not game_exe.exists():
         raise BedrockLaunchError(f"未找到游戏主程序: {game_exe}（GDK 包可能未完整解包）")
+
+    # mcappx 解包的 exe 是修补版（与官方构建不同，无 AppX 包身份时稳定崩溃 0x4ab8027）。
+    # 官方版（商店版/Xbox 版）exe 为原始构建，任何工作目录可正常启动。
+    # 若系统存在官方版游戏目录，直接用其 exe 启动（工作目录仍用解包目录，已验证可行）。
+    try:
+        official_dir = find_official_minecraft_dir()
+        if official_dir is not None and (official_dir / GDK_EXE).exists():
+            game_exe = official_dir / GDK_EXE
+            logger.info(f"使用官方版游戏 exe: {game_exe}")
+            if notify:
+                notify("检测到官方版 Minecraft，使用官方构建启动...")
+        else:
+            logger.warning(
+                "未找到官方版 Minecraft（商店版/Xbox 版），将使用解包版 exe——"
+                "mcappx 解包的 exe 可能不稳定（崩溃 0x4ab8027）"
+            )
+    except Exception as e:
+        logger.warning(f"查找官方版游戏失败（继续使用解包版）: {e}")
 
     # 首次启动安装 GameInput（对齐 BedrockBoot：安装失败不阻断启动）
     if not is_game_input_installed():
