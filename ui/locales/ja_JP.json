@@ -1397,6 +1397,8 @@
   "bedrock_launch_failed": "{name} の起動に失敗: {error}",
   "bedrock_remove_success": "{name} を削除しました",
   "bedrock_remove_failed": "削除に失敗: {error}",
+  "bedrock_terms_title": "Bedrock Edition 規約の確認",
+  "bedrock_terms_msg": "このランチャーで Minecraft Bedrock Edition をダウンロードすることは、「行動規範および免責事項」に同意したことを意味します\nhttps://www.mcappx.com/terms/\n\nランチャーがダウンロードする Minecraft Bedrock Edition にはすべて正版検証機構が含まれています。Minecraft を購入していない場合、体験版のみプレイできるか、ゲームに入れない可能性があります",
   "bedrock_no_installed": "インストール済みの Bedrock バージョンはありません",
   "bedrock_no_available": "利用可能なバージョンがありません（ネットワーク異常の可能性）",
   "bedrock_no_match": "一致するバージョンがありません",

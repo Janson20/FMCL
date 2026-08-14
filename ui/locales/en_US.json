@@ -1397,6 +1397,8 @@
   "bedrock_launch_failed": "{name} launch failed: {error}",
   "bedrock_remove_success": "{name} deleted",
   "bedrock_remove_failed": "Delete failed: {error}",
+  "bedrock_terms_title": "Bedrock Edition Terms Confirmation",
+  "bedrock_terms_msg": "Downloading Minecraft Bedrock Edition with this launcher indicates that you agree to the Code of Conduct and Disclaimer\nhttps://www.mcappx.com/terms/\n\nAll Minecraft Bedrock versions downloaded by this launcher include genuine verification. If you do not own Minecraft, you can only play the trial version or you may not be able to enter the game",
   "bedrock_no_installed": "No Bedrock versions installed",
   "bedrock_no_available": "No available versions (network issue?)",
   "bedrock_no_match": "No matching versions",

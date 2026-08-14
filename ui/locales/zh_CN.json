@@ -1397,6 +1397,8 @@
   "bedrock_launch_failed": "{name} 启动失败: {error}",
   "bedrock_remove_success": "{name} 已删除",
   "bedrock_remove_failed": "删除失败: {error}",
+  "bedrock_terms_title": "基岩版条款确认",
+  "bedrock_terms_msg": "使用本启动器下载 Minecraft 基岩版将表明您已同意《行为规约和免责声明》\nhttps://www.mcappx.com/terms/\n\n启动器下载的 Minecraft 基岩版均包含正版验证机制，如果你没有购买 Minecraft，将只能游玩体验版或不能进入游戏",
   "bedrock_no_installed": "暂无已安装的基岩版",
   "bedrock_no_available": "暂无可用版本（网络异常或版本库不可用）",
   "bedrock_no_match": "没有匹配的版本",

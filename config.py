@@ -276,6 +276,9 @@ class Config:
         # 使用条款同意（Minecraft EULA + 净读协议）
         self.terms_consent: bool = False
 
+        # 基岩版 MCAPPX 条款同意（首次下载基岩版时确认）
+        self.bedrock_terms_accepted: bool = False
+
         # 语言设置
         self.language: str = self.DEFAULT_LANGUAGE
 
@@ -413,6 +416,8 @@ class Config:
                 self.ai_privacy_consent = data["ai_privacy_consent"]
             if "terms_consent" in data:
                 self.terms_consent = data["terms_consent"]
+            if "bedrock_terms_accepted" in data:
+                self.bedrock_terms_accepted = data["bedrock_terms_accepted"]
             if "accounts_file" in data:
                 self.accounts_file = data["accounts_file"]
             if "current_account_id" in data:
@@ -458,6 +463,7 @@ class Config:
                 "dynamic_version_theme": self.dynamic_version_theme,
                 "ai_privacy_consent": self.ai_privacy_consent,
                 "terms_consent": self.terms_consent,
+                "bedrock_terms_accepted": self.bedrock_terms_accepted,
                 "backup_dir": self.backup_dir,
                 "backup_compress_level": self.backup_compress_level,
                 "backup_max_per_world": self.backup_max_per_world,

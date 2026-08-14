@@ -430,6 +430,24 @@ class BedrockMixin:
     def _on_bedrock_install(self):
         if not self.bedrock_selected:
             return
+        # 首次下载基岩版需确认 MCAPPX 版本库条款（同意后持久化，不再重复弹窗）
+        try:
+            from config import config
+
+            if not config.bedrock_terms_accepted:
+                import tkinter.messagebox
+
+                if not tkinter.messagebox.askyesno(
+                    _("bedrock_terms_title"),
+                    _("bedrock_terms_msg"),
+                    parent=self,
+                    icon=tkinter.messagebox.WARNING,
+                ):
+                    return
+                config.bedrock_terms_accepted = True
+                config.save_config()
+        except Exception as e:
+            logger.warning(f"基岩版条款确认异常（放行下载）: {e}")
         version = self.bedrock_selected.get("version", "")
         self.bedrock_install_btn.configure(state=ctk.DISABLED)
         self.set_status(_("bedrock_installing").format(version=version), "loading")
