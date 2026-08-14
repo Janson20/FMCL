@@ -1,7 +1,7 @@
 # FMCL 用户协议
 
-**版本：1.3.0**  
-**生效日期：2026-08-09**
+**版本：1.3.1**  
+**生效日期：2026-08-14**
 
 感谢你使用 FMCL（Fusion Minecraft Launcher，以下简称“本软件”）。本软件由 FMCL Team（以下简称“贡献者”或“我们”）共同开发，以 **GNU General Public License v3.0** 协议开放源代码。
 
@@ -87,7 +87,9 @@
 - **Modrinth 服务条款**：模组浏览、下载及整合包安装功能使用 Modrinth API，你的使用行为应遵循 Modrinth 的 [Terms of Use](https://modrinth.com/legal/terms)。  
 - **CurseForge 服务条款**：模组、整合包、资源包及光影的浏览、下载与更新检测功能使用 [CurseForge Core API v1](https://docs.curseforge.com/)（`api.curseforge.com`）。你的使用行为应遵循 CurseForge 的 [Terms of Service](https://www.curseforge.com/legal/terms-of-service) 及 API 相关授权要求。本软件与 CurseForge 及其运营商无任何隶属关系。  
 - **CurseForge API Key**：CurseForge 现已强制要求 API Key，未配置时 CurseForge 相关功能将不可用。API Key 通过环境变量 `CURSEFORGE_API_KEY` 或构建时嵌入方式提供，你应自行前往 [CurseForge 开发者控制台](https://console.curseforge.com/) 申请，并遵守其关于配额、速率限制与密钥使用的规定。API Key 属于敏感凭证，请勿泄露或与他人共享，因密钥泄露或滥用导致的后果由你自行承担。  
-- **CurseForge 内容版权**：CurseForge 平台上的模组、整合包、资源包与光影等内容的版权归其各自作者所有，下载的内容仅供个人合法使用；未经原作者授权，不得重新分发、转售或用于商业用途。
+- **CurseForge 内容版权**：CurseForge 平台上的模组、整合包、资源包与光影等内容的版权归其各自作者所有，下载的内容仅供个人合法使用；未经原作者授权，不得重新分发、转售或用于商业用途。  
+- **MCAPPX 版本库使用条款**：基岩版（Bedrock Edition）的版本列表、安装包与数据来自 MCAPPX 版本库。**使用本软件下载、启动基岩版，即代表你已阅读并同意 MCAPPX 版本库的《行为规约和免责声明》**（https://www.mcappx.com/terms/）。  
+- **基岩版非破解声明**：本软件的基岩版功能**并非破解版**。基岩版（Bedrock Edition）为商业游戏，使用下载与启动功能前，你需持有合法的 Microsoft 账号并已购买正版 Minecraft（通过 Microsoft Store 或 Xbox 等官方渠道）。**未购买正版账号的情况下使用基岩版功能，可能违反 Mojang 的 EULA 或微软相关条款，由此导致的账号封禁、财产损失或其他后果由你自行承担**，贡献者概不负责。
 
 **再次强调：本软件的所有贡献者均不对你使用或误用本软件所导致的任何损失承担法律责任。如果你无法接受上述条款，请立即删除本软件并停止使用。**
 
