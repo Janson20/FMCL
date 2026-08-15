@@ -86,7 +86,6 @@ hidden_imports = [
     'forgepy',
     'requests',
     'logzero',
-    'pyautogui',
     'tqdm',
     'keyboard',
     'tkinter',

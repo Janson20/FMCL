@@ -2,7 +2,6 @@ cryptography>=41.0.0
 minecraft-forgepy>=1.0
 requests>=2.28.0
 logzero>=1.7.0
-pyautogui>=0.9.53
 tqdm>=4.64.0
 keyboard>=0.13.5
 customtkinter>=5.2.0

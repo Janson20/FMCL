@@ -1601,6 +1601,11 @@ class EventHandlerMixin(object):
                 "license_url": "https://github.com/JakobDev/minecraft-launcher-lib/blob/master/LICENSE",
             },
             {
+                "name": "forgePY",
+                "url": "https://github.com/matejmajny/forgePY",
+                "license_url": "https://github.com/matejmajny/forgePY/blob/main/LICENSE",
+            },
+            {
                 "name": "lx-music-desktop",
                 "url": "https://github.com/lyswhut/lx-music-desktop",
                 "license_url": "https://github.com/lyswhut/lx-music-desktop/blob/master/LICENSE",
