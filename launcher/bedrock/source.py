@@ -232,6 +232,7 @@ def _soap_post_powershell(body: str, timeout: int = 30) -> str:
         text=True,
         errors="replace",
         timeout=timeout + 60,
+        creationflags=subprocess.CREATE_NO_WINDOW,
     )
     if proc.returncode != 0:
         detail = (proc.stderr or "").strip()

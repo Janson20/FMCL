@@ -406,14 +406,25 @@ class ServerMixin:
         if sys.platform != "win32":
             return
         try:
-            result = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=10)
+            result = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
             for line in result.stdout.splitlines():
                 if f":{port}" in line and "LISTENING" in line:
                     parts = line.strip().split()
                     pid = parts[-1]
                     if pid.isdigit() and int(pid) > 0:
                         logger.info(f"端口 {port} 被进程 {pid} 占用，正在终止...")
-                        subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True, timeout=10)
+                        subprocess.run(
+                            ["taskkill", "/F", "/PID", pid],
+                            capture_output=True,
+                            timeout=10,
+                            creationflags=subprocess.CREATE_NO_WINDOW,
+                        )
                         logger.info(f"已终止进程 {pid}")
                         break
         except Exception as e:

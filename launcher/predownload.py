@@ -308,7 +308,12 @@ def _find_rar_tool() -> Optional[str]:
 
     for tool in tools:
         try:
-            result = subprocess.run([tool, "--help"], capture_output=True, timeout=5)
+            result = subprocess.run(
+                [tool, "--help"],
+                capture_output=True,
+                timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
             if result.returncode <= 1:
                 logger.info(f"找到 RAR 解压工具: {tool}")
                 return tool

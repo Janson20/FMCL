@@ -60,10 +60,12 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
         try:
             if getattr(sys, "frozen", False):
                 # PyInstaller 打包环境下
-                subprocess.Popen([script])
+                subprocess.Popen([script], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             else:
                 # 开发环境下
-                subprocess.Popen([script, "main.py"])
+                subprocess.Popen(
+                    [script, "main.py"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                )
         except Exception as e:
             logger.error(f"重启启动器失败: {e}")
             messagebox.showerror("重启失败", f"无法启动新进程:\n{e}\n请手动重启启动器。", parent=self.parent)

@@ -131,7 +131,11 @@ class _GPUDetector:
     def _try_nvidia_smi(self) -> bool:
         try:
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True, text=True, timeout=5
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if result.returncode == 0 and result.stdout.strip():
                 self._gpu_cache["name"] = result.stdout.strip().split("\n")[0].strip()
@@ -163,7 +167,13 @@ class _GPUDetector:
 
     def _try_amd_smi(self) -> bool:
         try:
-            result = subprocess.run(["amd-smi", "static", "--json"], capture_output=True, text=True, timeout=5)
+            result = subprocess.run(
+                ["amd-smi", "static", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
             if result.returncode == 0:
                 try:
                     data = json.loads(result.stdout)
@@ -253,6 +263,7 @@ class _GPUDetector:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if result.returncode == 0:
                 vals = [v.strip() for v in result.stdout.strip().split(",")]
@@ -299,7 +310,13 @@ class _GPUDetector:
     def _sample_amd_smi(self) -> dict:
         gpu = dict(self._gpu_cache)
         try:
-            result = subprocess.run(["amd-smi", "metric", "--csv"], capture_output=True, text=True, timeout=5)
+            result = subprocess.run(
+                ["amd-smi", "metric", "--csv"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
             if result.returncode == 0:
                 lines = [l for l in result.stdout.strip().split("\n") if l]
                 if len(lines) > 1:

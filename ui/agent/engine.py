@@ -260,7 +260,15 @@ def execute_dangerous_command(path: str, command: str) -> str:
 
 def _run_command(path: str, command: str) -> str:
     try:
-        result = subprocess.run(command, shell=True, cwd=path, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=path,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
         output = ""
         if result.stdout:
             output += result.stdout

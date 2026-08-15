@@ -38,6 +38,7 @@ def _run_powershell(command: str, timeout: int = 60, run_as_admin: bool = False)
             text=True,
             errors="replace",
             timeout=timeout + 60,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
         return proc
     return subprocess.run(
@@ -46,6 +47,7 @@ def _run_powershell(command: str, timeout: int = 60, run_as_admin: bool = False)
         text=True,
         errors="replace",
         timeout=timeout,
+        creationflags=subprocess.CREATE_NO_WINDOW,
     )
 
 
@@ -229,6 +231,7 @@ def install_vc_runtime(progress_cb: Optional[Callable[[str], None]] = None) -> b
             [str(dest), "/install", "/quiet", "/norestart"],
             capture_output=True,
             timeout=600,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
         return proc.returncode == 0
     except Exception as e:
@@ -298,6 +301,7 @@ def install_game_input(msi_path: Path) -> Tuple[bool, str]:
             text=True,
             errors="replace",
             timeout=660,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
         if proc.returncode == 0:
             logger.info("GameInput 安装成功")
@@ -479,7 +483,11 @@ def repair_environment(
             ok, msg = install_gaming_services(notify)
             if not ok:
                 # 兜底：打开微软商店页面引导用户手动安装
-                subprocess.Popen(["cmd", "/c", "start", "", GAMING_SERVICES_STORE_URL], shell=False)
+                subprocess.Popen(
+                    ["cmd", "/c", "start", "", GAMING_SERVICES_STORE_URL],
+                    shell=False,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
                 return False, f"{msg}；已打开微软商店页面，请安装 Gaming Services 后重试"
             if notify:
                 notify("Gaming Services 已安装")

@@ -150,7 +150,13 @@ def _parse_java_version(version_output: str) -> Optional[tuple]:
 
 def _get_java_info(path: str, source: str) -> Optional[JavaRuntime]:
     try:
-        result = subprocess.run([path, "-version"], capture_output=True, text=True, timeout=10)
+        result = subprocess.run(
+            [path, "-version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
         output = result.stderr or result.stdout
         version_info = _parse_java_version(output)
         if not version_info:
@@ -161,7 +167,11 @@ def _get_java_info(path: str, source: str) -> Optional[JavaRuntime]:
         home = os.path.dirname(os.path.dirname(path))
         try:
             home_result = subprocess.run(
-                [path, "-XshowSettings:properties", "-version"], capture_output=True, text=True, timeout=5
+                [path, "-XshowSettings:properties", "-version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             props = home_result.stderr or home_result.stdout
             jh_match = re.search(r"java\.home\s*=\s*(\S+)", props)

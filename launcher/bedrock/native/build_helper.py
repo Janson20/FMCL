@@ -92,7 +92,11 @@ def check_dotnet() -> bool:
         return False
     try:
         proc = subprocess.run(
-            [dotnet, "--version"], capture_output=True, text=True, timeout=30
+            [dotnet, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
         version = proc.stdout.strip()
         if not version.startswith(DOTNET_MIN_VERSION):
@@ -119,6 +123,7 @@ def _publish(project_dir: Path, output_dir: Path, exe_path: Path, exe_name: str)
         text=True,
         errors="replace",
         timeout=600,
+        creationflags=subprocess.CREATE_NO_WINDOW,
     )
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "").strip()

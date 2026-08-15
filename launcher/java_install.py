@@ -191,6 +191,7 @@ def install_java_via_winget(jdk_version: int) -> Tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=300,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if result.returncode == 0:
             return True, f"JDK {jdk_version} installed successfully via winget"

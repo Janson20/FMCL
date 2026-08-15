@@ -196,6 +196,7 @@ def register_appx(version_dir: Path, timeout: int = 180) -> None:
             text=True,
             errors="replace",
             timeout=timeout,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
     except subprocess.TimeoutExpired as e:
         raise AppxError("AppX 注册超时（3 分钟）") from e
@@ -216,6 +217,7 @@ def is_package_installed(package_name: str) -> bool:
             text=True,
             errors="replace",
             timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
         return proc.returncode == 0 and package_name.lower() in proc.stdout.lower()
     except Exception as e:
@@ -233,6 +235,7 @@ def get_package_install_location(package_name: str) -> Optional[str]:
             text=True,
             errors="replace",
             timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
         location = (proc.stdout or "").strip()
         return location or None
@@ -251,6 +254,7 @@ def remove_appx_package(package_name: str) -> bool:
             text=True,
             errors="replace",
             timeout=180,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
         return proc.returncode == 0
     except Exception as e:

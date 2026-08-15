@@ -255,7 +255,11 @@ class MinecraftLauncher:
                                 import re as _re
 
                                 result = subprocess.run(
-                                    [java_path, "-version"], capture_output=True, text=True, timeout=10
+                                    [java_path, "-version"],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=10,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                                 )
                                 _ver_output = result.stderr or result.stdout
                                 _m = _re.search(r'version "(\d+)', _ver_output)
@@ -1610,7 +1614,13 @@ class MinecraftLauncher:
             return MinecraftLauncher._java_major_cache[java_path]
         major: Optional[int] = None
         try:
-            result = subprocess.run([java_path, "-version"], capture_output=True, text=True, timeout=10)
+            result = subprocess.run(
+                [java_path, "-version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
             _ver_output = result.stderr or result.stdout
             import re as _re
 

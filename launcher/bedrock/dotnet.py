@@ -111,6 +111,7 @@ def has_sdk10() -> bool:
                 capture_output=True,
                 text=True,
                 timeout=_RUNTIME_LIST_TIMEOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             if any(
                 line.strip().startswith(SDK_MAJOR_MINOR)

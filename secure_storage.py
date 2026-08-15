@@ -151,6 +151,7 @@ def _write_restricted_file(file_path: Path, data: bytes) -> None:
                 ["icacls", str(file_path), "/inheritance:r", "/grant:r", f"{os.getlogin()}:(R,W)"],
                 capture_output=True,
                 timeout=10,
+                creationflags=getattr(_sp, "CREATE_NO_WINDOW", 0),
             )
         except Exception as e:
             logger.debug(f"设置 Windows DACL 失败（非致命）: {e}")

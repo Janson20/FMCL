@@ -221,9 +221,13 @@ def launch_gdk(
     if args:
         # 与 .NET ProcessStartInfo.Arguments 一致：整串附加到可执行文件后，由 Windows 解析
         cmdline = f'"{game_exe}" {args}'
-        proc = subprocess.Popen(cmdline, cwd=str(version_dir), shell=True)
+        proc = subprocess.Popen(
+            cmdline, cwd=str(version_dir), shell=True, creationflags=subprocess.CREATE_NO_WINDOW
+        )
     else:
-        proc = subprocess.Popen([str(game_exe)], cwd=str(version_dir))
+        proc = subprocess.Popen(
+            [str(game_exe)], cwd=str(version_dir), creationflags=subprocess.CREATE_NO_WINDOW
+        )
     return proc.pid
 
 
@@ -261,7 +265,7 @@ def launch_uwp(
     if args:
         try:
             uri = _build_uri(args)
-            subprocess.Popen(["cmd", "/c", "start", "", uri], shell=False)
+            subprocess.Popen(["cmd", "/c", "start", "", uri], shell=False, creationflags=subprocess.CREATE_NO_WINDOW)
         except Exception as e:
             logger.warning(f"传递启动参数失败（不影响启动）: {e}")
     logger.info(f"UWP 游戏已激活: {app_entry} family={package_family}")

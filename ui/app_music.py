@@ -435,6 +435,7 @@ def _transcode_audio_to_wav(filepath: str) -> Optional[str]:
                 [ffmpeg, "-y", "-i", filepath, "-acodec", "pcm_s16le", out_path],
                 capture_output=True,
                 timeout=120,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if proc.returncode == 0:
                 result = _finish_ok(out_path)
