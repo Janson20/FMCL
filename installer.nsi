@@ -1,5 +1,6 @@
 ; FMCL Windows Installer - NSIS Script
-; 使用方法: makensis /DVERSION=x.x.x installer.nsi
+; 使用方法: makensis /DVERSION=x.x.x installer.nsi           (x64)
+;          makensis /DVERSION=x.x.x /DARCH=x86 installer.nsi (x86)
 
 Unicode true
 
@@ -14,8 +15,17 @@ Unicode true
   !define VERSION "2.0.2"
 !endif
 
+; 架构（CI 传入 /DARCH=x86；默认 x64）。决定内嵌的 .NET SDK 与 7-Zip 位宽
+!ifndef ARCH
+  !define ARCH "x64"
+!endif
+
 Name "${PRODUCT_NAME} ${VERSION}"
-OutFile "FMCL-Setup-${VERSION}.exe"
+!if "${ARCH}" == "x86"
+  OutFile "FMCL-Setup-${VERSION}-x86.exe"
+!else
+  OutFile "FMCL-Setup-${VERSION}.exe"
+!endif
 ; 按当前用户安装到 %LOCALAPPDATA%\Programs\FMCL
 ; 安装到 Program Files 需要管理员权限，且普通用户无法在安装目录写入
 ; .minecraft / config.json 等数据，导致启动器必须以管理员身份运行
@@ -131,13 +141,13 @@ check_path:
   MessageBox MB_OK "FMCL 预下载功能需要 7-Zip 来解压资源包。$\n$\n点击确定后将自动安装 7-Zip（静默安装）。" /SD IDOK
 
   SetOutPath "$TEMP\FMCLauncher_7z"
-  ${If} ${RunningX64}
-    File "7z_installers\7z2602-x64.exe"
-    StrCpy $2 "$TEMP\FMCLauncher_7z\7z2602-x64.exe"
-  ${Else}
+  !if "${ARCH}" == "x86"
     File "7z_installers\7z2602.exe"
     StrCpy $2 "$TEMP\FMCLauncher_7z\7z2602.exe"
-  ${EndIf}
+  !else
+    File "7z_installers\7z2602-x64.exe"
+    StrCpy $2 "$TEMP\FMCLauncher_7z\7z2602-x64.exe"
+  !endif
   SetOutPath "$INSTDIR"
 
   DetailPrint "正在静默安装 7-Zip..."
@@ -200,6 +210,66 @@ verify_found:
 
 sevenz_done:
   DetailPrint "7-Zip 检查完成"
+SectionEnd
+
+; ─── .NET 10 SDK 检测（注册表 InstalledVersions，兼容 32/64 位视图）───
+; 输出: $0 = 1 已检测到 .NET 10 SDK，0 未检测到
+Function CheckDotnetSdk10
+  StrCpy $0 0
+  ; 64 位视图（x64 SDK 安装在此）
+  SetRegView 64
+  StrCpy $1 0
+  ${Do}
+    EnumRegKey $2 HKLM "SOFTWARE\dotnet\Setup\InstalledVersions\x64\sdk" $1
+    StrCmp $2 "" check_sdk_x86
+    StrCpy $3 $2 3
+    StrCmp $3 "10." sdk_found
+    IntOp $1 $1 + 1
+  ${Loop}
+check_sdk_x86:
+  ; 32 位视图（x86 SDK 安装在此）
+  SetRegView 32
+  StrCpy $1 0
+  ${Do}
+    EnumRegKey $2 HKLM "SOFTWARE\dotnet\Setup\InstalledVersions\x86\sdk" $1
+    StrCmp $2 "" sdk_not_found
+    StrCpy $3 $2 3
+    StrCmp $3 "10." sdk_found
+    IntOp $1 $1 + 1
+  ${Loop}
+sdk_found:
+  StrCpy $0 1
+sdk_not_found:
+  SetRegView 32
+FunctionEnd
+
+Section "-DotnetSdkCheck" SECDOTNET
+  SetOutPath "$TEMP\FMCLauncher_dotnet"
+  DetailPrint "检查 .NET 10 SDK 安装状态..."
+
+  Call CheckDotnetSdk10
+  ${If} $0 = 1
+    DetailPrint "已检测到 .NET 10 SDK"
+    Goto dotnet_done
+  ${EndIf}
+
+  ; 未检测到：询问是否静默安装内嵌的 SDK（需要 UAC 提权）
+  MessageBox MB_YESNO "未检测到 .NET 10 SDK。$\n$\n基岩版 GDK 功能需要它，是否现在静默安装？（约 200MB，需要管理员权限）" IDNO dotnet_done
+
+  !if "${ARCH}" == "x86"
+    File "dotnet_sdk\dotnet-sdk-win-x86.exe"
+    StrCpy $4 "$TEMP\FMCLauncher_dotnet\dotnet-sdk-win-x86.exe"
+  !else
+    File "dotnet_sdk\dotnet-sdk-win-x64.exe"
+    StrCpy $4 "$TEMP\FMCLauncher_dotnet\dotnet-sdk-win-x64.exe"
+  !endif
+
+  DetailPrint "正在后台静默安装 .NET 10 SDK（请在 UAC 弹窗中确认）..."
+  ExecShell "runas" '"$4"' "/install /quiet /norestart"
+  DetailPrint "SDK 安装已在后台进行，装好后 FMCL 会自动检测到"
+
+dotnet_done:
+  SetOutPath "$INSTDIR"
 SectionEnd
 
 Section Uninstall

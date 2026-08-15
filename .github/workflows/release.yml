@@ -75,6 +75,44 @@ jobs:
           }
         shell: pwsh
 
+      - name: Download .NET 10 SDK installers
+        run: |
+          $meta = Invoke-RestMethod -Uri "https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/10.0/releases.json" -TimeoutSec 60
+          $sdkVersion = $meta.'latest-sdk'
+          if (-not $sdkVersion -or $sdkVersion -notmatch '^10\.') {
+            throw "无法获取 .NET SDK 版本: $sdkVersion"
+          }
+          Write-Host ".NET SDK version: $sdkVersion"
+          New-Item -ItemType Directory -Force -Path dotnet_sdk
+          $maxRetries = 5
+          $urls = @(
+            @{ Uri = "https://builds.dotnet.microsoft.com/dotnet/Sdk/$sdkVersion/dotnet-sdk-$sdkVersion-win-x64.exe"; OutFile = "dotnet_sdk\dotnet-sdk-win-x64.exe" },
+            @{ Uri = "https://builds.dotnet.microsoft.com/dotnet/Sdk/$sdkVersion/dotnet-sdk-$sdkVersion-win-x86.exe"; OutFile = "dotnet_sdk\dotnet-sdk-win-x86.exe" }
+          )
+          foreach ($item in $urls) {
+            $downloaded = $false
+            for ($i = 0; $i -lt $maxRetries; $i++) {
+              try {
+                Write-Host "Downloading $($item.Uri) (attempt $($i + 1)/$maxRetries)..."
+                Invoke-WebRequest -Uri $item.Uri -OutFile $item.OutFile -TimeoutSec 120
+                Write-Host "Download succeeded."
+                $downloaded = $true
+                break
+              } catch {
+                Write-Host "Download failed: $_"
+                if ($i -lt $maxRetries - 1) {
+                  $delay = [Math]::Pow(2, $i) * 5
+                  Write-Host "Retrying in ${delay}s..."
+                  Start-Sleep -Seconds $delay
+                }
+              }
+            }
+            if (-not $downloaded) {
+              throw "Failed to download $($item.Uri) after $maxRetries attempts"
+            }
+          }
+        shell: pwsh
+
       - name: Ensure NSIS script UTF-8 BOM encoding
         run: |
           $content = Get-Content -Path installer.nsi -Encoding UTF8 -Raw
@@ -82,16 +120,18 @@ jobs:
           [System.IO.File]::WriteAllText("$PWD\installer.nsi", $content, $utf8BomEncoding)
         shell: pwsh
 
-      - name: Build Windows Installer
+      - name: Build Windows Installers (x64 + x86)
         run: |
           $version = "${{ github.ref_name }}" -replace '^v', ''
           $nsisPath = "C:\Program Files (x86)\NSIS\makensis.exe"
-          if (Test-Path $nsisPath) {
-            & $nsisPath "/DVERSION=$version" installer.nsi
-          } else {
+          if (-not (Test-Path $nsisPath)) {
             $nsisPath = "C:\Program Files\NSIS\makensis.exe"
-            & $nsisPath "/DVERSION=$version" installer.nsi
           }
+          & $nsisPath "/DVERSION=$version" installer.nsi
+          if ($LASTEXITCODE -ne 0) { throw "x64 安装包构建失败" }
+          & $nsisPath "/DVERSION=$version" "/DARCH=x86" installer.nsi
+          if ($LASTEXITCODE -ne 0) { throw "x86 安装包构建失败" }
+          Get-ChildItem FMCL-Setup-*.exe | Select-Object Name, Length
         shell: pwsh
 
       - name: Upload artifact
@@ -172,7 +212,8 @@ jobs:
           echo "" >> CHANGELOG.md
           echo "| Platform | File |" >> CHANGELOG.md
           echo "|----------|------|" >> CHANGELOG.md
-          echo "| Windows | [FMCL-Setup-${VERSION}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-Setup-${VERSION}.exe) |" >> CHANGELOG.md
+          echo "| Windows (x64) | [FMCL-Setup-${VERSION}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-Setup-${VERSION}.exe) |" >> CHANGELOG.md
+          echo "| Windows (x86) | [FMCL-Setup-${VERSION}-x86.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-Setup-${VERSION}-x86.exe) |" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
           echo "> macOS / Linux 二进制包自 v2.10.3 起不再随发布提供。Linux 用户请使用安装脚本 \`scripts/install.sh\` 进行安装。" >> CHANGELOG.md
           echo "" >> CHANGELOG.md

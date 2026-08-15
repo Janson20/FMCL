@@ -78,6 +78,7 @@ FMCL-*-x86_64.AppImage
 
 # NSIS / installer temp
 7z_installers/
+dotnet_sdk/
 dmg_temp/
 FMCL.AppDir/
 fmcl_*_amd64/
