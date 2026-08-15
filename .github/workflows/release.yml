@@ -40,6 +40,10 @@ jobs:
           PLATFORM: win
           ARCH: amd64
 
+      - name: Rename x64 build
+        run: Move-Item -Path dist\FMCL.exe -Destination dist\FMCL-x64.exe
+        shell: pwsh
+
       - name: Set up Python (x86)
         uses: actions/setup-python@v5
         with:
@@ -149,11 +153,11 @@ jobs:
           if (-not (Test-Path $nsisPath)) {
             $nsisPath = "C:\Program Files\NSIS\makensis.exe"
           }
-          & $nsisPath "/DVERSION=$version" installer.nsi
+          & $nsisPath "/DVERSION=$version" "/DFCL_EXE=FMCL-x64.exe" installer.nsi
           if ($LASTEXITCODE -ne 0) { throw "x64 安装包构建失败" }
           & $nsisPath "/DVERSION=$version" "/DARCH=x86" "/DFCL_EXE=FMCL-x86.exe" installer.nsi
           if ($LASTEXITCODE -ne 0) { throw "x86 安装包构建失败" }
-          & $nsisPath "/DVERSION=$version" "/DNO_DOTNET_SDK" installer.nsi
+          & $nsisPath "/DVERSION=$version" "/DNO_DOTNET_SDK" "/DFCL_EXE=FMCL-x64.exe" installer.nsi
           if ($LASTEXITCODE -ne 0) { throw "without-dotnetsdk 安装包构建失败" }
           Get-ChildItem FMCL-Setup-*.exe | Select-Object Name, Length
         shell: pwsh
