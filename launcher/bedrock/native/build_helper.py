@@ -32,11 +32,17 @@ def _runtime_root() -> Path:
 
 
 def _helper_output_dir() -> Path:
-    return _runtime_root() / "native-bin" / "BedrockGdkHelper"
+    root = _runtime_root()
+    if getattr(sys, "frozen", False):
+        return root / "native-bin" / "BedrockGdkHelper"
+    return root / "bin" / "BedrockGdkHelper"
 
 
 def _extractor_output_dir() -> Path:
-    return _runtime_root() / "native-bin" / "BedrockXvdExtractor"
+    root = _runtime_root()
+    if getattr(sys, "frozen", False):
+        return root / "native-bin" / "BedrockXvdExtractor"
+    return root / "bin" / "BedrockXvdExtractor"
 
 
 def _helper_exe() -> Path:

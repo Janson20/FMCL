@@ -63,6 +63,7 @@ ModTranslations/
 launcher/bedrock/native/helper/bin/
 launcher/bedrock/native/helper/obj/
 launcher/bedrock/native/bin/
+launcher/bedrock/native/native-bin/
 launcher/bedrock/native/extractor/bin/
 launcher/bedrock/native/extractor/obj/
 
