@@ -11,6 +11,7 @@ XUserLauncher.Core（内部嵌入 XUserHook.dll 资源）为 BedrockBoot 官方�
 import io
 import json
 import os
+import sys
 import zipfile
 from pathlib import Path
 from typing import Callable, Optional
@@ -28,11 +29,22 @@ FLATCONTAINER_NUPKG_URL = (
 )
 PACKAGE_AUTHORS = ("Round-Studio",)
 
-ASSETS_DIR = Path(__file__).resolve().parent / "native" / "assets"
 TARGET_FILENAME = "XUserLauncher.Core.dll"
 _DLL_IN_PACKAGE = "XUserLauncher.Core.dll"
 
 _REQUEST_TIMEOUT = 60
+
+
+def _assets_dir() -> Path:
+    """组件落盘目录：源码模式为 native/assets（不入库），打包模式为数据目录/local"""
+    if getattr(sys, "frozen", False):
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        base = Path(local_appdata) / "FMCL" if local_appdata else Path.cwd()
+        return base / "local" / "bedrock-components"
+    return Path(__file__).resolve().parent / "native" / "assets"
+
+
+ASSETS_DIR = _assets_dir()
 
 
 class ComponentError(RuntimeError):

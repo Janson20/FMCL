@@ -47,6 +47,18 @@ if os.path.exists(static_src):
 if os.path.exists(terms_path):
     datas.append((terms_path, '.'))
 
+# .NET 辅助程序源码（GDK 解压/认证注入：运行时用 dotnet 在用户机器上构建）
+native_root_rel = os.path.join('launcher', 'bedrock', 'native')
+for _rel in (
+    os.path.join('helper', 'BedrockGdkHelper.csproj'),
+    os.path.join('helper', 'Program.cs'),
+    os.path.join('extractor', 'BedrockXvdExtractor.csproj'),
+    os.path.join('extractor', 'Program.cs'),
+):
+    _src = os.path.join(os.getcwd(), native_root_rel, _rel)
+    if os.path.exists(_src):
+        datas.append((_src, os.path.join(native_root_rel, os.path.dirname(_rel))))
+
 # 通用隐式导入
 hidden_imports = [
     'minecraft_launcher_lib',

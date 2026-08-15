@@ -384,6 +384,33 @@ def test_extractor_build_failure(tmp_path, monkeypatch):
         extractor.extract_gdk_package(tmp_path / "pkg", tmp_path / "out")
 
 
+def test_build_helper_runtime_root_source(monkeypatch):
+    """源码模式：构建产物输出到 native 目录"""
+    from launcher.bedrock.native import build_helper
+
+    monkeypatch.setattr(build_helper.sys, "frozen", False, raising=False)
+    assert build_helper._runtime_root() == build_helper.NATIVE_DIR
+
+
+def test_build_helper_runtime_root_frozen(monkeypatch, tmp_path):
+    """打包模式：构建产物输出到数据目录/local（_MEIPASS 是临时目录，不能落盘）"""
+    from launcher.bedrock.native import build_helper
+
+    monkeypatch.setattr(build_helper.sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert build_helper._runtime_root() == tmp_path / "FMCL" / "local"
+    assert build_helper._extractor_exe() == tmp_path / "FMCL" / "local" / "native-bin" / "BedrockXvdExtractor" / "BedrockXvdExtractor.exe"
+
+
+def test_components_assets_dir_frozen(monkeypatch, tmp_path):
+    """打包模式：认证组件落盘到数据目录/local/bedrock-components"""
+    from launcher.bedrock import components
+
+    monkeypatch.setattr(components.sys, "frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert components._assets_dir() == tmp_path / "FMCL" / "local" / "bedrock-components"
+
+
 # ─── components.py：闭源认证组件按需下载 ──────────────────
 
 def _fake_nupkg(dll_data: bytes = b"MZfake-dll" * 16) -> bytes:

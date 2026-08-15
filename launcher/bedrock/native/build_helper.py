@@ -1,26 +1,49 @@
 """构建 .NET 辅助程序（BedrockGdkHelper / BedrockXvdExtractor）
 
-需要 .NET 10 SDK（dotnet）。产物：launcher/bedrock/native/bin/<项目名>/
+需要 .NET 10 SDK（dotnet）。
+- 源码模式: 产物输出到 launcher/bedrock/native/bin/<项目名>/
+- 打包模式: 产物输出到 <数据目录>/local/native-bin/（_MEIPASS 为临时目录，
+  进程退出即清空，不能作为产物落盘位置）
 """
 
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 NATIVE_DIR = Path(__file__).resolve().parent
-OUTPUT_ROOT = NATIVE_DIR / "bin"
 
 HELPER_DIR = NATIVE_DIR / "helper"
-HELPER_OUTPUT_DIR = OUTPUT_ROOT / "BedrockGdkHelper"
-HELPER_EXE = HELPER_OUTPUT_DIR / "BedrockGdkHelper.exe"
+EXTRACTOR_DIR = NATIVE_DIR / "extractor"
 REQUIRED_ASSETS = ("XUserLauncher.Core.dll",)
 
-EXTRACTOR_DIR = NATIVE_DIR / "extractor"
-EXTRACTOR_OUTPUT_DIR = OUTPUT_ROOT / "BedrockXvdExtractor"
-EXTRACTOR_EXE = EXTRACTOR_OUTPUT_DIR / "BedrockXvdExtractor.exe"
-
 DOTNET_MIN_VERSION = "10."
+
+
+def _runtime_root() -> Path:
+    """持久运行时根目录：源码模式为 native 目录，打包模式为数据目录/local"""
+    if getattr(sys, "frozen", False):
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        base = Path(local_appdata) / "FMCL" if local_appdata else Path.cwd()
+        return base / "local"
+    return NATIVE_DIR
+
+
+def _helper_output_dir() -> Path:
+    return _runtime_root() / "native-bin" / "BedrockGdkHelper"
+
+
+def _extractor_output_dir() -> Path:
+    return _runtime_root() / "native-bin" / "BedrockXvdExtractor"
+
+
+def _helper_exe() -> Path:
+    return _helper_output_dir() / "BedrockGdkHelper.exe"
+
+
+def _extractor_exe() -> Path:
+    return _extractor_output_dir() / "BedrockXvdExtractor.exe"
 
 
 def check_assets() -> None:
@@ -30,12 +53,14 @@ def check_assets() -> None:
     分发，改为经用户同意后从官方 NuGet 按需下载（见 launcher/bedrock/components.py）。
     缺失时构建方应先用 components.download() 就绪组件。
     """
-    missing = [name for name in REQUIRED_ASSETS if not (NATIVE_DIR / "assets" / name).is_file()]
-    if missing:
-        raise RuntimeError(
-            "GDK 认证注入组件未下载：" + "、".join(missing) + "。"
-            "请经用户同意后调用 launcher.bedrock.components.download() 完成下载。"
-        )
+    from launcher.bedrock import components
+
+    if components.is_ready():
+        return
+    raise RuntimeError(
+        "GDK 认证注入组件未下载：XUserLauncher.Core.dll。"
+        "请经用户同意后调用 launcher.bedrock.components.download() 完成下载。"
+    )
 
 
 def check_dotnet() -> bool:
@@ -56,13 +81,14 @@ def check_dotnet() -> bool:
         return False
 
 
-def _publish(project_dir: Path, output_dir: Path, exe_path: Path, exe_name: str, force: bool) -> Path:
+def _publish(project_dir: Path, output_dir: Path, exe_path: Path, exe_name: str) -> Path:
     """通用 dotnet publish 流程"""
     if not check_dotnet():
         raise RuntimeError(
             f"需要 .NET 10 SDK 才能构建 {exe_name}，请先安装 "
             "https://dotnet.microsoft.com/download/dotnet/10.0"
         )
+    output_dir.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         ["dotnet", "publish", "-c", "Release", "-o", str(output_dir), "--nologo"],
         cwd=str(project_dir),
@@ -82,16 +108,18 @@ def _publish(project_dir: Path, output_dir: Path, exe_path: Path, exe_name: str,
 def build(force: bool = False) -> Path:
     """构建 GDK 认证注入辅助程序（BedrockGdkHelper）"""
     check_assets()
-    if not force and HELPER_EXE.exists():
-        return HELPER_EXE
-    return _publish(HELPER_DIR, HELPER_OUTPUT_DIR, HELPER_EXE, "BedrockGdkHelper", force)
+    exe_path = _helper_exe()
+    if not force and exe_path.exists():
+        return exe_path
+    return _publish(HELPER_DIR, _helper_output_dir(), exe_path, "BedrockGdkHelper")
 
 
 def build_extractor(force: bool = False) -> Path:
     """构建 GDK XVD 解压辅助程序（BedrockXvdExtractor，MIT 库 BedrockLauncher.Core）"""
-    if not force and EXTRACTOR_EXE.exists():
-        return EXTRACTOR_EXE
-    return _publish(EXTRACTOR_DIR, EXTRACTOR_OUTPUT_DIR, EXTRACTOR_EXE, "BedrockXvdExtractor", force)
+    exe_path = _extractor_exe()
+    if not force and exe_path.exists():
+        return exe_path
+    return _publish(EXTRACTOR_DIR, _extractor_output_dir(), exe_path, "BedrockXvdExtractor")
 
 
 if __name__ == "__main__":
