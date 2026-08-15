@@ -429,7 +429,7 @@
   - 硬件加速（AES-NI）优先，老 CPU 不支持时自动回退软件解密
   - 0 字节段页对齐修复（避免游戏启动崩溃 0x4ab8027），解压数据与官方安装包逐文件哈希一致（37642 文件全量校验通过）
 - **UWP AppX 注册**：解压 AppX（zip 格式）→ 修改清单 → 开发者模式注册
-- **环境自动检测修复**：Windows 开发者模式、Gaming Services、VC++ 运行时、GameInput（首次启动自动安装包内 MSI）
+- **环境自动检测修复**：Windows 开发者模式、Gaming Services、VC++ 运行时、GameInput（版本安装时自动安装包内 MSI，启动不再重复安装）
 - **下载**：多线程断点续传 + MD5 校验，版本库与安装包多源回退
 - **游戏内 Xbox 登录**：检测系统 Xbox 身份（Xbox 应用/Game Bar 登录状态，含 IdentityCRL KeyCache 校验）；未登录时引导登录
 - **GDK 认证注入启动**：微软账户设备码登录；闭源认证组件（XUserLauncher.Core）不随 FMCL 分发，首次使用时经用户明确同意后从 BedrockBoot 官方 NuGet 按需下载（发布者 Round-Studio）

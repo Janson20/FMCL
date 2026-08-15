@@ -4,7 +4,7 @@
 - Windows 开发者模式（UWP 注册必需，注册表 AllowDevelopmentWithoutDevLicense）
 - Gaming Services（UWP 启动必需，缺失时打开微软商店页面）
 - VC++ 运行时（x64 原生 + UWP VCLibs）
-- GameInput（GDK 首次启动必需，msiexec 安装包内 MSI）
+- GameInput（GDK 必需，msiexec 安装包内 MSI，版本安装时自动补齐）
 - 官方 exe 兜底（解压版 exe 与官方同源；存在官方版时优先使用/校验替换）
 """
 

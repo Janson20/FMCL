@@ -324,6 +324,19 @@ class BedrockManager:
         except Exception as e:
             logger.warning(f"官方 exe 修复失败（不影响安装）: {e}")
 
+        # GameInput 运行时随安装补齐（启动时不再跑 MSI；安装失败不阻断安装）
+        if not env_mod.is_game_input_installed():
+            msi = folder / "Installers" / "GameInputRedist.msi"
+            if not msi.exists():
+                msi = next(folder.rglob("GameInputRedist.msi"), None)
+            if msi is not None:
+                self._notify("正在安装 GameInput 运行时（需要 UAC 确认）...")
+                ok, err = env_mod.install_game_input(msi)
+                if not ok:
+                    logger.warning(f"GameInput 安装失败（GDK 启动可能受影响）: {err}")
+            else:
+                logger.warning("包内未找到 GameInputRedist.msi，跳过 GameInput 安装")
+
     def _install_uwp(self, package_path: Path, folder: Path, game_type: str, name: str) -> None:
         """安装 UWP 版本（解压 + 修改清单 + 注册）"""
         self._notify("正在解压游戏（UWP）...")

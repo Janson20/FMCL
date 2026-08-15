@@ -15,7 +15,6 @@ from logzero import logger
 from launcher.bedrock.appx import get_package_install_location, register_appx
 from launcher.bedrock.env import (
     find_official_minecraft_dir,
-    install_game_input,
     is_game_input_installed,
     is_xbox_signed_in,
     open_xbox_app,
@@ -211,19 +210,12 @@ def launch_gdk(
     except Exception as e:
         logger.warning(f"查找官方版游戏失败（继续使用解压版）: {e}")
 
-    # 首次启动安装 GameInput（对齐 BedrockBoot：安装失败不阻断启动）
+    # GameInput 运行时在版本安装时已自动安装；启动时仅做缺失提示，不再跑 MSI
+    # （缺失时游戏可能无法启动，但安装时已尽量补齐；这里不阻断启动）
     if not is_game_input_installed():
-        msi = version_dir / "Installers" / "GameInputRedist.msi"
-        if not msi.exists():
-            msi = next(version_dir.rglob("GameInputRedist.msi"), None)
-        if msi is not None:
-            if notify:
-                notify("正在安装 GameInput 运行时（需要 UAC 确认）...")
-            ok, err = install_game_input(msi)
-            if not ok:
-                logger.warning(f"GameInput 安装失败，继续启动游戏: {err}")
-        else:
-            logger.warning("未找到 GameInputRedist.msi，跳过 GameInput 安装")
+        if notify:
+            notify("GameInput 运行时未安装，GDK 版可能无法启动（可重装版本补齐）...")
+        logger.warning("GameInput 未安装，GDK 版可能无法启动")
 
     logger.info(f"启动 GDK 游戏: {game_exe} args={args!r}")
     if args:
