@@ -40,6 +40,28 @@ jobs:
           PLATFORM: win
           ARCH: amd64
 
+      - name: Set up Python (x86)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: 'x86'
+
+      - name: Install Python dependencies (x86)
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install pyinstaller
+          pip install -r requirements-windows-x86.txt
+
+      - name: Build with PyInstaller (x86)
+        run: pyinstaller build.spec --noconfirm
+        env:
+          PLATFORM: win
+          ARCH: x86
+
+      - name: Rename x86 build
+        run: Move-Item -Path dist\FMCL.exe -Destination dist\FMCL-x86.exe
+        shell: pwsh
+
       - name: Install NSIS
         run: choco install nsis -y
 
@@ -129,7 +151,7 @@ jobs:
           }
           & $nsisPath "/DVERSION=$version" installer.nsi
           if ($LASTEXITCODE -ne 0) { throw "x64 安装包构建失败" }
-          & $nsisPath "/DVERSION=$version" "/DARCH=x86" installer.nsi
+          & $nsisPath "/DVERSION=$version" "/DARCH=x86" "/DFCL_EXE=FMCL-x86.exe" installer.nsi
           if ($LASTEXITCODE -ne 0) { throw "x86 安装包构建失败" }
           Get-ChildItem FMCL-Setup-*.exe | Select-Object Name, Length
         shell: pwsh

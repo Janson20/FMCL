@@ -20,6 +20,11 @@ Unicode true
   !define ARCH "x64"
 !endif
 
+; 主程序构建产物文件名（x86 构建产物为 FMCL-x86.exe，统一安装为 FMCL.exe）
+!ifndef FCL_EXE
+  !define FCL_EXE "FMCL.exe"
+!endif
+
 Name "${PRODUCT_NAME} ${VERSION}"
 !if "${ARCH}" == "x86"
   OutFile "FMCL-Setup-${VERSION}-x86.exe"
@@ -64,8 +69,8 @@ Section "MainSection" SEC01
   SetOutPath "$INSTDIR"
   SetOverwrite on
 
-  ; 复制主程序
-  File "dist\FMCL.exe"
+  ; 复制主程序（x86 构建产物为 FMCL-x86.exe，统一安装为 FMCL.exe）
+  File "/oname=FMCL.exe" "dist\${FCL_EXE}"
 
   ; 创建 .minecraft 目录
   CreateDirectory "$INSTDIR\.minecraft"

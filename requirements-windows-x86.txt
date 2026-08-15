@@ -1,0 +1,13 @@
+# x86（32 位 Windows）构建依赖
+#
+# 部分包已停止提供 win32 轮子，需固定到仍提供 win32 轮子的最后版本：
+# - numpy: 2.x 起放弃 win32 → 固定 1.26.4
+# - psutil: 6.x 起放弃 win32 → 固定 5.9.8（abi3，兼容 cp311）
+# - cryptography: 42.x 起放弃 win32 → 固定 41.0.7（abi3，兼容 cp311）
+#
+# 未安装项（无 win32 轮子，功能自动降级）：
+# - onnxruntime-directml / sentencepiece：语音输入在 x86 构建不可用
+-r requirements.txt
+numpy==1.26.4
+psutil==5.9.8
+cryptography==41.0.7
