@@ -404,15 +404,57 @@ def test_xts_decrypt_matches_reference():
     assert plain[:16] == bytes(16)
 
 
-def test_cik_keys():
-    """CIK 密钥：release/preview 各 48 字节，DKey/TKey 均为 16 字节且非零"""
-    d_rel, t_rel = xvd.get_cik_key("release")
-    d_pre, t_pre = xvd.get_cik_key("preview")
-    d_beta, t_beta = xvd.get_cik_key("beta")
-    for d, t in ((d_rel, t_rel), (d_pre, t_pre), (d_beta, t_beta)):
-        assert len(d) == 16 and len(t) == 16
-        assert any(d) and any(t)
-    assert d_rel != d_pre  # release 与 preview 密钥不同
+def test_cik_keys_missing_raises(monkeypatch, tmp_path):
+    """无外部密钥配置时 get_cik_key 应明确报错（密钥不再内置）"""
+    from launcher.bedrock import xvd as xvd_mod
+
+    monkeypatch.delenv(xvd_mod._CIK_FILE_ENV, raising=False)
+    xvd_mod._reset_cik_cache()
+    try:
+        with pytest.raises(xvd_mod.XvdParseError, match="CIK"):
+            xvd_mod.get_cik_key("release")
+    finally:
+        xvd_mod._reset_cik_cache()
+
+
+def test_cik_keys_from_external_file(monkeypatch, tmp_path):
+    """从外部 JSON 配置加载 CIK：release/preview 各 48 字节，DKey/TKey 均为 16 字节且非零"""
+    from launcher.bedrock import xvd as xvd_mod
+
+    fake_rel = bytes.fromhex("91e7b9bd7cc93437e1a8bc602552df06" + "aa" * 16 + "bb" * 16)
+    fake_pre = bytes.fromhex("3fd6491ff58b8d1fed7edbd89477dad9" + "cc" * 16 + "dd" * 16)
+    cfg = tmp_path / "cik.json"
+    cfg.write_text(
+        json.dumps({"release": fake_rel.hex(), "preview": fake_pre.hex()}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(xvd_mod._CIK_FILE_ENV, str(cfg))
+    xvd_mod._reset_cik_cache()
+    try:
+        d_rel, t_rel = xvd_mod.get_cik_key("release")
+        d_pre, t_pre = xvd_mod.get_cik_key("preview")
+        d_beta, t_beta = xvd_mod.get_cik_key("beta")
+        for d, t in ((d_rel, t_rel), (d_pre, t_pre), (d_beta, t_beta)):
+            assert len(d) == 16 and len(t) == 16
+            assert any(d) and any(t)
+        assert d_rel != d_pre  # release 与 preview 密钥不同
+    finally:
+        xvd_mod._reset_cik_cache()
+
+
+def test_cik_keys_invalid_config(monkeypatch, tmp_path):
+    """配置文件缺失密钥/格式非法时同样明确报错"""
+    from launcher.bedrock import xvd as xvd_mod
+
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"release": "nothex"}), encoding="utf-8")
+    monkeypatch.setenv(xvd_mod._CIK_FILE_ENV, str(bad))
+    xvd_mod._reset_cik_cache()
+    try:
+        with pytest.raises(xvd_mod.XvdParseError, match="CIK"):
+            xvd_mod.get_cik_key("release")
+    finally:
+        xvd_mod._reset_cik_cache()
 
 
 def test_is_valid_msi(tmp_path):

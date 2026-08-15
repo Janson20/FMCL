@@ -431,5 +431,5 @@
 - **环境自动检测修复**：Windows 开发者模式、Gaming Services、VC++ 运行时、GameInput（首次启动自动安装包内 MSI）
 - **下载**：多线程断点续传 + MD5 校验，版本库与安装包多源回退
 - **游戏内 Xbox 登录**：检测系统 Xbox 身份（Xbox 应用/Game Bar 登录状态，含 IdentityCRL KeyCache 校验）；未登录时引导登录
-- **GDK 认证注入启动**：微软账户设备码登录，复用 BedrockBoot XUserHook/PreLoad 机制，需 .NET 10 运行时
+- **GDK 认证注入启动**：微软账户设备码登录；认证注入组件因合规要求已移除，待授权方案确认后恢复
 - **凭证缓存**：MSA 令牌 Fernet 加密存储（v2 格式），损坏字段自动丢弃，旧明文缓存自动迁移

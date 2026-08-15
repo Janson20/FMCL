@@ -600,19 +600,68 @@ def extract_gdk_package(
     return extractor.extract(output_dir, progress_cb=progress_cb, stop_event=stop_event, game_type=game_type)
 
 
-# CIK 密钥（来自 BedrockLauncher.Core NuGet 2.0.4.9 反编译 _DEFINE_REF2，
-# 格式: Guid(0x10) + TKey(0x10) + DKey(0x10)）
-_CIK_RELEASE = bytes.fromhex(
-    "***REMOVED***"
-)
-_CIK_PREVIEW = bytes.fromhex(
-    "***REMOVED***"
-)
+# CIK 密钥不再内置于源码（合规要求）。
+# 密钥由用户自行从授权渠道获取，存放于外部配置文件（不入库）：
+# - 环境变量 FMCL_BEDROCK_CIK_FILE 指定的 JSON 文件
+# - 或 <工作目录>/config/bedrock_cik.json
+# 格式: {"release": "<48字节hex>", "preview": "<48字节hex>"}，各为 Guid(0x10)+TKey(0x10)+DKey(0x10)
+_CIK_FILE_ENV = "FMCL_BEDROCK_CIK_FILE"
+_CIK_DEFAULT_RELATIVE = Path("config") / "bedrock_cik.json"
+_CIK_CACHE: Dict[str, bytes] = {}
+
+
+def _load_cik_table() -> Dict[str, bytes]:
+    """从外部配置文件加载 CIK 密钥表（带缓存，找不到时返回空表）"""
+    if _CIK_CACHE:
+        return _CIK_CACHE
+    import json
+    import os
+
+    path = None
+    env_path = os.environ.get(_CIK_FILE_ENV)
+    if env_path:
+        env_file = Path(env_path)
+        if env_file.is_file():
+            path = env_file
+    if path is None and _CIK_DEFAULT_RELATIVE.is_file():
+        path = _CIK_DEFAULT_RELATIVE
+    if path is None:
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        table = {}
+        for key in ("release", "preview"):
+            value = raw.get(key, "")
+            if isinstance(value, str) and len(value.strip()) == 96:
+                table[key] = bytes.fromhex(value.strip())
+        if table:
+            _CIK_CACHE.update(table)
+            return _CIK_CACHE
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        logger.warning(f"读取 CIK 密钥配置文件失败 [{path}]: {e}")
+    return {}
 
 
 def get_cik_key(game_type: str) -> Tuple[bytes, bytes]:
-    """返回 (DKey, TKey)；game_type: release / preview / beta"""
-    cik = _CIK_RELEASE if game_type == "release" else _CIK_PREVIEW
+    """返回 (DKey, TKey)；game_type: release / preview / beta
+
+    密钥需从授权渠道获取并写入外部配置文件（见模块注释），源码不再内置。
+    """
+    if game_type == "beta":
+        game_type = "preview"
+    table = _load_cik_table()
+    cik = table.get(game_type)
+    if cik is None:
+        raise XvdParseError(
+            "GDK 包解密密钥（CIK）未配置：为遵守版权要求密钥不再内置，"
+            "请通过环境变量 FMCL_BEDROCK_CIK_FILE 或 config/bedrock_cik.json "
+            "提供授权渠道获取的密钥后重试"
+        )
     return cik[0x20:0x30], cik[0x10:0x20]
+
+
+def _reset_cik_cache() -> None:
+    """清空 CIK 缓存（测试用）"""
+    _CIK_CACHE.clear()
 
 

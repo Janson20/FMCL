@@ -66,6 +66,10 @@ launcher/bedrock/native/bin/
 
 # 基岩版微软账户凭证缓存（含敏感 token，加密存储但不应入库）
 bedrock_msa_cache.json
+
+# 基岩版 GDK 解密密钥外部配置（合规要求，密钥不入库）
+bedrock_cik.json
+config/bedrock_cik.json
 FMCL-Setup-*.exe
 FMCL-*-mac-*.dmg
 FMCL-*-linux-*.deb
