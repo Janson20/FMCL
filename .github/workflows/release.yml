@@ -54,7 +54,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           pip install pyinstaller
-          pip install -r requirements-windows-x86.txt
+          # --only-binary=:all: 强制走 wheel（x86 清单已保证全部有 win32 轮子），
+          # 避免 pip 对个别包回退源码构建（如 cryptography 的 Rust 构建需 OpenSSL）
+          pip install --only-binary=:all: -r requirements-windows-x86.txt
 
       - name: Build with PyInstaller (x86)
         run: pyinstaller build.spec --noconfirm

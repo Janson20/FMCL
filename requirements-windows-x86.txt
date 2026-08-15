@@ -6,8 +6,9 @@
 # - onnxruntime-directml：仅提供 win_amd64 轮子，不安装（见 requirements-windows.txt）
 # - numpy：2.x 起放弃 win32 → 固定 1.26.4（cp311 win32 轮子）
 # - psutil：6.x 起放弃 win32 → 固定 5.9.8（abi3，兼容 cp311）
-# - cryptography：42.x 起仍提供 abi3 win32 轮子，保持最新 46.0.0
-#   （避免历史版本安全告警：Bleichenbacher 时间侧信道、PKCS12 空指针等）
+# - cryptography：42.x 起仍提供 abi3 win32 轮子，固定 46.0.6
+#   （Dependabot 要求 >=46.0.6；低于此版本存在 Bleichenbacher 时间侧信道、
+#   PKCS12 空指针等安全告警）
 #
 # 依赖增减时需同步维护本文件与 requirements.txt / requirements-windows.txt
 
