@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 NATIVE_DIR = Path(__file__).resolve().parent
 
@@ -63,9 +64,24 @@ def check_assets() -> None:
     )
 
 
+def _find_dotnet() -> Optional[str]:
+    """查找 dotnet CLI：PATH 优先，附带常见安装位置兜底（PATH 未刷新时）"""
+    dotnet = shutil.which("dotnet")
+    if dotnet:
+        return dotnet
+    for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
+        base = os.environ.get(env_name)
+        if not base:
+            continue
+        probe = Path(base) / "dotnet" / "dotnet.exe"
+        if probe.is_file():
+            return str(probe)
+    return None
+
+
 def check_dotnet() -> bool:
     """检测 dotnet SDK 是否可用（版本 >= 10）"""
-    dotnet = shutil.which("dotnet")
+    dotnet = _find_dotnet()
     if not dotnet:
         return False
     try:
@@ -83,14 +99,15 @@ def check_dotnet() -> bool:
 
 def _publish(project_dir: Path, output_dir: Path, exe_path: Path, exe_name: str) -> Path:
     """通用 dotnet publish 流程"""
-    if not check_dotnet():
+    dotnet = _find_dotnet()
+    if not dotnet or not check_dotnet():
         raise RuntimeError(
             f"需要 .NET 10 SDK 才能构建 {exe_name}，请先安装 "
             "https://dotnet.microsoft.com/download/dotnet/10.0"
         )
     output_dir.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
-        ["dotnet", "publish", "-c", "Release", "-o", str(output_dir), "--nologo"],
+        [dotnet, "publish", "-c", "Release", "-o", str(output_dir), "--nologo"],
         cwd=str(project_dir),
         capture_output=True,
         text=True,

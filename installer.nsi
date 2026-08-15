@@ -221,25 +221,49 @@ sevenz_done:
   DetailPrint "7-Zip 检查完成"
 SectionEnd
 
-; ─── .NET 10 SDK 检测（注册表 InstalledVersions，兼容 32/64 位视图）───
+; ─── .NET 10 SDK 检测 ───────────────────────────────────────
 ; 输出: $0 = 1 已检测到 .NET 10 SDK，0 未检测到
+; 检测顺序：文件系统（%ProgramFiles%\dotnet\sdk\10.*）→ 注册表双视图
+; （SDK 安装器是 32 位进程，版本子键写在 WOW6432Node 即 32 位视图下）
 ; 精简版（NO_DOTNET_SDK）不内嵌 SDK，整段跳过
 !ifndef NO_DOTNET_SDK
 Function CheckDotnetSdk10
   StrCpy $0 0
-  ; 64 位视图（x64 SDK 安装在此）
-  SetRegView 64
+  ; 1) 文件系统（支持通配符）：x64 / x86 安装位置全覆盖
+  IfFileExists "$PROGRAMFILES64\dotnet\sdk\10.*" sdk_found
+  IfFileExists "$PROGRAMFILES32\dotnet\sdk\10.*" sdk_found
+  IfFileExists "$PROGRAMFILES\dotnet\sdk\10.*" sdk_found
+  ; 2) 注册表：先 32 位视图（WOW6432Node，SDK 安装器写入处）
+  SetRegView 32
   StrCpy $1 0
   ${Do}
     EnumRegKey $2 HKLM "SOFTWARE\dotnet\Setup\InstalledVersions\x64\sdk" $1
-    StrCmp $2 "" check_sdk_x86
+    StrCmp $2 "" check_sdk_reg_x86_32
     StrCpy $3 $2 3
     StrCmp $3 "10." sdk_found
     IntOp $1 $1 + 1
   ${Loop}
-check_sdk_x86:
-  ; 32 位视图（x86 SDK 安装在此）
-  SetRegView 32
+check_sdk_reg_x86_32:
+  StrCpy $1 0
+  ${Do}
+    EnumRegKey $2 HKLM "SOFTWARE\dotnet\Setup\InstalledVersions\x86\sdk" $1
+    StrCmp $2 "" check_sdk_reg_x64_64
+    StrCpy $3 $2 3
+    StrCmp $3 "10." sdk_found
+    IntOp $1 $1 + 1
+  ${Loop}
+check_sdk_reg_x64_64:
+  ; 3) 注册表：64 位视图兜底
+  SetRegView 64
+  StrCpy $1 0
+  ${Do}
+    EnumRegKey $2 HKLM "SOFTWARE\dotnet\Setup\InstalledVersions\x64\sdk" $1
+    StrCmp $2 "" check_sdk_reg_x86_64
+    StrCpy $3 $2 3
+    StrCmp $3 "10." sdk_found
+    IntOp $1 $1 + 1
+  ${Loop}
+check_sdk_reg_x86_64:
   StrCpy $1 0
   ${Do}
     EnumRegKey $2 HKLM "SOFTWARE\dotnet\Setup\InstalledVersions\x86\sdk" $1
@@ -275,9 +299,20 @@ Section "-DotnetSdkCheck" SECDOTNET
     StrCpy $4 "$TEMP\FMCLauncher_dotnet\dotnet-sdk-win-x64.exe"
   !endif
 
-  DetailPrint "正在后台静默安装 .NET 10 SDK（请在 UAC 弹窗中确认）..."
-  ExecShell "runas" '"$4"' "/install /quiet /norestart"
-  DetailPrint "SDK 安装已在后台进行，装好后 FMCL 会自动检测到"
+  DetailPrint "正在安装 .NET 10 SDK（请在 UAC 弹窗中确认）..."
+  ; 同步等待安装完成并获取退出码（PowerShell Start-Process -Verb RunAs -Wait 传播退出码）
+  ; 注意：$$ = 字面 $，$\' = 字面单引号（NSIS 转义序列）
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "& { $$p = Start-Process -FilePath $\'$4$\' -ArgumentList $\'/install /quiet /norestart$\' -Verb RunAs -Wait -PassThru; exit $$p.ExitCode }"' $1
+
+  ; 安装完成后复查（文件系统/注册表）
+  Call CheckDotnetSdk10
+  ${If} $0 = 1
+    DetailPrint ".NET 10 SDK 安装成功"
+    MessageBox MB_OK ".NET 10 SDK 安装成功。$\n$\n现在可以使用基岩版 GDK 功能了。" /SD IDOK
+  ${Else}
+    DetailPrint ".NET 10 SDK 安装失败 (exit code: $1)"
+    MessageBox MB_ICONEXCLAMATION ".NET 10 SDK 安装未成功（退出码: $1）。$\n$\n安装日志位于 %TEMP%\dd_*.log$\n$\nFMCL 其余功能不受影响，GDK 版可在启动器中另行引导下载安装。" /SD IDOK
+  ${EndIf}
 
 dotnet_done:
   SetOutPath "$INSTDIR"

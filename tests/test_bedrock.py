@@ -241,17 +241,92 @@ def test_dotnet_has_sdk10_installed(monkeypatch):
 
 
 def test_dotnet_has_sdk10_missing(monkeypatch):
-    """只有旧版本 SDK 时返回 False"""
+    """只有旧版本 SDK 时返回 False（且注册表/文件系统兜底均无）"""
     dotnet = _patch_dotnet_env(monkeypatch, "9.0.100 [C:\\Program Files\\dotnet\\sdk]\n")
+    monkeypatch.setattr(dotnet, "_registry_has_sdk10", lambda: False)
+    monkeypatch.setattr(dotnet, "_filesystem_has_sdk10", lambda: False)
     assert dotnet.has_sdk10() is False
 
 
 def test_dotnet_has_sdk10_no_dotnet(monkeypatch):
-    """系统没有 dotnet 时返回 False"""
+    """系统没有 dotnet（PATH 未刷新）时，注册表/文件系统兜底仍能识别"""
     from launcher.bedrock import dotnet
 
     monkeypatch.setattr(dotnet.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(dotnet, "subprocess", None)  # 不会走到 CLI 分支
+    monkeypatch.setattr(dotnet, "_registry_has_sdk10", lambda: True)
+    assert dotnet.has_sdk10() is True
+
+    monkeypatch.setattr(dotnet, "_registry_has_sdk10", lambda: False)
+    monkeypatch.setattr(dotnet, "_filesystem_has_sdk10", lambda: True)
+    assert dotnet.has_sdk10() is True
+
+    monkeypatch.setattr(dotnet, "_filesystem_has_sdk10", lambda: False)
     assert dotnet.has_sdk10() is False
+
+
+def test_dotnet_candidates_known_paths(monkeypatch, tmp_path):
+    """PATH 无 dotnet 时能发现 %ProgramFiles%\\dotnet\\dotnet.exe"""
+    from launcher.bedrock import dotnet
+
+    prog = tmp_path / "PF"
+    (prog / "dotnet").mkdir(parents=True)
+    (prog / "dotnet" / "dotnet.exe").write_bytes(b"MZ")
+    monkeypatch.setattr(dotnet.shutil, "which", lambda _name: None)
+    monkeypatch.setenv("ProgramFiles", str(prog))
+    monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "PF86"))
+    assert str(prog / "dotnet" / "dotnet.exe") in dotnet._dotnet_candidates()
+
+
+def _mock_winreg_sdk(monkeypatch, sdk_versions: list):
+    """mock winreg：OpenKey 成功 + EnumKey 依次返回版本名"""
+    from launcher.bedrock import dotnet
+
+    import winreg
+
+    class _Key:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    def fake_openkey(*_a, **_k):
+        return _Key()
+
+    def fake_enumkey(_key, index):
+        if index < len(sdk_versions):
+            return sdk_versions[index]
+        raise OSError
+
+    monkeypatch.setattr(winreg, "OpenKey", fake_openkey)
+    monkeypatch.setattr(winreg, "EnumKey", fake_enumkey)
+    return dotnet
+
+
+def test_dotnet_registry_has_sdk10(monkeypatch):
+    """注册表兜底：存在 10.x 版本子键时判定已安装"""
+    dotnet = _mock_winreg_sdk(monkeypatch, ["9.0.100", "10.0.400"])
+    assert dotnet._registry_has_sdk10() is True
+
+
+def test_dotnet_registry_has_sdk10_absent(monkeypatch):
+    """注册表兜底：只有 9.x 版本子键时判定未安装"""
+    dotnet = _mock_winreg_sdk(monkeypatch, ["9.0.100"])
+    assert dotnet._registry_has_sdk10() is False
+
+
+def test_dotnet_filesystem_has_sdk10(monkeypatch, tmp_path):
+    """文件系统兜底：sdk 目录存在 10.* 子目录"""
+    from launcher.bedrock import dotnet
+
+    prog = tmp_path / "PF"
+    (prog / "dotnet" / "sdk" / "10.0.400").mkdir(parents=True)
+    monkeypatch.setenv("ProgramFiles", str(prog))
+    monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path / "PF86"))
+    assert dotnet._filesystem_has_sdk10() is True
+    (prog / "dotnet" / "sdk" / "10.0.400").rmdir()
+    assert dotnet._filesystem_has_sdk10() is False
 
 
 def test_dotnet_detect_arch(monkeypatch):

@@ -8,6 +8,7 @@ import os
 import platform
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -35,25 +36,90 @@ class DotnetError(RuntimeError):
     """.NET 检测/下载链接错误"""
 
 
-def has_sdk10() -> bool:
-    """检测系统是否安装了 .NET 10 SDK（dotnet --list-sdks 首行版本以 10. 开头）"""
+def _dotnet_candidates() -> list:
+    """dotnet CLI 候选路径：PATH 优先，附带常见安装位置兜底
+
+    SDK 安装后若 FMCL 已在运行（PATH 未刷新），仅靠 shutil.which 会漏检。
+    """
+    candidates = []
     dotnet = shutil.which("dotnet")
-    if not dotnet:
-        return False
+    if dotnet:
+        candidates.append(dotnet)
+    for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
+        base = os.environ.get(env_name)
+        if not base:
+            continue
+        probe = Path(base) / "dotnet" / "dotnet.exe"
+        if probe.is_file() and str(probe) not in candidates:
+            candidates.append(str(probe))
+    return candidates
+
+
+def _registry_has_sdk10() -> bool:
+    """注册表兜底：SDK 安装器（32 位进程）把版本子键写在 32 位视图（WOW6432Node）"""
     try:
-        proc = subprocess.run(
-            [dotnet, "--list-sdks"],
-            capture_output=True,
-            text=True,
-            timeout=_RUNTIME_LIST_TIMEOUT,
-        )
-        return any(
-            line.strip().startswith(SDK_MAJOR_MINOR)
-            for line in (proc.stdout or "").splitlines()
-        )
-    except Exception as e:
-        logger.debug(f"检测 .NET 10 SDK 失败: {e}")
+        import winreg
+    except ImportError:
         return False
+    roots = (
+        r"SOFTWARE\dotnet\Setup\InstalledVersions\x64\sdk",
+        r"SOFTWARE\dotnet\Setup\InstalledVersions\x86\sdk",
+    )
+    for root in roots:
+        for view in (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY):
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, root, 0, winreg.KEY_READ | view) as key:
+                    index = 0
+                    while True:
+                        try:
+                            name = winreg.EnumKey(key, index)
+                        except OSError:
+                            break
+                        if name.startswith("10."):
+                            return True
+                        index += 1
+            except OSError:
+                continue
+    return False
+
+
+def _filesystem_has_sdk10() -> bool:
+    """文件系统兜底：%ProgramFiles%\dotnet\sdk\10.* 存在即视为已装"""
+    for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
+        base = os.environ.get(env_name)
+        if not base:
+            continue
+        sdk_dir = Path(base) / "dotnet" / "sdk"
+        try:
+            if any(p.is_dir() and p.name.startswith("10.") for p in sdk_dir.iterdir()):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def has_sdk10() -> bool:
+    """检测系统是否安装了 .NET 10 SDK
+
+    检测顺序：dotnet CLI（--list-sdks）→ 注册表 InstalledVersions → 文件系统。
+    PATH 未刷新（安装 SDK 后 FMCL 已处于运行状态）时由后两者兜底。
+    """
+    for dotnet in _dotnet_candidates():
+        try:
+            proc = subprocess.run(
+                [dotnet, "--list-sdks"],
+                capture_output=True,
+                text=True,
+                timeout=_RUNTIME_LIST_TIMEOUT,
+            )
+            if any(
+                line.strip().startswith(SDK_MAJOR_MINOR)
+                for line in (proc.stdout or "").splitlines()
+            ):
+                return True
+        except Exception as e:
+            logger.debug(f"检测 .NET 10 SDK 失败 ({dotnet}): {e}")
+    return _registry_has_sdk10() or _filesystem_has_sdk10()
 
 
 def detect_arch() -> str:
