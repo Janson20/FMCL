@@ -22,7 +22,7 @@
 | 🖥 服务器管理 | 一键安装/启动 MC 服务器，实时日志与命令交互 | 自动同意 EULA，智能 Java 管理，1G~16G 内存 |
 | 🌐 陶瓦联机 | 基于 EasyTier P2P 虚拟组网，局域网广播模拟 | Base34 大厅编号，TCP 端口转发，成员管理 |
 | 💾 存档备份 | 手动/自动备份，一键恢复，压缩/校验/导出 | 支持版本隔离目录扫描，备份索引记录 |
-| ⛏ 基岩版 | 基岩版（Bedrock Edition）下载与启动（Windows 10 19041+） | 基于 BedrockBoot 方案：UWP/GDK 双类型全版本库（McAppx 多源回退），GDK XVD 容器解压（含 0 字节段页对齐修复，解压数据与官方包一致），UWP AppX 注册，环境自动检测修复（开发者模式/GameService/VC 运行时/GameInput），多线程断点下载 + MD5 校验，游戏内 Xbox 登录；GDK 版认证注入启动（首次使用时经用户同意，从 BedrockBoot 官方 NuGet 按需下载闭源认证组件） |
+| ⛏ 基岩版 | 基岩版（Bedrock Edition）下载与启动（Windows 10 19041+） | 基于 BedrockBoot 方案：UWP/GDK 双类型全版本库（McAppx 多源回退），GDK XVD 容器解压（委托 .NET MIT 库 BedrockLauncher.Core，与 BedrockBoot 同源，需 .NET 10 SDK，缺失时引导下载），UWP AppX 注册，环境自动检测修复（开发者模式/GameService/VC 运行时/GameInput），多线程断点下载 + MD5 校验，游戏内 Xbox 登录；GDK 版认证注入启动（首次使用时经用户同意，从 BedrockBoot 官方 NuGet 按需下载闭源认证组件） |
 | 🤖 AGENT 助手 | 自然语言控制启动器，33 个工具可供 AI 调用 | 多模型支持，流式 SSE 输出，50 轮工具循环 |
 | 🎙 语音输入 | AGENT 输入框与主界面顶部输入框一键语音输入 | 基于 SenseVoice-Small 离线识别模型（自带标点与数字转换），DirectML/CPU 自适应加速，首次使用自动下载模型，可在设置中手动导入本地模型压缩包（GitHub 下载过慢时），点击开始/停止录音，识别结果自动填入输入框 |
 | 🎵 音乐播放器 | 本地播放 + 在线搜索（酷我/酷狗/咪咕/QQ/网易） | 双模式切换、歌词、桌面歌词、音效、SMTC、搜索结果分页与播放量显示、原唱置顶识别、百度百科原唱兜底、跨音源兜底播放、自动音质选择、网易云 VIP 登录、网易云账号歌单同步（只读）、歌单预取秒播、歌名/歌手一键复制 |

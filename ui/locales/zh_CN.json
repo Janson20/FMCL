@@ -1403,6 +1403,8 @@
   "bedrock_component_msg": "GDK 版启动需要 BedrockBoot 的闭源认证组件 XUserLauncher.Core（用于 Xbox 多账户认证注入）。\n\n为遵守其授权要求，FMCL 不再内置该组件，将在您同意后，从 BedrockBoot 官方 NuGet 源（发布者 Round-Studio）按需下载到本机使用，不会随 FMCL 分发。\n\n是否同意下载？\n（取消将无法启动 GDK 版，UWP 版不受影响）",
   "bedrock_component_declined": "已取消：未同意下载认证组件，GDK 版无法启动",
   "bedrock_component_downloading": "正在下载 GDK 认证组件（来自 BedrockBoot 官方 NuGet）...",
+  "bedrock_dotnet_title": "需要 .NET 10 SDK",
+  "bedrock_dotnet_msg": "GDK 版游戏包解压需要在本地构建解压组件，要求系统已安装 .NET 10 SDK。\n\n当前系统未检测到 .NET 10 SDK，将无法下载安装 GDK 版（UWP 版不受影响）。\n\n点击确认后将打开微软官方下载页（自动匹配系统架构），安装完成后请重试。",
   "bedrock_no_installed": "暂无已安装的基岩版",
   "bedrock_no_available": "暂无可用版本（网络异常或版本库不可用）",
   "bedrock_no_match": "没有匹配的版本",

@@ -19,7 +19,7 @@ from logzero import logger
 from launcher.bedrock import appx as appx_mod
 from launcher.bedrock import env as env_mod
 from launcher.bedrock import launch as launch_mod
-from launcher.bedrock import xvd as xvd_mod
+from launcher.bedrock.extractor import extract_gdk_package
 from launcher.bedrock.download import (
     DownloadError,
     check_md5,
@@ -303,9 +303,9 @@ class BedrockManager:
         name: str,
         stop_event: Optional[threading.Event],
     ) -> None:
-        """安装 GDK 版本（解压 XVD 容器）"""
+        """安装 GDK 版本（解压 XVD 容器，委托 .NET BedrockLauncher.Core）"""
         self._notify("正在解压游戏（GDK）...")
-        xvd_mod.extract_gdk_package(
+        extract_gdk_package(
             package_path,
             folder,
             progress_cb=lambda cur, total, fname: self._progress(cur, total, f"正在解压 {fname}"),

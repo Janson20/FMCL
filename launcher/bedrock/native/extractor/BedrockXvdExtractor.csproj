@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>BedrockXvdExtractor</AssemblyName>
+    <RootNamespace>BedrockXvdExtractor</RootNamespace>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- GDK XVD 容器解析与解密（MIT 库，与 BedrockBoot 同款用法） -->
+    <PackageReference Include="BedrockLauncher.Core" Version="2.0.4.9" />
+  </ItemGroup>
+
+</Project>

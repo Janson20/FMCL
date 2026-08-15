@@ -448,10 +448,43 @@ class BedrockMixin:
                 config.save_config()
         except Exception as e:
             logger.warning(f"基岩版条款确认异常（放行下载）: {e}")
+        # GDK 版解压依赖 .NET 10 SDK（运行时构建解压组件）：缺失时引导下载
+        if self.bedrock_selected.get("build_type") == "GDK" and not self._ensure_dotnet10_for_gdk():
+            return
         version = self.bedrock_selected.get("version", "")
         self.bedrock_install_btn.configure(state=ctk.DISABLED)
         self.set_status(_("bedrock_installing").format(version=version), "loading")
         self._run_in_thread(self._install_bedrock_worker, version)
+
+    def _ensure_dotnet10_for_gdk(self) -> bool:
+        """GDK 版下载前检测 .NET 10 SDK，缺失时弹窗并打开官方下载直链
+
+        返回 False 表示用户已决定去安装（本次中止），True 表示继续下载。
+        """
+        try:
+            from launcher.bedrock import dotnet
+
+            if dotnet.has_sdk10():
+                return True
+            import tkinter.messagebox
+            import webbrowser
+
+            url = dotnet.SDK_DOWNLOAD_PAGE
+            try:
+                url = dotnet.sdk_download_url()
+            except Exception as e:
+                logger.warning(f"获取 .NET SDK 下载直链失败（改用下载页）: {e}")
+            if tkinter.messagebox.askyesno(
+                _("bedrock_dotnet_title"),
+                _("bedrock_dotnet_msg"),
+                parent=self,
+                icon=tkinter.messagebox.WARNING,
+            ):
+                webbrowser.open(url)
+            return False
+        except Exception as e:
+            logger.warning(f".NET 10 检测异常（放行下载）: {e}")
+            return True
 
     def _install_bedrock_worker(self, version: str):
         try:

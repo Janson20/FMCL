@@ -63,13 +63,11 @@ ModTranslations/
 launcher/bedrock/native/helper/bin/
 launcher/bedrock/native/helper/obj/
 launcher/bedrock/native/bin/
+launcher/bedrock/native/extractor/bin/
+launcher/bedrock/native/extractor/obj/
 
 # 基岩版微软账户凭证缓存（含敏感 token，加密存储但不应入库）
 bedrock_msa_cache.json
-
-# 基岩版 GDK 解密密钥外部配置（合规要求，密钥不入库）
-bedrock_cik.json
-config/bedrock_cik.json
 
 # 基岩版 GDK 闭源认证组件（用户同意后按需下载，不入库）
 launcher/bedrock/native/assets/

@@ -424,9 +424,10 @@
 
 ## ⛏ 基岩版
 - **双类型支持**：UWP（AppX 注册激活）与 GDK（XVD 容器解压裸启动）两种构建类型，全版本库来自 McAppx 多源回退
-- **GDK XVD 容器解压**：解析 MSIXVC/XVD 头、SegmentMetadata 段清单、XVC 区域表，支持 XTS-AES 页级解密（CIK 密钥）
-  - **0 字节段页对齐修复**：空标记文件（如 `hbui/MGE`）在数据流中仍占一页占位零，解压时消费该页，避免后续全部文件数据错位（错位会导致游戏启动崩溃 0x4ab8027）
-  - 解压数据与官方安装包逐文件哈希一致（37642 文件全量校验通过）
+- **GDK XVD 容器解压**：委托 .NET 辅助程序（BedrockXvdExtractor）执行，底层为 MIT 库 BedrockLauncher.Core——与 BedrockBoot 的 GDK 安装解压完全同源，CIK 密钥随官方 NuGet 包分发，FMCL 不内置、不提取任何密钥
+  - 运行时 `dotnet publish` 构建解压器，需要 .NET 10 SDK（下载 GDK 版前自动检测，缺失时弹窗引导下载官方对应架构安装包）
+  - 硬件加速（AES-NI）优先，老 CPU 不支持时自动回退软件解密
+  - 0 字节段页对齐修复（避免游戏启动崩溃 0x4ab8027），解压数据与官方安装包逐文件哈希一致（37642 文件全量校验通过）
 - **UWP AppX 注册**：解压 AppX（zip 格式）→ 修改清单 → 开发者模式注册
 - **环境自动检测修复**：Windows 开发者模式、Gaming Services、VC++ 运行时、GameInput（首次启动自动安装包内 MSI）
 - **下载**：多线程断点续传 + MD5 校验，版本库与安装包多源回退

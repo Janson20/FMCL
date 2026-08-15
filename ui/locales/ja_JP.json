@@ -1403,6 +1403,8 @@
   "bedrock_component_msg": "GDK 版の起動には、BedrockBoot のクローズドソース認証コンポーネント XUserLauncher.Core（Xbox マルチアカウント認証注入用）が必要です。\n\nライセンス要件を守るため、FMCL はこのコンポーネントを同梱しません。同意いただければ、BedrockBoot 公式 NuGet（公開元: Round-Studio）からオンデマンドで本機にダウンロードして使用します。FMCL と共に再配布はされません。\n\nダウンロードを続行しますか？\n（キャンセルすると GDK 版を起動できません。UWP 版は影響を受けません）",
   "bedrock_component_declined": "キャンセル: 認証コンポーネントのダウンロードに同意しなかったため、GDK 版を起動できません",
   "bedrock_component_downloading": "GDK 認証コンポーネントをダウンロード中（BedrockBoot 公式 NuGet）...",
+  "bedrock_dotnet_title": ".NET 10 SDK が必要です",
+  "bedrock_dotnet_msg": "GDK 版のゲームパッケージ解凍には、ローカルでの解凍コンポーネントのビルドが必要で、.NET 10 SDK のインストールが前提となります。\n\n現在 .NET 10 SDK が検出されないため、GDK 版のダウンロード・インストールは行えません（UWP 版は影響を受けません）。\n\n「OK」をクリックすると Microsoft 公式ダウンロードページ（システムのアーキテクチャに自動対応）が開きます。インストール後に再度お試しください。",
   "bedrock_no_installed": "インストール済みの Bedrock バージョンはありません",
   "bedrock_no_available": "利用可能なバージョンがありません（ネットワーク異常の可能性）",
   "bedrock_no_match": "一致するバージョンがありません",

@@ -1403,6 +1403,8 @@
   "bedrock_component_msg": "GDK launch requires BedrockBoot's closed-source auth component XUserLauncher.Core (used for Xbox multi-account auth injection).\n\nTo comply with its license, FMCL no longer bundles this component. With your consent, it will be downloaded on demand from BedrockBoot's official NuGet source (publisher: Round-Studio) to your local machine, and will not be distributed with FMCL.\n\nProceed with the download?\n(Canceling will make GDK launches unavailable; UWP versions are unaffected)",
   "bedrock_component_declined": "Canceled: auth component download not approved, GDK launch unavailable",
   "bedrock_component_downloading": "Downloading GDK auth component (from BedrockBoot official NuGet)...",
+  "bedrock_dotnet_title": ".NET 10 SDK Required",
+  "bedrock_dotnet_msg": "Extracting GDK packages requires building an extractor locally, which needs the .NET 10 SDK installed on your system.\n\nNo .NET 10 SDK was detected. GDK versions cannot be downloaded or installed without it (UWP versions are unaffected).\n\nClick OK to open Microsoft's official download page (matched to your system architecture), then retry after installation.",
   "bedrock_no_installed": "No Bedrock versions installed",
   "bedrock_no_available": "No available versions (network issue?)",
   "bedrock_no_match": "No matching versions",

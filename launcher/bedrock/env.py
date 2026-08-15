@@ -430,8 +430,8 @@ def find_official_minecraft_dir() -> Optional[Path]:
     """查找官方版 Minecraft（商店版/Xbox 版）的安装目录
 
     解压版 exe 与官方构建哈希一致（mcappx 同源），可直接启动；历史崩溃
-    （0x4ab8027）根因是解压器对 0 字节段不推进页偏移导致数据错位（xvd.py
-    已修复）。此函数作为兜底：返回官方版游戏根目录（含 Minecraft.Windows.exe），
+    （0x4ab8027）根因是解压器对 0 字节段不推进页偏移导致数据错位（.NET
+    解压器已修复）。此函数作为兜底：返回官方版游戏根目录（含 Minecraft.Windows.exe），
     找不到返回 None。
 
     查找顺序：

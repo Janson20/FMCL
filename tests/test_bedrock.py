@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from launcher.bedrock import appx, launch, source, xvd
+from launcher.bedrock import appx, launch, source
 from launcher.bedrock.download import check_md5, download_file
 
 
@@ -212,249 +212,176 @@ def test_download_mirror_fallback(tmp_path):
         server.close()
 
 
-# ─── xvd.py：XVD 容器解析与提取 ──────────────────────────────
+# ─── dotnet.py：.NET 10 SDK 检测与下载直链 ─────────────────
+
+class _FakeSubprocessResult:
+    def __init__(self, stdout: str):
+        self.stdout = stdout
+        self.stderr = ""
 
 
-def _build_xvd_file(path: Path, files: dict):
-    """构造一个未加密、无完整性校验的 XVD 容器 fixture
+def _patch_dotnet_env(monkeypatch, stdout: str = ""):
+    """把 dotnet 检测环境替换为可控假实现"""
+    from launcher.bedrock import dotnet
 
-    files: {相对路径: bytes}；文件数据按段顺序分页存放
-    """
-    segments = []
-    raw_files = {}
-    for name, data in files.items():
-        segments.append((name, len(data)))
-        raw_files[name] = data
-
-    # SegmentMetadata.bin
-    header_length = 100
-    paths_start = header_length + len(segments) * 16
-    path_blobs = []
-    entries = []
-    for name, size in segments:
-        raw = name.encode("utf-16-le")
-        path_offset = len(b"".join(path_blobs))
-        entries.append(struct.pack("<HHIQ", 0, len(raw) // 2, path_offset, size))
-        path_blobs.append(raw)
-    file_paths_length = len(b"".join(path_blobs))
-    segment_meta = bytearray()
-    segment_meta += struct.pack("<IIIIII", 0x5345474D, 1, 1, header_length, len(segments), file_paths_length)
-    segment_meta += b"\x00" * 16  # PDUID
-    segment_meta += b"\x00" * 60  # Unknown
-    segment_meta += b"".join(entries)
-    segment_meta += b"".join(path_blobs)
-    segment_meta = bytes(segment_meta)
-
-    # 用户数据包文件：游戏文件 + SegmentMetadata.bin（真实 XVD 中段清单随包携带）
-    raw_files = {**files, "SegmentMetadata.bin": segment_meta}
-
-    # 用户数据区（PackageFiles 类型）
-    user_data = bytearray()
-    # 条目偏移相对 0x10 头末尾：绝对偏移(0x10+4+520+4+528*n+acc) - 0x10
-    entry_offset_base = 4 + 520 + 4 + 528 * len(raw_files)
-    entry_blobs = []
-    payload = bytearray()
-    for name, data in raw_files.items():
-        entry_blobs.append(
-            struct.pack("<520sII", name.encode("utf-16-le"), len(data), entry_offset_base + len(payload))
-        )
-        payload += data
-    ud_header_length = 0x10 + 4 + 520 + 4 + 528 * len(raw_files) + len(payload)
-    user_data += struct.pack("<IIII", 0x10, 1, 0, 0)  # Length=头大小, Version, Type=PackageFiles, Unknown
-    user_data += struct.pack("<I", 1)  # PackageFiles 版本
-    user_data += b"\x00" * 520  # PackageFullName
-    user_data += struct.pack("<I", len(raw_files))
-    user_data += b"".join(entry_blobs)
-    user_data += payload
-    user_data = bytes(user_data)
-    assert len(user_data) == ud_header_length
-
-    user_data_pages = (len(user_data) + 0xFFF) // 0x1000
-    xvc_pages = 1
-    # XVC 数据区
-    region_offset = 0x3000 + user_data_pages * 0x1000 + xvc_pages * 0x1000
-    # 每段文件独占页（提取器按页推进），区域长度 = 各段页数之和
-    region_length = sum((size + 0xFFF) // 0x1000 for _name, size in segments) * 0x1000
-    xvc_data = bytearray(0x1000)
-    # XvcInfo: ContentID 0x10 + KeyIds 0xC00 + Description 0x100
-    struct.pack_into("<I", xvc_data, 0xD10, 1)  # Version
-    struct.pack_into("<I", xvc_data, 0xD14, 1)  # RegionCount
-    struct.pack_into("<I", xvc_data, 0xD3C, 1)  # UpdateSegmentCount
-    struct.pack_into("<I", xvc_data, 0xD50, 0)  # RegionSpecifierCount
-    # Region 0（起始于 0xDA8）
-    struct.pack_into("<IHHII", xvc_data, 0xDA8, 1, 0xFFFF, 0, 0x10, 0)
-    struct.pack_into("<QQ", xvc_data, 0xDA8 + 0x50, region_offset, region_length)
-    # UpdateSegment（紧随 regions）
-    struct.pack_into("<IQ", xvc_data, 0xDA8 + 0x80, region_offset // 0x1000, 0)
-    xvc_data = bytes(xvc_data)
-
-    # 文件数据区（分页，仅含段文件，不含用户数据包文件）
-    page_data = bytearray()
-    for _name, data in files.items():
-        page_data += data
-        page_data += b"\x00" * (-len(page_data) % 0x1000)
-    page_data = bytes(page_data[:region_length])
-
-    header = bytearray(0x1000)
-    header[0x200:0x208] = b"MSXVD\0\0\0"
-    struct.pack_into("<I", header, 0x208, 2 | 4)  # EncryptionDisabled | DataIntegrityDisabled
-    struct.pack_into("<I", header, 0x20C, 1)  # FormatVersion
-    struct.pack_into("<Q", header, 0x218, len(page_data))  # DriveSize
-    struct.pack_into("<I", header, 0x280, 0)  # Kind = Fixed
-    struct.pack_into("<I", header, 0x28C, len(user_data))  # UserDataLength
-    struct.pack_into("<I", header, 0x290, len(xvc_data))  # XvcDataLength
-
-    with open(path, "wb") as f:
-        f.write(header)
-        f.write(b"\x00" * (0x3000 - 0x1000))
-        f.write(user_data)
-        f.write(b"\x00" * (-len(user_data) % 0x1000))
-        f.write(xvc_data)
-        f.write(page_data)
-    return path
+    monkeypatch.setattr(dotnet.shutil, "which", lambda _name: "C:\\dotnet\\dotnet.exe")
+    monkeypatch.setattr(dotnet.subprocess, "run", lambda *_a, **_k: _FakeSubprocessResult(stdout))
+    return dotnet
 
 
-def test_xvd_extract(tmp_path):
-    files = {
-        "Minecraft.Windows.exe": b"MZ" + b"\x00" * 4000,
-        "data/dir/test.txt": b"hello-bedrock",
-        "config.json": b'{"version": 1}',
-    }
-    pkg = _build_xvd_file(tmp_path / "test.insPack", files)
-    out = tmp_path / "out"
-    file_count = xvd.extract_gdk_package(pkg, out)
-    assert file_count == len(files)
-    for name, data in files.items():
-        assert (out / name).read_bytes() == data
+def test_dotnet_has_sdk10(monkeypatch):
+    """SDK 列表含 10.x 行时返回 True"""
+    dotnet = _patch_dotnet_env(monkeypatch, "10.0.102 [C:\\Program Files\\dotnet\\sdk]\n")
+    assert dotnet.has_sdk10() is True
 
 
-def test_xvd_header_offsets():
-    data = bytearray(0x1000)
-    struct.pack_into("<I", data, 0x460, 5)  # MutableDataPageCount
-    struct.pack_into("<Q", data, 0xFE4, 0x1234)  # ResilientDataOffset
-    header = xvd.XvdHeader(bytes(data))
-    assert header.mutable_data_page_count == 5
-    assert header.mutable_data_length == 0x5000
-    assert header.resilient_data_offset == 0x1234
+def test_dotnet_has_sdk10_installed(monkeypatch):
+    dotnet = _patch_dotnet_env(monkeypatch, "10.0.102 [C:\\Program Files\\dotnet\\sdk]\n9.0.100 [C:\\Program Files\\dotnet\\sdk]\n")
+    assert dotnet.has_sdk10() is True
 
 
-def test_hash_tree_pages_include_top_level():
-    """真实 mcappx GDK 包（423044 页）的哈希树含顶层页：2506 页、4 层"""
-    pages, levels = xvd.calculate_number_hash_pages(423044, False)
-    assert pages == 2506
-    assert levels == 4
-    # 小数据量：单页哈希树不加顶层
-    pages1, levels1 = xvd.calculate_number_hash_pages(100, False)
-    assert pages1 == 1
-    assert levels1 == 1
-    # resilient 双倍
-    pages2, _ = xvd.calculate_number_hash_pages(423044, True)
-    assert pages2 == 2506 * 2
+def test_dotnet_has_sdk10_missing(monkeypatch):
+    """只有旧版本 SDK 时返回 False"""
+    dotnet = _patch_dotnet_env(monkeypatch, "9.0.100 [C:\\Program Files\\dotnet\\sdk]\n")
+    assert dotnet.has_sdk10() is False
 
 
-def test_segment_metadata_with_prefix():
-    """真实包的 SegmentMetadata.bin 带 16 字节文本前缀，头部偏移 0x10，需自动回退"""
-    header_length = 100
-    segments = [("LargeLogo.png", 1843), ("Minecraft.Windows.exe", 4002)]
-    path_blobs = []
-    entries = []
-    for name, size in segments:
-        raw = name.encode("utf-16-le")
-        entries.append(struct.pack("<HHIQ", 0, len(raw) // 2, len(b"".join(path_blobs)), size))
-        path_blobs.append(raw)
-    file_paths_length = len(b"".join(path_blobs))
-    body = bytearray()
-    body += struct.pack("<IIIIII", 0x58465020, 4, 2, header_length, len(segments), file_paths_length)
-    body += b"\x11" * 16  # PDUID
-    body += b"\x00" * 60  # Unknown
-    body += b"".join(entries)
-    body += b"".join(path_blobs)
-    prefixed = b'6100.1897" } }{}' + bytes(body)  # 16 字节文本前缀（真实 mcappx 包）
-    meta = xvd.SegmentMetadata(prefixed)
-    assert meta.segment_count == 2
-    assert meta.header_length == 100
-    assert meta.paths == ["LargeLogo.png", "Minecraft.Windows.exe"]
-    assert meta.entries[0][3] == 1843
-    # 无前缀的标准包同样可解析
-    meta2 = xvd.SegmentMetadata(bytes(body))
-    assert meta2.segment_count == 2
+def test_dotnet_has_sdk10_no_dotnet(monkeypatch):
+    """系统没有 dotnet 时返回 False"""
+    from launcher.bedrock import dotnet
+
+    monkeypatch.setattr(dotnet.shutil, "which", lambda _name: None)
+    assert dotnet.has_sdk10() is False
 
 
-def test_xts_decrypt_matches_reference():
-    """自定义 XTS-AES 解密与 cryptography 标准 XTS 一致（IEEE 1619 向量）"""
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+def test_dotnet_detect_arch(monkeypatch):
+    from launcher.bedrock import dotnet
 
-    dkey = bytes.fromhex("c7d15c25f9546344549391d16857391f")
-    tkey = bytes.fromhex("c9a969fbfcbbf5f46d71250af226cf6a")
-    tweak = bytes(range(16))
-    ciphertext = bytes(range(256)) * 16
-    ref = Cipher(algorithms.AES(dkey + tkey), modes.XTS(tweak)).decryptor()
-    ref_plain = ref.update(ciphertext) + ref.finalize()
-    mine = xvd.XtsAesDecryptor(dkey, tkey).decrypt_page(bytearray(ciphertext), tweak)
-    assert bytes(mine) == ref_plain
+    monkeypatch.setenv("PROCESSOR_ARCHITECTURE", "AMD64")
+    assert dotnet.detect_arch() == "x64"
+    monkeypatch.setenv("PROCESSOR_ARCHITECTURE", "ARM64")
+    assert dotnet.detect_arch() == "arm64"
+    monkeypatch.setenv("PROCESSOR_ARCHITECTURE", "X86")
+    assert dotnet.detect_arch() == "x86"
+    monkeypatch.delenv("PROCESSOR_ARCHITECTURE")
+    assert dotnet.detect_arch() in ("x64", "arm64", "x86")
 
-    # IEEE 1619 XTS-AES-128 向量 1（全 0 密钥）：解密密文得全 0 明文
-    vec = bytes.fromhex(
-        "917cf69ebd68b2ec9b9fe9a3eadda692"
-        "cd43d2f59598ed162c4a3d7cb38e29e0"
-        "6a1f2a7b2f6d4649f7d53d1f3d5b5d0d"
-        "060faf7f5e9a88d9a05d35551f1f86ac"
+
+def test_dotnet_sdk_download_url(monkeypatch):
+    """直链按架构与最新版本拼接（官方 builds CDN）"""
+    from launcher.bedrock import dotnet
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"latest-sdk": "10.0.102"}
+
+    monkeypatch.setattr(dotnet.requests, "get", lambda *a, **k: FakeResp())
+    url = dotnet.sdk_download_url(arch="x64")
+    assert url == "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.102/dotnet-sdk-10.0.102-win-x64.exe"
+    assert "arm64" in dotnet.sdk_download_url(arch="arm64")
+
+
+def test_dotnet_sdk_download_url_error(monkeypatch):
+    """网络失败时抛出明确错误"""
+    from launcher.bedrock import dotnet
+
+    def boom(*_a, **_k):
+        raise dotnet.requests.RequestException("network down")
+
+    monkeypatch.setattr(dotnet.requests, "get", boom)
+    with pytest.raises(dotnet.DotnetError, match="下载链接"):
+        dotnet.sdk_download_url()
+
+
+# ─── extractor.py：GDK 解压（.NET 委托） ───────────────────
+
+class _FakeExtractorProc:
+    """模拟 BedrockXvdExtractor 进程：固定输出行 + 退出码"""
+
+    def __init__(self, lines, returncode=0):
+        self.stdout = iter(lines)
+        self.returncode = returncode
+        self.terminated = False
+        self.killed = False
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+
+def _patch_extractor(monkeypatch, proc: _FakeExtractorProc, exe: Path):
+    """替换 extractor 的构建与进程启动"""
+    from launcher.bedrock import extractor
+
+    monkeypatch.setattr(extractor.build_helper, "build_extractor", lambda force=False: exe)
+    monkeypatch.setattr(extractor.subprocess, "Popen", lambda *_a, **_k: proc)
+    return extractor
+
+
+def test_extractor_progress_and_count(tmp_path, monkeypatch):
+    """进度行解析与 COUNT 汇总、参数传递（game_type）"""
+    exe = tmp_path / "BedrockXvdExtractor.exe"
+    exe.write_bytes(b"MZ")
+    proc = _FakeExtractorProc(
+        ["PROGRESS:1/3:file1.bin", "PROGRESS:2/3:dir/file2.bin", "COUNT:3"],
+        returncode=0,
     )
-    plain = xvd.XtsAesDecryptor(bytes(16), bytes(16)).decrypt_page(bytearray(vec), bytes(16))
-    assert plain[:16] == bytes(16)
+    extractor = _patch_extractor(monkeypatch, proc, exe)
+    progress: list = []
 
-
-def test_cik_keys_missing_raises(monkeypatch, tmp_path):
-    """无外部密钥配置时 get_cik_key 应明确报错（密钥不再内置）"""
-    from launcher.bedrock import xvd as xvd_mod
-
-    monkeypatch.delenv(xvd_mod._CIK_FILE_ENV, raising=False)
-    xvd_mod._reset_cik_cache()
-    try:
-        with pytest.raises(xvd_mod.XvdParseError, match="CIK"):
-            xvd_mod.get_cik_key("release")
-    finally:
-        xvd_mod._reset_cik_cache()
-
-
-def test_cik_keys_from_external_file(monkeypatch, tmp_path):
-    """从外部 JSON 配置加载 CIK：release/preview 各 48 字节，DKey/TKey 均为 16 字节且非零"""
-    from launcher.bedrock import xvd as xvd_mod
-
-    fake_rel = bytes.fromhex("00112233445566778899aabbccddeeff" + "aa" * 16 + "bb" * 16)
-    fake_pre = bytes.fromhex("ffeeddccbbaa99887766554433221100" + "cc" * 16 + "dd" * 16)
-    cfg = tmp_path / "cik.json"
-    cfg.write_text(
-        json.dumps({"release": fake_rel.hex(), "preview": fake_pre.hex()}),
-        encoding="utf-8",
+    count = extractor.extract_gdk_package(
+        tmp_path / "pkg.insPack",
+        tmp_path / "out",
+        progress_cb=lambda cur, total, fname: progress.append((cur, total, fname)),
+        game_type="preview",
     )
-    monkeypatch.setenv(xvd_mod._CIK_FILE_ENV, str(cfg))
-    xvd_mod._reset_cik_cache()
-    try:
-        d_rel, t_rel = xvd_mod.get_cik_key("release")
-        d_pre, t_pre = xvd_mod.get_cik_key("preview")
-        d_beta, t_beta = xvd_mod.get_cik_key("beta")
-        for d, t in ((d_rel, t_rel), (d_pre, t_pre), (d_beta, t_beta)):
-            assert len(d) == 16 and len(t) == 16
-            assert any(d) and any(t)
-        assert d_rel != d_pre  # release 与 preview 密钥不同
-    finally:
-        xvd_mod._reset_cik_cache()
+    assert count == 3
+    assert progress == [(1, 3, "file1.bin"), (2, 3, "dir/file2.bin")]
 
 
-def test_cik_keys_invalid_config(monkeypatch, tmp_path):
-    """配置文件缺失密钥/格式非法时同样明确报错"""
-    from launcher.bedrock import xvd as xvd_mod
+def test_extractor_failure(tmp_path, monkeypatch):
+    """非零退出码时报出 stderr 错误内容"""
+    exe = tmp_path / "BedrockXvdExtractor.exe"
+    exe.write_bytes(b"MZ")
+    proc = _FakeExtractorProc(["ERROR: 解密失败，包损坏"], returncode=1)
+    extractor = _patch_extractor(monkeypatch, proc, exe)
+    with pytest.raises(extractor.ExtractorError, match="解密失败"):
+        extractor.extract_gdk_package(tmp_path / "pkg", tmp_path / "out")
 
-    bad = tmp_path / "bad.json"
-    bad.write_text(json.dumps({"release": "nothex"}), encoding="utf-8")
-    monkeypatch.setenv(xvd_mod._CIK_FILE_ENV, str(bad))
-    xvd_mod._reset_cik_cache()
-    try:
-        with pytest.raises(xvd_mod.XvdParseError, match="CIK"):
-            xvd_mod.get_cik_key("release")
-    finally:
-        xvd_mod._reset_cik_cache()
+
+def test_extractor_cancel(tmp_path, monkeypatch):
+    """stop_event 置位时终止进程并报错"""
+    import threading
+
+    exe = tmp_path / "BedrockXvdExtractor.exe"
+    exe.write_bytes(b"MZ")
+    proc = _FakeExtractorProc(["PROGRESS:1/3:a.bin", "PROGRESS:2/3:b.bin", "PROGRESS:3/3:c.bin"])
+    extractor = _patch_extractor(monkeypatch, proc, exe)
+    stop = threading.Event()
+    stop.set()
+    with pytest.raises(extractor.ExtractorError, match="取消"):
+        extractor.extract_gdk_package(tmp_path / "pkg", tmp_path / "out", stop_event=stop)
+    assert proc.terminated or proc.killed
+
+
+def test_extractor_build_failure(tmp_path, monkeypatch):
+    """构建辅助程序失败时包装为 ExtractorError"""
+    from launcher.bedrock import extractor
+
+    def boom(_force=False):
+        raise RuntimeError("需要 .NET 10 SDK")
+
+    monkeypatch.setattr(extractor.build_helper, "build_extractor", boom)
+    with pytest.raises(extractor.ExtractorError, match=".NET 10 SDK"):
+        extractor.extract_gdk_package(tmp_path / "pkg", tmp_path / "out")
 
 
 # ─── components.py：闭源认证组件按需下载 ──────────────────

@@ -197,7 +197,7 @@ def launch_gdk(
 
     # 解压版 exe 与官方构建哈希一致（mcappx 同源），可直接启动。
     # 历史崩溃（0x4ab8027）根因是解压器对 0 字节段不推进页偏移，
-    # 导致 MGE 标记文件之后的全部文件数据错位（见 xvd.py），
+    # 导致 MGE 标记文件之后的全部文件数据错位（.NET 解压器已修复），
     # 修复后解压版可稳定运行。若系统存在官方版目录仍优先使用（兜底）。
     try:
         official_dir = find_official_minecraft_dir()
