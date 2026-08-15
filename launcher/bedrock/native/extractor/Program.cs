@@ -119,10 +119,26 @@ internal static class Program
         CancellationToken token)
     {
         long fileCount = 0;
+        // 进度节流：库按页（0x1000）触发 Report，大包可达百万级回调。
+        // 若每页都写管道，Python 侧逐行解析会把解压拖垮（IPC 洪泛）。
+        // 仅在文件切换或距上次输出超过 200ms 时才写一行。
+        var throttleLock = new object();
+        var lastReportTime = DateTime.UtcNow;
+        long lastReportFile = -1;
+
         var progress = new Progress<DecompressProgress>(p =>
         {
-            fileCount = p.TotalCount;
-            Console.WriteLine($"PROGRESS:{p.CurrentCount}/{p.TotalCount}:{p.FileName}");
+            lock (throttleLock)
+            {
+                fileCount = p.TotalCount;
+                var now = DateTime.UtcNow;
+                if (p.CurrentCount != lastReportFile || (now - lastReportTime).TotalMilliseconds >= 200)
+                {
+                    lastReportFile = p.CurrentCount;
+                    lastReportTime = now;
+                    Console.WriteLine($"PROGRESS:{p.CurrentCount}/{p.TotalCount}:{p.FileName}");
+                }
+            }
         });
 
         await core.InstallPackageAsync(new LocalGamePackageOptions
