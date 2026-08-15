@@ -25,12 +25,16 @@ Unicode true
   !define FCL_EXE "FMCL.exe"
 !endif
 
-Name "${PRODUCT_NAME} ${VERSION}"
-!if "${ARCH}" == "x86"
+; 不带 .NET SDK 的 x64 精简版（CI 传入 /DNO_DOTNET_SDK，供自动更新默认下载）
+!ifdef NO_DOTNET_SDK
+  OutFile "FMCL-Setup-${VERSION}-without-dotnetsdk.exe"
+!else if "${ARCH}" == "x86"
   OutFile "FMCL-Setup-${VERSION}-x86.exe"
 !else
   OutFile "FMCL-Setup-${VERSION}.exe"
 !endif
+
+Name "${PRODUCT_NAME} ${VERSION}"
 ; 按当前用户安装到 %LOCALAPPDATA%\Programs\FMCL
 ; 安装到 Program Files 需要管理员权限，且普通用户无法在安装目录写入
 ; .minecraft / config.json 等数据，导致启动器必须以管理员身份运行
@@ -219,6 +223,8 @@ SectionEnd
 
 ; ─── .NET 10 SDK 检测（注册表 InstalledVersions，兼容 32/64 位视图）───
 ; 输出: $0 = 1 已检测到 .NET 10 SDK，0 未检测到
+; 精简版（NO_DOTNET_SDK）不内嵌 SDK，整段跳过
+!ifndef NO_DOTNET_SDK
 Function CheckDotnetSdk10
   StrCpy $0 0
   ; 64 位视图（x64 SDK 安装在此）
@@ -276,6 +282,7 @@ Section "-DotnetSdkCheck" SECDOTNET
 dotnet_done:
   SetOutPath "$INSTDIR"
 SectionEnd
+!endif
 
 Section Uninstall
   Delete "$INSTDIR\${PRODUCT_NAME}.url"

@@ -191,9 +191,19 @@ def _get_platform_asset_pattern() -> Optional[str]:
     return None
 
 
+def _is_x86_process() -> bool:
+    """当前 FMCL 进程是否为 32 位（x86 进程跑在 64 位系统时 platform.machine 会误报）"""
+    return os.environ.get("PROCESSOR_ARCHITECTURE", "").strip().lower() == "x86"
+
+
 def find_suitable_asset(assets: list) -> Optional[Dict[str, Any]]:
     """
     从 asset 列表中找到适合当前平台的安装包
+
+    选择策略（Windows）：
+    - x86 进程 → 优先 FMCL-Setup-*-x86.exe（内含 x86 运行时）
+    - x64 进程 → 默认 FMCL-Setup-*-without-dotnetsdk.exe（体积小，
+      .NET 10 SDK 缺失时 FMCL 内会引导下载）；找不到再退回普通安装包
 
     Args:
         assets: release assets 列表
@@ -202,28 +212,32 @@ def find_suitable_asset(assets: list) -> Optional[Dict[str, Any]]:
         匹配的 asset 字典，或 None
     """
     system = platform.system().lower()
-
-    candidates = []
-
-    for asset in assets:
-        name = asset.get("name", "").lower()
-
-        if system == "windows":
-            # Windows: 匹配 Setup-xxx.exe
-            if "setup" in name and name.endswith(".exe"):
-                candidates.append((10, asset))
-            elif name.endswith(".exe") and "setup" not in name:
-                candidates.append((5, asset))
-        else:
-            # macOS / Linux：自 v2.10.3 起不再提供预编译包
-            return None
-
-    if not candidates:
+    if system != "windows":
+        # macOS / Linux：自 v2.10.3 起不再提供预编译包
         return None
 
-    # 按优先级排序，返回最高优先级的
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    return candidates[0][1]
+    setup_assets = [
+        asset
+        for asset in assets
+        if "setup" in asset.get("name", "").lower() and asset.get("name", "").lower().endswith(".exe")
+    ]
+    if not setup_assets:
+        # 兜底：任何 exe 安装包
+        for asset in assets:
+            if asset.get("name", "").lower().endswith(".exe"):
+                return asset
+        return None
+
+    def _match(keyword: str) -> Optional[Dict[str, Any]]:
+        for asset in setup_assets:
+            if keyword in asset.get("name", "").lower():
+                return asset
+        return None
+
+    if _is_x86_process():
+        return _match("-x86.") or setup_assets[0]
+
+    return _match("without-dotnetsdk") or setup_assets[0]
 
 
 def _fetch_expected_sha256(tag_name: str, filename: str) -> Optional[str]:

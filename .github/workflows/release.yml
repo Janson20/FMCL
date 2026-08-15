@@ -153,6 +153,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "x64 安装包构建失败" }
           & $nsisPath "/DVERSION=$version" "/DARCH=x86" "/DFCL_EXE=FMCL-x86.exe" installer.nsi
           if ($LASTEXITCODE -ne 0) { throw "x86 安装包构建失败" }
+          & $nsisPath "/DVERSION=$version" "/DNO_DOTNET_SDK" installer.nsi
+          if ($LASTEXITCODE -ne 0) { throw "without-dotnetsdk 安装包构建失败" }
           Get-ChildItem FMCL-Setup-*.exe | Select-Object Name, Length
         shell: pwsh
 
@@ -235,6 +237,7 @@ jobs:
           echo "| Platform | File |" >> CHANGELOG.md
           echo "|----------|------|" >> CHANGELOG.md
           echo "| Windows (x64) | [FMCL-Setup-${VERSION}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-Setup-${VERSION}.exe) |" >> CHANGELOG.md
+          echo "| Windows (x64, 不含 .NET SDK) | [FMCL-Setup-${VERSION}-without-dotnetsdk.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-Setup-${VERSION}-without-dotnetsdk.exe) |" >> CHANGELOG.md
           echo "| Windows (x86) | [FMCL-Setup-${VERSION}-x86.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/FMCL-Setup-${VERSION}-x86.exe) |" >> CHANGELOG.md
           echo "" >> CHANGELOG.md
           echo "> macOS / Linux 二进制包自 v2.10.3 起不再随发布提供。Linux 用户请使用安装脚本 \`scripts/install.sh\` 进行安装。" >> CHANGELOG.md
