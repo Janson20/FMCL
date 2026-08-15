@@ -465,8 +465,43 @@ class BedrockMixin:
             self._task_queue.put(("bedrock_install_done", (version, False, str(e))))
 
     def _on_bedrock_launch(self, name: str):
+        # GDK 版需要闭源认证组件：缺失时先征得用户同意（主线程弹窗）
+        try:
+            installed = self.callbacks.get("bedrock_get_installed_versions", lambda: [])()
+            info = next((v for v in installed if v.get("name") == name), None)
+            if info and info.get("build_type") == "GDK":
+                from launcher.bedrock import components
+
+                if not components.is_ready() and not self._confirm_bedrock_components():
+                    return
+        except Exception as e:
+            logger.warning(f"基岩版认证组件检查异常（放行启动）: {e}")
         self.set_status(_("bedrock_launching").format(name=name), "loading")
         self._run_in_thread(self._launch_bedrock_worker, name)
+
+    def _confirm_bedrock_components(self) -> bool:
+        """GDK 闭源认证组件下载同意（同意后持久化，不再重复弹窗）"""
+        try:
+            from config import config
+
+            if config.bedrock_components_consented:
+                return True
+            import tkinter.messagebox
+
+            if not tkinter.messagebox.askyesno(
+                _("bedrock_component_title"),
+                _("bedrock_component_msg"),
+                parent=self,
+                icon=tkinter.messagebox.WARNING,
+            ):
+                self.set_status(_("bedrock_component_declined"), "error")
+                return False
+            config.bedrock_components_consented = True
+            config.save_config()
+            return True
+        except Exception as e:
+            logger.warning(f"基岩版组件同意确认异常（放行）: {e}")
+            return True
 
     def _launch_bedrock_worker(self, name: str):
         # 防重入：同一次启动流程中重复触发的并发线程直接跳过
@@ -479,6 +514,14 @@ class BedrockMixin:
             installed = self.callbacks.get("bedrock_get_installed_versions", lambda: [])()
             info = next((v for v in installed if v.get("name") == name), None)
             if info and info.get("build_type") == "GDK":
+                # 闭源认证组件按需下载（已由主线程征得用户同意）
+                from launcher.bedrock import components
+
+                if not components.is_ready():
+                    self._task_queue.put(("bedrock_component_status", _("bedrock_component_downloading")))
+                    components.download(
+                        status_cb=lambda text: self._task_queue.put(("bedrock_component_status", text))
+                    )
                 try:
                     from launcher.bedrock.env import is_xbox_signed_in
 
@@ -611,6 +654,10 @@ class BedrockMixin:
                 _("bedrock_msa_code_hint").format(code=code, uri=uri),
                 parent=self,
             )
+            return True
+
+        if task_type == "bedrock_component_status":
+            self.set_status(str(data), "loading")
             return True
 
         if task_type == "bedrock_msa_status":

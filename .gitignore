@@ -70,6 +70,9 @@ bedrock_msa_cache.json
 # 基岩版 GDK 解密密钥外部配置（合规要求，密钥不入库）
 bedrock_cik.json
 config/bedrock_cik.json
+
+# 基岩版 GDK 闭源认证组件（用户同意后按需下载，不入库）
+launcher/bedrock/native/assets/
 FMCL-Setup-*.exe
 FMCL-*-mac-*.dmg
 FMCL-*-linux-*.deb

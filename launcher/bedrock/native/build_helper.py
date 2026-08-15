@@ -12,22 +12,21 @@ NATIVE_DIR = Path(__file__).resolve().parent
 HELPER_DIR = NATIVE_DIR / "helper"
 OUTPUT_DIR = NATIVE_DIR / "bin" / "BedrockGdkHelper"
 HELPER_EXE = OUTPUT_DIR / "BedrockGdkHelper.exe"
-REQUIRED_ASSETS = ("XUserLauncher.Core.dll", "PreLoad.NET.dll")
+REQUIRED_ASSETS = ("XUserLauncher.Core.dll",)
 
 
 def check_assets() -> None:
-    """校验认证注入闭源组件是否就绪
+    """校验认证注入组件是否就绪
 
-    XUserHook/PreLoad 为 BedrockBoot 闭源组件，合规原因已从仓库移除，
-    需经授权方许可后方可恢复，恢复方式：将组件放入
-    launcher/bedrock/native/assets/ 目录。
+    XUserLauncher.Core 为 BedrockBoot 官方闭源组件，合规原因不再随 FMCL
+    分发，改为经用户同意后从官方 NuGet 按需下载（见 launcher/bedrock/components.py）。
+    缺失时构建方应先用 components.download() 就绪组件。
     """
     missing = [name for name in REQUIRED_ASSETS if not (NATIVE_DIR / "assets" / name).is_file()]
     if missing:
         raise RuntimeError(
-            "GDK 认证注入组件缺失（已按 BedrockBoot 开发组要求移除）："
-            + "、".join(missing)
-            + "。认证注入功能暂不可用，等待与授权方确认替代方案后恢复。"
+            "GDK 认证注入组件未下载：" + "、".join(missing) + "。"
+            "请经用户同意后调用 launcher.bedrock.components.download() 完成下载。"
         )
 
 

@@ -457,6 +457,118 @@ def test_cik_keys_invalid_config(monkeypatch, tmp_path):
         xvd_mod._reset_cik_cache()
 
 
+# ─── components.py：闭源认证组件按需下载 ──────────────────
+
+def _fake_nupkg(dll_data: bytes = b"MZfake-dll" * 16) -> bytes:
+    """构造内存中的假 nupkg（zip 格式，lib 目录下含目标 DLL）"""
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("lib/net8.0/XUserLauncher.Core.dll", dll_data)
+        zf.writestr("lib/net8.0/XUserLauncher.Core.pdb", b"pdb")
+    return buf.getvalue()
+
+
+def test_components_is_ready_missing(tmp_path, monkeypatch):
+    """组件缺失时 is_ready 为 False"""
+    from launcher.bedrock import components
+
+    monkeypatch.setattr(components, "ASSETS_DIR", tmp_path)
+    assert not components.is_ready()
+    (tmp_path / components.TARGET_FILENAME).write_bytes(b"MZ" + b"\x00" * 512)
+    assert components.is_ready()
+
+
+def test_components_latest_version(monkeypatch):
+    """版本列表解析：取最新稳定版（跳过带 -/+ 的预发布版本）"""
+    from launcher.bedrock import components
+
+    monkeypatch.setattr(
+        components, "_get",
+        lambda url: b'{"versions": ["1.0.0.1", "1.0.0.2-beta", "1.0.0.3"]}',
+    )
+    assert components._latest_version() == "1.0.0.3"
+
+
+def test_components_latest_version_no_stable(monkeypatch):
+    """无稳定版本时明确报错"""
+    from launcher.bedrock import components
+
+    monkeypatch.setattr(components, "_get", lambda url: b'{"versions": ["1.0.0.3-beta"]}')
+    with pytest.raises(components.ComponentError, match="稳定版本"):
+        components._latest_version()
+
+
+def test_components_extract_dll():
+    """nupkg 提取：取 lib 下 TFM 等级最高的 DLL，校验 PE 头"""
+    from launcher.bedrock import components
+
+    dll = b"MZ\x90\x00" * 256
+    nupkg = _fake_nupkg(dll)
+    assert components._extract_dll(nupkg) == dll
+
+
+def test_components_extract_dll_missing_entry():
+    """包内无 lib/XUserLauncher.Core.dll 时报错"""
+    from launcher.bedrock import components
+
+    import io
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("lib/net8.0/Other.dll", b"MZxxxx")
+    with pytest.raises(components.ComponentError, match="未找到"):
+        components._extract_dll(buf.getvalue())
+
+
+def test_components_extract_dll_bad_pe():
+    """提取结果不是 PE 文件时报错"""
+    from launcher.bedrock import components
+
+    with pytest.raises(components.ComponentError, match="PE"):
+        components._extract_dll(_fake_nupkg(b"not a dll content at all"))
+
+
+def test_components_download_flow(tmp_path, monkeypatch):
+    """完整下载流程：查询版本 → 下载 nupkg → 提取落盘（原子写入）"""
+    from launcher.bedrock import components
+
+    dll_data = b"MZreal-component" + b"\x00" * 256
+    nupkg = _fake_nupkg(dll_data)
+
+    def fake_get(url: str) -> bytes:
+        if url.endswith("index.json"):
+            return b'{"versions": ["1.0.0.3"]}'
+        if url.endswith("1.0.0.3.nupkg"):
+            return nupkg
+        raise AssertionError(f"未预期的 URL: {url}")
+
+    monkeypatch.setattr(components, "_get", fake_get)
+    monkeypatch.setattr(components, "ASSETS_DIR", tmp_path)
+    target = components.download()
+    assert target.read_bytes() == dll_data
+    # 已就绪后重复调用直接返回，不再请求网络
+    monkeypatch.setattr(
+        components, "_get",
+        lambda url: (_ for _ in ()).throw(AssertionError("不应再次请求网络")),
+    )
+    assert components.download() == target
+
+
+def test_components_download_network_error(monkeypatch, tmp_path):
+    """网络失败时抛出明确错误"""
+    from launcher.bedrock import components
+
+    def boom(url: str) -> bytes:
+        raise components.ComponentError("请求失败 [url]: 网络不可用")
+
+    monkeypatch.setattr(components, "_get", boom)
+    monkeypatch.setattr(components, "ASSETS_DIR", tmp_path)
+    with pytest.raises(components.ComponentError, match="网络不可用"):
+        components.download()
+
+
 def test_is_valid_msi(tmp_path):
     """MSI 有效性校验：OLE 复合文档头判定（mcappx 包错配文本应判无效）"""
     from launcher.bedrock.env import is_valid_msi
