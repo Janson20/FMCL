@@ -1,11 +1,12 @@
 """基岩版管理器：版本下载、安装、启动、卸载
 
 实现 FMCL 的基岩版（Bedrock Edition）支持，流程对齐 BedrockBoot：
-1. 版本库: mcappx.com bedrock.json（多源回退）
-2. 下载:   GDK 直链 / UWP SOAP 解析，多线程下载 + MD5 校验，镜像自动回退
-3. 安装:   GDK 解压 XVD 容器；UWP 解压 AppX + 修改清单 + 开发模式注册
-4. 启动:   GDK 运行 Minecraft.Windows.exe；UWP 注册后激活；环境自动修复
-5. 存储:   <minecraft_dir>/bedrock_versions/<名称>/，配置与 BedrockBoot 兼容
+1. 环境:   Gaming Services 缺失时 winget 自动安装（下载前）
+2. 版本库: mcappx.com bedrock.json（多源回退）
+3. 下载:   GDK 直链 / UWP SOAP 解析，多线程下载 + MD5 校验，镜像自动回退
+4. 安装:   GDK 解压 XVD 容器；UWP 解压 AppX + 修改清单 + 开发模式注册
+5. 启动:   GDK 运行 Minecraft.Windows.exe；UWP 注册后激活；环境自动修复
+6. 存储:   <minecraft_dir>/bedrock_versions/<名称>/，配置与 BedrockBoot 兼容
 """
 
 import json
@@ -200,6 +201,27 @@ class BedrockManager:
         config_file.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         (folder / BB_VERSION_FILE).write_text(str(info.get("Version", "")), encoding="utf-8")
 
+    # ─── 下载前环境检查 ─────────────────────────────────────────
+
+    def _ensure_gaming_services(self) -> None:
+        """下载前检查 Gaming Services，缺失时自动用 winget 安装（失败不阻断下载）"""
+        try:
+            if env_mod.is_gaming_services_installed():
+                return
+        except Exception as e:
+            logger.warning(f"检查 Gaming Services 失败: {e}")
+            return
+        self._notify("检测到 Gaming Services 未安装，正在自动安装...")
+        try:
+            ok, msg = env_mod.install_gaming_services(self._notify)
+        except Exception as e:
+            logger.warning(f"Gaming Services 自动安装异常: {e}")
+            return
+        if ok:
+            self._notify("Gaming Services 已安装")
+        else:
+            self._notify(f"Gaming Services 自动安装失败（可能影响启动，可稍后在微软商店手动安装）: {msg}")
+
     # ─── 安装 ─────────────────────────────────────────────────
 
     def install_version(
@@ -224,6 +246,7 @@ class BedrockManager:
             BedrockError: 任一步骤失败
         """
         ensure_windows_supported()
+        self._ensure_gaming_services()
         db = self._get_version_db(refresh=refresh_db)
         build_info = get_build_info(db, version)
         if build_info is None:

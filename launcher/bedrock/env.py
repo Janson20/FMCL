@@ -2,7 +2,7 @@
 
 对齐 BedrockLauncher.Core / BedrockBoot：
 - Windows 开发者模式（UWP 注册必需，注册表 AllowDevelopmentWithoutDevLicense）
-- Gaming Services（UWP 启动必需，缺失时打开微软商店页面）
+- Gaming Services（UWP 启动必需，缺失时优先 winget 自动安装，失败回退微软商店页面）
 - VC++ 运行时（x64 原生 + UWP VCLibs）
 - GameInput（GDK 必需，msiexec 安装包内 MSI，版本安装时自动补齐）
 - 官方 exe 兜底（解压版 exe 与官方同源；存在官方版时优先使用/校验替换）
@@ -11,14 +11,17 @@
 import os
 import subprocess
 import threading
+import time
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from logzero import logger
 
 # Gaming Services 的微软商店产品 ID（BedrockBoot 使用同一页面）
 GAMING_SERVICES_STORE_URL = "ms-windows-store://pdp/?ProductId=9MWPM2CQNLHN"
 GAMING_SERVICES_PACKAGE = "Microsoft.GamingServices"
+# winget msstore 源仅接受商店产品 ID 作为包 ID
+GAMING_SERVICES_WINGET_ID = "9MWPM2CQNLHN"
 
 VC_RUNTIME_URL = "https://aka.ms/vc14/vc_redist.x64.exe"
 
@@ -92,15 +95,81 @@ def ensure_developer_mode(notify: Optional[Callable[[str], None]] = None) -> Tup
 # ─── Gaming Services ─────────────────────────────────────────
 
 
+def _is_appx_installed(package_name: str) -> bool:
+    """检查指定 AppX 包是否已安装"""
+    proc = _run_powershell(f"Get-AppxPackage -Name '{package_name}'", timeout=30)
+    return proc.returncode == 0 and package_name.lower() in proc.stdout.lower()
+
+
 def is_gaming_services_installed() -> bool:
     """检查 Gaming Services 是否安装"""
-    proc = _run_powershell(f"Get-AppxPackage {GAMING_SERVICES_PACKAGE}", timeout=30)
-    return proc.returncode == 0 and GAMING_SERVICES_PACKAGE.lower() in proc.stdout.lower()
+    return _is_appx_installed(GAMING_SERVICES_PACKAGE)
 
 
-def install_gaming_services() -> None:
-    """打开微软商店 Gaming Services 页面引导用户安装"""
-    subprocess.Popen(["cmd", "/c", "start", "", GAMING_SERVICES_STORE_URL], shell=False)
+def _run_winget(args: List[str], timeout: int = 600) -> Tuple[int, str]:
+    """执行 winget（隐藏窗口），返回 (返回码, 输出文本)
+
+    返回码约定：winget 不可用时返回 -1，超时返回 -2，其他异常返回 -3。
+    """
+    try:
+        proc = subprocess.run(
+            ["winget.exe", *args],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except FileNotFoundError:
+        return -1, "winget 未安装（缺少 应用安装程序）"
+    except subprocess.TimeoutExpired:
+        return -2, f"winget 执行超时（{timeout} 秒）"
+    except Exception as e:
+        return -3, str(e)
+    return proc.returncode, (proc.stdout + "\n" + proc.stderr).strip()
+
+
+def install_gaming_services(
+    notify: Optional[Callable[[str], None]] = None,
+) -> Tuple[bool, str]:
+    """通过 winget（微软商店源）自动安装 Gaming Services
+
+    使用商店产品 ID（9MWPM2CQNLHN）作为 winget 包 ID；
+    安装成功后轮询 Get-AppxPackage 确认注册生效。
+
+    Returns:
+        (是否成功, 说明)；失败时返回失败原因，由调用方决定兜底策略。
+    """
+    if is_gaming_services_installed():
+        return True, "Gaming Services 已安装"
+    if notify:
+        notify("检测到 Gaming Services 未安装，正在通过 winget 自动安装...")
+    code, output = _run_winget(
+        [
+            "install",
+            "--id", GAMING_SERVICES_WINGET_ID,
+            "--source", "msstore",
+            "--accept-source-agreements",
+            "--accept-package-agreements",
+            "--silent",
+            "--disable-interactivity",
+        ],
+        timeout=600,
+    )
+    if code == 0:
+        # winget 返回成功但包可能尚未注册，轮询确认
+        for _ in range(6):
+            if is_gaming_services_installed():
+                logger.info("Gaming Services 安装成功")
+                return True, ""
+            time.sleep(2)
+        return True, "winget 安装已提交，包注册可能稍有延迟"
+    # 已安装（winget 返回 0x8A150011）视为成功
+    if is_gaming_services_installed():
+        return True, "Gaming Services 已安装"
+    detail = (output or f"winget 返回码 {code}").splitlines()[-3:]
+    logger.warning(f"winget 安装 Gaming Services 失败: {' | '.join(detail)}")
+    return False, f"winget 自动安装失败: {' | '.join(detail)[:300]}"
 
 
 # ─── VC++ 运行时 ─────────────────────────────────────────────
@@ -407,10 +476,13 @@ def repair_environment(
             if not ok:
                 return False, f"需要开发者模式: {msg}"
         if need_uwp and not report.gaming_services:
+            ok, msg = install_gaming_services(notify)
+            if not ok:
+                # 兜底：打开微软商店页面引导用户手动安装
+                subprocess.Popen(["cmd", "/c", "start", "", GAMING_SERVICES_STORE_URL], shell=False)
+                return False, f"{msg}；已打开微软商店页面，请安装 Gaming Services 后重试"
             if notify:
-                notify("检测到 Gaming Services 缺失，正在打开微软商店...")
-            install_gaming_services()
-            return False, "已打开微软商店，请安装 Gaming Services 后重试"
+                notify("Gaming Services 已安装")
         if not report.vc_uwp or not report.vc_win32:
             if notify:
                 notify("检测到 VC++ 运行时缺失，正在自动安装...")
