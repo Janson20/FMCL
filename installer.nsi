@@ -1,4 +1,4 @@
-; FMCL Windows Installer - NSIS Script
+﻿; FMCL Windows Installer - NSIS Script
 ; 使用方法: makensis /DVERSION=x.x.x installer.nsi           (x64)
 ;          makensis /DVERSION=x.x.x /DARCH=x86 installer.nsi (x86)
 
