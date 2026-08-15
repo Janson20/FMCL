@@ -11,7 +11,7 @@
 #
 # 依赖增减时需同步维护本文件与 requirements.txt / requirements-windows.txt
 
-cryptography==46.0.0
+cryptography>=46.0.6
 minecraft-forgepy>=1.0
 requests>=2.28.0
 logzero>=1.7.0
