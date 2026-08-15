@@ -421,8 +421,8 @@ def test_cik_keys_from_external_file(monkeypatch, tmp_path):
     """从外部 JSON 配置加载 CIK：release/preview 各 48 字节，DKey/TKey 均为 16 字节且非零"""
     from launcher.bedrock import xvd as xvd_mod
 
-    fake_rel = bytes.fromhex("91e7b9bd7cc93437e1a8bc602552df06" + "aa" * 16 + "bb" * 16)
-    fake_pre = bytes.fromhex("3fd6491ff58b8d1fed7edbd89477dad9" + "cc" * 16 + "dd" * 16)
+    fake_rel = bytes.fromhex("00112233445566778899aabbccddeeff" + "aa" * 16 + "bb" * 16)
+    fake_pre = bytes.fromhex("ffeeddccbbaa99887766554433221100" + "cc" * 16 + "dd" * 16)
     cfg = tmp_path / "cik.json"
     cfg.write_text(
         json.dumps({"release": fake_rel.hex(), "preview": fake_pre.hex()}),
