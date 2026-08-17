@@ -130,6 +130,15 @@ CURATED_ORIGINAL_IDS = {
     "429460239",  # 世末歌者 - 乐正绫、COP
 }
 
+# 原唱补全置顶表（规范化歌名 -> 平台原唱版本歌曲 ID）：搜索词规范化歌名
+# 命中且该 ID 不在搜索结果页内时（如搜"病名为爱（中文版）"结果页全是
+# 中文翻唱，日语原唱 病名は愛だった 不在其中），拉取原唱版本信息插入
+# 结果顶部并标原唱（CURATED_ORIGINAL_IDS 跨歌名匹配的加强版：原唱不在
+# 结果页内也置顶）；仅第一页生效，避免翻页时重复插入。
+PIN_ORIGINAL_SONGS = {
+    "病名为爱": "548648148",  # 病名は愛だった - Neru、鏡音レン、鏡音リン、z'5
+}
+
 # 徽章原唱表（规范化歌名 -> 原唱）：算法候选不可靠时，置顶结果页最热
 # 干净版本并由徽章显示真实原唱名（is_original + original_name）。
 # 适用场景:
@@ -148,6 +157,7 @@ NO_SOURCE_ORIGINALS = {
     "大碗宽面": "吴亦凡",
     "弯弯的月亮": "陈汝佳",
     "明天你是否依然爱我": "王芷蕾",
+    "冬天里的一把火": "高凌风",
 }
 
 # 同名不同曲表：多首互不相关的歌曲同名（如《蝴蝶》陶喆版与洛天依版、
@@ -167,19 +177,43 @@ NO_ORIGINAL_SONGS = {
     "babel",
 }
 
-# 特别规则：封茗囧菌、洛少爷以翻唱洛天依曲目为主，搜索结果中同时出现
-# 歌手含这些歌手的歌曲与歌手含"洛天依/洛天依Official"的同名歌曲时，
-# 只标洛天依版本为原唱置顶——有"洛天依Official"只标 Official 版本，
-# 否则标歌手里含"洛天依"且发表最早的一个（见 _mark_original 规则 17）。
-_COVER_ARTISTS = {"封茗囧菌", "洛少爷"}  # 以翻唱为主的歌手（规范化后）
-_LUOTIANYI_ARTISTS = {"洛天依", "洛天依official"}  # 洛天依（规范化后，含 Official 后缀）
+# 特别规则：封茗囧菌、洛少爷、双笙（陈元汐）以翻唱虚拟歌手曲目为主，
+# 搜索结果中同时出现歌手含这些歌手的歌曲与歌手含虚拟歌手的同名歌曲时，
+# 只标虚拟歌手版本为原唱置顶——有"洛天依Official"只标全部 Official 版本，
+# 否则标歌手里含虚拟歌手且发表最早的一个（见 _mark_original 规则 17）。
+_COVER_ARTISTS = {"封茗囧菌", "洛少爷", "双笙（陈元汐）"}  # 以翻唱为主的歌手（规范化后）
+# 虚拟歌手（规范化后）：规则 17 的"原唱方"，如《普通disco》原唱为
+# 洛天依、言和，搜索出现翻唱歌手版本时只标虚拟歌手版本为原唱。
+_VOCAL_SYNTH_BASES = {
+    "洛天依",
+    "言和",
+    "乐正绫",
+    "乐正龙牙",
+    "徵羽摩柯",
+    "墨清弦",
+    "星尘",
+    "海伊",
+    "诗岸",
+    "苍穹",
+    "赤羽",
+    "星尘minus",
+    "牧心",
+    "艾可",
+    "心华",
+    "初音未来",
+}
+# 虚拟歌手中仅洛天依有官方账号（洛天依Official）
+_VOCAL_SYNTH_OFFICIALS = {"洛天依official"}
+_VOCAL_SYNTH_ARTISTS = _VOCAL_SYNTH_BASES | _VOCAL_SYNTH_OFFICIALS
 
-# 规则 17 排除表（规范化歌名）：洛天依并非原唱的歌曲（如《世末歌者》
-# 原唱为乐正绫，洛天依Official 版是官方翻唱），结果中同时出现
-# 封茗囧菌/洛少爷翻唱与洛天依版本时，禁止规则 17 把洛天依版置顶。
+# 规则 17 排除表（规范化歌名）：结果中出现的虚拟歌手版本并非原唱的歌曲
+# （如《世末歌者》原唱为乐正绫，洛天依Official 版是官方翻唱；《芒种》
+# 同名不同曲，2016 年乐正绫版与 2019 年音阙诗听版互不相干，规则 17
+# 会误把乐正绫版当洛少爷翻唱的原唱），结果中同时出现翻唱歌手版本与
+# 虚拟歌手版本时，禁止规则 17 把虚拟歌手版置顶。
 # 正常场景由 CURATED_ORIGINAL_IDS 标乐正绫原版，此表兜底防止原版
 # 不在结果页时误判。
-_COVER_RULE_EXCLUDED_SONGS = {"世末歌者"}
+_COVER_RULE_EXCLUDED_SONGS = {"世末歌者", "芒种"}
 
 # ── 百度百科原唱兜底 ─────────────────────────────────
 #
@@ -446,6 +480,8 @@ class NetEaseMusicSource(BaseMusicSource):
         # 进行中的查询：规范化歌名 -> 等待回填的结果列表（同歌多页并发去重）
         self._baike_pending: dict = {}
         self._baike_lock = threading.Lock()
+        # 原唱补全置顶缓存：歌曲 ID -> 原始歌曲响应列表（避免重复请求）
+        self._pin_original_cache: dict = {}
 
     # ── 搜索 ────────────────────────────────────────
 
@@ -469,7 +505,7 @@ class NetEaseMusicSource(BaseMusicSource):
             self.set_search_total((resp.get("data") or {}).get("totalCount"))
             results = self._parse_search_result(raw_list)
             try:
-                self._mark_original(results, keyword)
+                self._mark_original(results, keyword, page)
             except Exception as e:
                 logger.warning(f"网易标记原唱失败: {e}")
             # 算法无原唱候选时，异步触发百度百科兜底（不阻塞搜索返回）
@@ -565,7 +601,7 @@ class NetEaseMusicSource(BaseMusicSource):
 
     # ── 原唱识别与置顶 ──────────────────────────────
 
-    def _mark_original(self, results: List[MusicInfo], keyword: str) -> None:
+    def _mark_original(self, results: List[MusicInfo], keyword: str, page: int = 1) -> None:
         """在搜索结果中识别原唱并置顶
 
         规则:
@@ -603,11 +639,16 @@ class NetEaseMusicSource(BaseMusicSource):
             15. 搜索词精确命中某组（含版本词括号，如 彼岸花（诗岸&ナツメイツキ））
                 时只允许该组产生候选，避免模糊匹配的同名不同曲抢位
             16. 仅将原唱前移置顶并打上原唱标签，其余结果保持热度排序不变
-            17. 翻唱歌手规则：结果中同时出现歌手含"封茗囧菌/洛少爷"的歌曲与
-                歌手含"洛天依/洛天依Official"的同名歌曲时，只标洛天依版本：
-                有"洛天依Official"只标全部 Official 版本，否则标歌手里含
-                "洛天依"且发表最早的一个（两首须为不同歌曲，歌手集合互斥
-                防合唱误判）
+            17. 翻唱歌手规则：结果中同时出现歌手含"封茗囧菌/洛少爷/双笙（陈元汐）"
+                的歌曲与歌手含虚拟歌手（洛天依/言和/乐正绫等，见
+                _VOCAL_SYNTH_ARTISTS）的同名歌曲时，翻唱歌手从原唱候选
+                剔除，只标虚拟歌手版本：有"洛天依Official"（仅洛天依有
+                官方账号）只标全部 Official 版本，否则标歌手里含虚拟歌手
+                且发表最早的一个（两首须为不同歌曲，歌手集合互斥防合唱误判）
+            18. 原唱补全置顶（PIN_ORIGINAL_SONGS）：搜索词规范化歌名命中且
+                原唱版本不在结果页内时（如搜"病名为爱（中文版）"结果页
+                全是中文翻唱），拉取原唱版本插入结果顶部并标原唱；
+                仅第一页生效，避免翻页重复插入
         """
         if len(results) < 1:
             return
@@ -624,6 +665,17 @@ class NetEaseMusicSource(BaseMusicSource):
                 info.is_original = True
             results[:] = matched + [info for info in results if info.songmid not in CURATED_ORIGINAL_IDS]
             return
+        # 原唱补全置顶：搜索词规范化歌名命中补全表且原唱版本不在结果页时
+        # （如搜"病名为爱（中文版）"结果页全是中文翻唱），拉取原唱版本
+        # 插入结果顶部并标原唱；仅第一页生效，避免翻页时重复插入
+        if page <= 1:
+            pin_id = PIN_ORIGINAL_SONGS.get(self._group_key(kw))
+            if pin_id and not any(i.songmid == pin_id for i in results):
+                pinned = self._fetch_pin_original(pin_id)
+                if pinned is not None:
+                    pinned.is_original = True
+                    results.insert(0, pinned)
+                    return
         # 歌手搜索场景（搜索词是歌手名且歌名命中不足 2 条），不标记原唱；
         # 歌名命中较多时是歌曲搜索（如《非人哉》歌名与乐队同名），继续标记
         singer_hits = sum(kw in self._singer_artists(info) for info in results)
@@ -650,25 +702,28 @@ class NetEaseMusicSource(BaseMusicSource):
             results.insert(0, badge_target)
             return
 
-        # 17. 特别规则：封茗囧菌/洛少爷翻唱 -> 洛天依版为原唱。
-        # 结果中同时存在歌手含"封茗囧菌/洛少爷"的歌曲（翻唱）与歌手含
-        # "洛天依/洛天依Official"的同名歌曲（原唱）时，只标洛天依版本：
+        # 17. 特别规则：翻唱歌手（封茗囧菌/洛少爷/双笙（陈元汐））翻唱
+        # 虚拟歌手曲目 -> 虚拟歌手版为原唱。
+        # 结果中同时存在歌手含翻唱歌手的歌曲（翻唱）与歌手含虚拟歌手
+        # （洛天依/言和/乐正绫等，见 _VOCAL_SYNTH_ARTISTS）的同名歌曲时，
+        # 翻唱歌手从原唱候选剔除，只标虚拟歌手版本：
         #   1. 存在歌手含"洛天依Official"的版本 -> 只标全部 Official 版本
-        #   2. 否则 -> 只标歌手里含"洛天依"（非 Official）且发表最早的一个
+        #   2. 否则 -> 只标歌手里含虚拟歌手（非 Official）且发表最早的一个
         # 两首须为不同歌曲：各自歌手集合互斥，避免合唱被同时计入。
         artist_sets = [(info, self._singer_artists(info)) for info in results]
         original_hits = [
             info
             for info, artists in artist_sets
-            if (artists & _LUOTIANYI_ARTISTS) and not (artists & _COVER_ARTISTS)
+            if (artists & _VOCAL_SYNTH_ARTISTS) and not (artists & _COVER_ARTISTS)
         ]
         cover_hits = [
             info
             for info, artists in artist_sets
-            if (artists & _COVER_ARTISTS) and not (artists & _LUOTIANYI_ARTISTS)
+            if (artists & _COVER_ARTISTS) and not (artists & _VOCAL_SYNTH_ARTISTS)
         ]
         if original_hits and cover_hits:
-            # 排除表命中（如《世末歌者》原唱是乐正绫而非洛天依）时，规则 17 不适用
+            # 排除表命中（如《世末歌者》原唱是乐正绫，洛天依Official 版是
+            # 官方翻唱而非原唱）时，规则 17 不适用
             if any(self._group_key(i.name) in _COVER_RULE_EXCLUDED_SONGS for i in original_hits):
                 original_hits = []
         if original_hits and cover_hits:
@@ -677,12 +732,14 @@ class NetEaseMusicSource(BaseMusicSource):
             }
             original_hits = [i for i in original_hits if self._group_key(i.name) in shared_keys]
             if original_hits:
-                official_hits = [i for i in original_hits if "洛天依official" in self._singer_artists(i)]
+                official_hits = [
+                    i for i in original_hits if self._singer_artists(i) & _VOCAL_SYNTH_OFFICIALS
+                ]
                 if official_hits:
                     # 有 Official 版本：只标全部 Official 版本
                     matched = official_hits
                 else:
-                    # 无 Official 版本：标歌手里含洛天依且发表最早的一个
+                    # 无 Official 版本：标歌手里含虚拟歌手且发表最早的一个
                     # （发布日期无效/缺失时按结果热度序取第一个）
                     timed = [i for i in original_hits if self._is_valid_date(i.publish_time)]
                     if timed:
@@ -777,6 +834,32 @@ class NetEaseMusicSource(BaseMusicSource):
         original.is_original = True
         results.remove(original)
         results.insert(0, original)
+
+    # ── 原唱补全置顶（原唱不在结果页时拉取插入） ──────
+
+    def _fetch_pin_original(self, song_id: str) -> Optional[MusicInfo]:
+        """拉取补全置顶的原唱版本信息（实例级缓存原始响应，每次搜索重新解析为新对象）
+
+        请求失败（网络/接口异常或歌曲下架）返回 None，调用方保持原结果不动。
+        """
+        cached = self._pin_original_cache.get(song_id)
+        if cached is None:
+            try:
+                resp = self._eapi_post(
+                    "/api/v3/song/detail", {"c": json.dumps([{"id": int(song_id)}])}
+                )
+                songs = resp.get("songs") or []
+                if not songs:
+                    return None
+                self._pin_original_cache[song_id] = songs
+                if len(self._pin_original_cache) > 50:
+                    self._pin_original_cache.pop(next(iter(self._pin_original_cache)))
+                cached = songs
+            except Exception as e:
+                logger.debug(f"网易拉取补全原唱失败 [{song_id}]: {e}")
+                return None
+        parsed = self._parse_song_detail_songs(cached)
+        return parsed[0] if parsed else None
 
     # ── 百度百科原唱兜底（异步） ─────────────────────
 
