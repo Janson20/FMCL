@@ -2688,6 +2688,53 @@ class MusicPlayerMixin(object):
 
     # ═══════════════ 歌单管理 ─────────────────────
 
+    # ── 弹出菜单关闭逻辑 ─────────────────────────────
+    #
+    # Windows 下 overrideredirect 窗口的 focus_force() 并不可靠：焦点请求
+    # 可能失败并立刻补发 <FocusOut>，若菜单绑定 <FocusOut> 销毁自身，就会
+    # 出现"菜单一闪而过"。因此弹出菜单不再依赖 <FocusOut>，改为：
+    #   - 主窗口任意位置按下鼠标左/右键时关闭当前菜单
+    #   - 菜单获得焦点时按 Escape 关闭
+    #   - 超时（5 秒）自动关闭
+
+    def _music_init_popup_menu_dismiss(self):
+        """主窗口只绑定一次：点击任意位置时关闭正在弹出的菜单（不覆盖现有绑定）"""
+        if getattr(self, "_music_popup_menu_dismiss_bound", False):
+            return
+        self._music_popup_menu_dismiss_bound = True
+        self._music_popup_menu = None
+        self.bind("<Button-1>", self._music_close_open_popup_menu, add="+")
+        self.bind("<Button-3>", self._music_close_open_popup_menu, add="+")
+
+    def _music_close_open_popup_menu(self, _event=None):
+        """关闭当前弹出的菜单（若存在）"""
+        menu = getattr(self, "_music_popup_menu", None)
+        if menu is None:
+            return False
+        self._music_popup_menu = None
+        try:
+            menu.destroy()
+        except Exception:
+            pass
+        return True
+
+    def _music_open_popup_menu(self, menu):
+        """登记弹出菜单并绑定关闭方式
+
+        菜单是独立 Toplevel，其自身的点击事件不会冒泡到主窗口绑定；
+        主窗口的点击（左键/右键）会触发 _music_close_open_popup_menu。
+        """
+        self._music_init_popup_menu_dismiss()
+        self._music_close_open_popup_menu()  # 先关闭可能残留的菜单
+        # 延迟登记：打开菜单的那次鼠标事件仍在派发中，不能让它立刻关闭自己
+        self.after(1, lambda: setattr(self, "_music_popup_menu", menu))
+
+        def _close_menu(e=None):
+            self._music_close_open_popup_menu()
+
+        menu.bind("<Escape>", _close_menu)
+        menu.after(5000, _close_menu)
+
     def _rebuild_playlist_sidebar(self):
         """重建左侧歌单侧边栏"""
         if not hasattr(self, "_music_playlist_sidebar"):
@@ -2877,15 +2924,7 @@ class MusicPlayerMixin(object):
                 except Exception:
                     pass
 
-        def _close_menu(e=None):
-            try:
-                menu.destroy()
-            except Exception:
-                pass
-
-        menu.bind("<FocusOut>", _close_menu)
-        menu.bind("<Escape>", _close_menu)
-        menu.after(5000, _close_menu)
+        self._music_open_popup_menu(menu)
 
     def _music_create_playlist_dialog(self):
         """弹出新建歌单对话框"""
@@ -3195,15 +3234,15 @@ class MusicPlayerMixin(object):
             "height": 26,
         }
 
+        # 构造歌单项（本地歌单检查与添加共用同一去重规则）
+        if is_online:
+            song = PlaylistSong.from_online_info(song_info)
+        else:
+            song = PlaylistSong.from_local_file(song_info, self._get_metadata(song_info))
+
         for pl in playlists:
-            # 检查是否已存在
-            if is_online:
-                exists = mgr.is_song_in_any_playlist(
-                    online_source=song_info.source if is_online else "",
-                    online_songmid=song_info.songmid if is_online else "",
-                )
-            else:
-                exists = mgr.is_song_in_any_playlist(file_path=song_info if not is_online else "")
+            # 逐歌单检查是否已存在（不是"任意歌单已存在"，否则一个歌单加了会全部显示已加）
+            exists = mgr.is_song_in_playlist(pl.id, song)
 
             display_text = pl.name
             if exists:
@@ -3228,15 +3267,7 @@ class MusicPlayerMixin(object):
         except Exception:
             pass
 
-        def _close_menu(e=None):
-            try:
-                menu.destroy()
-            except Exception:
-                pass
-
-        menu.bind("<FocusOut>", _close_menu)
-        menu.bind("<Escape>", _close_menu)
-        menu.after(5000, _close_menu)
+        self._music_open_popup_menu(menu)
 
     def _music_add_song_to_playlist(self, playlist_id: str, song_info, is_online: bool = False):
         """将歌曲添加到指定歌单"""

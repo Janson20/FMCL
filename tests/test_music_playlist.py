@@ -304,6 +304,29 @@ class TestPlaylistManager:
         assert mgr.is_song_in_any_playlist(file_path="/a.mp3") is True
         assert mgr.is_song_in_any_playlist(file_path="/b.mp3") is False
 
+    def test_is_song_in_playlist_only_in_target_playlist(self):
+        """歌曲只存在于歌单A时，只有歌单A应返回 True，歌单B应返回 False"""
+        mgr = PlaylistManager()
+        pl_a = mgr.create_playlist("A")
+        pl_b = mgr.create_playlist("B")
+        song = PlaylistSong(source_type="local", file_path="/a.mp3", display_title="A")
+        mgr.add_song(pl_a.id, song)
+        assert mgr.is_song_in_playlist(pl_a.id, song) is True
+        assert mgr.is_song_in_playlist(pl_b.id, song) is False
+
+    def test_is_song_in_playlist_online(self):
+        mgr = PlaylistManager()
+        pl_a = mgr.create_playlist("A")
+        pl_b = mgr.create_playlist("B")
+        song = PlaylistSong(source_type="online", online_source="kw", online_songmid="mid1", display_title="A")
+        mgr.add_song(pl_a.id, song)
+        assert mgr.is_song_in_playlist(pl_a.id, song) is True
+        assert mgr.is_song_in_playlist(pl_b.id, song) is False
+
+    def test_is_song_in_playlist_unknown_playlist(self):
+        mgr = PlaylistManager()
+        assert mgr.is_song_in_playlist("nonexistent", PlaylistSong(source_type="local", file_path="/a.mp3")) is False
+
     def test_get_playlist_names_for_song(self):
         mgr = PlaylistManager()
         pl1 = mgr.create_playlist("Playlist1")

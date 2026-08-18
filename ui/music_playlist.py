@@ -418,6 +418,20 @@ class PlaylistManager:
         self.mark_dirty()
         return True
 
+    def is_song_in_playlist(self, playlist_id: str, song: "PlaylistSong") -> bool:
+        """判断歌曲是否已在指定歌单中（与 add_song 去重逻辑一致）"""
+        pl = self.get_playlist(playlist_id)
+        if pl is None:
+            return False
+        for existing in pl.songs:
+            if song.source_type == "local" and existing.source_type == "local":
+                if os.path.normpath(existing.file_path) == os.path.normpath(song.file_path):
+                    return True
+            elif song.source_type == "online" and existing.source_type == "online":
+                if existing.online_source == song.online_source and existing.online_songmid == song.online_songmid:
+                    return True
+        return False
+
     def is_song_in_any_playlist(self, file_path: str = "", online_source: str = "", online_songmid: str = "") -> bool:
         """检查歌曲是否已在某个歌单中（用于 UI 显示"已收藏"状态）"""
         for pl in self._playlists:
