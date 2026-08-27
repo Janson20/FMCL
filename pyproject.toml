@@ -31,6 +31,12 @@ dependencies = [
     "sentencepiece>=0.1.99",
     "onnxruntime>=1.20; sys_platform != 'win32'",
     "onnxruntime-directml>=1.20; sys_platform == 'win32'",
+    "urllib3>=2.0.0",
+    "pyautogui>=0.9.54",
+    "pydub>=0.25.1",
+    "scipy>=1.11.0",
+    "pyperclip>=1.8.2",
+    "pypinyin>=0.51.0",
 ]
 
 [dependency-groups]

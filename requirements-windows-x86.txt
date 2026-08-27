@@ -35,4 +35,11 @@ pillow>=10.0.0
 qrcode>=8.0
 sounddevice>=0.4.6
 numpy==1.26.4
+# scipy：仅提供 win_amd64 轮子，不安装（音效引擎自动降级，效果链失效）
+tomli>=2.0.0; python_version < '3.11'
+urllib3>=2.0.0
+pyautogui>=0.9.54
+pydub>=0.25.1
+pyperclip>=1.8.2
+pypinyin>=0.51.0
 winsdk>=1.0.0b10

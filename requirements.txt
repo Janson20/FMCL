@@ -22,4 +22,11 @@ qrcode>=8.0
 sounddevice>=0.4.6
 numpy>=1.24.0
 sentencepiece>=0.1.99
+tomli>=2.0.0; python_version < '3.11'
+urllib3>=2.0.0
+pyautogui>=0.9.54
+pydub>=0.25.1
+scipy>=1.11.0
+pyperclip>=1.8.2
+pypinyin>=0.51.0
 
