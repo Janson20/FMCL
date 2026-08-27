@@ -780,6 +780,7 @@
   "online_leaving_lobby": "正在退出大廳...",
   "online_left_lobby": "已退出大廳",
   "online_setting_up_forward": "正在設定埠號轉發...",
+  "online_discovering_host": "正在尋找房主 (第 {attempt} 次)...",
   "online_forward_ready": "埠號轉發已就緒 (本地埠號: {port})",
   "online_forward_failed": "埠號轉發失敗",
   "online_forward_failed_detail": "埠號轉發失敗: {error}",

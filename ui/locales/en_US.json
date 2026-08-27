@@ -780,6 +780,7 @@
   "online_leaving_lobby": "Leaving lobby...",
   "online_left_lobby": "Left lobby",
   "online_setting_up_forward": "Setting up port forwarding...",
+  "online_discovering_host": "Searching for host (attempt {attempt})...",
   "online_forward_ready": "Port forwarding ready (local port: {port})",
   "online_forward_failed": "Port forwarding failed",
   "online_forward_failed_detail": "Port forwarding failed: {error}",

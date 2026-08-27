@@ -28,12 +28,16 @@ from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
 from ui.dialogs import show_notification
 from ui.i18n import _
 
-EASYTIER_VERSION = "2.5.0"
-EASYTIER_BASE_URL = "https://easytier.jingdu.qzz.io/download/v{version}/easytier-windows-x86_64-v{version}.zip"
-EASYTIER_DOWNLOAD_MIRRORS = [
+# 官方版 EasyTier（与 PCL CE 同款 2.6.4），协议与陶瓦生态定制版（v2.5.0-terracotta.2，仅可见性改动）互通。
+# 下载时会对全部镜像做测速（range 探活），选择最快可达的镜像下载。
+EASYTIER_VERSION = "2.6.4"
+EASYTIER_DOWNLOAD_URLS = [
     "https://staticassets.naids.com/resources/pclce/static/easytier/easytier-windows-x86_64-v{version}.zip",
     "https://s3.pysio.online/pcl2-ce/static/easytier/easytier-windows-x86_64-v{version}.zip",
+    "https://easytier.jingdu.qzz.io/download/v{version}/easytier-windows-x86_64-v{version}.zip",
+    "https://github.com/EasyTier/EasyTier/releases/download/v{version}/easytier-windows-x86_64-v{version}.zip",
 ]
+_EASYTIER_SPEED_TEST_TIMEOUT = 6.0
 
 HOST_VIRTUAL_IP = "10.114.51.41"
 MC_MULTICAST_GROUP = ("224.0.2.60", 4445)
@@ -219,7 +223,9 @@ class LobbyCodeGenerator:
 
 
 class ScaffoldingServer:
-    """轻量级 Scaffolding 信令服务器，响应 PCL-CE 客户端请求"""
+    """轻量级 Scaffolding 信令服务器，兼容 PCL-CE / Terracotta(HMCL) 客户端"""
+
+    _SUPPORTED_PROTOCOLS = ("c:ping", "c:protocols", "c:server_port", "c:player_ping", "c:player_profiles_list")
 
     _PLAYER_TIMEOUT = 10.0
     _CLEANUP_INTERVAL = 5.0
@@ -392,12 +398,13 @@ class ScaffoldingServer:
             elif type_str == "c:server_port":
                 return self._handle_server_port()
             elif type_str == "c:protocols":
-                return 0, b""
+                protocols = "\0".join(self._SUPPORTED_PROTOCOLS).encode("ascii")
+                return 0, protocols
             elif type_str == "c:ping":
-                return 0, b""
+                return 0, bytes(body)
             else:
                 logger.debug(f"Unknown Scaffolding request: {type_str}")
-                return 0, b""
+                return 255, b"Requested protocol hasn't been implemented."
         except Exception as e:
             logger.debug(f"Scaffolding handler error ({type_str}): {e}")
             return 1, b""
@@ -405,26 +412,33 @@ class ScaffoldingServer:
     def _handle_player_ping(self, body: bytes) -> tuple:
         try:
             info = json.loads(body)
-            if info and isinstance(info, dict):
-                mid = info.get("machine_id", "")
-                if mid and mid != self._host_mid:
-                    mid_existed = False
-                    with self._guests_lock:
-                        mid_existed = mid in self._guests
-                        now = time.monotonic()
-                        guest_info = {
-                            "name": info.get("name", "Unknown"),
-                            "machine_id": mid,
-                            "vendor": info.get("vendor", "unknown"),
-                            "kind": "GUEST",
-                            "last_seen": now,
-                        }
-                        self._guests[mid] = guest_info
-                    if not mid_existed:
-                        logger.info("ScaffoldingServer: new player '%s' connected", info.get("name", "?"))
-                        self._notify_profiles_changed()
+            if not info or not isinstance(info, dict):
+                return 32, b""
+            name = info.get("name")
+            mid = info.get("machine_id")
+            vendor = info.get("vendor")
+            if not name or not mid or not vendor:
+                return 32, b""
+            if mid == self._host_mid:
+                logger.warning("ScaffoldingServer: guest machine_id conflicts with host, rejected")
+                return 32, b""
+            mid_existed = False
+            with self._guests_lock:
+                mid_existed = mid in self._guests
+                now = time.monotonic()
+                guest_info = {
+                    "name": name,
+                    "machine_id": mid,
+                    "vendor": vendor,
+                    "kind": "GUEST",
+                    "last_seen": now,
+                }
+                self._guests[mid] = guest_info
+            if not mid_existed:
+                logger.info("ScaffoldingServer: new player '%s' connected", name)
+                self._notify_profiles_changed()
         except Exception:
-            pass
+            return 32, b""
         return 0, b""
 
     def _handle_player_profiles_list(self) -> tuple:
@@ -484,6 +498,9 @@ class ScaffoldingClient:
             self._consecutive_failures = 0
             logger.info(f"ScaffoldingClient connected to {self._host}:{self._port}")
 
+            if not self._verify_server():
+                raise ConnectionError("Server did not pass Scaffolding handshake (c:ping fingerprint)")
+
             self._send_ping()
 
             self._heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
@@ -492,7 +509,23 @@ class ScaffoldingClient:
             return True
         except Exception as e:
             logger.error(f"ScaffoldingClient connect failed: {e}")
+            self._running = False
             self._close_socket()
+            return False
+
+    def _verify_server(self) -> bool:
+        fingerprint = secrets.token_bytes(16)
+        try:
+            status, body = self._send_request("c:ping", fingerprint)
+            if status != 0 or body != fingerprint:
+                logger.warning(
+                    f"ScaffoldingClient: server fingerprint mismatch "
+                    f"(status={status}, body_len={len(body)})"
+                )
+                return False
+            return True
+        except Exception as e:
+            logger.warning(f"ScaffoldingClient: server verification failed: {e}")
             return False
 
     def disconnect(self):
@@ -510,13 +543,18 @@ class ScaffoldingClient:
         self.on_heartbeat = None
         logger.info("ScaffoldingClient disconnected")
 
-    def get_server_port(self) -> Optional[int]:
-        try:
-            _, body = self._send_request("c:server_port", None)
-            if body and len(body) >= 2:
-                return struct.unpack(">H", body[:2])[0]
-        except Exception as e:
-            logger.warning(f"ScaffoldingClient get_server_port failed: {e}")
+    def get_server_port(self, retries: int = 3, delay: float = 2.0) -> Optional[int]:
+        for attempt in range(retries):
+            try:
+                status, body = self._send_request("c:server_port", None)
+                if status != 0:
+                    logger.warning(f"ScaffoldingClient c:server_port returned status {status}")
+                elif body and len(body) >= 2:
+                    return struct.unpack(">H", body[:2])[0]
+            except Exception as e:
+                logger.warning(f"ScaffoldingClient get_server_port failed: {e}")
+            if attempt < retries - 1:
+                time.sleep(delay)
         return None
 
     def _send_ping(self):
@@ -575,7 +613,7 @@ class ScaffoldingClient:
                     break
                 time.sleep(1)
 
-    def _send_request(self, type_str: str, body_dict: Optional[dict]) -> Tuple[int, bytes]:
+    def _send_request(self, type_str: str, body: Any) -> Tuple[int, bytes]:
         if not self._sock or not self._running:
             raise ConnectionError("Not connected")
 
@@ -583,10 +621,16 @@ class ScaffoldingClient:
         if len(type_bytes) > 255:
             raise ValueError("Request type too long")
 
-        if body_dict is not None:
-            body_bytes = json.dumps(body_dict, ensure_ascii=False).encode("utf-8")
-        else:
+        if isinstance(body, dict):
+            body_bytes = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        elif body is None:
             body_bytes = b""
+        elif isinstance(body, bytes):
+            body_bytes = body
+        elif isinstance(body, (bytearray, memoryview)):
+            body_bytes = bytes(body)
+        else:
+            raise TypeError(f"Unsupported request body type: {type(body)}")
 
         header = struct.pack(">B", len(type_bytes)) + type_bytes + struct.pack(">I", len(body_bytes))
         frame = header + body_bytes
@@ -633,6 +677,29 @@ class EasyTierManager:
         self._reader_thread: Optional[threading.Thread] = None
         self._running = False
         self._scf_server: Optional[ScaffoldingServer] = None
+        self._relay_nodes_lock = threading.Lock()
+        self._relay_nodes_cache: Optional[List[str]] = None
+        self._relay_prefetch_started = False
+
+    def _ensure_relay_prefetch(self):
+        if self._relay_nodes_cache is None:
+            with self._relay_nodes_lock:
+                if self._relay_prefetch_started:
+                    return
+                self._relay_prefetch_started = True
+            threading.Thread(target=self._prefetch_relay_nodes, daemon=True).start()
+
+    def _prefetch_relay_nodes(self):
+        dynamic = self._fetch_dynamic_nodes()
+        with self._relay_nodes_lock:
+            self._relay_nodes_cache = dynamic
+        if not dynamic:
+            logger.warning(
+                "EasyTier public relay nodes are currently unavailable; "
+                "cross-network connections may fail until nodes recover"
+            )
+        else:
+            logger.info(f"Relay node prefetch completed with {len(dynamic)} dynamic nodes")
 
     @property
     def is_installed(self) -> bool:
@@ -660,18 +727,56 @@ class EasyTierManager:
             return 1
         return 0
 
+    @staticmethod
+    def _speed_test_download_urls(urls: List[str], ua: str) -> List[str]:
+        """并发对各镜像发起 Range 探活+测速，按首块到达耗时升序返回可用镜像；
+        全部不可用时原序返回（交由 download 逐个重试并报错）。"""
+        results: Dict[int, Tuple[Optional[float], str]] = {}
+        lock = threading.Lock()
+
+        def probe(index: int, url: str):
+            try:
+                start = time.monotonic()
+                req = urllib.request.Request(url, headers={"User-Agent": ua, "Range": "bytes=0-2047"})
+                with urllib.request.urlopen(req, timeout=_EASYTIER_SPEED_TEST_TIMEOUT) as resp:
+                    resp.read(2048)
+                elapsed = time.monotonic() - start
+                with lock:
+                    results[index] = (elapsed, url)
+            except Exception as e:
+                logger.debug(f"Speed test failed for {url}: {e}")
+                with lock:
+                    results[index] = (None, url)
+
+        threads = [
+            threading.Thread(target=probe, args=(i, url), daemon=True) for i, url in enumerate(urls)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=_EASYTIER_SPEED_TEST_TIMEOUT + 3)
+
+        alive = [(elapsed, url) for elapsed, url in results.values() if elapsed is not None]
+        if not alive:
+            logger.warning("No EasyTier download mirror responded to speed test; trying in order")
+            return list(urls)
+        alive.sort(key=lambda item: item[0])
+        logger.info("EasyTier mirror speed ranking: " + "; ".join(f"{url} ({elapsed:.2f}s)" for elapsed, url in alive))
+        return [url for _, url in alive]
+
     def download(self, on_progress=None) -> bool:
         self._base_dir.mkdir(parents=True, exist_ok=True)
         version = EASYTIER_VERSION
-        urls = [EASYTIER_BASE_URL.format(version=version)] + [
-            m.format(version=version) for m in EASYTIER_DOWNLOAD_MIRRORS
-        ]
-        zip_path = self._base_dir / f"easytier-windows-x86_64-v{version}.zip"
+        urls = [u.format(version=version) for u in EASYTIER_DOWNLOAD_URLS]
+        zip_path = self._base_dir / f"easytier-windows-x86_64-{version}.zip"
         downloaded = False
         last_error = None
 
         ua = f"FMCL/{_get_fmcl_version()} (Windows; {platform.machine()})"
-        for url in urls:
+        if on_progress:
+            on_progress("正在测速选择最快的下载镜像...")
+        url_order = self._speed_test_download_urls(urls, ua)
+        for url in url_order:
             try:
                 logger.info(f"Downloading EasyTier from {url}")
                 if on_progress:
@@ -703,6 +808,7 @@ class EasyTierManager:
                     logger.error("EasyTier extraction succeeded but files are missing")
                     return False
 
+            self._cleanup_stale_versions()
             logger.info("EasyTier installed successfully")
             return True
         except Exception as e:
@@ -728,35 +834,91 @@ class EasyTierManager:
                     pass
                 break
 
+    def _cleanup_stale_versions(self):
+        versions_root = self._base_dir.parent.parent
+        if not versions_root.is_dir():
+            return
+        for entry in versions_root.iterdir():
+            if entry.is_dir() and entry.name != EASYTIER_VERSION:
+                try:
+                    shutil.rmtree(str(entry), ignore_errors=True)
+                except Exception:
+                    pass
+
     def _resolve_relay_nodes(self) -> list:
+        """解析中继节点。此方法绝不阻塞调用线程：
+        动态节点列表通过后台预取缓存获得，未就绪时仅使用内置 fallback。"""
+        self._ensure_relay_prefetch()
+        with self._relay_nodes_lock:
+            dynamic_nodes = self._relay_nodes_cache
         nodes = []
-        dynamic_nodes = self._fetch_dynamic_nodes()
         if dynamic_nodes:
             nodes.extend(dynamic_nodes)
         nodes.extend(["https://etnode.zkitefly.eu.org/node1", "https://etnode.zkitefly.eu.org/node2"])
+        nodes.extend(["https://etnode.zkitefly.eu.org/-node1", "https://etnode.zkitefly.eu.org/-node2"])
         nodes.extend(["tcp://public.easytier.top:11010", "tcp://public2.easytier.cn:54321"])
         return nodes
 
     @staticmethod
     def _fetch_dynamic_nodes() -> list:
+        """获取公共中继节点，与陶瓦生态（HMCL/FCL）使用同一节点源：
+        优先 terracotta 生态节点列表，随后回退 EasyTier uptime API。"""
+        for source, fetcher in (
+            ("terracotta node list", EasyTierManager._fetch_terracotta_nodes),
+            ("uptime API", EasyTierManager._fetch_uptime_nodes),
+        ):
+            nodes = fetcher()
+            if nodes:
+                logger.info(f"Got {len(nodes)} dynamic relay nodes from {source}")
+                return nodes
+        return []
+
+    @staticmethod
+    def _fetch_terracotta_nodes() -> list:
+        try:
+            req = urllib.request.Request(
+                "https://terracotta.glavo.site/nodes",
+                headers={"User-Agent": "FMCL/2.0"},
+            )
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                data = json.loads(resp.read())
+            if not isinstance(data, list):
+                return []
+            nodes = []
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                url = (item.get("url") or "").strip()
+                if url and (url.startswith("tcp://") or url.startswith("udp://") or url.startswith("https://")):
+                    nodes.append(url)
+            return nodes
+        except Exception as e:
+            logger.debug(f"Failed to fetch terracotta node list: {e}")
+            return []
+
+    @staticmethod
+    def _fetch_uptime_nodes() -> list:
         try:
             req = urllib.request.Request(
                 "https://uptime.easytier.cn/api/nodes?page=1&per_page=50&is_active=true",
                 headers={"User-Agent": "FMCL/2.0"},
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read())
             items = data.get("data", {}).get("items", [])
             nodes = []
             for item in items[:10]:
-                url = item.get("url", "")
+                if item.get("is_active", False) is False:
+                    continue
+                if item.get("allow_relay", False) is False:
+                    continue
+                url = item.get("address", "")
+                url = (url or "").strip()
                 if url and (url.startswith("tcp://") or url.startswith("udp://") or url.startswith("https://")):
                     nodes.append(url)
-            if nodes:
-                logger.info(f"Got {len(nodes)} dynamic relay nodes from uptime API")
             return nodes
         except Exception as e:
-            logger.debug(f"Failed to fetch dynamic relay nodes: {e}")
+            logger.debug(f"Failed to fetch uptime node list: {e}")
             return []
 
     def launch(
@@ -878,16 +1040,31 @@ class EasyTierManager:
         proc = self._process
         if proc is None:
             return
+        batch = []
+        batch_size = 20
+
+        def flush_batch():
+            if batch and on_output:
+                payload = "\n".join(batch)
+                batch.clear()
+                try:
+                    on_output(payload)
+                except Exception:
+                    pass
+
         try:
             for line in iter(proc.stdout.readline, ""):
                 if proc.poll() is not None and not line:
                     break
                 stripped = line.strip()
-                if stripped and on_output:
-                    on_output(stripped)
+                if stripped:
+                    batch.append(stripped)
+                    if len(batch) >= batch_size:
+                        flush_batch()
         except Exception:
             pass
         finally:
+            flush_batch()
             exit_code = proc.poll() if proc else -1
             self._running = False
             self._process = None
@@ -913,6 +1090,10 @@ class EasyTierManager:
             self._process = None
             self._rpc_port = 0
             self._cleanup_scf()
+
+    def stop_async(self):
+        """非阻塞停止：在后台线程执行 stop()，避免阻塞 Tk 主线程。"""
+        threading.Thread(target=self.stop, daemon=True).start()
 
     def add_port_forward(self, target_ip: str, target_port: int) -> Optional[int]:
         if not self._running or self._rpc_port == 0:
@@ -970,13 +1151,18 @@ class EasyTierManager:
         logger.error(f"Port forward to {target_ip}:{target_port} failed after 3 attempts")
         return None
 
-    def discover_host(self, timeout: float = 25.0) -> Optional[Tuple[str, int]]:
+    def discover_host(self, timeout: float = 40.0) -> Optional[Tuple[str, int]]:
         if not self._running or self._rpc_port == 0:
             return None
 
-        time.sleep(2)
         started = time.monotonic()
+        sleep_before = min(timeout, 2.0)
+        last_peer_count = -1
         while time.monotonic() - started < timeout:
+            time.sleep(sleep_before)
+            sleep_before = 2.0
+            if not self._running or self._rpc_port == 0:
+                return None
             try:
                 proc = subprocess.run(
                     [str(self._cli_path), "--rpc-portal", f"127.0.0.1:{self._rpc_port}", "-o", "json", "peer"],
@@ -989,16 +1175,16 @@ class EasyTierManager:
                 if proc.returncode != 0:
                     err_msg = proc.stderr.strip() or proc.stdout.strip()
                     logger.debug(f"peer command returned {proc.returncode}: {err_msg}")
-                    time.sleep(2)
                     continue
                 output = proc.stdout + proc.stderr
                 if not output.strip():
-                    time.sleep(2)
                     continue
                 peers = json.loads(output)
                 if not isinstance(peers, list):
-                    time.sleep(2)
                     continue
+                if len(peers) != last_peer_count:
+                    last_peer_count = len(peers)
+                    logger.info(f"discover_host: {len(peers)} peers visible on the network")
                 for peer in peers:
                     hostname = peer.get("hostname", "")
                     if hostname.startswith("scaffolding-mc-server-"):
@@ -1010,12 +1196,15 @@ class EasyTierManager:
                             continue
                         host_ip = peer.get("ipv4", "")
                         if not host_ip:
+                            logger.warning(
+                                "discover_host: host found but ipv4 is empty, "
+                                "waiting for address assignment"
+                            )
                             continue
                         logger.info(f"Discovered host: {host_ip}:{scf_port}")
                         return (host_ip, scf_port)
             except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
                 logger.debug(f"discover_host retry: {e}")
-            time.sleep(2)
         logger.warning("discover_host timed out")
         return None
 
@@ -1512,8 +1701,9 @@ class OnlineTabMixin(object):
     def _init_online_state(self):
         base_dir = _get_easytier_base_dir()
         self._et_manager = EasyTierManager(base_dir)
+        self._et_manager._ensure_relay_prefetch()
         if self._et_manager.is_installed:
-            self._append_online_log("[FMCL] EasyTier v" + EASYTIER_VERSION + " " + _("online_et_ready"))
+            self._append_online_log(f"[FMCL] EasyTier {EASYTIER_VERSION} " + _("online_et_ready"))
             self._update_env_easytier_label(_("online_et_ready"), "success")
         else:
             self._append_online_log("[FMCL] " + _("online_et_not_found"))
@@ -2345,7 +2535,14 @@ class OnlineTabMixin(object):
         self._append_online_log("[FMCL] " + _("online_setting_up_forward"))
 
         def _setup():
-            host_info = self._et_manager.discover_host(timeout=15.0)
+            host_info = None
+            for attempt in range(2):
+                self._append_online_log(
+                    f"[FMCL] " + _("online_discovering_host", attempt=attempt + 1)
+                )
+                host_info = self._et_manager.discover_host(timeout=40.0)
+                if host_info is not None:
+                    break
             if host_info is None:
                 return None
             host_ip, scf_port = host_info
@@ -2364,6 +2561,7 @@ class OnlineTabMixin(object):
             self._scf_client.on_server_shutdown = lambda: self.after(0, self._on_server_shutdown_detected)
             mc_port = self._scf_client.get_server_port()
             if mc_port is None or mc_port <= 0:
+                logger.warning("c:server_port returned invalid port, falling back to 25565")
                 mc_port = 25565
             local_port = self._et_manager.add_port_forward(host_ip, mc_port)
             return local_port
@@ -2416,7 +2614,7 @@ class OnlineTabMixin(object):
             self._tcp_forwarder = None
 
         if self._et_manager:
-            self._et_manager.stop()
+            self._et_manager.stop_async()
 
         self._reset_lobby_state()
         self._set_online_status(_("online_et_stopped"), "text_secondary")

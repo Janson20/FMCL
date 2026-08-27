@@ -780,6 +780,7 @@
   "online_leaving_lobby": "ロビーから退出中...",
   "online_left_lobby": "ロビーから退出しました",
   "online_setting_up_forward": "ポート転送を設定中...",
+  "online_discovering_host": "ホストを検索中 (第 {attempt} 回)...",
   "online_forward_ready": "ポート転送準備完了 (ローカルポート: {port})",
   "online_forward_failed": "ポート転送失敗",
   "online_forward_failed_detail": "ポート転送失敗: {error}",
