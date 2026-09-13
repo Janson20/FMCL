@@ -452,6 +452,18 @@ class ServerMixin:
                 logger.error(f"服务器版本未安装: {version_id}")
                 return False, None
 
+            # 每个服务器可以通过「服务器配置」窗口单独设置最大内存，优先于全局设置
+            try:
+                from launcher.server_config import get_server_launch_memory
+
+                override_memory = get_server_launch_memory(server_dir)
+                if override_memory and validate_memory(override_memory):
+                    if override_memory != max_memory:
+                        logger.info(f"使用服务器 {version_id} 的独立内存设置: {override_memory}")
+                    max_memory = override_memory
+            except Exception as e:
+                logger.debug(f"读取服务器独立内存设置失败: {e}")
+
             # 解析服务器类型
             _server_type = "vanilla"
             _vl = version_id.lower()

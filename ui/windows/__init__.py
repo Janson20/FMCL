@@ -9,6 +9,7 @@ from ui.windows.plugin_browser import PluginBrowserWindow
 from ui.windows.plugin_manager import PluginManagerWindow
 from ui.windows.plugin_permission_dialog import PluginPermissionDialog
 from ui.windows.resource_manager import ResourceManagerWindow
+from ui.windows.server_config_editor import ServerConfigEditorWindow
 
 __all__ = [
     "ResourceManagerWindow",
@@ -20,4 +21,5 @@ __all__ = [
     "PluginManagerWindow",
     "PluginPermissionDialog",
     "PluginBrowserWindow",
+    "ServerConfigEditorWindow",
 ]

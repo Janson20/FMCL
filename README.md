@@ -161,6 +161,7 @@ python main.py -A              # 交互模式
 - **安装模组**：已安装加载器的版本右侧点击 🧩 按钮，搜索安装 Modrinth 模组
 - **安装整合包**：点击「📦 安装整合包」，选择 .mrpack 文件或 .zip 文件（MultiMC 格式），或从 Modrinth 下载
 - **开服**：切换到"🖥 开服"标签页，安装并启动 Minecraft 服务器
+- **服务器配置**：在"🖥 开服"标签页点击某个服务器的 🔧 按钮，可视化编辑该服务器的 `server.properties`（每项都有说明，支持搜索与恢复默认）
 - **备份存档**：切换到"💾 备份"标签页，手动或自动备份存档
 
 > 完整使用说明详见 [docs/USAGE.md](docs/USAGE.md)
@@ -177,6 +178,7 @@ FMCL/
 ├── launcher/              # 启动器核心逻辑
 │   ├── core.py            # 环境检查、版本安装、游戏启动
 │   ├── server.py          # 服务器安装/启动/停止
+│   ├── server_config.py   # 服务器配置读写（server.properties/EULA/每服独立启动配置）
 │   ├── mrpack.py          # 整合包安装/开服（.mrpack 格式）
 │   ├── multimc.py          # MultiMC 整合包安装/开服（.zip 格式）
 │   ├── multimc_types.py    # MultiMC 数据模型定义
@@ -185,7 +187,8 @@ FMCL/
 ├── ui/                    # CustomTkinter 现代化界面
 │   ├── app.py             # 主窗口（12 Mixin 组合模式）
 │   ├── agent/             # AI 智能助手子系统（4 供应商、13 工具）
-│   ├── windows/           # 14 个独立子窗口
+│   ├── windows/           # 15 个独立子窗口
+│   ├── server_config_schema.py  # 服务器配置项元数据（界面用名称/说明/取值范围）
 │   ├── static/            # 静态资源（等待小游戏等）
 │   ├── theme_engine.py    # 动态主题引擎
 │   └── i18n.py            # 国际化（4 语言）

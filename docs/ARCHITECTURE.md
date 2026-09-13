@@ -55,6 +55,7 @@ FMCL/
 │   ├── __init__.py        # MinecraftLauncher 组合类（多继承自 core/server/mrpack）
 │   ├── core.py            # MinecraftLauncherCore - 环境检查、版本安装、游戏启动、JVM 优化
 │   ├── server.py          # ServerMixin - 服务器安装/启动/停止/管理
+│   ├── server_config.py   # 服务器配置文件读写（server.properties / eula.txt / 每服独立启动配置）
 │   ├── mrpack.py          # MrpackMixin - 整合包安装/开服（并行下载优化）
 │   ├── predownload.py     # 预下载模块 - 首次启动资源包预下载
 │   └── verify.py          # 并发文件校验（ThreadPoolExecutor 多线程哈希校验）
@@ -123,6 +124,7 @@ FMCL/
 │   ├── theme_engine.py    # 动态主题引擎（5 种预设 + 导入 .json + 版本动态调色）
 │   ├── dialogs.py         # 通用对话框（确认/提示/版本选择）
 │   ├── i18n.py            # 国际化模块（zh_CN/en_US/zh_TW/ja_JP）
+│   ├── server_config_schema.py # 服务器配置项元数据（分类/控件类型/取值范围/默认值）
 │   └── windows/           # 独立窗口类
 │       ├── account_manager.py          # 账号管理窗口（微软/离线/Yggdrasil）
 │       ├── launcher_settings.py        # 启动器设置窗口
@@ -136,6 +138,7 @@ FMCL/
 │       ├── plugin_browser.py           # 插件市场浏览与一键安装窗口
 │       ├── server_mod_browser.py       # 服务器模组浏览器
 │       ├── server_resource_manager.py  # 服务器资源管理窗口
+│       ├── server_config_editor.py     # 服务器配置编辑窗口（server.properties 可视化编辑）
 │       └── backup_settings.py          # 备份设置窗口
 ├── scripts/
 │   ├── install.sh         # Linux 一键安装脚本（支持 7 大发行版）
@@ -145,6 +148,7 @@ FMCL/
 │   ├── test_account.py
 │   ├── test_imports.py
 │   ├── test_modrinth_versions.py
+│   ├── test_server_config.py
 │   └── test_theme_engine.py
 ├── .github/workflows/
 │   ├── ci.yml             # CI 工作流（代码检查 + 测试 + 构建）
@@ -201,7 +205,7 @@ main.py（程序入口）
   │   │   ├── agent/agent_mixin.py（AGENT 标签页）
   │   │   ├── theme_engine.py（动态主题引擎）
   │   │   ├── launcher.get_callbacks()（回调连接核心逻辑）
-  │   │   └── windows/（14 个独立窗口）
+  │   │   └── windows/（15 个独立窗口）
   │   │
   │   ├── launcher/（核心逻辑包）
   │   │   ├── core.py（环境检查 + 版本安装 + 游戏启动 + JVM 优化）

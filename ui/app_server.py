@@ -12,9 +12,11 @@ from typing import Any, Callable, Dict, List, Optional
 import customtkinter as ctk
 from logzero import logger
 
+from launcher.server_config import get_server_launch_memory, set_server_launch_memory
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
 from ui.windows.modpack_server import ModpackServerWindow
+from ui.windows.server_config_editor import ServerConfigEditorWindow
 from ui.windows.server_mod_browser import ServerModBrowserWindow
 from ui.windows.server_resource_manager import ServerResourceManagerWindow
 from version_utils import has_mod_loader
@@ -367,7 +369,19 @@ class ServerTabMixin(object):
             hover_color=COLORS["accent_hover"],
             command=self._on_server_mod_manage,
         )
-        self.server_mod_manage_btn.pack(fill=ctk.X, padx=15, pady=(0, 10))
+        self.server_mod_manage_btn.pack(fill=ctk.X, padx=15, pady=(0, 6))
+
+        # 服务器配置编辑按钮（每个服务器独立配置）
+        self.server_config_btn = ctk.CTkButton(
+            panel,
+            text=_("server_config_panel_btn"),
+            height=36,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
+            fg_color=COLORS["bg_light"],
+            hover_color=COLORS["card_border"],
+            command=self._on_server_config_selected,
+        )
+        self.server_config_btn.pack(fill=ctk.X, padx=15, pady=(0, 10))
 
         # ── 快速选择版本 ──
         ctk.CTkLabel(
@@ -461,6 +475,7 @@ class ServerTabMixin(object):
             button_hover_color=COLORS["card_border"],
             dropdown_fg_color=COLORS["bg_medium"],
             dropdown_hover_color=COLORS["bg_light"],
+            command=self._on_server_memory_changed,
         )
         self.server_memory_menu.pack(fill=ctk.X, padx=15, pady=(5, 10))
 
@@ -554,6 +569,20 @@ class ServerTabMixin(object):
             )
             del_btn.pack(side=ctk.RIGHT, padx=(0, 3), pady=5)
 
+            # 配置编辑按钮（每个服务器独立配置）
+            config_btn = ctk.CTkButton(
+                btn_frame,
+                text="🔧",
+                width=30,
+                height=28,
+                font=ctk.CTkFont(size=14),
+                fg_color="transparent",
+                hover_color=COLORS["bg_light"],
+                text_color=COLORS["text_secondary"],
+                command=lambda v=ver: self._on_server_config(v),
+            )
+            config_btn.pack(side=ctk.RIGHT, padx=(0, 2))
+
             # 模组管理按钮（仅模组加载器版本）
             if has_loader:
                 mod_settings_btn = ctk.CTkButton(
@@ -595,6 +624,9 @@ class ServerTabMixin(object):
             else:
                 item["frame"].configure(fg_color=COLORS["bg_medium"])
                 item["button"].configure(text_color=COLORS["text_primary"])
+
+        # 内存下拉框跟随当前服务器的独立设置
+        self._sync_server_memory_display(version)
 
         self.set_status(_("server_version_selected", version=version), "info")
 
@@ -724,6 +756,8 @@ class ServerTabMixin(object):
             return
 
         version_id = self.selected_server_version
+        # 使用该服务器自己保存的内存设置（配置编辑窗口 / 下拉框写入）
+        self._sync_server_memory_display(version_id)
         max_memory = self.server_memory_var.get()
         self.set_status(_("server_starting", version=version_id), "loading")
         self.server_start_btn.configure(state=ctk.DISABLED)
@@ -817,6 +851,72 @@ class ServerTabMixin(object):
     def _open_server_resource_manager(self, version_id: str):
         """打开服务器资源管理窗口"""
         ServerResourceManagerWindow(self, version_id, self.callbacks)
+
+    # ─── 服务器配置编辑 ──────────────────────────────────────
+
+    def _on_server_config_selected(self):
+        """右侧面板「服务器配置」按钮：编辑当前选中服务器的配置"""
+        if not self.selected_server_version:
+            self.set_status(_("server_no_version_selected"), "error")
+            return
+        self._on_server_config(self.selected_server_version)
+
+    def _on_server_config(self, version_id: str):
+        """打开某个服务器的配置编辑窗口"""
+        if "get_server_dir" not in self.callbacks:
+            self.set_status(_("server_config_load_failed", error="get_server_dir 回调未注册"), "error")
+            return
+        try:
+            ServerConfigEditorWindow(self, version_id, self.callbacks)
+        except Exception as e:
+            logger.error(f"打开服务器配置窗口失败: {e}")
+            self.set_status(_("server_config_load_failed", error=str(e)), "error")
+
+    def _get_server_dir_path(self, version_id: str) -> Optional[Path]:
+        """获取某个服务器的目录路径"""
+        try:
+            if "get_server_dir" not in self.callbacks:
+                return None
+            return Path(self.callbacks["get_server_dir"]()) / version_id
+        except Exception as e:
+            logger.warning(f"获取服务器目录失败: {e}")
+            return None
+
+    def _get_server_memory_for(self, version_id: str) -> Optional[str]:
+        """读取某个服务器单独设置的最大内存（未设置时返回 None）"""
+        server_dir = self._get_server_dir_path(version_id)
+        if server_dir is None:
+            return None
+        try:
+            return get_server_launch_memory(server_dir)
+        except Exception:
+            return None
+
+    def _sync_server_memory_display(self, version_id: Optional[str] = None):
+        """让内存下拉框显示指定服务器的独立设置"""
+        version_id = version_id or self.selected_server_version
+        if not version_id or not hasattr(self, "server_memory_var"):
+            return
+        memory = self._get_server_memory_for(version_id)
+        if memory:
+            try:
+                self.server_memory_var.set(memory)
+            except Exception:
+                pass
+
+    def _on_server_memory_changed(self, choice: str):
+        """内存下拉框变化：保存为当前选中服务器的独立设置"""
+        version_id = self.selected_server_version
+        if not version_id:
+            return
+        server_dir = self._get_server_dir_path(version_id)
+        if server_dir is None:
+            return
+        success, error = set_server_launch_memory(server_dir, choice)
+        if success:
+            self.set_status(_("server_memory_saved", version=version_id, memory=choice), "info")
+        else:
+            logger.warning(f"保存服务器内存设置失败: {error}")
 
     def _append_server_log(self, message: str):
         """追加日志到服务器控制台（线程安全）并解析玩家事件"""
