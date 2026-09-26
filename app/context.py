@@ -111,6 +111,11 @@ class AppContext:
         """给任务调度器注入主线程 dispatcher（由 UI 层提供）。"""
         self.tasks.set_scheduler(scheduler)
 
+    @property
+    def scheduler(self) -> Optional[Dispatcher]:
+        """当前的主线程调度器（阶段 2 任务 2.4：Qt 桥要用它把回调排回主线程）。"""
+        return self.tasks.scheduler
+
     # ─── 注册与查找 ─────────────────────────────────────────
 
     def register(self, service: "Service", name: Optional[str] = None, replace: bool = False) -> "Service":

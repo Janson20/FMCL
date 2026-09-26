@@ -180,7 +180,8 @@ FMCL/
 │   ├── release.py         # 自动发布脚本
 │   ├── fix_common_issues.py  # 常见问题修复工具
 │   ├── screenshot_tool.py # 截图工具（Ctrl+Alt+T 触发，区域截图；独立运行，不属于启动器进程）
-│   └── check_services_purity.py  # 分层纯净度静态检查（services 层禁 UI 依赖）
+│   ├── check_services_purity.py  # 分层纯净度静态检查（services 层禁 UI 依赖）
+│   ├── check_qml_rules.py        # QML 规则闸门（R1~R7：禁渐变/emoji/硬编码中文、i18n 绑定、越界 import、transparent、桥线程红线）
 ├── tests/
 │   ├── test_account.py
 │   ├── test_imports.py

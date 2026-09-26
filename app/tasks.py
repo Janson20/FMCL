@@ -188,6 +188,7 @@ class TaskRunner:
         self.name = name
         self.log = logger_ or logging.getLogger("app.tasks")
         self._scheduler = scheduler
+        self._executor: Optional[Callable[[Callable[[], None]], None]] = None
         self._queue: "Queue[Optional[tuple]]" = Queue()
         self._workers: List[threading.Thread] = []
         self._lock = threading.RLock()
@@ -199,6 +200,27 @@ class TaskRunner:
     def set_scheduler(self, scheduler: Optional[Dispatcher]) -> None:
         """注入主线程调度器（Tk: ``widget.after`` 包装；Qt: 信号/事件队列）。"""
         self._scheduler = scheduler
+
+    @property
+    def scheduler(self) -> Optional[Dispatcher]:
+        """当前的主线程调度器（阶段 2 任务 2.4：Qt 侧的桥要用它把回调排回主线程）。"""
+        return self._scheduler
+
+    def set_executor(self, executor: Optional[Callable[[Callable[[], None]], None]]) -> None:
+        """替换**执行基底**（阶段 2 任务 2.4）。
+
+        默认基底是内建线程池（`_queue` + `_worker_loop`，旧 Tk 界面用）。QML 侧传一个
+        `QThreadPool` 适配器进来，就完成了"`TaskRunner` 换成 Qt 实现"这件事 ——
+        **而取消语义、回调契约、进度上报、任务回收全部只有一份实现**。
+
+        为什么不做成"另一个 QtTaskRunner 类"：那会立刻长出第二套语义（`app/bootstrap.py`
+        的注释里已经记过同一种教训）。把基底做成一个可替换的接缝，代价是一个函数指针，
+        收益是行为不会分叉。
+
+        Args:
+            executor: ``fn -> None``，负责在**别的线程**上跑 ``fn``。传 None 恢复内建线程池。
+        """
+        self._executor = executor
 
     @property
     def has_scheduler(self) -> bool:
@@ -263,12 +285,26 @@ class TaskRunner:
             handle = TaskHandle(task_id, task_name, ctx)
             handle_box.append(handle)
             self._running[task_id] = handle
-            self._ensure_workers()
+            if self._executor is None:
+                # 只有走内建线程池时才需要保证 worker 存在；Qt 路径由 QThreadPool 管线程。
+                self._ensure_workers()
 
         def _runner() -> None:
             self._execute(handle, ctx, fn, args, kwargs, on_done, on_error, pass_context, pass_handle)
 
-        self._queue.put((handle, _runner))
+        if self._executor is not None:
+            # Qt 路径：交给 QThreadPool。提交本身失败（池已关闭之类）也要把任务收干净，
+            # 否则它会一直挂在 `_running` 里，界面上表现为"永远有一个后台任务在跑"。
+            try:
+                self._executor(_runner)
+            except Exception as e:  # noqa: BLE001
+                handle._finish(None, e)
+                self._reap(handle)
+                self.log.error("任务「%s」提交到执行基底失败: %s", handle.name, e)
+                if on_error is not None:
+                    self.dispatch(lambda err=e: self._safe_call(on_error, err))
+        else:
+            self._queue.put((handle, _runner))
         return handle
 
     # ─── 执行 ───────────────────────────────────────────────

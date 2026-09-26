@@ -317,6 +317,10 @@ uv run python scripts/check_i18n.py
 
 # 模块搬家的完整性（主体逐节点一致 / 行数一致 / 旧路径别名同一对象）
 uv run python scripts/relocate_module.py --check
+
+# QML 规则闸门（阶段 2 新增）：禁渐变与亚克力材质、禁 emoji、禁硬编码中文、
+# 绑定必须走 Tr.map、页面不得越界 import、悬浮窗不得用 color: "transparent"、桥的线程红线
+uv run python scripts/check_qml_rules.py
 ```
 
 ### 常用命令
