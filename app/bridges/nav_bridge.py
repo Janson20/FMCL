@@ -215,6 +215,16 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("settings/plugin", "plugin_manager_title", "plugin", "settings", "pages/settings/SettingsPage.qml", ""),
     ("settings/log", "launcher_log", "note", "settings", "pages/settings/SettingsPage.qml", ""),
     ("settings/about", "about_title", "info", "settings", "pages/settings/SettingsPage.qml", ""),
+    # ── 开发自查：组件画廊（阶段 2 任务 2.16 / 2.17）─────────────────
+    # **刻意不放进 `_NAV_ORDER`，并且给一个非空 `parent`**：本表的所有**无父路由**
+    # 都会被 `NavBridge` 当成一级导航项收进 `_roots`（构造时那段"表里没写进
+    # _NAV_ORDER 的根路由也要能出现在导航里"），而 `nav_items()` 会跳过有父的路由。
+    # 所以 `parent="settings"` 这一格就是"进得去、但不在 12 个一级导航里露出来"的
+    # 实现方式：它是一个开发自查页，不该占一个用户可见的导航位。
+    # 进入方式二选一（本任务选深链）：`fmcl://dev/gallery` 或 `Nav.push("dev/gallery")`；
+    # `parent` 与 id 的层级一致（`dev/gallery` 是 level 1，`settings` 是 level 0），
+    # 满足 `tests/test_nav_bridge.py` 钉住的"id 层级与 parent 链严格一致"这条不变量。
+    ("dev/gallery", "dev_gallery_title", "guide", "settings", "pages/dev/Gallery.qml", ""),
 )
 
 #: 一级导航项的顺序（02 §3.1 的骨架图，从上到下）。

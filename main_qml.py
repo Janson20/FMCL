@@ -463,6 +463,20 @@ def assemble(
     # 任务 2.10：中文字体注入（必须在 engine.load() 之前；桥缺席时静默跳过）。
     apply_theme_font(engine)
 
+    # 任务 2.16：图标上色 provider（**必须**在 engine.load() 之前注册）。
+    # 为什么需要它：`fill="currentColor"` 在 QtSvg 里被解析成**不透明黑**，而
+    # `ColorOverlay` / `MultiEffect` 在 offscreen（本仓库所有测试的跑法）下静默失效
+    # （阶段 2 任务 2.10 的实测结论）—— 唯一在两种环境下都精确的做法是
+    # Python 侧换色：`image://fmcl-icon/<name>?color=%23RRGGBB`。
+    # 没注册也不会白屏：`FmIcon` 会退化成未上色的 SVG（看得见但黑），
+    # 并把 `fallbackUsed` 置真，Gallery 的自检会因此报警。
+    try:
+        from app.bridges.icon_provider import install as install_icon_provider
+
+        install_icon_provider(engine)
+    except Exception as e:  # noqa: BLE001 - 图标上色失败不该挡住启动
+        logger.warning("注册图标 provider 失败（图标将退化为未上色）: %s", e)
+
     # ── 任务 2.14：启动流程控制器 ──
     # 挂在 QML 上是 `Startup`（启动画面的显示、协议/公告/预下载链条都由它驱动）。
     startup = None

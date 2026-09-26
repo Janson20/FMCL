@@ -17,6 +17,7 @@
 
 import QtQuick
 import QtQuick.Controls
+import ".."
 
 Item {
     id: dialog
@@ -139,7 +140,7 @@ Item {
                     spacing: Theme?.spacingSm ?? 0
 
                     // 顺序：确定在左、取消在右（旧实现 `pack(side=ctk.LEFT)` 的先后）
-                    DialogButton {
+                    FmButton {
                         id: okButton
                         objectName: "okButton"
                         primary: true
@@ -148,7 +149,7 @@ Item {
                         onClicked: dialog.accept()
                     }
 
-                    DialogButton {
+                    FmButton {
                         id: cancelButton
                         objectName: "cancelButton"
                         text: Tr?.map["cancel"] ?? "cancel"

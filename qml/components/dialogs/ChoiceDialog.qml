@@ -18,6 +18,7 @@
 
 import QtQuick
 import QtQuick.Controls
+import ".."
 
 Item {
     id: dialog
@@ -164,7 +165,7 @@ Item {
                 Repeater {
                     model: dialog.options
 
-                    DialogButton {
+                    FmButton {
                         objectName: "optionButton"
                         required property int index
                         required property var modelData

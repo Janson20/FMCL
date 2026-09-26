@@ -292,6 +292,38 @@ def test_duplicate_bridges_are_kept_alive(assembled):
         assert obj is not None, f"{name} 的强引用是 None"
 
 
+# ─── 2.5 Runtime 桥的自查（任务 2.19 的冒烟测试发现的一处真缺陷）────────
+
+
+def test_runtime_reports_the_real_app_version():
+    """`Runtime.appVersion` 必须是真版本号，**不能**恒为 `unknown`。
+
+    这条是任务 2.19 的冒烟测试抓出来的：`runtime_bridge._app_version()` 原先写的是
+    `from services.user_agent import get_fmcl_version`，而那个模块里实际叫
+    `_get_fmcl_version` —— ImportError 被兜底的 `except` 吞掉后恒返回 `"unknown"`，
+    于是窗口标题一直是 `FMCL unknown`。
+
+    这类错误之所以能潜伏：兜底值本身是**合法字符串**（不是空串、不是 None），
+    界面上"看起来正常"。所以判据不能是"非空"，必须是"**等于服务层的真版本**"。
+    """
+    from app.bridges.runtime_bridge import _app_version
+    from services.user_agent import _get_fmcl_version
+
+    real = str(_get_fmcl_version())
+    assert real and real != "unknown", "服务层自己都拿不到版本，这条断言失去意义"
+    assert _app_version() == real, f"Runtime.appVersion 报的是 {_app_version()!r}，真值是 {real!r}"
+
+
+def test_runtime_version_property_is_wired(assembled):
+    """从**装配好的** Runtime 桥上再读一次（属性层也要通，不只是那个私有函数）。"""
+    from services.user_agent import _get_fmcl_version
+
+    runtime = getattr(assembled.engine, "_fmcl_bridges", {}).get("Runtime")
+    assert runtime is not None, "Runtime 桥不在强引用表里"
+    assert runtime.property("appVersion") == str(_get_fmcl_version())
+    assert "unknown" not in str(runtime.title() if hasattr(runtime, "title") else "")
+
+
 # ─── 3. 主线程调度器 ────────────────────────────────────────────
 
 

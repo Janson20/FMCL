@@ -10,6 +10,7 @@
 
 import QtQuick
 import QtQuick.Controls
+import ".."
 
 Item {
     id: dialog
@@ -162,7 +163,7 @@ Item {
                     anchors.right: parent.right
                     spacing: Theme?.spacingSm ?? 0
 
-                    DialogButton {
+                    FmButton {
                         id: okButton
                         objectName: "okButton"
                         primary: true

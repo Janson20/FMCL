@@ -344,6 +344,72 @@ make clean            # 清理构建文件
 uv run pytest -q
 ```
 
+### QML 组件库（阶段 2 任务 2.16 / 2.17）
+
+阶段 2 之后的界面**一律用 `qml/components/` 里的通用件拼**，页面里不再出现"一次性控件"
+（`03` 的 3.0 SOP 第 3 条）。清单与用法在 **[qml/components/COMPONENTS.md](qml/components/COMPONENTS.md)**，
+它同时是闸门 R5 的白名单数据源（页面用了白名单外的自研件即违规）。
+
+```qml
+import QtQuick
+import "../../components"          // 相对当前 QML 文件；阶段 2 不引入 qmldir 模块声明
+
+Item {
+    FmCard {
+        title: Tr?.map["account_manager_title"] ?? "account_manager_title"
+
+        FmTextField { label: "ID"; text: page.versionId; errorText: page.idError }
+
+        FmButton {                       // 主按钮：一个界面里最多一个
+            text: Tr?.map["confirm"] ?? "confirm"
+            loading: page.installing      // 三态：enabled / disabled / loading
+            onClicked: page.install()
+        }
+
+        footer: [
+            FmButton { primary: false; text: Tr?.map["cancel"] ?? "cancel"; onClicked: page.close() }
+        ]
+    }
+}
+```
+
+**三条纪律**（都由 `scripts/check_qml_rules.py` 静态拦，别只靠自觉）：
+
+1. **颜色**：只来自 `Theme.*` 的 12 个语义色键与 14 个设计令牌
+   （`bgDark/bgMedium/bgLight/accent/accentHover/success/warning/error/textPrimary/textSecondary/cardBg/cardBorder`
+   ＋ `fontSizeSmall/Base/Large/Title`、`spacingXs/Sm/Md/Lg/Xl`、`radiusSm/Md/Lg`、`iconSize`、`fontFamily`）。
+   QML 里出现 `#e94560` 这类字面量即 **R8** 违规；渐变与亚克力材质是 **R1**（项目 UI 红线 5）。
+2. **文案**：绑定写 `Tr.map["键"] ?? "键"`，**不要**在绑定里写 `Tr.t("键")`——QML 只跟踪属性读取，
+   语言切换时函数返回值不会重算（契约第六节决策 1，闸门 **R4**）；字符串里写死中文是 **R3**。
+3. **图标**：一律 `FmIcon { name: "check"; color: Theme.accent }`，名字取自 `qml/assets/icons/*.svg`
+   （小写 + 连字符、语义命名，见该目录的 [README](qml/assets/icons/README.md)）。**界面禁用 emoji**（**R2**）。
+
+**新增一个组件**：加 `qml/components/FmXxx.qml`（文件头写清"什么时候用它 / 什么时候不要用"、
+根节点给稳定的 `objectName`）→ 在 `COMPONENTS.md` 的白名单表里登记一行 → 跑
+`python scripts/check_qml_rules.py` 与 `python -m pytest tests/test_components_qml.py -q`
+（后者会实例化**每一个** `Fm*.qml` 并核对 Gallery 里有没有对应实例）。
+
+**图标上色（`image://fmcl-icon`）**：QtSvg 把 SVG 里的 `currentColor` 解析成**不透明黑**，
+而 `ColorOverlay` / `MultiEffect` 在 `offscreen`（本仓库所有测试的跑法）下**静默失效**
+（实测对比表见 `qml/assets/icons/README.md` 第三节）。所以上色在 **Python 侧**做：
+`app/bridges/icon_provider.py` 把 SVG 文本里的 `currentColor` 换成目标色后用 `QSvgRenderer`
+渲成 `QImage`，QML 侧按 `image://fmcl-icon/<名字>?color=%23RRGGBB` 取图（`FmIcon` 已经封装好）。
+装配期需要在 `engine.load()` **之前**注册一次：
+
+```python
+from app.bridges.icon_provider import install as install_icon_provider
+install_icon_provider(engine)          # 见 main_qml.assemble()
+```
+
+**组件画廊（开发自查页）**：`qml/pages/dev/Gallery.qml`，一页展示每个组件的"名字 + 说明 + 活的实例"。
+它**刻意不在 12 个一级导航里露出**，进入方式是深链 `fmcl://dev/gallery` 或
+`Nav.push("dev/gallery")`（路由定义在 `app/bridges/nav_bridge.py`，`parent` 挂 `settings`）。
+跑一次自查并留下截图证据：
+
+```bash
+uv run python tests/test_components_qml.py     # 截图写到 poc/gallery_2_16/，清单写到 poc/components_2_16.txt
+```
+
 ### 构建
 
 ```bash

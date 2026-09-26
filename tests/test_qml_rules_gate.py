@@ -155,17 +155,33 @@ def test_repo_cli_exit_code_is_zero():
     assert "QML 规则检查通过" in completed.stdout
 
 
-def test_repo_r5_whitelist_check_degrades_with_a_note():
-    """`qml/components/COMPONENTS.md` 还不存在（2.16 才产出）→ R5 的组件判定要跳过并说明。"""
+def test_repo_r5_whitelist_check_is_not_degraded(tmp_path):
+    """`qml/components/COMPONENTS.md` 已在任务 2.16 落地 → R5 **真的在判**，不再跳过。
+
+    **前提已被合法作废**（与同文件的 `test_repo_passes_with_real_qml_files` 同一类）：
+    这条原先断言的是"`COMPONENTS.md` 还不存在 → R5 必须跳过并说明"，那是 2.16 之前的现状；
+    2.16 的交付物正是让 R5 不再跳过，于是旧断言必红。改法是把"跳过"这条降级路径
+    **搬到它仍然成立的地方**（把白名单从副本里拿掉），既不丢覆盖面、也不再过期。
+    """
+    import shutil
+
     gate = _load_gate()
-    report = gate.run_gate(REPO_ROOT)
-    r5 = next(r for r in report.results if r.rule == "R5")
-    assert "COMPONENTS.md" in r5.note, f"R5 没有说明自己的降级原因: {r5.note!r}"
-    assert "跳过" in r5.note
-    # fixture 里白名单是有的 → 那条规则必须真的在跑（否则上面那句"跳过"就成了永久借口）
-    bad_report = gate.run_gate(BAD)
-    bad_r5 = next(r for r in bad_report.results if r.rule == "R5")
+    r5 = next(r for r in gate.run_gate(REPO_ROOT).results if r.rule == "R5")
+    assert r5.note == "", f"白名单已落地，R5 不该跳过: {r5.note!r}"
+    assert r5.files, "R5 一个页面都没扫到"
+
+    # fixture 里白名单是有的 → 那条规则必须真的在跑
+    bad_r5 = next(r for r in gate.run_gate(BAD).results if r.rule == "R5")
     assert bad_r5.note == "", f"fixture 里白名单存在，R5 不该跳过: {bad_r5.note!r}"
+
+    # 降级路径仍然成立：把白名单从**副本**里拿掉 → 必须"跳过并说明"
+    stripped = tmp_path / "no_whitelist"
+    shutil.copytree(BAD, stripped)
+    whitelist = stripped / "qml" / "components" / "COMPONENTS.md"
+    assert whitelist.is_file(), f"副本里没有白名单，这条测试失去意义: {whitelist}"
+    whitelist.unlink()
+    note = next(r for r in gate.run_gate(stripped).results if r.rule == "R5").note
+    assert "COMPONENTS.md" in note and "跳过" in note, f"白名单缺失时的降级说明丢了: {note!r}"
 
 
 # ─── 2. 负例：7 条规则每条都能变红 ─────────────────────────────

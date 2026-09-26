@@ -27,13 +27,23 @@ _ICON_NAME_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 
 
 def _app_version() -> str:
-    """版本号的单一真相来源是 `services.user_agent`（阶段 1 已统一到那里）。"""
-    try:
-        from services.user_agent import get_fmcl_version
+    """版本号的单一真相来源是 `services.user_agent`（阶段 1 已统一到那里）。
 
-        return str(get_fmcl_version())
+    **缺陷修复（任务 2.19 的冒烟测试发现）**：这里原先写的是
+    `from services.user_agent import get_fmcl_version` —— 那个模块里**没有这个名字**
+    （实际叫 `_get_fmcl_version`），ImportError 被下面的 `except` 吞掉后恒返回 `"unknown"`，
+    于是窗口标题一直显示 `FMCL unknown`。同类错误之所以能潜伏这么久：
+    兜底值本身是合法的（不是空串也不是 None），界面上"看起来正常"。
+    测试 `tests/test_main_qml_entry.py::test_runtime_reports_the_real_app_version` 现在钉住它。
+    """
+    try:
+        from services.user_agent import _get_fmcl_version
+
+        version = str(_get_fmcl_version())
     except Exception:  # noqa: BLE001 - 拿不到版本不该挡住界面
         return "unknown"
+    # 再兜一层：服务层万一也返回空，不要让标题变成 "FMCL "
+    return version or "unknown"
 
 
 class RuntimeBridge(QObject):

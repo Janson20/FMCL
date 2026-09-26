@@ -87,3 +87,9 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
 pythonpath = ["."]
+#: 自定义标记要登记，否则 pytest 会打 PytestUnknownMarkWarning（实测出现过）。
+#: `slow` = 起子进程 + 遍历页面的重度测试（2.19 的冒烟测试那一组），
+#: 用 `-m "not slow"` 可以整体跳过、只跑快测。
+markers = [
+    "slow: 重度测试（起子进程/遍历页面/多平台抓帧），可用 -m \"not slow\" 跳过",
+]

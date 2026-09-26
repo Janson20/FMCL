@@ -98,6 +98,40 @@ def pump(ms: int = 40) -> None:
     QTest.qWait(ms)
 
 
+def answer_when_pending(
+    host: Any,
+    kind: str,
+    value: Any,
+    *,
+    deadline: Optional[float] = None,
+    replied_at: Optional[List[float]] = None,
+) -> None:
+    """等宿主**真的收到**该 kind 的请求之后才作答（而不是赌一个固定毫秒数）。
+
+    为什么需要它：端口是"队列 + 主线程定时器排空"的模型，排空发生的确切时刻取决于
+    主线程当时有多忙。用 `QTimer.singleShot(60, …)` 去作答等于和排空周期赛跑 ——
+    实测在整文件运行时 3 次里失败 2 次（拿到的是兜底值），单独跑却永远绿。
+    这类顺序相关的偶发失败比"没有测试"更糟：它会训练所有人忽略红色。
+
+    Args:
+        deadline: 显式往下传（不用模块级状态）：同一次等待里每次重排共享同一个期限。
+        replied_at: 传入列表时，把**作答发生的时刻**记进去 —— 让"阻塞调用有没有真的等到
+            作答"这类断言可以基于因果而不是基于时间长短（时间长短会随排空周期漂移）。
+    """
+    if deadline is None:
+        deadline = time.monotonic() + 5.0
+    if host.pending():
+        if replied_at is not None:
+            replied_at.append(time.monotonic())
+        host.reply_kind(kind, value)
+        return
+    if time.monotonic() < deadline:
+        QTimer.singleShot(
+            5,
+            lambda: answer_when_pending(host, kind, value, deadline=deadline, replied_at=replied_at),
+        )
+
+
 def run_in_worker(fn: Callable[[], Any], *, budget_s: float = WORKER_BUDGET_S) -> Any:
     """在 worker 线程里执行 ``fn``，主线程一边跑事件循环一边等它结束。
 
@@ -408,7 +442,15 @@ class TestWorkerThread:
     def test_worker_confirm_gets_answer_from_main_thread(self, host, make_port):
         host.set_auto_reply(False)
         port = make_port(host, start=True)
-        QTimer.singleShot(60, lambda: host.reply_kind("confirm", True))
+        # 先确认端口**真的可用**：不可用的话 worker 会立刻拿到兜底值 False，
+        # 测试就变成在测降级路径 —— 而断言写的是 True，那种失败极难诊断。
+        assert port.is_available() is True, f"端口不可用（本用例失去意义）：{port.describe()}"
+
+        # **不要用固定 60ms 的 `QTimer.singleShot` 来作答**：它与端口 50ms 的排空周期
+        # 赛跑，本文件里前面跑过几十个用例之后时序会漂移。实测：整文件跑时 3 次里有 2 次
+        # 得到 `value=False`（兜底值），而这条用例单独跑永远绿 —— 典型的顺序相关偶发失败。
+        # 改成"一有请求就回答"，与排空时机无关。
+        answer_when_pending(host, "confirm", True)
 
         value = run_in_worker(lambda: port.confirm("确认", "要继续吗", default=False))
 
@@ -434,12 +476,23 @@ class TestWorkerThread:
     def test_worker_blocking_alert_waits_for_user(self, host, make_port):
         host.set_auto_reply(False)
         port = make_port(host, start=True)
-        QTimer.singleShot(60, lambda: host.reply_kind("warning", None))
+        # 不许赌固定毫秒数（见 `answer_when_pending` 的说明）；
+        # 同时记下**作答时刻**，好把"阻塞到底有没有等到作答"断言成因果关系。
+        replied: List[float] = []
+        started = time.monotonic()
+        answer_when_pending(host, "warning", None, replied_at=replied)
 
         value, elapsed = timed_in_worker(lambda: port.show_warning("警告", "内容", blocking=True))
 
         assert value is None
-        assert elapsed >= 0.05  # 确实等到了用户关掉弹窗
+        assert replied, "宿主始终没收到请求 —— 这个用例失去意义"
+        # 原断言是 `elapsed >= 0.05`（"确实等到了用户关掉弹窗"），那是**用时间长短当代理**：
+        # 作答一旦变快（排空周期不同）它就会误判。改成直接断言因果：
+        # **调用的返回时刻不早于作答时刻**。
+        assert elapsed >= (replied[0] - started) - 0.01, (
+            f"blocking 调用在作答之前就返回了（elapsed={elapsed:.3f}s，"
+            f"作答于 {replied[0] - started:.3f}s）—— 那它就没有真的等"
+        )
 
     def test_worker_progress_reaches_host(self, host, make_port):
         port = make_port(host, start=True)
