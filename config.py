@@ -315,6 +315,12 @@ class Config:
         # 音乐播放器状态
         self.music_state: dict = {}
 
+        # 悬浮窗几何（阶段 2 任务 2.15 新增，**唯一**的位置存储，不新造第二份）：
+        #   {"monitor": {"x": .., "y": .., "width": .., "height": .., "opacity": ..}, "lyric": {...}, ...}
+        # 坐标一律是**逻辑像素**（QML `Window.x/y` 的坐标系），物理像素只用于与
+        # Win32 的窗口矩形/光标换算，永不落盘（阶段 0 第 12.4 节的双重语义）。
+        self.overlay_geometry: dict = {}
+
         # 网易云音乐百度百科原唱兜底（算法无法判定原唱时，异步查询百度百科回填）
         self.music_baike_original_enabled: bool = True
 
@@ -431,6 +437,10 @@ class Config:
                 self._account_migration_done = data["account_migration_done"]
             if "music_state" in data:
                 self.music_state = data["music_state"]
+            if "overlay_geometry" in data:
+                # 坏值（非 dict）由读取方 `app/bridges/overlay_bridge.py` 容错，
+                # 这里原样搬过来，不在配置层做业务判定
+                self.overlay_geometry = data["overlay_geometry"]
             if "music_baike_original_enabled" in data:
                 self.music_baike_original_enabled = bool(data["music_baike_original_enabled"])
             if "wy_cookie" in data:
@@ -482,6 +492,7 @@ class Config:
                 "current_account_id": self.current_account_id,
                 "account_migration_done": self._account_migration_done,
                 "music_state": self.music_state,
+                "overlay_geometry": self.overlay_geometry,
                 "music_baike_original_enabled": self.music_baike_original_enabled,
                 "wy_cookie": encrypt_token(self.wy_cookie) if self.wy_cookie else None,
             }

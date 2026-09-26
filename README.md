@@ -294,6 +294,10 @@ uv sync
 # 需要做 QML 界面开发时，额外装 ui 依赖组（PySide6 6.7.3）
 uv sync --group ui
 
+# 运行 QML 版界面（阶段 2 的骨架：入口装配 / 主题 / i18n / 导航 / 对话框 / 悬浮窗）
+# 注意：需要先编译 FluentUI 插件（阶段 0 的产物，不入库）：scripts/build_fluentui.ps1
+uv run python main_qml.py
+
 # 新增依赖（会同时更新 pyproject.toml 与 uv.lock）
 uv add 包名
 uv add --group dev 开发期包名

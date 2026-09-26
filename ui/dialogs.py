@@ -442,19 +442,10 @@ class VersionSelectorDialog(ctk.CTkToplevel):
         self.destroy()
 
 
-NOTICE_URL = "https://jingdu.qzz.io/static/fmcl-notice.txt"
-
-
-def fetch_notice() -> Optional[str]:
-    try:
-        resp = requests.get(NOTICE_URL, timeout=10)
-        resp.raise_for_status()
-        resp.encoding = "utf-8"
-        text = resp.text.strip()
-        return text if text else None
-    except Exception as e:
-        logger.warning(f"获取公告失败: {e}")
-        return None
+# 公告地址与拉取已搬到服务层（阶段 2 任务 2.14）：原实现零界面依赖，但住在 ui/ 包里，
+# QML 运行时不许 import ui/（会拉起 customtkinter），所以搬到 services/notice_service.py。
+# 这里保留同名转发，Tk 界面行为逐字不变。
+from services.notice_service import NOTICE_URL, fetch_notice  # noqa: E402,F401
 
 
 def show_notice_dialog(parent, content: str, on_dismiss=None) -> None:

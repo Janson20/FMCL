@@ -1,0 +1,233 @@
+// 启动期弹窗（阶段 2 任务 2.14）：用户协议 + AI 隐私同意（A-21）与公告展示（A-22）。
+//
+// 为什么单独一个文件而不是复用 2.13 的 `components/dialogs/`：这两个弹窗属于
+// **启动链条**（`Startup` 驱动），必须在主窗口还没显示、对话框宿主还没握手之前就能弹出来；
+// 而复用那套组件会让"启动流程"依赖"对话框基础设施已就绪"。归属分开更干净。
+//
+// 语义（对照表 A-21，逐条对齐旧实现）：
+//   * 两个勾选框**都勾上**才允许点「同意并继续」（旧实现是"勾选后方可确认"）；
+//   * 同意后由 `Startup.confirmAgreement()` 写回 `config.terms_consent` 与
+//     `config.ai_privacy_consent` 并落盘；
+//   * 文案全部来自语言文件（`terms_*` / `ai_privacy_*` / `notice_*`），QML 里没有中文；
+//   * 公告关闭后由 `Startup.dismissNotice()` 继续"预下载"那一步。
+//
+// 留待阶段 3 的（已登记、不是遗漏）：`TERMS_OF_USE.md` **全文**的富文本渲染归
+// 3.26（关于 / 链接 / 协议）；这里显示的是语言文件里那段正式声明（与旧弹窗的正文一致）。
+
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+Item {
+    id: root
+    anchors.fill: parent
+
+    property bool agreementOpen: false
+    property bool noticeOpen: false
+    property string noticeText: ""
+
+    function openAgreement() {
+        agreementOpen = true
+        termsChecked.checked = false
+        privacyChecked.checked = false
+    }
+
+    function openNotice(content) {
+        noticeText = content
+        noticeOpen = true
+    }
+
+    function t(key) {
+        return Tr ? (Tr?.map[key] ?? key) : key
+    }
+
+    Connections {
+        // `target: Startup` 在 `Startup` **完全没声明**时会抛 `ReferenceError`
+        // （实测：shell 的 QML 探针只提供 Theme/Tr/Nav 等，不提供 Startup）。
+        // 所以用 `typeof` 判一下 —— 这与 `?.`/`??` 适用的情况不同。
+        target: typeof Startup !== "undefined" ? Startup : null
+
+        function onAgreementRequired() {
+            root.openAgreement()
+        }
+
+        function onNoticeReady(content) {
+            root.openNotice(content)
+        }
+    }
+
+    // ── 全屏遮罩 + 协议弹窗 ───────────────────────────────────────
+    Rectangle {
+        anchors.fill: parent
+        visible: root.agreementOpen
+        color: Theme?.bgDark ?? "transparent"
+        z: 200
+
+        Rectangle {
+            id: termsCard
+            anchors.centerIn: parent
+            width: Math.min(720, parent.width - 80)
+            height: Math.min(560, parent.height - 80)
+            color: Theme?.cardBg ?? "transparent"
+            border.width: 1
+            border.color: Theme?.cardBorder ?? "transparent"
+            radius: Theme?.radiusLg ?? 12
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme?.spacingLg ?? 20
+                spacing: Theme?.spacingMd ?? 15
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.t("terms_title")
+                    color: Theme?.textPrimary ?? "transparent"
+                    font.pixelSize: Theme?.fontSizeTitle ?? 18
+                    font.bold: true
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.t("terms_scroll_hint")
+                    color: Theme?.textSecondary ?? "transparent"
+                    font.pixelSize: Theme?.fontSizeSmall ?? 10
+                    wrapMode: Text.WordWrap
+                }
+
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+
+                    ColumnLayout {
+                        width: termsCard.width - (Theme?.spacingLg ?? 20) * 2
+                        spacing: Theme?.spacingMd ?? 15
+
+                        Text {
+                            objectName: "termsContentText"
+                            Layout.fillWidth: true
+                            text: root.t("terms_content")
+                            color: Theme?.textPrimary ?? "transparent"
+                            font.pixelSize: Theme?.fontSizeBase ?? 12
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.t("ai_privacy_title")
+                            color: Theme?.textPrimary ?? "transparent"
+                            font.pixelSize: Theme?.fontSizeLarge ?? 14
+                            font.bold: true
+                        }
+
+                        Text {
+                            objectName: "privacyContentText"
+                            Layout.fillWidth: true
+                            text: root.t("ai_privacy_content")
+                            color: Theme?.textPrimary ?? "transparent"
+                            font.pixelSize: Theme?.fontSizeBase ?? 12
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
+                CheckBox {
+                    id: termsChecked
+                    objectName: "termsCheckBox"
+                    Layout.fillWidth: true
+                    text: root.t("terms_agree")
+                    font.pixelSize: Theme?.fontSizeBase ?? 12
+                }
+
+                CheckBox {
+                    id: privacyChecked
+                    objectName: "privacyCheckBox"
+                    Layout.fillWidth: true
+                    text: root.t("ai_privacy_agreement")
+                    font.pixelSize: Theme?.fontSizeBase ?? 12
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme?.spacingSm ?? 10
+                    Item { Layout.fillWidth: true }
+
+                    Button {
+                        objectName: "agreeButton"
+                        // 勾选前禁用 —— 这是合规语义，不是样式选择
+                        enabled: termsChecked.checked && privacyChecked.checked
+                        text: root.t("ai_privacy_accept")
+                        onClicked: {
+                            root.agreementOpen = false
+                            if (Startup)
+                                Startup.confirmAgreement()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── 公告弹窗 ─────────────────────────────────────────────────
+    Rectangle {
+        anchors.fill: parent
+        visible: root.noticeOpen
+        color: Theme?.bgDark ?? "transparent"
+        z: 210
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(640, parent.width - 80)
+            height: Math.min(480, parent.height - 80)
+            color: Theme?.cardBg ?? "transparent"
+            border.width: 1
+            border.color: Theme?.cardBorder ?? "transparent"
+            radius: Theme?.radiusLg ?? 12
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme?.spacingLg ?? 20
+                spacing: Theme?.spacingMd ?? 15
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.t("notice_title")
+                    color: Theme?.textPrimary ?? "transparent"
+                    font.pixelSize: Theme?.fontSizeTitle ?? 18
+                    font.bold: true
+                }
+
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+
+                    Text {
+                        objectName: "noticeContentText"
+                        width: parent.width
+                        // 公告正文来自网络（数据，不是界面文案）—— 闸门 R3 只管字面量
+                        text: root.noticeText
+                        color: Theme?.textPrimary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeBase ?? 12
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+
+                    Button {
+                        objectName: "noticeCloseButton"
+                        text: root.t("confirm")
+                        onClicked: {
+                            root.noticeOpen = false
+                            if (Startup)
+                                Startup.dismissNotice()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

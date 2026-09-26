@@ -135,7 +135,7 @@ def _instantiate(module_name: str, class_name: str) -> Any:
     return cls()
 
 
-def register_bridges(engine: Any, context: Any) -> Dict[str, List[str]]:
+def register_bridges(engine: Any, context: Any, prebuilt: Optional[Dict[str, Any]] = None) -> Dict[str, List[str]]:
     """注册单例与上下文属性。
 
     返回 ``{"registered": [...], "missing": [...]}`` —— **缺哪个桥不影响启动**，
@@ -178,7 +178,11 @@ def register_bridges(engine: Any, context: Any) -> Dict[str, List[str]]:
 
     for name, module_name, class_name in SINGLETON_BRIDGES + CONTEXT_BRIDGES:
         try:
-            obj = _instantiate(module_name, class_name)
+            # 已经建好的实例优先（`Dialogs` 必须这样：同一个实例要同时喂给 QtUIPort 与 QML）
+            if prebuilt and prebuilt.get(name) is not None:
+                obj = prebuilt[name]
+            else:
+                obj = _instantiate(module_name, class_name)
         except Exception as e:  # noqa: BLE001 - 桥还没落地/依赖缺失都不该挡住启动
             logger.warning("桥接对象 %s 不可用（%s: %s）—— 相应功能将在 QML 侧缺席", name, module_name, e)
             missing.append(name)
@@ -281,11 +285,21 @@ def build_qt_context(dispatcher: Any, dialog_host: Any = None) -> Any:
     return ctx
 
 
-def make_dialog_host() -> Any:
-    """2.13 之前没有 QML 宿主，用 `NullDialogHost`（端口整体退化为兜底值）。"""
+def make_dialog_host(prebuilt: Optional[Dict[str, Any]] = None) -> Any:
+    """取对话框宿主：**优先用已经建好的 `DialogBridge`**，否则退化为 `NullDialogHost`。
+
+    为什么要有这个顺序（任务 2.14 接线时改的）：`QtUIPort` 在 `build_qt_context()` 里就要
+    拿到宿主，而桥是在 `register_bridges()` 里才注册的 —— 如果那一步才建桥，端口手里就只剩
+    `NullDialogHost`，**服务层的所有弹窗都会走静默降级**（`Dialogs` 在 QML 里看得见，
+    但端口不知道它存在）。所以装配顺序改成：**先建 Dialogs 桥 → 喂给端口 → 再把同一个实例
+    注册给 QML**。`qml/components/dialogs/README.md` 也记了这个坑。
+    """
+    if prebuilt and prebuilt.get("Dialogs") is not None:
+        return prebuilt["Dialogs"]
     try:
         from app.bridges.dialog_host import NullDialogHost
 
+        logger.warning("没有可用的 QML 对话框宿主，端口整体退化为 NullUIPort 行为")
         return NullDialogHost()
     except Exception as e:  # noqa: BLE001
         logger.warning("NullDialogHost 不可用（%s），端口走内置兜底", e)
@@ -381,8 +395,20 @@ def assemble(
     *,
     qml: Optional[str] = None,
     init_logging: bool = True,
+    start_startup: bool = False,
 ) -> Assembled:
     """建 app / 引擎 / 上下文 / 桥接并加载根组件。**不进事件循环**。
+
+    Args:
+        start_startup: 是否立刻开跑启动流程（`StartupController.start()`）。
+            **默认 False**，由 `main()` 在真的要进事件循环时传 True。
+
+            为什么要有这个开关：启动流程会踢出后台任务（导入 launcher 核心、初始化成就引擎）。
+            如果调用方装配完就立刻返回（测试、探针），进程会在这些导入还在飞行时进入解释器
+            关闭阶段 —— 实测会得到
+            `RuntimeError: can't register atexit after shutdown`（`concurrent.futures`
+            在 `threading._register_atexit` 里抛）。这不是缺陷而是"没有事件循环却启动了
+            异步流程"的必然结果，所以把"开跑"交给调用方显式决定。
 
     Raises:
         AlreadyRunning: 已有实例在跑（调用方应返回 0 退出）。
@@ -417,20 +443,46 @@ def assemble(
     from app.bridges.qt_dispatch import MainThreadDispatcher
 
     dispatcher = MainThreadDispatcher()
-    context = build_qt_context(dispatcher, make_dialog_host())
 
-    result = register_bridges(engine, context)
+    # ── 装配顺序（任务 2.14 接线时定的）：先把对话框宿主建出来 ──
+    # 同一个 `DialogBridge` 实例要喂给两处：`QtUIPort`（服务层弹窗的出口）与 QML
+    # （`Dialogs` 上下文属性）。顺序反过来的话端口手里只剩 `NullDialogHost`，
+    # 服务层的弹窗会**静默降级**，而 QML 侧看起来一切正常 —— 这种"两边都以为对方在管"
+    # 的接线错误没有运行期报错，所以顺序在这里写死并加了注释。
+    prebuilt: Dict[str, Any] = {}
+    try:
+        prebuilt["Dialogs"] = _instantiate("app.bridges.dialog_bridge", "DialogBridge")
+    except Exception as e:  # noqa: BLE001 - 宿主缺席时端口走兜底，不挡住启动
+        logger.warning("DialogBridge 不可用（%s），对话框将退化为无界面兜底值", e)
+
+    context = build_qt_context(dispatcher, make_dialog_host(prebuilt))
+
+    result = register_bridges(engine, context, prebuilt=prebuilt)
     logger.info("桥接注册完成：%s；缺失 %s", result["registered"], result["missing"])
 
     # 任务 2.10：中文字体注入（必须在 engine.load() 之前；桥缺席时静默跳过）。
     apply_theme_font(engine)
+
+    # ── 任务 2.14：启动流程控制器 ──
+    # 挂在 QML 上是 `Startup`（启动画面的显示、协议/公告/预下载链条都由它驱动）。
+    startup = None
+    try:
+        from app.startup import StartupController
+
+        startup = StartupController(context, ui_port=getattr(context, "ui", None))
+        engine.rootContext().setContextProperty("Startup", startup)
+        engine._fmcl_bridges = getattr(engine, "_fmcl_bridges", {})
+        engine._fmcl_bridges["Startup"] = startup
+        result["registered"].append("Startup")
+    except Exception as e:  # noqa: BLE001 - 启动流程起不来也要能进界面（宁可没有启动画面）
+        logger.error("StartupController 不可用（%s）—— 跳过启动画面与启动链条", e)
 
     # 把注册结果告诉 Runtime 桥：QML 侧据此给出"缺哪些桥"的人话提示，
     # 也让"接线到底通没通"变成可断言的（见 tests/test_main_qml_entry.py）。
     runtime = getattr(engine, "_fmcl_bridges", {}).get("Runtime")
     if runtime is not None:
         try:
-            runtime.set_bridge_status(result)
+            runtime.set_bridge_status({"registered": result["registered"], "missing": result["missing"]})
         except Exception as e:  # noqa: BLE001
             logger.warning("写入桥接状态失败: %s", e)
 
@@ -442,6 +494,75 @@ def assemble(
 
     # 把"第二个实例请求激活"转给窗口（2.12 的骨架会接上真正的前置逻辑）。
     guard.activateRequested.connect(lambda: logger.info("收到第二个实例的激活请求"))
+
+    # ── 任务 2.14：把三条支线接起来（悬浮窗热键 + 启动流程 + 退出清理）──
+    bridges = getattr(engine, "_fmcl_bridges", {})
+    overlay = bridges.get("Overlay")
+    hotkeys = bridges.get("Hotkeys")
+    if overlay is not None and hotkeys is not None:
+        bind = getattr(overlay, "bind_hotkeys", None)
+        if callable(bind):
+            try:
+                # **只在这里接一次**：键位映射由桥负责（它认 monitor_toggle 之类的名字），
+                # 事件来自 HotkeyBridge（非 Qt 全局热键 → 信号 → 主线程）。
+                bind(hotkeys)
+                # `ContextProperty` 只知道 Dart 名字，不知道 Python 信号；桥自己订阅。
+                logger.info("悬浮窗全局热键已接线")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("悬浮窗热键接线失败（热键不可用）: %s", e)
+
+    def _on_quit() -> None:
+        """退出清理链（对照表 A-20，逐条对齐旧实现：
+        插件 APP_SHUTDOWN → Toast 队列 → 音乐热键 → 监控热键 → 监控窗 → 音乐停止）。
+
+        QML 侧能做的六步里，涉及本阶段落地的三样：启动流程停表、Toast 队列、
+        悬浮窗（含监控/歌词窗与它们的热键）。插件与音乐那两步在阶段 3 的页面迁移里接。
+        """
+        logger.info("开始退出清理...")
+        if startup is not None:
+            try:
+                startup.stop()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("停止启动流程失败: %s", e)
+        dialogs = bridges.get("Dialogs")
+        if dialogs is not None:
+            for slot_name in ("markClosing", "clearToasts"):
+                slot = getattr(dialogs, slot_name, None)
+                if callable(slot):
+                    try:
+                        slot()
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("%s 失败: %s", slot_name, e)
+        if overlay is not None:
+            shutdown = getattr(overlay, "shutdown", None)
+            if callable(shutdown):
+                try:
+                    shutdown()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("关闭悬浮窗失败: %s", e)
+        if hotkeys is not None:
+            unregister = getattr(hotkeys, "unregister_all", None)
+            if callable(unregister):
+                try:
+                    unregister()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("注销全局热键失败: %s", e)
+        logger.info("退出清理完成")
+
+    try:
+        app.aboutToQuit.connect(_on_quit)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("挂退出清理失败: %s", e)
+
+    # ── 启动流程开跑（必须在 engine.load() **之后**：协议/公告弹窗要靠 QML 侧的
+    #    StartupDialogs 显示；顺序反了的话第一批信号没人接）──
+    if startup is not None and start_startup:
+        try:
+            startup.start()
+        except Exception as e:  # noqa: BLE001 - 启动流程失败不该让程序起不来
+            logger.error("启动流程启动失败: %s", e, exc_info=True)
+    elif startup is not None:
+        logger.info("assemble(start_startup=False)：启动流程已就绪但未开跑（测试/探针路径）")
 
     return Assembled(app, engine, context, dispatcher, guard, sink, result)
 
@@ -462,7 +583,8 @@ def main(
             避免测试去改写仓库里的 `latest.log`。
     """
     try:
-        built = assemble(argv, qml=qml, init_logging=init_logging)
+        # run_loop=True 才开跑启动流程（见 assemble 的 start_startup 说明）
+        built = assemble(argv, qml=qml, init_logging=init_logging, start_startup=run_loop)
     except AlreadyRunning:
         return 0
     except Exception as e:  # noqa: BLE001 - 启动期任何异常都要有可见出口
