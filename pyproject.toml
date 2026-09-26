@@ -37,6 +37,9 @@ dependencies = [
     "scipy>=1.11.0",
     "pyperclip>=1.8.2",
     "pypinyin>=0.51.0",
+    "tkinterdnd2>=0.4.0",
+    "pillow>=10.0.0",
+    "gpu-detector>=0.3.0",
 ]
 
 [dependency-groups]
@@ -51,6 +54,18 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-asyncio",
 ]
+ui = [
+    "pyside6-addons==6.7.3",
+    "pyside6-essentials==6.7.3",
+]
+
+[tool.uv]
+# dev 与 ui 都算默认组：`uv sync` / `uv run` 不会把 PySide6 卸掉。
+# 不这样设的后果很隐蔽 —— ui 是非默认组时，任何一次 `uv sync`（`uv run` 默认也会同步）
+# 都会静默卸载 pyside6-essentials/addons/shiboken6，让 QML 侧的 POC 与打包突然失效。
+# 代价：只跑旧 Tk 界面的开发机也会装上 Qt（约 460 MB）。这是有意的取舍：
+# 迁移期两种界面并存，而"依赖悄悄消失"比"多占磁盘"危险得多。
+default-groups = ["dev", "ui"]
 
 [tool.black]
 line-length = 120

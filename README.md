@@ -114,32 +114,45 @@ curl -fsSL https://raw.githubusercontent.com/Janson20/FMCL/main/scripts/install.
 
 ### 方式三：从源码运行
 
+依赖统一由 [uv](https://docs.astral.sh/uv/) 管理（`pyproject.toml` + `uv.lock`），
+**不要**用 `pip` 直接装进 `.venv`，否则锁文件与实际环境会漂移。
+
 ```bash
 # 克隆仓库
 git clone https://github.com/Janson20/FMCL.git
 cd FMCL
 
-# 安装 Python 依赖（Windows）
-pip install -r requirements-windows.txt
-
-# 安装 Python 依赖（macOS / Linux）
-pip install -r requirements-unix.txt
+# 创建 .venv 并安装锁定版本的全部依赖
+uv sync
 
 # 运行启动器（GUI 模式）
-python main.py
+uv run python main.py
 
 # 运行 Agent CLI 模式
-python main.py --agent "帮我安装最新版"
-python main.py -A              # 交互模式
+uv run python main.py --agent "帮我安装最新版"
+uv run python main.py -A              # 交互模式
 ```
 
-> 💡 建议使用虚拟环境：`python -m venv .venv && source .venv/bin/activate`
+> 💡 Windows 上也可以直接用虚拟环境里的解释器：`.\.venv\Scripts\python.exe main.py`
 > **Linux 用户注意**：
 > - 首次运行前请安装系统依赖：`sudo apt install python3-tk python3-venv`（Debian/Ubuntu）或 `sudo dnf install python3-tkinter`（Fedora）
 > - 配置文件存储在 `~/.config/fmcl/config.json`，日志存储在 `~/.local/share/fmcl/fmcl.log`
 > - 全局热键（音乐播放器/性能监控）在非 root 用户下不可用，不影响其他功能
 
 > **Python 版本要求**：本项目仅支持 Python >= 3.10, < 3.12。pygame 在 Windows Python 3.12+ 上无可用二进制包。
+
+#### UI 依赖组（PySide6）
+
+`ui` 组（PySide6 6.7.3）已经写进 `pyproject.toml` 的 `[tool.uv] default-groups`，
+所以 `uv sync` / `uv run` 会一并装上、也不会把它卸掉 —— 这是刻意的取舍：迁移期旧 Tk 界面与
+新的 QML 界面并存，而"一次 `uv sync` 悄悄卸掉 Qt"比"多占约 460 MB 磁盘"危险得多
+（`ui` 若不是默认组，`uv sync` 默认会卸载 `pyside6-essentials/addons` 与 `shiboken6`，
+让 QML 侧的 POC 与打包突然失效）。
+
+```bash
+uv sync                       # dev + ui 全部就位
+uv sync --no-default-groups   # 只要最小运行集（不含 pytest 与 Qt，一般不需要）
+```
 
 ---
 
@@ -171,9 +184,35 @@ python main.py -A              # 交互模式
 
 ## 项目结构
 
+> **分层约定（阶段 1 起）**：`界面 → app（服务定位/任务调度/UI 端口/事件总线） → services（业务逻辑，零界面依赖） → launcher 与根模块`。
+> `services/` 里**不允许**出现 `tkinter` / `customtkinter` / `PySide6` / `ui.*` 的导入，由
+> `python scripts/check_services_purity.py` 在 CI 里固化。这条约束的目的是：正在进行中的
+> PySide6 + QML 界面重构可以与现有 Tk 界面**共用同一份业务逻辑**，而不是分叉出两套实现。
+
 ```
 FMCL/
 ├── main.py                # 程序入口（支持 GUI / CLI 双模式）
+├── app/                   # 应用层（界面无关）
+│   ├── context.py         # AppContext 服务定位器（拓扑启动顺序）
+│   ├── tasks.py           # TaskRunner：后台任务 + 主线程回调 + 进度 + 取消
+│   ├── ports.py           # UIPort 协议（NullUIPort / RecordingUIPort）
+│   └── events.py          # EventBus
+├── services/              # 服务层（业务逻辑，零界面依赖；由 CI 强制）
+│   ├── base.py            # Service 基类（生命周期 / 依赖查找 / 事件）
+│   ├── errors.py          # 统一异常
+│   ├── music_source/      # 5 个在线音源的检索与解析
+│   ├── music_audio.py     # 音频元数据/时长校验/文件头魔数/m4a 转码（任务 1.4-A）
+│   ├── music_smtc.py      # Windows SMTC 系统媒体控制（零控件，主线程契约）
+│   ├── music_player.py    # 播放引擎状态机：淡入淡出/预取/进度/播放模式/目录扫描
+│   ├── music_state.py     # 音乐状态读写规则（键名/默认值/容错/周期参数）
+│   ├── music_online.py    # 在线搜索编排/自动音质/取流完成判定/正在播放取值（任务 1.4-B）
+│   ├── music_download.py  # 多源回退下载编排、临时文件规则、B站风控重试编排（任务 1.4-B）
+│   ├── music_wy_remote.py # 网易云远程歌单同步编排与分页（只读、不落盘，任务 1.4-B）
+│   ├── desktop_lyric.py   # 桌面歌词的零界面逻辑（位置/当前行/透明度/锁定）
+│   ├── agent/             # AI 智能助手（供应商 / 工具 / 权限 / 技能 / 会话）
+│   ├── voice/             # 语音输入
+│   └── *_service.py       # 主题、i18n、监控、崩溃诊断、语音、工具、服务器、
+│                          # 联机、Agent、成就等各域服务
 ├── config.py              # 跨平台配置管理（26 项配置）
 ├── launcher/              # 启动器核心逻辑
 │   ├── core.py            # 环境检查、版本安装、游戏启动
@@ -184,11 +223,10 @@ FMCL/
 │   ├── multimc_types.py    # MultiMC 数据模型定义
 │   ├── predownload.py      # 资源包预下载
 │   └── verify.py          # 并发文件校验
-├── ui/                    # CustomTkinter 现代化界面
+├── ui/                    # 当前界面（CustomTkinter；正在迁移到 PySide6 + QML）
 │   ├── app.py             # 主窗口（12 Mixin 组合模式）
-│   ├── agent/             # AI 智能助手子系统（4 供应商、13 工具）
+│   ├── agent/             # AI 助手界面部分（业务实现已搬进 services/agent/）
 │   ├── windows/           # 15 个独立子窗口
-│   ├── server_config_schema.py  # 服务器配置项元数据（界面用名称/说明/取值范围）
 │   ├── static/            # 静态资源（等待小游戏等）
 │   ├── theme_engine.py    # 动态主题引擎
 │   └── i18n.py            # 国际化（4 语言）
@@ -205,10 +243,9 @@ FMCL/
 ├── achievement_engine.py  # 成就引擎（47 项成就）
 ├── achievement_sync.py    # 成就云存档同步
 ├── version_utils.py       # 版本工具（SemVer/正则/YY.D.H）
-├── screen_shot.py         # 截图工具
 ├── cli_agent.py           # Agent CLI 核心逻辑
 ├── agent_cli.py           # 独立控制台入口
-├── scripts/               # 构建/发布/安装脚本
+├── scripts/               # 构建/发布/安装脚本 + 分层与契约静态检查器
 ├── tests/                 # 测试
 └── docs/                  # 文档
     ├── FEATURES.md        # 完整功能列表
@@ -216,9 +253,32 @@ FMCL/
     ├── ARCHITECTURE.md    # 项目架构与技术栈
     ├── CONFIGURATION.md   # 配置说明
     ├── PLUGIN_DEV.md      # 插件开发指南
+    ├── refactor/          # 界面重构的过程文档（决策、对照表、缺陷清单、执行日志）
     └── ...
 ```
 
+> 迁移期间，被搬进 `services/` 的模块会**在原路径留下兼容别名**（例如 `ui/music_lyrics.py`
+> 实际是 `services/music_lyrics.py` 的别名），因此插件与第三方代码按旧路径导入仍然有效。
+> 音乐播放这一域（任务 1.4-A）是**按能力切分**而不是整文件搬家：`ui/app_music.py` 仍是
+> `MusicPlayerMixin` 的宿主（183 个方法名与签名一个都没变），但音频解析、SMTC、播放状态机、
+> 状态持久化与桌面歌词的零界面逻辑分别住进了上表的 `services/music_*.py` 与
+> `services/desktop_lyric.py`，旧私有名（`_extract_audio_metadata` 等）在 `ui/app_music.py`
+> 里保留为**指向同一实现**的别名。
+> 音乐播放域的**在线侧**（任务 1.4-B）沿用同一套切缝：在线检索与分页、自动音质解析与
+> 音质信息补齐、取流完成判定与正在播放取值住进 `services/music_online.py`，多源回退下载、
+> 临时文件的命名/裁剪/清理与 B站风控重试编排住进 `services/music_download.py`，
+> 网易云账号歌单的同步状态机与分页住进 `services/music_wy_remote.py`（远程歌单只读、
+> 不进 `PlaylistManager`、不落盘）。服务侧把这些值当参数收进来、把新值放在返回值里
+> （`SearchOutcome` / `PagerPlan` / `SyncApplyPlan` 等数据类），**控件、线程、`after`
+> 与全部文案仍留在界面**；网络入口（`requests.get`、音源表、网易云后端）都有注入缝，
+> 默认值就是真实实现，因此在线侧整套逻辑可以离线单测。
+> 基岩版与成就这两域（任务 1.11 / 1.12）也是**按能力切分**：`ui/app_bedrock.py` 与
+> `ui/app_achievements.py` 仍是 `BedrockMixin`（28 个方法）/ `AchievementTabMixin`
+> （19 个方法）的宿主，方法名与签名一个都没变，但版本过滤与分页、安装/启动/删除编排、
+> GDK 的 .NET 10 与闭源认证组件前置检查、微软账户设备码登录流程住进了
+> `services/bedrock_service.py`，进度统计、同步/重置编排、解锁载荷归一化住进了
+> `services/achievement_service.py`；两个界面文件里的每个方法都退化成对服务的薄委托，
+> 弹窗、控件、线程调度与**全部文案**仍留在界面。
 > 完整项目结构与模块依赖关系详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
@@ -228,15 +288,35 @@ FMCL/
 ### 环境设置
 
 ```bash
-# 安装 Python 依赖
-pip install -r requirements.txt
+# 安装全部依赖（含 dev 组）到 .venv，使用锁文件里的精确版本
+uv sync
 
-# 安装开发依赖（Linux CI）
-pip install -r requirements-dev.txt
+# 需要做 QML 界面开发时，额外装 ui 依赖组（PySide6 6.7.3）
+uv sync --group ui
+
+# 新增依赖（会同时更新 pyproject.toml 与 uv.lock）
+uv add 包名
+uv add --group dev 开发期包名
 
 # 安装 Git hooks (Husky + Commitlint)
 npm install
 npm run prepare
+```
+
+### 静态检查（迁移期间新增，CI 固化）
+
+```bash
+# services/ 层不得依赖任何界面栈（tkinter / customtkinter / PySide6 / ui.*）
+uv run python scripts/check_services_purity.py
+
+# 界面注入给业务逻辑的回调键必须齐全（防止"按钮点了没反应"）
+uv run python scripts/check_callback_keys.py --fail-on-soft
+
+# i18n：4 语言键集合一致、无缺失键、占位符跨语言一致、调用点参数齐全
+uv run python scripts/check_i18n.py
+
+# 模块搬家的完整性（主体逐节点一致 / 行数一致 / 旧路径别名同一对象）
+uv run python scripts/relocate_module.py --check
 ```
 
 ### 常用命令
@@ -248,6 +328,11 @@ make check            # 检查环境和依赖
 make lint             # 代码检查 (flake8 + mypy)
 make fix              # 运行常见问题修复工具
 make clean            # 清理构建文件
+```
+
+```bash
+# 直接跑测试
+uv run pytest -q
 ```
 
 ### 构建

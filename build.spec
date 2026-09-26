@@ -146,6 +146,10 @@ voice_hidden_imports = [
     'sounddevice', '_sounddevice_data', 'numpy', 'sentencepiece',
     'onnxruntime', 'ui.agent.voice_input', 'ui.agent.voice',
     'ui.agent.voice.sensevoice', 'ui.agent.voice.models',
+    # 任务 1.15：业务逻辑已搬到 services/，ui.* 只剩转发 shim；
+    # sensevoice 依然是延迟 import（_load_engine 内），故两边都登记。
+    'services.voice_service', 'services.voice',
+    'services.voice.sensevoice', 'services.voice.models',
 ]
 
 a = Analysis(

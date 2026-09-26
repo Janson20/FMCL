@@ -45,7 +45,6 @@ FMCL/
 │   └── install_update     # 执行静默安装（/S 参数）
 ├── secure_storage.py      # 安全存储模块（Fernet 加密 Token，密钥文件管理，密码派生）
 ├── validation.py          # 输入验证模块（版本ID/IP/端口/内存校验，路径穿越防护）
-├── screen_shot.py         # 截图工具（Ctrl+Alt+T 触发，区域截图）
 ├── structured_logger.py   # 结构化日志（JSONL 格式，核心流程结构化记录）
 ├── version_utils.py       # 版本工具（SemVer 比较、正则模式集、YY.D.H 格式解析）
 ├── achievement_engine.py  # 成就引擎（47 项成就，9 大分类，多阶段，SQLite 持久化）
@@ -70,6 +69,42 @@ FMCL/
 │   ├── installer.py       # .fmpl 包安装/卸载/回滚
 │   ├── market.py          # 插件市场（GitHub 索引获取、搜索筛选、源码下载）
 │   └── manager.py         # PluginManager 统一入口（组合所有子模块，生命周期管理）
+├── app/                   # 装配层（阶段 1 新增）- 服务定位器、任务调度、UI 端口、事件总线
+│   ├── context.py         # AppContext：服务注册表 + 拓扑启动排序 + 旧 UI 回调汇总
+│   ├── tasks.py           # TaskRunner：有界 daemon 线程池 + 进度上报 + 协作式取消
+│   ├── ports.py           # UIPort 协议 + NullUIPort + RecordingUIPort
+│   └── events.py          # EventBus：同步发布订阅 + 环形历史
+├── services/              # 业务服务层（阶段 1 新增）- 零 UI 依赖，由 CI 强制
+│   ├── base.py            # Service 基类（生命周期 / 依赖查找 / 事件 / UI 端口）
+│   ├── errors.py          # 统一异常体系（10 个语义化子类 + wrap()）
+│   ├── __init__.py        # 包导出面（只放文档与少量聚合导出）
+│   ├── palette.py         # 12 键调色板（唯一 dict 对象，被主题引擎原地修改）
+│   ├── theme_service.py   # 动态主题引擎（预设 / 导入 json / 自定义强调色 / 版本调色）
+│   ├── i18n_service.py    # 多语言（JSON 表 + 热切换 + 可注入语言目录）
+│   ├── user_agent.py      # HTTP User-Agent（LazyStr 惰性求值）
+│   ├── monitor_service.py # GPU 检测/采样 + 系统指标 + 全局热键（原 ui/app_monitor.py）
+│   ├── crash_service.py   # 崩溃诊断（11 类规则表 + 上下文收集 + AI 请求）
+│   ├── voice_service.py   # 语音输入（原 ui/agent/voice_input.py 的逻辑部分）
+│   ├── tool_service.py    # 工具箱 8 个工具的算法与 IO
+│   ├── server_service.py  # 服务器生命周期 / 控制台流 / 配置读写
+│   ├── server_config_schema.py  # 服务器配置项 schema（原 ui/）
+│   ├── online_service.py  # 联机（EasyTier / 大厅码 / 端口转发 / 局域网扫描 / MC Ping）
+│   ├── resource_service.py      # 资源与整合包（扫描/启停/更新检测/缩略图/导入导出）
+│   ├── agent_service.py   # AGENT 的循环 / 流式 / 工具调用 / 权限判定 / 配置编排
+│   ├── backup_manager.py  # 存档备份（世界扫描 / 备份恢复删除校验导出）
+│   ├── achievement_*.py   # 成就定义 / 引擎（进度与解锁）/ 云同步（原仓库根）
+│   ├── music_source/      # 5 个在线音源的检索与解析（base/bili/kg/kw/mg/tx/wy/utils）
+│   ├── music_lyrics.py    # 歌词解析（LRC/翻译/罗马音）
+│   ├── music_effects.py   # 音效 DSP（EQ/混响/变调/变速）
+│   ├── music_playlist.py  # 歌单与播放历史持久化
+│   ├── music_risk_captcha.py    # 音源风控验证码流程
+│   ├── music_audio.py     # 音频元数据/校验/转码
+│   ├── music_player.py    # 播放引擎状态机（淡入淡出/预取/进度/播放模式）
+│   ├── music_state.py     # 音乐状态持久化（键名/默认值/容错）
+│   ├── music_smtc.py      # Windows SMTC 系统媒体控制集成
+│   ├── desktop_lyric.py   # 桌面歌词的纯逻辑（位置计算/当前行/透明度边界）
+│   ├── voice/             # 语音模型（models / sensevoice）
+│   └── agent/             # AGENT 的供应商 / 工具 / 权限 / 技能 / 会话（providers、tools 子包）
 ├── ui/                    # CustomTkinter 现代化 UI（包）
 │   ├── __init__.py        # 向后兼容导出
 │   ├── app.py             # ModernApp 组合类（12 个 Mixin 多继承）
@@ -143,7 +178,9 @@ FMCL/
 ├── scripts/
 │   ├── install.sh         # Linux 一键安装脚本（支持 7 大发行版）
 │   ├── release.py         # 自动发布脚本
-│   └── fix_common_issues.py  # 常见问题修复工具
+│   ├── fix_common_issues.py  # 常见问题修复工具
+│   ├── screenshot_tool.py # 截图工具（Ctrl+Alt+T 触发，区域截图；独立运行，不属于启动器进程）
+│   └── check_services_purity.py  # 分层纯净度静态检查（services 层禁 UI 依赖）
 ├── tests/
 │   ├── test_account.py
 │   ├── test_imports.py
@@ -181,6 +218,182 @@ FMCL/
     └── LINUX_FILE_LOCATIONS.md # Linux FHS 文件存储说明
 ```
 
+## 分层架构（阶段 1 重构进行中）
+
+> 本节描述**正在进行**的 UI 重构引入的新分层。旧的 Tk 界面仍然可用且行为不变，
+> 两套界面共用同一份业务逻辑。完整计划见 `docs/refactor/`。
+
+**当前规模（阶段 1 收口时的快照）**：`services/` **77 个文件 / 28559 行**
+（35 个顶层模块 + `agent/` 30 个文件、`music_source/` 9 个、`voice/` 3 个；
+仍在抽取的域落盘后还会增长，准确数字请跑 `python poc/_list_services.py`）；
+`ui/` 侧对应位置要么留**转发 shim**（模块级搬迁），要么留**同名薄委托方法**（逻辑切分）。
+分层检查覆盖 132 个文件、0 处未登记违规、0 处已登记例外。
+
+```
+QML 界面（阶段 2/3 建设中）     旧 Tk 界面（现役，阶段 4 退役）
+        │                              │
+        └──────────────┬───────────────┘
+                       ▼
+              app/          装配层：服务定位器、任务调度、UI 能力端口、事件总线
+        ┌──────────────┼──────────────┬───────────────┐
+        ▼              ▼              ▼               ▼
+   AppContext      TaskRunner      UIPort          EventBus
+  （服务注册表）  （有界线程池）  （界面能力协议）  （发布订阅）
+                       │
+                       ▼
+              services/       业务服务层：零 UI 依赖（CI 强制）
+                       │
+                       ▼
+              launcher/ 等    核心逻辑：安装、启动、下载、账号……
+
+```
+
+### 硬性分层约束
+
+| 层 | 允许依赖 | 禁止依赖 | 强制手段 |
+|---|---|---|---|
+| `services/` | 标准库、第三方库、`launcher/`、根级核心模块 | `tkinter` / `customtkinter` / `PySide6` / `ui.*` | `scripts/check_services_purity.py`（AST 分析，已接入测试） |
+| `launcher/` | 标准库、第三方库、`services/` | 任何 GUI 库、`ui.*` | 同上 |
+| `ui/` | 任何东西 | —（界面层是终端消费者） | — |
+| `app/` | 标准库、`services/` | 任何 GUI 库 | `app/ports.py` 的协议设计 |
+
+服务层需要"告诉用户一件事"时，只能通过注入的 `UIPort`（`app/ports.py`）；
+需要后台线程时用 `TaskRunner`（`app/tasks.py`，有界 daemon 线程池 + 主线程回调）。
+
+### 装配：`app/bootstrap.py`（阶段 1 任务 1.17）
+
+`AppContext` 本身在阶段 1 很早就写完了，但**一直没有生产代码构造它** ——
+后果是界面侧的 `_get_xxx_service(owner)` 永远拿到 `ctx is None`，
+**每个窗口各自 new 一份服务**：那样"新旧 UI 共用同一份业务逻辑"在运行期并不成立
+（只是共用同一份代码）。`app/bootstrap.py` 补上这段接线：
+
+```python
+from app.bootstrap import attach, build_context
+
+context = build_context(config=config, ui=ui_port, scheduler=lambda fn: app.after(0, fn))
+attach(context, app)          # app.context = ctx，并登记为进程级 current
+context.start_all()           # 目前是空操作（13 个服务都没覆盖 Service.start）
+```
+
+三个设计点：
+
+1. **懒注册**（`AppContext.register_lazy`）。`SERVICE_FACTORIES` 存的是
+   `"模块:类名"` 字符串，`app/bootstrap.py` 顶层不 import 任何服务；
+   实例在**第一次被取用**时才建。理由是启动速度：服务模块里有几个
+   import 就拉起重依赖（`onnxruntime` / `pygame` / `winsdk`），启动时多数用不到。
+   工厂抛异常时 `try_get` 返回 `None`（界面走"自己 new"的旧兜底）且**不缓存失败**。
+2. **进程级当前上下文**（`AppContext.current()` / 模块级别名 `current_context()`）。
+   界面侧的辅助函数 `owner` 是**窗口自己**，而窗口没有 `context` 属性，所以写成
+   `ctx = getattr(owner, "context", None) or current_context()` ——
+   这一行让 12 个窗口/标签页复用同一批服务实例。
+3. **完整性守卫**：`tests/test_app_context_wiring.py` 会扫 `services/` 下每个
+   `Service` 子类，要求它在 `SERVICE_FACTORIES` 里、或在 `NOT_REGISTERED` 里写明理由；
+   并且会检查每个 `_get_*_service` 辅助函数是否真的兜底到 `current_context()`
+   （未接的要进 `PENDING_LOOKUP_FILES` 并写理由，接好后必须从名单里删掉）。
+   这两条挡的都是"没有运行期报错"的缺陷。
+
+### 模块搬运的三种形态
+
+阶段 1 把 `ui/` 里的业务逻辑搬进 `services/`，按原模块的 UI 耦合度分三种做法：
+
+1. **整体搬家 + 转发 shim** —— 适用于本来就不依赖界面的模块。
+   内容逐字搬走，原位置留一层命名空间完全一致的 shim。已用于：
+   `achievement_defs` / `achievement_engine` / `achievement_sync` /
+   `server_config_schema` / `music_lyrics` / `music_effects` / `music_playlist` /
+   `music_risk_captcha` / `backup_manager`、`ui/music_source/` 整包、
+   `ui/agent/` 的 12 个模块与 `providers/`、`tools/` 两个子包。
+   工具：`scripts/relocate_module.py`（`--list` / `--check` / `--apply` / `--apply-all` /
+   `--regen-shims`），对每条搬迁做三重校验。
+2. **逻辑/界面分离** —— 适用于方法里界面与逻辑混在一起的 Mixin。
+   把不碰控件的逻辑搬进服务，Mixin 保留同名方法做薄委托（调用点不变）。已用于：
+   `app_monitor`（GPU 检测/采样/热键 → `services/monitor_service.py`）、
+   音乐播放（任务 1.4-A：播放状态机/淡入淡出步进/预取判定/进度换算/播放模式/
+   目录扫描 → `services/music_player.py`；桌面歌词的位置与当前行规则 →
+   `services/desktop_lyric.py`）。同一个宿主文件里，**本来就不碰控件的模块级函数与类
+   走形态 1**（音频解析/校验/转码 → `services/music_audio.py`、SMTC →
+   `services/music_smtc.py`）。注意这类"局部抽取"套不上
+   `scripts/relocate_module.py` 的"整模块搬走 + 原路径留 shim"模型（宿主
+   `ui/app_music.py` 必须原地保留，`ui/app.py` 靠 mixin 组装主窗口），
+   所以改用与它同一套判据做局部搬运：逐字节等价 + 旧名指向同一对象，
+   证据脚本是 `poc/_verify_1_4a_music.py`。
+3. **服务 + 事件** —— 适用于需要主动通知界面的逻辑（阶段 2 起使用）。
+   任务 1.4-A 另有 **形态 3：服务 + 持久化**：键名/默认值/容错分支进服务，
+   取值与写盘留在界面（`services/music_state.py`）。
+
+### 转发 shim 的命名空间约定
+
+shim **必须同时做两件事**（缺一不可，两个都踩过实坑）：
+
+```python
+import sys
+import services.xxx as _impl
+
+sys.modules[__name__] = _impl                                     # ① 别名
+globals().update({k: v for k, v in vars(_impl).items()            # ② 复制
+                  if not k.startswith("__")})
+```
+
+① **别名**（`sys.modules[__name__] = _impl`）：让 `ui.xxx is services.xxx` 成立，
+读、**写**、打补丁、`is` 判定全部与搬家前一致。
+只做复制（`globals().update`）的话，"读"到的是同一批对象，但**"写"传不过去** ——
+`m.FOO = fake` 只改到 shim 自己的命名空间，实现模块里的 `FOO` 不变，
+**monkeypatch 会静默失效**。实测踩到过：`ui/music_source/` 搬走后，
+`tests/test_music_fallback.py` 里的 `monkeypatch.setattr(ms, "MUSIC_SOURCES", ...)`
+失效，测试**真的去请求了 QQ 音乐接口**。
+
+② **复制**（`globals().update(...)`）：兼容另一种加载方式 ——
+仓库里 `tests/test_music_playlist.py` 是按**文件路径**加载模块
+（`spec_from_file_location` + 自己注册进 `sys.modules`）以绕开 `ui/__init__.py` 的
+GUI 导入，它会**保留 exec 之前的那个模块对象**；只做别名的话那个对象仍是空壳
+（实测报 `module 'ui.music_playlist' has no attribute 'PlaylistSong'`）。
+
+**包子包（`ui/agent/providers/` 这类）还要额外别名所有子模块**，
+否则 `import ui.agent.providers.jingdu` 会以旧包名**再加载一次**实现文件，
+产生第二个类对象 → `isinstance` 判定失败。`scripts/relocate_module.py --check`
+会把这三条都验一遍（主体 AST 逐节点一致、行数与原文一致、旧路径自定义名与实现同一对象）。
+
+阶段 3 完成后所有调用点改为直接 `from services... import`，届时 shim 可删除。
+
+---
+
+## 静态守卫（迁移期的"防回归机器"）
+
+重构期间最容易出的不是"编译不过"，而是**静默失效**：回调键写错导致按钮点了没反应、
+成就触发点被搬丢导致永远解锁不了、搬走的模块在原路径变成空壳、`services/` 里悄悄
+import 了界面栈。这些都不会报错，所以每一条都配了一个可机械执行的守卫：
+
+| 守卫 | 命令 | 它挡住什么 |
+|---|---|---|
+| 分层纯净度 | `python scripts/check_services_purity.py` | `services/` / `launcher/` / `main.py` / 移植中的根模块 import 了 GUI 栈或 `ui.*` |
+| 回调键完整性 | `python scripts/check_callback_keys.py --fail-on-soft` | 界面引用了没人提供的回调键（功能静默失效），或提供了却没人引用（死键） |
+| i18n 契约 | `python scripts/check_i18n.py` | 4 语言键集合不一致、代码引用了缺失键、占位符跨语言不一致、调用点少传参数 |
+| 搬家完整性 | `python scripts/relocate_module.py --check` | 搬走的内容与原文件不一致、行数变了、旧路径不再是同一对象。**搬家完成后带任务号的缺陷修复会合法地改变行数**，这类偏差逐条登记在脚本的 `REGISTERED_LINE_DELTAS` 里（带任务号 + 缺陷号 + 理由），判据变成"新文行数 == 原文行数 + 已登记偏差"；不在表里的文件仍必须**完全一致**，且**每条例外都必须被命中**（命中 0 次 = 登记过期，同样报错）。同一事实在 `tests/test_services_relocation.py` 也登记了一份（那里按**非空行**算），两条守卫会互相核对键集合、并从 git 原文**现算**增量的真实值 |
+| 入口可导入 | `pytest tests/test_entry_imports.py` | 某个入口模块 **import 不起来**（历史上 `cli_agent.py` 因此整条不可用很久） |
+| 窗口可构造 | `pytest tests/test_window_smoke.py` | 薄委托改造把窗口改坏（漏搬属性/回调/i18n 键）→ 窗口打不开。14 个 `CTkToplevel` 子窗口逐个真构造一次；另含"新增窗口忘了进冒烟清单"的完整性守卫 |
+| 依赖清单一致 | `python poc/_audit_dependency_drift.py` | `requirements*.txt` 与 `pyproject.toml` 漂移（历史上 `tkinterdnd2` 因此在 uv 环境里缺失、拖拽**静默**失效） |
+| 成就可达性 | `pytest tests/test_achievement_wiring.py` | 成就的 id 在代码里从未被引用 → 永远解锁不了（历史上真的有两项） |
+| 依赖不消失 | `uv sync --dry-run` | `uv sync` / `uv run` 静默卸载 PySide6（见 `pyproject.toml` 的 `[tool.uv] default-groups` 说明） |
+
+**方法论上值得记住的两条**：
+1. **迁移期的验证必须以"执行者落盘后的完整状态"为准** —— 一个"薄委托"改到一半时，
+   方法体调用的是尚未写出的函数，抽样运行会看到假故障。
+2. **测试替身自己也要被测试**：`tests/test_mod_browser_staleness.py` 用替身替换了渲染函数，
+   于是"替身守住了、生产代码没守"是可能的 —— 所以另配了一组 AST 断言，
+   直接读生产代码确认守卫函数确实被调用。
+
+**第 12 轮补的第 3 条**：
+3. **闸门自己也要被测试（变异测试）**。一条只会 PASS 的闸门不是闸门，只是一句安慰。
+   新增或修改任何机械判据时，都要配一个"把它改坏 → 必须报红"的探针：
+   * `poc/_probe_relocate_registry.py`：往 `REGISTERED_LINE_DELTAS` 里塞假登记项 /
+     改错增量 / 取消豁免 / 用错键名 —— 四种都必须让 `--check` 退出码变 1；
+   * `poc/_probe_d114_guard.py`：把 D-114 的两条 AST 守卫对应的生产代码改坏
+     （去掉 `try`、把计数挪进分支），断言测试**确实会红**。
+   **尤其要防"空断言"**：`RecordingUIPort.show_progress` 只记录 `report=`、
+   悄悄丢掉 `detail` / `modal` / `on_cancel`，任何断言这些 kwargs 的测试都会
+   拿不到数据或断言成一句永远成立的空话 —— 这类"替身削弱断言"是静默失效的另一种形态。
+
+---
+
 ## 模块依赖关系
 
 ```
@@ -207,11 +420,28 @@ main.py（程序入口）
   │   │   ├── launcher.get_callbacks()（回调连接核心逻辑）
   │   │   └── windows/（15 个独立窗口）
   │   │
+  │   ├── app/（装配层，阶段 1 新增）
+  │   │   ├── context.py（AppContext 服务定位器 + 拓扑启动排序 + 旧 UI 回调汇总）
+  │   │   ├── tasks.py（TaskRunner：有界 daemon 线程池 + 进度 + 协作式取消）
+  │   │   ├── ports.py（UIPort 协议 + NullUIPort + RecordingUIPort）
+  │   │   └── events.py（EventBus 同步发布订阅）
+  │   │
+  │   ├── services/（业务服务层，零 UI 依赖，CI 强制）
+  │   │   ├── base.py / errors.py（Service 基类 + 统一异常体系）
+  │   │   ├── palette.py / theme_service.py / i18n_service.py / user_agent.py
+  │   │   ├── achievement_defs.py / achievement_engine.py / achievement_sync.py
+  │   │   ├── server_config_schema.py / music_lyrics.py / music_effects.py
+  │   │   ├── music_source/（在线音源适配）
+  │   │   ├── music_audio.py / music_smtc.py / music_player.py / music_state.py
+  │   │   │   （任务 1.4-A：音频解析 · SMTC · 播放状态机 · 状态读写规则）
+  │   │   ├── desktop_lyric.py（桌面歌词零界面逻辑）
+  │   │   └── monitor_service.py（GPU 检测/采样 + 指标采集 + 全局热键）
+  │   │
   │   ├── launcher/（核心逻辑包）
   │   │   ├── core.py（环境检查 + 版本安装 + 游戏启动 + JVM 优化）
   │   │   ├── server.py（服务器安装/启动/停止）
   │   │   ├── mrpack.py（整合包安装/开服）
-  │   │   ├── predownload.py（预下载）
+  │   │   ├── predownload.py（预下载，已改走 UIPort）
   │   │   └── verify.py（并发文件校验）
   │   │
   │   ├── modrinth.py（Modrinth API 搜索/下载/安装）
@@ -220,8 +450,8 @@ main.py（程序入口）
   │   ├── downloader.py（多线程 + 异步下载）
   │   ├── updater.py（自动更新）
   │   ├── backup_manager.py（存档备份管理）
-  │   ├── achievement_engine.py（成就引擎）
-  │   ├── achievement_sync.py（成就云同步）
+  │   ├── achievement_engine.py（转发 shim → services/achievement_engine.py）
+  │   ├── achievement_sync.py（转发 shim → services/achievement_sync.py）
   │   └── structured_logger.py（结构化日志记录）
   │
   ├── CLI 模式（-A / -agent）：

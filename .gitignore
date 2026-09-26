@@ -112,3 +112,27 @@ skills/
 
 # 语音识别模型（首次使用时自动下载）
 models/
+
+# ── 阶段 0：UI 重构相关 ──────────────────────────────────
+# 第三方依赖源码（FluentUI C++ / PySide6-FluentUI-QML，MIT）
+# 入库只保留来源记录与获取/构建脚本，源码树由脚本按 pin 的 commit 重新拉取
+third_party/*
+!third_party/README.md
+!third_party/PROVENANCE.md
+!third_party/BUILD_PROVENANCE.md
+!third_party/fetch_sources.ps1
+
+# 本地 Qt SDK（体积大，不入库；由 scripts/build_fluentui.ps1 通过环境变量定位）
+/Qt/
+qt-sdk/
+.aqt/
+
+# QML 编译产物与 PySide6 缓存
+*.qmlc
+*.jsc
+.qmllint.ini
+poc/.probe/
+poc/_build/
+poc/_dist/
+.probe-venv/
+
