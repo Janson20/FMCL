@@ -8,6 +8,14 @@
     - _validate_audio_duration 试听片段时长校验
     - B站风控验证：验证页回调流程/取消、register/validate API、风控源跳过
 
+补丁点说明（阶段 1 任务 1.4-A）：音频解析/校验/转码这 10 个模块级函数已从
+`ui/app_music.py` 整体搬进 `services/music_audio.py`（形态 1），降级开关
+（`_mutagen_import_error` / `_winsdk_available`）与 `shutil` / `subprocess`
+也随实现搬走，函数体按**模块级全局名**读它们。因此本文件的 monkeypatch 目标
+从 `ui.app_music` 改指 `services.music_audio`（`_extract_audio_metadata`
+改为新公开名 `extract_audio_metadata`）——**补丁点随实现搬到 services，
+断言与语义一字未改**。
+
 运行: pytest tests/test_music_fallback.py -v
 """
 
@@ -24,7 +32,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import ui.app_music as app_music  # noqa: E402
+import services.music_audio as music_audio  # noqa: E402
 import ui.music_source as ms  # noqa: E402
 from ui.music_source.bili import BiliBiliMusicSource  # noqa: E402
 
@@ -503,20 +511,20 @@ class TestTranscodeAudioToWav:
     def test_mp3_returns_none(self, tmp_path):
         p = tmp_path / "a.mp3"
         p.write_bytes(b"ID3" + b"\x00" * 13)
-        assert app_music._transcode_audio_to_wav(str(p)) is None
+        assert music_audio.transcode_audio_to_wav(str(p)) is None
 
     def test_flac_returns_none(self, tmp_path):
         p = tmp_path / "a.flac"
         p.write_bytes(b"fLaC" + b"\x00" * 12)
-        assert app_music._transcode_audio_to_wav(str(p)) is None
+        assert music_audio.transcode_audio_to_wav(str(p)) is None
 
     def test_no_backend_returns_none(self, monkeypatch, tmp_path):
         """winsdk 不可用且无 ffmpeg 时保留原文件（返回 None）"""
-        monkeypatch.setattr(app_music, "_winsdk_available", False)
-        monkeypatch.setattr(app_music.shutil, "which", lambda name: None)
+        monkeypatch.setattr(music_audio, "_winsdk_available", False)
+        monkeypatch.setattr(music_audio.shutil, "which", lambda name: None)
         p = tmp_path / "a.m4a"
         p.write_bytes(b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 20)
-        assert app_music._transcode_audio_to_wav(str(p)) is None
+        assert music_audio.transcode_audio_to_wav(str(p)) is None
 
     def test_ffmpeg_fallback_success(self, monkeypatch, tmp_path):
         """ffmpeg 回退路径：转码成功返回 wav 路径"""
@@ -529,12 +537,12 @@ class TestTranscodeAudioToWav:
             open(out_path, "wb").write(b"\x00" * 100)  # 模拟 ffmpeg 输出
             return FakeProc()
 
-        monkeypatch.setattr(app_music, "_winsdk_available", False)
-        monkeypatch.setattr(app_music.shutil, "which", lambda name: "ffmpeg" if name == "ffmpeg" else None)
-        monkeypatch.setattr(app_music.subprocess, "run", fake_run)
+        monkeypatch.setattr(music_audio, "_winsdk_available", False)
+        monkeypatch.setattr(music_audio.shutil, "which", lambda name: "ffmpeg" if name == "ffmpeg" else None)
+        monkeypatch.setattr(music_audio.subprocess, "run", fake_run)
         p = tmp_path / "b.m4a"
         p.write_bytes(b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 20)
-        result = app_music._transcode_audio_to_wav(str(p))
+        result = music_audio.transcode_audio_to_wav(str(p))
         assert result is not None
         assert result.endswith(".wav")
         assert os.path.exists(result)
@@ -550,12 +558,12 @@ class TestTranscodeAudioToWav:
             open(out_path, "wb").write(b"\x00" * 100)
             return FakeProc()
 
-        monkeypatch.setattr(app_music, "_winsdk_available", False)
-        monkeypatch.setattr(app_music.shutil, "which", lambda name: "ffmpeg" if name == "ffmpeg" else None)
-        monkeypatch.setattr(app_music.subprocess, "run", fake_run)
+        monkeypatch.setattr(music_audio, "_winsdk_available", False)
+        monkeypatch.setattr(music_audio.shutil, "which", lambda name: "ffmpeg" if name == "ffmpeg" else None)
+        monkeypatch.setattr(music_audio.subprocess, "run", fake_run)
         p = tmp_path / "c.mp3"  # 扩展名错误，内容为 MP4 容器
         p.write_bytes(b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 20)
-        result = app_music._transcode_audio_to_wav(str(p))
+        result = music_audio.transcode_audio_to_wav(str(p))
         assert result is not None
         assert result.endswith(".wav")
 
@@ -565,12 +573,12 @@ class TestTranscodeAudioToWav:
         class FakeProc:
             returncode = 1
 
-        monkeypatch.setattr(app_music, "_winsdk_available", False)
-        monkeypatch.setattr(app_music.shutil, "which", lambda name: "ffmpeg" if name == "ffmpeg" else None)
-        monkeypatch.setattr(app_music.subprocess, "run", lambda *a, **k: FakeProc())
+        monkeypatch.setattr(music_audio, "_winsdk_available", False)
+        monkeypatch.setattr(music_audio.shutil, "which", lambda name: "ffmpeg" if name == "ffmpeg" else None)
+        monkeypatch.setattr(music_audio.subprocess, "run", lambda *a, **k: FakeProc())
         p = tmp_path / "c.m4a"
         p.write_bytes(b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 20)
-        assert app_music._transcode_audio_to_wav(str(p)) is None
+        assert music_audio.transcode_audio_to_wav(str(p)) is None
 
 
 # ═══════════════ 下载校验 ═══════════════
@@ -582,83 +590,83 @@ class TestValidateAudioFileHeader:
 
     def test_id3_mp3(self, tmp_path):
         path = self._write(tmp_path, "a.mp3", b"ID3\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
-        assert app_music._validate_audio_file_header(path) is True
+        assert music_audio.validate_audio_file_header(path) is True
 
     def test_raw_mp3_frame(self, tmp_path):
         path = self._write(tmp_path, "b.mp3", b"\xff\xfb\x90\x00" + b"\x00" * 12)
-        assert app_music._validate_audio_file_header(path) is True
+        assert music_audio.validate_audio_file_header(path) is True
 
     def test_flac(self, tmp_path):
         path = self._write(tmp_path, "c.flac", b"fLaC" + b"\x00" * 12)
-        assert app_music._validate_audio_file_header(path) is True
+        assert music_audio.validate_audio_file_header(path) is True
 
     def test_ogg(self, tmp_path):
         path = self._write(tmp_path, "d.ogg", b"OggS\x00\x02" + b"\x00" * 10)
-        assert app_music._validate_audio_file_header(path) is True
+        assert music_audio.validate_audio_file_header(path) is True
 
     def test_wav(self, tmp_path):
         path = self._write(tmp_path, "e.wav", b"RIFF" + b"\x00" * 12)
-        assert app_music._validate_audio_file_header(path) is True
+        assert music_audio.validate_audio_file_header(path) is True
 
     def test_m4a_ftyp(self, tmp_path):
         path = self._write(tmp_path, "f.m4a", b"\x00\x00\x00\x18" + b"ftypM4A " + b"\x00" * 8)
-        assert app_music._validate_audio_file_header(path) is True
+        assert music_audio.validate_audio_file_header(path) is True
 
     def test_html_rejected(self, tmp_path):
         path = self._write(tmp_path, "g.mp3", b"<html><body>error</body></html>")
-        assert app_music._validate_audio_file_header(path) is False
+        assert music_audio.validate_audio_file_header(path) is False
 
     def test_empty_rejected(self, tmp_path):
         path = self._write(tmp_path, "h.mp3", b"")
-        assert app_music._validate_audio_file_header(path) is False
+        assert music_audio.validate_audio_file_header(path) is False
 
     def test_nonexistent_rejected(self, tmp_path):
-        assert app_music._validate_audio_file_header(str(tmp_path / "nope.mp3")) is False
+        assert music_audio.validate_audio_file_header(str(tmp_path / "nope.mp3")) is False
 
 
 class TestValidateAudioDuration:
     def test_within_tolerance(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(app_music, "_mutagen_import_error", None)
-        monkeypatch.setattr(app_music, "_extract_audio_metadata", lambda p: {"duration": 233.0})
+        monkeypatch.setattr(music_audio, "_mutagen_import_error", None)
+        monkeypatch.setattr(music_audio, "extract_audio_metadata", lambda p: {"duration": 233.0})
         p = tmp_path / "a.mp3"
         p.write_bytes(b"ID3" + b"\x00" * 13)
         # 240s 预期: 差 7s <= max(10, 48) -> 通过
-        assert app_music._validate_audio_duration(str(p), 240) is True
+        assert music_audio.validate_audio_duration(str(p), 240) is True
 
     def test_trial_clip_rejected(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(app_music, "_mutagen_import_error", None)
-        monkeypatch.setattr(app_music, "_extract_audio_metadata", lambda p: {"duration": 90.0})
+        monkeypatch.setattr(music_audio, "_mutagen_import_error", None)
+        monkeypatch.setattr(music_audio, "extract_audio_metadata", lambda p: {"duration": 90.0})
         p = tmp_path / "b.mp3"
         p.write_bytes(b"ID3" + b"\x00" * 13)
         # 300s 预期: 差 210s > 60s -> 试听片段
-        assert app_music._validate_audio_duration(str(p), 300) is False
+        assert music_audio.validate_audio_duration(str(p), 300) is False
         # 240s 预期: 差 150s > 48s -> 试听片段
-        assert app_music._validate_audio_duration(str(p), 240) is False
+        assert music_audio.validate_audio_duration(str(p), 240) is False
 
     def test_unknown_duration_passes(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(app_music, "_mutagen_import_error", None)
-        monkeypatch.setattr(app_music, "_extract_audio_metadata", lambda p: {"duration": 0.0})
+        monkeypatch.setattr(music_audio, "_mutagen_import_error", None)
+        monkeypatch.setattr(music_audio, "extract_audio_metadata", lambda p: {"duration": 0.0})
         p = tmp_path / "c.mp3"
         p.write_bytes(b"ID3" + b"\x00" * 13)
-        assert app_music._validate_audio_duration(str(p), 240) is True
-        assert app_music._validate_audio_duration(str(p), 0) is True
+        assert music_audio.validate_audio_duration(str(p), 240) is True
+        assert music_audio.validate_audio_duration(str(p), 0) is True
 
     def test_mutagen_unavailable_passes(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(app_music, "_mutagen_import_error", ImportError("no mutagen"))
+        monkeypatch.setattr(music_audio, "_mutagen_import_error", ImportError("no mutagen"))
         p = tmp_path / "d.mp3"
         p.write_bytes(b"ID3" + b"\x00" * 13)
-        assert app_music._validate_audio_duration(str(p), 300) is True
+        assert music_audio.validate_audio_duration(str(p), 300) is True
 
     def test_parse_exception_passes(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(app_music, "_mutagen_import_error", None)
+        monkeypatch.setattr(music_audio, "_mutagen_import_error", None)
 
         def _boom(path):
             raise RuntimeError("broken file")
 
-        monkeypatch.setattr(app_music, "_extract_audio_metadata", _boom)
+        monkeypatch.setattr(music_audio, "extract_audio_metadata", _boom)
         p = tmp_path / "e.mp3"
         p.write_bytes(b"ID3" + b"\x00" * 13)
-        assert app_music._validate_audio_duration(str(p), 240) is True
+        assert music_audio.validate_audio_duration(str(p), 240) is True
 
 
 if __name__ == "__main__":
