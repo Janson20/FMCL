@@ -1,13 +1,59 @@
-"""ModernApp 成就 Mixin - 成就标签页 + 云同步"""
+"""ModernApp 成就 Mixin - 成就标签页 + 云同步
+
+业务逻辑已搬到 ``services/achievement_service.py``（阶段 1 任务 1.12）：
+进度数据的统计准备（总量 / 已解锁 / 百分比、分类计数）、上次同步时间的格式化、
+Token 取值、同步 / 云重置 / 本地重置的调用编排、解锁载荷的归一化。
+本文件只剩纯界面部分（控件构建、成就卡片渲染、**三次确认对话框**、Toast 通知、
+``after`` / 线程调度）；下面每个方法都退化成对服务的薄委托，
+**方法名与签名保持不变**，界面可见行为不变。
+"""
 
 import threading
-import time
 from typing import Any, Dict, List
 
 import customtkinter as ctk
 
+from app.context import current_context
+from services.achievement_service import AchievementService
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _, get_current_language
+
+# `import time` 因唯一两个使用点（strftime / time.time）都搬进服务而删除，
+# 见报告的"必要改动"。
+
+
+def _get_achievement_service(owner: Any = None) -> AchievementService:
+    """惰性取得成就服务实例。
+
+    与 ``ui/app_server.py`` 的 ``_get_server_service(owner)`` /
+    ``ui/windows/resource_manager.py`` 的 ``_get_resource_service(owner)``
+    同一取舍：写成**模块级函数**（而不是 Mixin 上的方法）是因为调用方
+    （测试 / 探针）会以"未绑定方法 + 假对象"的方式直接调这些方法，那些假对象
+    上并没有这个方法；同时给 Mixin 加方法会改变方法面（本轮要求逐字不变）。
+
+    取法：优先用 ``AppContext`` 里注册的那个（阶段 2 接上之后），取不到就在
+    ``owner`` 上造一个并缓存 —— ``AchievementService`` 不需要 ``AppContext``，
+    构造期也只保存参数。
+    """
+    ctx = getattr(owner, "context", None) or current_context()
+    if ctx is not None:
+        getter = getattr(ctx, "try_get", None)
+        if callable(getter):
+            try:
+                service = getter(AchievementService.name)
+            except Exception:
+                service = None
+            if service is not None:
+                return service
+    service = getattr(owner, "_achievement_service_fallback", None)
+    if service is None:
+        service = AchievementService()
+        try:
+            owner._achievement_service_fallback = service
+        except Exception:
+            # owner 可能是 __slots__ 对象或 None：不缓存，本次调用照常可用
+            pass
+    return service
 
 
 class AchievementTabMixin(object):
@@ -120,13 +166,12 @@ class AchievementTabMixin(object):
         if not hasattr(self, "ach_scroll") or not self.ach_scroll.winfo_exists():
             return
 
-        from achievement_engine import get_achievement_engine
-
-        engine = get_achievement_engine()
-        if engine is None:
+        # 引擎单例的取用与 `engine.get_all()` 在服务里；引擎未初始化时
+        # 服务返回 None，等价于原文这里直接 return。
+        data = _get_achievement_service(self).load_progress()
+        if data is None:
             return
 
-        data = engine.get_all()
         self._ach_data_cache = data
         self._render_achievement_data(data)
         self._update_ach_last_sync_label()
@@ -138,20 +183,14 @@ class AchievementTabMixin(object):
         self.ach_category_frames.clear()
         self.ach_card_refs.clear()
 
-        total = 0
-        unlocked = 0
-
-        for cat_data in data:
-            ach_list = cat_data["achievements"]
-            for a in ach_list:
-                total += 1
-                if a["progress_stage"] > 0:
-                    unlocked += 1
+        # 原文的"先数一遍总量、再遍历一遍渲染"两遍结构不变：这里只做第一遍
+        summary = _get_achievement_service(self).summarize(data)
 
         self.ach_stats_title.configure(text=_("ach_stats_title"))
-        self.ach_stats_detail.configure(text=_("ach_stats_detail", unlocked=unlocked, total=total))
-        pct = round(unlocked / total * 100, 1) if total > 0 else 0
-        self.ach_progress_bar.set(pct / 100)
+        self.ach_stats_detail.configure(
+            text=_("ach_stats_detail", unlocked=summary.unlocked, total=summary.total)
+        )
+        self.ach_progress_bar.set(summary.percent / 100)
 
         for cat_data in data:
             self._render_category_section(cat_data)
@@ -177,10 +216,10 @@ class AchievementTabMixin(object):
             text_color=COLORS["text_primary"],
         ).pack(side=ctk.LEFT, padx=8)
 
-        cat_unlocked = sum(1 for a in achievements if a["progress_stage"] > 0)
+        cat_unlocked, cat_total = _get_achievement_service(self).category_counts(achievements)
         ctk.CTkLabel(
             cat_header,
-            text=f"{cat_unlocked}/{len(achievements)}",
+            text=f"{cat_unlocked}/{cat_total}",
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             text_color=COLORS["text_secondary"],
         ).pack(side=ctk.RIGHT, padx=12)
@@ -281,10 +320,7 @@ class AchievementTabMixin(object):
 
     def _get_ach_token(self) -> str:
         """获取净读 AI Token（用于云同步）"""
-        if "get_jdz_token" in self.callbacks:
-            token = self.callbacks["get_jdz_token"]()
-            return token or ""
-        return ""
+        return _get_achievement_service(self).get_token(self.callbacks)
 
     # ═══════════ 手动同步 ═══════════
 
@@ -298,20 +334,17 @@ class AchievementTabMixin(object):
         self.ach_sync_btn.configure(state=ctk.DISABLED, text=_("ach_syncing"))
         self._set_sync_status(_("ach_sync_status_syncing"))
 
-        from achievement_engine import get_achievement_engine
-
-        engine = get_achievement_engine()
+        service = _get_achievement_service(self)
+        engine = service.engine()
         if not engine:
             self.ach_sync_btn.configure(state=ctk.NORMAL, text=_("ach_sync_btn"))
             self._set_sync_status(_("ach_sync_failed"))
             return
 
-        db_path = engine._db_path
-
         def _run():
-            from achievement_sync import run_sync
-
-            ok = run_sync(token, db_path, engine=engine)
+            # 同步本体（download → merge → upload，带 engine 的锁与 last_sync_time）
+            # 在服务里；线程仍由界面起，服务不自己起线程。
+            ok = service.sync_with_engine(engine, token)
             if self.winfo_exists():
                 self.after(0, lambda: self._on_sync_done(ok))
 
@@ -337,14 +370,10 @@ class AchievementTabMixin(object):
         try:
             if not hasattr(self, "ach_last_sync_label") or not self.ach_last_sync_label.winfo_exists():
                 return
-            from achievement_engine import get_achievement_engine
-
-            engine = get_achievement_engine()
-            if engine is None:
-                return
-            ts = engine.get_last_sync_time()
+            service = _get_achievement_service(self)
+            ts = service.last_sync_time()
             if ts is not None:
-                formatted = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts))
+                formatted = service.format_sync_time(ts)
                 self.ach_last_sync_label.configure(text=_("ach_last_sync_time", time=formatted))
             else:
                 self.ach_last_sync_label.configure(text="")
@@ -371,10 +400,11 @@ class AchievementTabMixin(object):
         self.ach_reset_cloud_btn.configure(state=ctk.DISABLED)
         self._set_sync_status(_("ach_sync_status_resetting"))
 
-        def _run():
-            from achievement_sync import reset_cloud_db
+        service = _get_achievement_service(self)
 
-            ok = reset_cloud_db(token)
+        def _run():
+            # `reset_cloud_db` 的调用在服务里；线程仍由界面起
+            ok = service.reset_cloud(token)
             if self.winfo_exists():
                 self.after(0, lambda: self._on_reset_cloud_done(ok))
 
@@ -390,11 +420,9 @@ class AchievementTabMixin(object):
         self._triple_confirm(confirm_key=_("ach_reset_local_confirm_key"), on_confirm=self._do_reset_local)
 
     def _do_reset_local(self):
-        from achievement_engine import get_achievement_engine
-
-        engine = get_achievement_engine()
-        if engine:
-            engine.reset_all()
+        # 返回值（"到底有没有真的重置"）本轮不使用：原文无论有没有引擎都提示
+        # "重置成功"，那是既有行为，改它属于另一个裁决（见服务的 reset_local）。
+        _get_achievement_service(self).reset_local()
         self._set_sync_status(_("ach_reset_local_success"))
         self._refresh_achievements()
 
@@ -504,10 +532,14 @@ class AchievementTabMixin(object):
         from ui.dialogs import show_toast_notification
 
         if self.winfo_exists():
+            service = _get_achievement_service(self)
+            # "哪一项成就、第几阶段解锁了"由引擎判定并回调进来；这里只把
+            # `ach_def` 归一成界面渲染 Toast 需要的字段（图标 / 文案键 / 阶段名）。
+            notice = service.unlock_notice(ach_def, stage, stage_name)
             token = self._get_ach_token()
 
             def _do_toast():
-                show_toast_notification(self, ach_def.icon, _(ach_def.i18n_key), stage_name)
+                show_toast_notification(self, notice.icon, _(notice.i18n_key), notice.stage_name)
 
             self.after(100, _do_toast)
             self.after(600, self._refresh_achievements)
@@ -515,16 +547,10 @@ class AchievementTabMixin(object):
             if token:
 
                 def _push_sync():
-                    from achievement_engine import get_achievement_engine
-                    from achievement_sync import run_sync
-
-                    engine = get_achievement_engine()
-                    if engine:
-                        ok = run_sync(token, engine._db_path)
-                        if ok:
-                            engine.set_last_sync_time(time.time())
-                            if self.winfo_exists():
-                                self.after(0, self._update_ach_last_sync_label)
+                    # 推送编排（含成功后才写 last_sync_time）在服务里；
+                    # 线程仍由界面起，刷新标签仍回主线程。
+                    if service.push_sync(token) and self.winfo_exists():
+                        self.after(0, self._update_ach_last_sync_label)
 
                 threading.Thread(target=_push_sync, daemon=True).start()
 

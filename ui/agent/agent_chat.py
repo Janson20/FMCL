@@ -44,35 +44,23 @@ try:
 except Exception:
     _HAVE_HTMLVIEW = False
 
-from ui.agent.models import ModelInfo, get_default_model, get_model_catalog, get_models_by_provider, get_provider_names
-from ui.agent.permission import check_permission
-from ui.agent.provider import BaseProvider
-from ui.agent.providers.anthropic import AnthropicProvider
-from ui.agent.providers.custom import CustomProvider
-from ui.agent.providers.jingdu import JingduProvider
-from ui.agent.providers.openai import OpenAIProvider
-from ui.agent.session import AgentSession
-from ui.agent.skill import _get_skills_dir, get_skills_context_text, load_all_skills
-from ui.agent.system_prompt import get_system_prompt
-from ui.agent.tool_registry import ToolRegistry, get_registry
-from ui.agent.tools.files import FILE_EDIT_MARKER
-from ui.agent.tools.system import DANGEROUS_MARKER, execute_dangerous_command
-from ui.agent.tools.todo_write import load_todos
-from ui.agent.tools.user import ASK_USER_MARKER
+from services.agent.models import get_default_model, get_model_catalog, get_models_by_provider, get_provider_names
+from services.agent.provider import BaseProvider
+from services.agent.session import AgentSession
+from services.agent.skill import _get_skills_dir, load_all_skills
+from services.agent.tool_registry import get_registry
+from services.agent.tools.system import execute_dangerous_command
+from services.agent.tools.todo_write import load_todos
+from services.agent_service import AgentService, _trigger_agent_ach
 from ui.constants import COLORS, FONT_FAMILY
 from ui.dialogs import show_confirmation, show_notification
 from ui.i18n import _
 
 
-def _trigger_agent_ach(achievement_id: str, value: int = 1):
-    try:
-        from achievement_engine import get_achievement_engine
-
-        engine = get_achievement_engine()
-        if engine:
-            engine.update_progress(achievement_id, value=value)
-    except Exception:
-        pass
+# `_trigger_agent_ach` 原是本文件里的模块级函数，任务 1.14 已作为纯逻辑搬进
+# `services.agent_service`，这里由上面的 import 直接转发：
+# `ui.agent.agent_chat._trigger_agent_ach is services.agent_service._trigger_agent_ach`。
+# 注意**不要**再在本文件里重新定义同名函数（那会让转发变成自我递归）。
 
 
 # ============ 辅助对话框 ============
@@ -695,6 +683,11 @@ class AgentChatView(ctk.CTkFrame):
 
         self._registry = get_registry()
 
+        # 任务 1.14：AGENT 的业务逻辑（提示词 / 配置 / 权限 / 注册表 / 处理循环）
+        # 全在服务里；本视图只保留控件与渲染，并在跑循环时**把自己当成 sink** 传进去
+        # （循环里的界面动作通过 sink 回调，服务不 import 任何 GUI）。
+        self._agent_service = AgentService()
+
         # 消息块必须在 _init_session 之前初始化（_init_session 会追加消息）
         self._message_blocks: List[dict] = []
         self._streaming_block: Optional[dict] = None
@@ -706,7 +699,7 @@ class AgentChatView(ctk.CTkFrame):
 
     def _init_session(self):
         """初始化或加载会话"""
-        system_prompt = get_system_prompt() + get_skills_context_text()
+        system_prompt = self._agent_service.system_prompt_text()
         self._session = AgentSession.create_new(
             provider_id="jingdu", model_id="deepseek-v4-flash", system_prompt=system_prompt
         )
@@ -995,9 +988,7 @@ class AgentChatView(ctk.CTkFrame):
 
     def _refresh_model_list(self, provider_id: str):
         if provider_id == "custom":
-            from ui.agent.config import get_agent_config
-
-            config = get_agent_config()
+            config = self._agent_service.get_config()
             pc = config.providers.get("custom") if config else None
             values = pc.custom_models if pc and pc.custom_models else []
             if values:
@@ -1018,40 +1009,21 @@ class AgentChatView(ctk.CTkFrame):
                     self._model_var.set(values[0])
 
     def _on_provider_changed(self, choice: str):
-        from ui.agent.config import get_agent_config
+        # 任务 1.14：provider 解析与构造都在服务里（`build_provider` 是原文四个
+        # 分支的逐字搬迁）；表格里"没有 API Key 就不覆盖当前 provider"的语义不变。
+        pid = self._agent_service.resolve_provider_id(choice)
 
-        provider_map = {}
-        for p in get_provider_names():
-            provider_map[p["name"]] = p["id"]
-        pid = provider_map.get(choice, "jingdu")
-
-        config = get_agent_config()
+        config = self._agent_service.get_config()
         pc = config.providers.get(pid) if config else None
-        api_key = pc.api_key if pc else ""
 
-        if pid == "jingdu":
-            if api_key:
-                self._provider = JingduProvider(
-                    api_key=api_key,
-                    api_url=pc.api_url if pc else "",
-                    thinking_enabled=self._thinking_var.get(),
-                    reasoning_effort=self._effort_var.get(),
-                )
-        elif pid == "openai":
-            if api_key:
-                self._provider = OpenAIProvider(
-                    api_key=api_key, api_url=pc.api_url if pc else "", reasoning_effort=self._effort_var.get()
-                )
-        elif pid == "anthropic":
-            if api_key:
-                self._provider = AnthropicProvider(
-                    api_key=api_key, api_url=pc.api_url if pc else "", reasoning_effort=self._effort_var.get()
-                )
-        elif pid == "custom":
-            if api_key:
-                self._provider = CustomProvider(
-                    api_key=api_key, api_url=pc.api_url if pc else "", custom_models=pc.custom_models if pc else None
-                )
+        provider = self._agent_service.build_provider(
+            pid,
+            pc,
+            thinking_enabled=self._thinking_var.get(),
+            reasoning_effort=self._effort_var.get(),
+        )
+        if provider is not None:
+            self._provider = provider
 
         self._refresh_model_list(pid)
         self._on_model_changed(self._model_var.get())
@@ -1169,7 +1141,7 @@ class AgentChatView(ctk.CTkFrame):
     def _on_new_session(self):
         if self._session:
             self._session.save()
-        system_prompt = get_system_prompt() + get_skills_context_text()
+        system_prompt = self._agent_service.system_prompt_text()
         self._session = AgentSession.create_new(system_prompt=system_prompt)
         self._clear_display()
         self._append_system_message(_("agent_new_session_created"))
@@ -1458,12 +1430,12 @@ class AgentChatView(ctk.CTkFrame):
         if self._session and self._session.messages:
             for i, msg in enumerate(self._session.messages):
                 if msg.get("role") == "system":
-                    new_prompt = get_system_prompt() + get_skills_context_text()
+                    new_prompt = self._agent_service.system_prompt_text()
                     self._session.messages[i] = {"role": "system", "content": new_prompt}
                     break
             else:
                 self._session.messages.insert(
-                    0, {"role": "system", "content": get_system_prompt() + get_skills_context_text()}
+                    0, {"role": "system", "content": self._agent_service.system_prompt_text()}
                 )
 
     # ============ 外部接口 ============
@@ -1487,7 +1459,7 @@ class AgentChatView(ctk.CTkFrame):
             return
         # 会话被删除后自动创建新会话
         if self._session is None:
-            system_prompt = get_system_prompt() + get_skills_context_text()
+            system_prompt = self._agent_service.system_prompt_text()
             self._session = AgentSession.create_new(system_prompt=system_prompt)
             self._refresh_session_list()
         self._input_entry.delete(0, ctk.END)
@@ -1510,193 +1482,26 @@ class AgentChatView(ctk.CTkFrame):
     # ============ AI 处理循环（流式 + 非流式）============
 
     def _process_ai_loop(self):
-        max_iterations = self.MAX_ITERATIONS
-        iteration = 0
-        empty_count = 0
-        logger.info("[Agent] === AI 处理循环开始（流式模式）===")
-        self._ai_processing = True
+        """AI 处理循环（任务 1.14：循环体已搬进 `services.agent_service.run_loop`）。
 
-        try:
-            while iteration < max_iterations:
-                iteration += 1
-                if iteration > 1:
-                    _trigger_agent_ach("agent_multi_turn")
-                logger.info(f"[Agent] --- 迭代 {iteration}/{max_iterations} ---")
-
-                # 自动压缩
-                if iteration % 10 == 0 and self._session.estimate_tokens() > 60000:
-                    self._session.compact()
-
-                # 流式调用
-                tools = self._registry.get_definitions()
-                provider_id, model_id = self._get_active_model()
-                model_name = model_id or "deepseek-v4-flash"
-
-                provider = self._provider
-                if provider is None:
-                    self.after(0, lambda: self._append_system_message("未配置 AI 提供商"))
-                    break
-
-                try:
-                    # 同步思考模式设置
-                    if hasattr(provider, "thinking_enabled"):
-                        provider.thinking_enabled = self._thinking_var.get()
-                    if hasattr(provider, "reasoning_effort"):
-                        provider.reasoning_effort = self._effort_var.get() if self._thinking_var.get() else ""
-                    stream_gen = provider.stream_chat(messages=self._session.messages, tools=tools, model=model_name)
-                except Exception as e:
-                    logger.error(f"[Agent] 启动流式调用失败: {e}")
-                    # 回退到非流式
-                    try:
-                        response = provider.chat(messages=self._session.messages, tools=tools, model=model_name)
-                        self._handle_non_stream_response(response)
-                    except Exception as e2:
-                        self.after(0, lambda e=str(e2): self._append_system_message(f"AI 调用失败: {e}"))
-                        break
-                    continue
-
-                # 处理流式事件 - 先创建流式块
-                self._streaming_block = {"role": "assistant", "content": "", "thinking": "", "tag": ""}
-                content, tool_calls, needs_break = self._handle_stream_events(stream_gen)
-                # 完成流式渲染：将流式块固定为永久消息块
-                streaming_thinking = ""
-                if self._streaming_block:
-                    streaming_thinking = self._streaming_block.get("thinking", "")
-                    if self._streaming_block.get("content") or streaming_thinking:
-                        self._message_blocks.append(self._streaming_block)
-                self._streaming_block = None
-                # 流式结束，强制立即渲染最终内容
-                self._schedule_render(force=True)
-
-                if needs_break:
-                    return  # 等待用户确认
-
-                # 追加 assistant 消息（保留思考过程供历史回放）
-                if content or tool_calls:
-                    msg = {"role": "assistant", "content": content}
-                    if tool_calls:
-                        msg["tool_calls"] = tool_calls
-                    if streaming_thinking:
-                        msg["_thinking"] = streaming_thinking
-                    self._session.add_message(msg)
-
-                # 执行工具调用
-                if tool_calls:
-                    logger.info(f"[Agent] 模型请求调用 {len(tool_calls)} 个工具")
-                    all_ok = True
-                    for tc in tool_calls:
-                        result = self._execute_tool_call(tc)
-                        if result is False:
-                            all_ok = False
-                            break
-                        elif isinstance(result, str) and result == "WAIT_USER":
-                            self._session.save()
-                            return
-
-                    # 每次工具调用后立即刷新 Todo 面板
-                    self.after(0, self._refresh_todos)
-
-                    if not all_ok:
-                        continue
-
-                    # 不在循环中保存，最终由 finally 统一保存
-                    continue
-                else:
-                    logger.info("[Agent] 任务完成")
-                    self.after(0, self._append_divider)
-                    show_notification("🤖", _("notify_ai_task_done"), "", notify_type="success")
-                    _trigger_agent_ach("agent_nlp_master")
-                    break
-
-        except Exception as e:
-            logger.error(f"[Agent] 处理循环异常: {e}", exc_info=True)
-            show_notification("🤖", _("notify_ai_task_failed"), str(e)[:50], notify_type="error")
-        finally:
-            wait_user = bool(self._pending_dangerous or self._pending_ask_user or self._pending_file_edit)
-            logger.info(f"[Agent] === AI 处理循环结束 === (wait_user={wait_user})")
-            if wait_user:
-                # 等待用户确认时，保存会话但不重置 UI（确认回调会启动新循环）
-                sess = self._session
-                threading.Thread(target=lambda s=sess: s.save(), daemon=True).start()
-            else:
-                self._ai_processing = False
-                self.after(0, self._reset_send_button)
-                sess = self._session
-                threading.Thread(target=lambda s=sess: s.save(), daemon=True).start()
-                self.after(0, self._refresh_todos)
-                self.after(0, self._refresh_session_list)
-                self.after(0, lambda: self._token_label.configure(text=f"Token ~{self._session.estimate_tokens():,}"))
+        本方法保留原名与签名（`threading.Thread(target=self._process_ai_loop, ...)`
+        的既有调用点全仓 4 处），内部改为薄委托：把自己当成 sink 传进去，
+        服务通过调用本视图的既有成员（`after` / `_append_*` / `_schedule_render` …）
+        完成界面动作。跑在 worker 线程这件事仍由调用方（`send_message` 等）决定。
+        """
+        return self._agent_service.run_loop(self)
 
     def _handle_stream_events(self, stream_gen) -> tuple:
-        """处理流式事件 - 更新 _streaming_block + 调度渲染
+        """处理流式事件（任务 1.14：事件循环已搬进 `services.agent_service`）。
+
+        本方法保留原名与签名，内部改为薄委托；`self` 作为 sink 传进去，
+        服务侧的事件分支只通过本视图的既有成员（`_schedule_render` /
+        `_append_tool_start` / `_token_label` …）产生界面效果。
 
         Returns:
             (content_text, tool_calls_list, needs_break)
         """
-        accumulated_text = ""
-        tool_calls = []
-        current_tool_call = None
-
-        try:
-            for event in stream_gen:
-                if not isinstance(event, dict):
-                    continue
-
-                event_type = event.get("type", "")
-
-                if event_type == "text_delta":
-                    text = event.get("text", "")
-                    accumulated_text += text
-                    if self._streaming_block:
-                        self._streaming_block["content"] = accumulated_text
-                        self._schedule_render()
-
-                elif event_type == "thinking_delta":
-                    thinking_text = event.get("text", "")
-                    if self._streaming_block:
-                        self._streaming_block["thinking"] = self._streaming_block.get("thinking", "") + thinking_text
-                        self._schedule_render()
-
-                elif event_type == "tool_call_start":
-                    tc_id = event.get("tool_call_id", "")
-                    current_tool_call = {"id": tc_id, "type": "function", "function": {"name": "", "arguments": ""}}
-                    tool_calls.append(current_tool_call)
-
-                elif event_type == "tool_call_name":
-                    name = event.get("tool_name", "")
-                    if current_tool_call:
-                        current_tool_call["function"]["name"] = name
-                    self._append_tool_start(name)
-
-                elif event_type == "tool_call_args":
-                    if current_tool_call:
-                        current_tool_call["function"]["arguments"] += event.get("tool_args", "")
-
-                elif event_type == "tool_call_complete":
-                    tc = event.get("tool_call", {})
-                    for i, t in enumerate(tool_calls):
-                        if t["id"] == tc.get("id"):
-                            tool_calls[i] = tc
-                            break
-
-                elif event_type == "usage":
-                    usage = event.get("usage", {})
-                    total = usage.get("total_tokens", 0)
-                    self.after(0, lambda t=total: self._token_label.configure(text=f"Token: {t}"))
-
-                elif event_type == "done":
-                    self._append_divider()
-
-                elif event_type == "error":
-                    err_msg = event.get("message", "未知错误")
-                    self._append_system_message(f"❌ {err_msg}")
-                    return accumulated_text, tool_calls, True
-
-        except Exception as e:
-            logger.error(f"[Agent] 流式处理异常: {e}")
-            self._append_system_message(f"流式错误: {e}")
-
-        return accumulated_text, tool_calls, False
+        return self._agent_service.handle_stream_events(stream_gen, self)
 
     def _handle_non_stream_response(self, response: Dict):
         """处理非流式响应"""
@@ -1708,79 +1513,14 @@ class AgentChatView(ctk.CTkFrame):
             self._session.add_message(response)
 
     def _execute_tool_call(self, tc: Dict):
-        """执行单个工具调用"""
-        func = tc.get("function", {})
-        tool_name = func.get("name", "")
-        tool_call_id = tc.get("id", "")
+        """执行单个工具调用（任务 1.14：已搬进 `services.agent_service.execute_tool_call`）。
 
-        try:
-            tool_params = json.loads(func.get("arguments", "{}"))
-        except (json.JSONDecodeError, TypeError):
-            tool_params = {}
-
-        logger.info(f"[Agent] 工具调用: {tool_name}")
-
-        # 权限检查
-        effect = check_permission(tool_name)
-        if effect == "deny":
-            self._append_system_message(f"🔒 工具 {tool_name} 被策略禁止")
-            self._session.add_message(
-                {"role": "tool", "tool_call_id": tool_call_id, "content": f"工具 {tool_name} 被权限策略禁止"}
-            )
-            return True
-        if effect == "ask" and tool_name == "exec_command":
-            result_text = self._registry.execute(tool_name, tool_params, self._callbacks)
-            if result_text.startswith(DANGEROUS_MARKER):
-                try:
-                    rest = result_text[len(DANGEROUS_MARKER) + 1 :]
-                    payload = json.loads(rest)
-                    path = payload["path"]
-                    command = payload["command"]
-                    self._pending_dangerous = (path, command, tool_call_id)
-                    self.after(0, lambda p=path, c=command: self._show_dangerous_dialog(p, c))
-                    return "WAIT_USER"
-                except (json.JSONDecodeError, KeyError) as e:
-                    logger.error(f"[Agent] DANGEROUS_MARKER 解析失败: {e}")
-            self._session.add_message({"role": "tool", "tool_call_id": tool_call_id, "content": result_text})
-            self._append_tool_result(tool_name, result_text[:300])
-            return True
-
-        if effect == "ask" and tool_name in ("write_file", "replace_in_file", "delete_file"):
-            result_text = self._registry.execute(tool_name, tool_params, self._callbacks)
-            if result_text.startswith(FILE_EDIT_MARKER):
-                try:
-                    rest = result_text[len(FILE_EDIT_MARKER) + 1 :]
-                    payload = json.loads(rest)
-                    confirm_data = payload["data"]
-                    op_type = payload["op"]
-                    summary = payload.get("summary", "")
-                    self._pending_file_edit = (confirm_data, op_type, tool_call_id)
-                    self.after(0, lambda c=confirm_data, o=op_type, s=summary: self._show_file_edit_dialog(c, o, s))
-                    return "WAIT_USER"
-                except (json.JSONDecodeError, KeyError) as e:
-                    logger.error(f"[Agent] FILE_EDIT_MARKER 解析失败: {e}, result头部: {result_text[:200]}")
-            self._session.add_message({"role": "tool", "tool_call_id": tool_call_id, "content": result_text})
-            self._append_tool_result(tool_name, result_text[:300])
-            return True
-
-        # 执行工具
-        result_text = self._registry.execute(tool_name, tool_params, self._callbacks)
-
-        # 检测 ask_user
-        if result_text.startswith(ASK_USER_MARKER):
-            try:
-                rest = result_text[len(ASK_USER_MARKER) + 1 :]
-                questions = json.loads(rest)
-                if isinstance(questions, list):
-                    self._pending_ask_user = (questions, tool_call_id)
-                    self.after(0, lambda q=questions: self._show_ask_user_dialog(q))
-                    return "WAIT_USER"
-            except json.JSONDecodeError:
-                pass
-
-        self._session.add_message({"role": "tool", "tool_call_id": tool_call_id, "content": result_text})
-        self._append_tool_result(tool_name, result_text[:300])
-        return True
+        权限三级判定（allow / deny / ask）、危险命令与文件编辑确认、ask_user
+        这三条"需要用户点头"的路径全在服务里；服务通过 sink（本视图）调用
+        `_show_dangerous_dialog` / `_show_file_edit_dialog` / `_show_ask_user_dialog`
+        弹窗，返回值语义（True / False / "WAIT_USER"）与搬家前完全一致。
+        """
+        return self._agent_service.execute_tool_call(tc, self)
 
     def _show_dangerous_dialog(self, path: str, command: str):
         if not self._pending_dangerous:
@@ -1833,27 +1573,8 @@ class AgentChatView(ctk.CTkFrame):
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
 
     def _apply_file_edit(self, confirm_data: dict, op_type: str) -> str:
-        """实际执行文件修改"""
-        file_path = confirm_data.get("filePath", "")
-        try:
-            if op_type == "write" or op_type == "replace":
-                # 确保父目录存在
-                parent = os.path.dirname(file_path)
-                if parent and not os.path.isdir(parent):
-                    os.makedirs(parent, exist_ok=True)
-                content = confirm_data.get("newText", "")
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                if op_type == "replace":
-                    replacements = confirm_data.get("replacements", 1)
-                    return f"已替换 {replacements} 处: {file_path}"
-                return f"已写入文件: {file_path}"
-            elif op_type == "delete":
-                os.remove(file_path)
-                return f"已删除文件: {file_path}"
-            return f"未知操作类型: {op_type}"
-        except Exception as e:
-            return f"文件操作失败: {e}"
+        """实际执行文件修改（任务 1.14：纯文件 IO，已搬进 `services.agent_service.apply_file_edit`）。"""
+        return self._agent_service.apply_file_edit(confirm_data, op_type)
 
     def _show_ask_user_dialog(self, questions: List[dict]):
         OptionSelectDialog(self.winfo_toplevel(), questions=questions, callback=self._on_ask_user_response)
@@ -1871,19 +1592,12 @@ class AgentChatView(ctk.CTkFrame):
         threading.Thread(target=self._process_ai_loop, daemon=True, name="AgentAI").start()
 
     def _get_active_model(self) -> tuple:
-        """获取当前活跃模型 (provider_id, model_id)"""
-        provider_name = self._provider_var.get()
-        model_name = self._model_var.get()
-        provider_map = {}
-        for p in get_provider_names():
-            provider_map[p["name"]] = p["id"]
-        pid = provider_map.get(provider_name, "jingdu")
-        if pid == "custom":
-            return pid, model_name
-        for m in get_model_catalog():
-            if m.name == model_name and m.provider_id == pid:
-                return pid, m.id
-        return pid, "deepseek-v4-flash"
+        """获取当前活跃模型 (provider_id, model_id)
+
+        任务 1.14：解析逻辑在 `services.agent_service.resolve_active_model`；
+        这里只负责把两个下拉框的当前值读出来传进去。
+        """
+        return self._agent_service.resolve_active_model(self._provider_var.get(), self._model_var.get())
 
     def _reset_send_button(self):
         try:
@@ -1895,3 +1609,24 @@ class AgentChatView(ctk.CTkFrame):
 
     def update_credits(self, credits: int):
         self.after(0, lambda: self._credits_label.configure(text=_("agent_ai_credits", credits=credits)))
+
+    # ============ 供 services.agent_service 回调的 sink 钩子 ============
+    #
+    # 任务 1.14 把 AI 处理循环搬进了服务。服务不弹窗、不自己起线程，所以循环里
+    # 原本内联的三件事由这三个钩子接管 —— 方法体逐字取自搬家前的原文。
+
+    def notify_ai_task_done(self):
+        """原 `_process_ai_loop` 的"任务完成"通知。"""
+        show_notification("🤖", _("notify_ai_task_done"), "", notify_type="success")
+
+    def notify_ai_task_failed(self, err: str):
+        """原 `_process_ai_loop` 的异常通知（`err` 已是 `str(e)[:50]`）。"""
+        show_notification("🤖", _("notify_ai_task_failed"), err, notify_type="error")
+
+    def save_session_async(self, session):
+        """原 `_process_ai_loop` 的 `finally` 落盘：把会话存盘放到后台线程。
+
+        服务不自己起线程，所以线程仍在这里起 —— 与原文完全一致
+        （`lambda s=sess: s.save()` 把会话绑进闭包，避免延迟执行时读到已换的会话）。
+        """
+        threading.Thread(target=lambda s=session: s.save(), daemon=True).start()

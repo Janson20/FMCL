@@ -1030,7 +1030,10 @@ class EventHandlerMixin(object):
             prev = getattr(self, "_last_tab", None)
             if current_tab != prev:
                 self._last_tab = current_tab
-                if current_tab == "💾 备份" and hasattr(self, "_refresh_world_list"):
+                # 修正（阶段 1.20）：原先硬编码比较 "💾 备份"（本地化后的标题 +
+                # emoji），语言不是 zh_CN 时这个条件永远为假，切到备份页就不会
+                # 刷新世界列表。改用稳定标识。
+                if self.current_tab_id() == "backup" and hasattr(self, "_refresh_world_list"):
                     self._refresh_world_list()
         except Exception:
             pass

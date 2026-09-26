@@ -31,7 +31,25 @@ from typing import Callable, Dict, List, Optional, Tuple
 import requests
 from logzero import logger
 
+from app.ports import NullUIPort, UIPort
 from secure_storage import decrypt_token, encrypt_token
+
+# ─── UI 能力端口 ────────────────────────────────────────────
+# 核心层不许自己 import tkinter（见 scripts/check_services_purity.py），
+# 需要写剪贴板/弹窗时统一走注入进来的 UIPort。默认 NullUIPort：
+# set_clipboard() 返回 False，调用方据此降级成"请手动复制"的提示。
+_ui_port: UIPort = NullUIPort()
+
+
+def set_ui_port(port: UIPort) -> None:
+    """注入 UI 能力端口（由 main.py 在 TkUIPort 启动后调用）。"""
+    global _ui_port
+    _ui_port = port if port is not None else NullUIPort()
+
+
+def get_ui_port() -> UIPort:
+    """取当前 UI 端口（测试用）。"""
+    return _ui_port
 
 
 def _build_ua_header() -> dict:
@@ -421,21 +439,24 @@ class MicrosoftLoginManager:
         expires_in = device_data.get("expires_in", 900)
         interval = device_data.get("interval", 5)
 
-        import tkinter as tk
-
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            root.clipboard_clear()
-            root.clipboard_append(user_code)
-            root.destroy()
-        except Exception:
-            pass
+        # 写剪贴板走 UI 能力端口（原实现是自建隐藏 Tk root，禁止核心层碰 Tk）。
+        # 端口不可用/写失败时返回 False，此时必须提示用户手动复制，
+        # 否则用户拿不到设备代码，等于功能丢失。
+        clipboard_ok = _ui_port.set_clipboard(user_code)
 
         webbrowser.open(DEVICE_LOGIN_PAGE)
 
         if status_callback:
-            status_callback(f"代码 {user_code} 已复制到剪贴板，请在浏览器中打开 {DEVICE_LOGIN_PAGE} 并输入此代码")
+            if clipboard_ok:
+                status_callback(f"代码 {user_code} 已复制到剪贴板，请在浏览器中打开 {DEVICE_LOGIN_PAGE} 并输入此代码")
+            else:
+                status_callback(
+                    f"代码 {user_code} 无法写入剪贴板，请手动复制此代码，"
+                    f"并在浏览器中打开 {DEVICE_LOGIN_PAGE} 输入"
+                )
+
+        if not clipboard_ok:
+            logger.warning(f"设备代码 {user_code} 未能写入剪贴板，已提示用户手动复制")
 
         logger.info(f"设备代码登录已启动: user_code={user_code}, 有效期 {expires_in} 秒")
 

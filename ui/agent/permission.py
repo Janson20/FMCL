@@ -1,127 +1,32 @@
-"""AGENT 权限系统 - allow/deny/ask 三级权限引擎
+"""权限三级判定（allow/deny/ask + 通配符规则 + 持久化）（转发 shim）
 
-参考 opencode PermissionV2 设计：
-- 三级效果：allow / deny / ask
-- 规则按 action + resource 匹配
-- 支持通配符 "*"
-- 规则持久化到 config.json
-- 每个请求可附带 source 信息用于审计
+实现已搬到 ``services/agent/permission.py``。
 
-默认规则：
-- 所有工具默认 allow
-- exec_command 默认 ask（需用户确认）
+**本模块名直接指向实现模块**（``sys.modules[__name__] = _impl``），而不是用
+``globals().update(...)`` 复制引用。后者只能保证"读"到同一批对象，**"写"传不过去**：
+``import ui.agent.permission as m; m.FOO = fake`` 只会改到 shim 的命名空间，实现模块里的
+``FOO`` 不变 —— monkeypatch 会**静默失效**。
+
+这个坑是实测踩到的：``ui/music_source/`` 搬走后，``tests/test_music_fallback.py``
+里的 ``monkeypatch.setattr(ms, "MUSIC_SOURCES", fakes)`` 失效，测试**真去请求了
+QQ 音乐接口**。
+
+别名方式让 ``ui.agent.permission is services.agent.permission`` 成立：读、写、打补丁、``is`` 判定全部与
+搬家前一致。
+
+**同时还把实现模块的名字复制一份到本模块的 ``__dict__``**，用于兼容另一种加载
+方式：仓库里 ``tests/test_music_playlist.py`` 是按**文件路径**加载模块
+（``spec_from_file_location`` + 自己注册进 ``sys.modules``）以绕开 ``ui/__init__.py``
+的 GUI 导入，它会**保留 exec 之前的模块对象** —— 只做别名的话那个对象仍是空壳
+（实测踩到过：``mp.PlaylistSong`` AttributeError）。两种机制都很便宜，一起用最稳。
+
+阶段 3 完成后本文件可删除。
 """
 
-import json
-from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional
+import sys
 
-from logzero import logger
+import services.agent.permission as _impl
 
-Effect = Literal["allow", "deny", "ask"]
+sys.modules[__name__] = _impl
 
-
-@dataclass
-class PermissionRule:
-    """单条权限规则"""
-
-    action: str  # 工具名或 "*"
-    resource: str  # 资源标识或 "*"
-    effect: Effect  # "allow" | "deny" | "ask"
-
-
-# 注意：规则按顺序匹配，命中第一条即停止。ask/deny 必须在 allow 通配符之前！
-DEFAULT_RULES: List[PermissionRule] = [
-    PermissionRule(action="exec_command", resource="*", effect="ask"),
-    PermissionRule(action="write_file", resource="*", effect="ask"),
-    PermissionRule(action="replace_in_file", resource="*", effect="ask"),
-    PermissionRule(action="delete_file", resource="*", effect="ask"),
-    PermissionRule(action="*", resource="*", effect="allow"),
-]
-
-
-class PermissionManager:
-    """权限管理器"""
-
-    def __init__(self, rules: Optional[List[PermissionRule]] = None):
-        self._rules: List[PermissionRule] = list(rules) if rules else list(DEFAULT_RULES)
-
-    def check(self, action: str, resource: str = "*") -> Effect:
-        """检查操作权限
-
-        规则按顺序匹配，命中第一条即停止。
-        """
-        for rule in self._rules:
-            if self._match(rule.action, action) and self._match(rule.resource, resource):
-                return rule.effect
-        return "ask"  # 默认询问
-
-    def add_rule(self, action: str, resource: str, effect: Effect):
-        """添加权限规则（覆盖已存在的相同 action+resource 规则）"""
-        self.remove_rule(action, resource)
-        self._rules.append(PermissionRule(action=action, resource=resource, effect=effect))
-        logger.info(f"[Permission] 添加规则: {action}/{resource} -> {effect}")
-
-    def remove_rule(self, action: str, resource: str):
-        """移除权限规则"""
-        self._rules = [r for r in self._rules if not (r.action == action and r.resource == resource)]
-
-    def get_rules(self) -> List[dict]:
-        """获取所有规则（用于持久化）"""
-        return [{"action": r.action, "resource": r.resource, "effect": r.effect} for r in self._rules]
-
-    def load_rules(self, rule_dicts: List[dict]):
-        """从持久化数据加载规则"""
-        if not rule_dicts:
-            return
-        for rd in rule_dicts:
-            action = rd.get("action", "*")
-            resource = rd.get("resource", "*")
-            effect = rd.get("effect", "allow")
-            if effect in ("allow", "deny", "ask"):
-                self.add_rule(action, resource, effect)
-
-    def to_config(self) -> dict:
-        """导出为配置文件格式"""
-        return {"agent_permissions": self.get_rules()}
-
-    @staticmethod
-    def from_config(config_dict: dict) -> "PermissionManager":
-        """从配置文件创建"""
-        rules_data = config_dict.get("agent_permissions", [])
-        pm = PermissionManager()
-        pm.load_rules(rules_data)
-        return pm
-
-    @staticmethod
-    def _match(pattern: str, value: str) -> bool:
-        """通配符匹配"""
-        if pattern == "*":
-            return True
-        return pattern == value
-
-
-# 全局单例
-_permission_manager: Optional[PermissionManager] = None
-
-
-def get_permission_manager() -> PermissionManager:
-    """获取全局权限管理器"""
-    global _permission_manager
-    if _permission_manager is None:
-        _permission_manager = PermissionManager()
-    return _permission_manager
-
-
-def init_permission_manager(rules: Optional[List[dict]] = None):
-    """初始化权限管理器（从配置文件加载）"""
-    global _permission_manager
-    pm = PermissionManager()
-    if rules:
-        pm.load_rules(rules)
-    _permission_manager = pm
-
-
-def check_permission(action: str, resource: str = "*") -> Effect:
-    """便捷函数：检查权限"""
-    return get_permission_manager().check(action, resource)
+globals().update({k: v for k, v in vars(_impl).items() if not k.startswith("__")})

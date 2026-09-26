@@ -2,6 +2,10 @@
 
 新版设计中 AgentChatView 自带模型选择器和会话管理，
 agent_mixin 主要负责初始化 provider、同步状态、对接主应用 callbacks。
+
+任务 1.14：本 Mixin 里的**业务部分**（配置初始化、回调编排、积分取值）已搬进
+``services/agent_service.py``；本文件只保留"拿到宿主窗口的控件/回调、再调服务"
+这一步，公开方法名与签名一律不变。
 """
 
 import threading
@@ -10,18 +14,26 @@ from typing import Callable, Dict, Optional
 import customtkinter as ctk
 from logzero import logger
 
+from services.agent_service import AgentService, build_callbacks, fetch_credits, load_provider_configs
 from ui.agent.agent_chat import AgentChatView
-from ui.agent.config import get_agent_config, init_agent_config, save_agent_config
-from ui.agent.providers.anthropic import AnthropicProvider
-from ui.agent.providers.custom import CustomProvider
-from ui.agent.providers.jingdu import JingduProvider
-from ui.agent.providers.openai import OpenAIProvider
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
 
 
 class AgentMixin(object):
     """AGENT 智能助手 Mixin - 添加 AGENT 标签页到主窗口"""
+
+    def _agent_svc(self) -> AgentService:
+        """AGENT 业务服务（任务 1.14）。
+
+        Mixin 没有 ``__init__``（它被 mix 进主窗口），所以惰性建一次并挂在实例上。
+        服务构造期不做任何重活（不读盘、不连网），在这里建是安全的。
+        """
+        svc = getattr(self, "_agent_service_inst", None)
+        if svc is None:
+            svc = AgentService()
+            self._agent_service_inst = svc
+        return svc
 
     def _build_agent_tab_content(self):
         """构建 AGENT 标签页内容"""
@@ -77,17 +89,15 @@ class AgentMixin(object):
 
         # 初始化配置
         try:
-            init_agent_config()
+            self._agent_svc().init_config()
         except Exception as e:
             logger.error(f"[Agent] 配置初始化失败: {e}")
 
         if has_token:
             # 净读 AI 始终可用
             try:
-                provider = JingduProvider(api_key=self._get_agent_token())
-                cbs = dict(self.callbacks)
-                cbs["get_current_session_id"] = self._get_agent_current_session_id
-                cbs["get_config"] = self._get_agent_cfg
+                provider = self._agent_svc().jingdu_provider(self._get_agent_token())
+                cbs = build_callbacks(self.callbacks, self._get_agent_current_session_id, self._get_agent_cfg)
                 self._agent_chat.set_provider(provider)
                 self._agent_chat.set_callbacks(cbs)
                 logger.info("[Agent] 净读 AI Provider 初始化成功")
@@ -96,15 +106,7 @@ class AgentMixin(object):
             self._refresh_agent_credits()
 
         # 尝试加载其他 Provider 配置
-        try:
-            config = get_agent_config()
-            for pid in ["openai", "anthropic", "custom"]:
-                pc = config.providers.get(pid)
-                if pc and pc.api_key:
-                    # Provider 配置在 agent_chat 内部通过 _on_provider_changed 处理
-                    pass
-        except Exception as e:
-            logger.error(f"[Agent] 加载 Provider 配置失败: {e}")
+        load_provider_configs()
 
     def _refresh_agent_credits(self):
         """刷新 AI 积分余额"""
@@ -114,9 +116,8 @@ class AgentMixin(object):
             return
 
         def _do_refresh():
-            info = self.callbacks["fetch_jdz_user_info"]()
-            if info and hasattr(self, "_agent_chat"):
-                credits = info.get("ai_credits", 0)
+            credits = fetch_credits(self.callbacks["fetch_jdz_user_info"])
+            if credits is not None and hasattr(self, "_agent_chat"):
                 self._agent_chat.update_credits(credits)
 
         threading.Thread(target=_do_refresh, daemon=True).start()
@@ -126,9 +127,7 @@ class AgentMixin(object):
         logger.info("[Agent] _update_agent_callbacks 被调用")
         if hasattr(self, "_agent_chat") and self._agent_chat:
             # 注入 get_current_session_id 回调供 todo_write 工具使用
-            cbs = dict(self.callbacks)
-            cbs["get_current_session_id"] = self._get_agent_current_session_id
-            cbs["get_config"] = self._get_agent_cfg
+            cbs = build_callbacks(self.callbacks, self._get_agent_current_session_id, self._get_agent_cfg)
             self._agent_chat.set_callbacks(cbs)
         else:
             logger.warning("[Agent] _agent_chat 尚未创建，跳过更新")
@@ -143,8 +142,6 @@ class AgentMixin(object):
     def _get_agent_cfg(self) -> dict:
         """获取 Agent 配置（供 web_search 等工具使用）"""
         try:
-            from ui.agent.config import get_agent_config
-
-            return {"bing_api_key": get_agent_config().bing_api_key}
+            return {"bing_api_key": self._agent_svc().bing_api_key()}
         except Exception:
             return {}

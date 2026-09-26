@@ -84,7 +84,12 @@ def _registry_has_sdk10() -> bool:
 
 
 def _filesystem_has_sdk10() -> bool:
-    """文件系统兜底：%ProgramFiles%\dotnet\sdk\10.* 存在即视为已装"""
+    r"""文件系统兜底：%ProgramFiles%\dotnet\sdk\10.* 存在即视为已装
+
+    注意 docstring 前必须带 ``r`` 前缀：这里出现的 ``\d``（Windows 路径分隔 +
+    dotnet 目录名）在普通字符串里是**无效转义序列**，Python 3.12 起会报
+    SyntaxWarning（在此之前是 DeprecationWarning）。``\\ `` 也是同理。
+    """
     for env_name in ("ProgramFiles", "ProgramFiles(x86)"):
         base = os.environ.get(env_name)
         if not base:

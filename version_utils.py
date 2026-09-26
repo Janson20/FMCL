@@ -14,7 +14,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 # ══════════════════════════════════════════════════════════════════════
 # 实例信息数据结构（参考 PCL-CE: McInstanceInfo）
@@ -1440,3 +1440,80 @@ def parse_mc_version_from_dir(version_id: str, minecraft_dir: str) -> str:
     if info is None or info.vanilla_name == "Unknown":
         return parse_mc_version_from_id(version_id) or version_id
     return info.vanilla_name
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 已安装加载器的盘点（供成就等「是否装过某类加载器」的判断使用）
+# ══════════════════════════════════════════════════════════════════════
+
+#: 「全家福」成就要求的三种加载器（对应 i18n 文案「安装 Forge、Fabric、NeoForge 各一个版本」）
+FULL_HOUSE_LOADERS: Tuple[str, ...] = ("forge", "fabric", "neoforge")
+
+
+def scan_installed_loaders(minecraft_dir: str) -> Dict[str, List[str]]:
+    """盘点 ``versions/`` 下每个版本用的是哪种模组加载器
+
+    逐个读取版本 JSON（走 ``parse_instance_from_json``，与版本列表/资源管理同一套
+    判定规则，避免出现"界面显示是 Forge、成就判定说不是"这种两套标准），
+    按加载器类型聚合版本 ID。
+
+    Args:
+        minecraft_dir: .minecraft 目录路径
+
+    Returns:
+        ``{loader_type: [version_id, ...]}``，只包含**能识别出加载器**的版本；
+        目录不存在、JSON 读不出、原版实例都不会出现在结果里。
+
+    Note:
+        Quilt / LegacyFabric / Cleanroom / LiteLoader 等也会被如实收进来
+        （键名就是 ``loader_type``），调用方按需取用，这里不做过滤。
+    """
+    result: Dict[str, List[str]] = {}
+    if not minecraft_dir:
+        return result
+
+    versions_dir = Path(minecraft_dir) / "versions"
+    if not versions_dir.is_dir():
+        return result
+
+    try:
+        entries = sorted(p for p in versions_dir.iterdir() if p.is_dir())
+    except OSError:
+        return result
+
+    for entry in entries:
+        version_id = entry.name
+        try:
+            info = _try_read_instance_json(version_id, minecraft_dir)
+        except Exception:
+            info = None
+        if info is None:
+            # JSON 读不出时退回文件名匹配（与 has_mod_loader_from_json 的回退一致）
+            loader_type = parse_mod_loader_from_version(version_id)
+        else:
+            loader_type = info.loader_type
+        if not loader_type:
+            continue
+        result.setdefault(loader_type, []).append(version_id)
+
+    return result
+
+
+def has_all_mod_loaders(
+    minecraft_dir: str,
+    loaders: Sequence[str] = FULL_HOUSE_LOADERS,
+) -> bool:
+    """是否每种指定加载器都至少装过一个版本
+
+    Args:
+        minecraft_dir: .minecraft 目录路径
+        loaders: 需要的加载器类型，默认 ``("forge", "fabric", "neoforge")``
+
+    Returns:
+        全部齐了返回 True；``loaders`` 为空视为不满足（避免"空集恒真"）
+    """
+    required = [str(x).lower() for x in loaders]
+    if not required:
+        return False
+    installed = scan_installed_loaders(minecraft_dir)
+    return all(name in installed for name in required)

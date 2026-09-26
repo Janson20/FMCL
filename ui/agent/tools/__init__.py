@@ -1,35 +1,31 @@
-"""AGENT 工具集 - 汇总注册所有工具"""
+"""Agent 工具实现（文件/版本/模组/整合包/资源/服务器/系统/网页）（转发 shim）
 
-from typing import List
+实现已搬到 ``services/agent/tools``。
 
-from ui.agent.tools.base import ToolInfo
-from ui.agent.tools.files import _build_file_tools
-from ui.agent.tools.modpack import _build_modpack_tools
-from ui.agent.tools.mods import _build_mod_tools
-from ui.agent.tools.resources import _build_resource_tools
-from ui.agent.tools.server import _build_server_tools
-from ui.agent.tools.skill import _build_skill_tool
-from ui.agent.tools.system import _build_system_tools
-from ui.agent.tools.todo_write import _build_todo_write_tool
-from ui.agent.tools.user import _build_user_tools
-from ui.agent.tools.versions import _build_version_tools
-from ui.agent.tools.web_fetch import _build_web_fetch_tool
-from ui.agent.tools.web_search import _build_web_search_tool
+**本包名与各子模块名都直接指向实现模块**（``sys.modules[__name__] = _impl``），
+而不是用 ``globals().update(...)`` 复制引用 —— 后者只能保证"读"到同一批对象，
+**"写"传不过去**（monkeypatch 会静默失效，实测踩过）。
 
+子模块也必须一并别名：否则 ``import ui.agent.tools.sub`` 会以旧包名把实现**再加载一次**，
+产生两份模块对象（两个类 → ``isinstance`` 跨不过去）。
 
-def get_all_builtin_tools() -> List[ToolInfo]:
-    """获取所有内置工具"""
-    tools: List[ToolInfo] = []
-    tools.extend(_build_version_tools())
-    tools.extend(_build_mod_tools())
-    tools.extend(_build_server_tools())
-    tools.extend(_build_modpack_tools())
-    tools.extend(_build_resource_tools())
-    tools.extend(_build_system_tools())
-    tools.extend(_build_file_tools())
-    tools.extend(_build_user_tools())
-    tools.append(_build_web_search_tool())
-    tools.append(_build_web_fetch_tool())
-    tools.append(_build_todo_write_tool())
-    tools.append(_build_skill_tool())
-    return tools
+别名之外仍把名字复制一份到本模块 ``__dict__``，兼容"先取模块对象、再 exec"的
+加载方式（理由见单模块模板里的说明）。
+
+阶段 3 完成后本文件可删除。
+"""
+
+import importlib
+import sys
+
+import services.agent.tools as _impl
+
+#: 实现包里的子模块（生成时按当时的文件清单写死）
+_SUBMODULES: tuple = ('base', 'files', 'modpack', 'mods', 'resources', 'server', 'skill', 'system', 'todo_write', 'user', 'versions', 'web_fetch', 'web_search')
+
+for _sub in _SUBMODULES:
+    sys.modules[f"{__name__}.{_sub}"] = importlib.import_module(f"services.agent.tools.{_sub}")
+
+sys.modules[__name__] = _impl
+
+globals().update({k: v for k, v in vars(_impl).items() if not k.startswith("__")})

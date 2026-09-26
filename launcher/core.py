@@ -17,11 +17,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from logzero import logger
 
+from app.ports import NullUIPort, UIPort
 from config import Config
 from mirror import MirrorSource
+from services.theme_service import Theme, get_theme_engine, init_theme_engine
+from services.user_agent import USER_AGENT
 from structured_logger import slog
-from ui.constants import USER_AGENT
-from ui.theme_engine import Theme, get_theme_engine, init_theme_engine
 from validation import validate_server_ip, validate_server_port, validate_version_id
 from version_utils import (
     InstanceInfo,
@@ -147,6 +148,9 @@ class MinecraftLauncher:
         # 账号系统引用（由外部设置）
         self._account_system = None
 
+        # UI 能力端口（由界面层通过 set_ui_port() 注入；默认空实现）
+        self.ui: UIPort = NullUIPort()
+
         # UI回调 (可选,用于进度更新)
         self.on_progress: Optional[Callable[[int, int, str], None]] = None
 
@@ -164,6 +168,15 @@ class MinecraftLauncher:
 
     def set_account_system(self, account_system):
         self._account_system = account_system
+
+    def set_ui_port(self, ui: Optional[UIPort]) -> None:
+        """注入 UI 能力端口（由界面层在启动时调用）。
+
+        核心层需要"告诉用户一件事"时只能走这个端口，不许自己 import
+        tkinter —— 见 ``app/ports.py`` 与 ``scripts/check_services_purity.py``。
+        未注入时保持 ``NullUIPort``：只写日志、永不抛异常、不阻塞。
+        """
+        self.ui = ui if ui is not None else NullUIPort()
 
     def _get_cached_java_runtimes(self) -> List:
         import time
@@ -1191,11 +1204,13 @@ class MinecraftLauncher:
                 logger.info(f"追加 --quickPlayMultiplayer {server_addr}")
 
             # ── GTNH 检测 ──
+            # 阶段 1.3：原先直接 import tkinter.messagebox 弹窗。这里不仅违反分层，
+            # 而且 launch_game 通常在后台线程执行 —— 从 worker 线程碰 Tk 正是
+            # AGENTS.md 明令禁止的（可能死锁/崩溃）。改走 UI 端口后，弹窗由主线程
+            # 真正显示，而 blocking=True 保住了原来的时序：用户点掉提示才继续启动。
             if self._is_gtnh_instance(target_version):
                 try:
-                    import tkinter.messagebox as _mb
-
-                    _mb.showwarning(
+                    self.ui.show_warning(
                         "GTNH 兼容性提示",
                         "检测到 GT New Horizons 整合包。\n\n"
                         "GTNH 使用了自定义系统类加载器 (retrofuturabootstrap)，"
@@ -1204,6 +1219,7 @@ class MinecraftLauncher:
                         "  - HMCL (Hello Minecraft! Launcher)\n"
                         "  - Prism Launcher (官方推荐)\n\n"
                         "游戏仍会尝试启动，但可能会崩溃。",
+                        blocking=True,
                     )
                 except Exception:
                     pass
@@ -2860,7 +2876,10 @@ class MinecraftLauncher:
         self.config.music_baike_original_enabled = bool(enabled)
         self.config.save_config()
         try:
-            from ui.music_source import MUSIC_SOURCES
+            # 阶段 1.4：音源适配已整体搬进 services/music_source/，所以核心层不再
+            # 依赖 ui.*。这条 import 原本是 scripts/check_services_purity.py 里
+            # 唯一一条 launcher/ 的已登记例外（归属任务 1.4），现在例外已消除。
+            from services.music_source import MUSIC_SOURCES
 
             wy_src = MUSIC_SOURCES.get("wy")
             if wy_src is not None and hasattr(wy_src, "set_baike_enabled"):

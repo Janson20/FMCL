@@ -11,107 +11,104 @@
   停止后用 SenseVoice 一次性识别
 - 所有事件通过线程安全队列分发；UI 侧由 VoiceMicButton 在主线程轮询，
   工作线程绝不直接操作 Tk 组件
+
+**任务 1.15 起本文件只剩界面部分**：录音 / VAD 前置 / 识别调用 / 模型下载与
+导入等业务逻辑整体搬到了 ``services/voice_service.py``（``VoiceService``，
+服务名 ``"voice"``）。本文件保留三样东西：
+
+1. ``VoiceMicButton`` —— Tk 控件、``after`` 轮询、事件到控件状态的映射；
+2. ``_POLL_INTERVAL_MS`` 与"什么时候开始/停止轮询"（服务层没有任何 Tk 概念，
+   轮询完全由界面决定）；
+3. ``_run_session_in_thread`` —— 把服务"要跑的那次会话"放进 daemon 线程，
+   线程由**界面侧**创建并注入给服务（``VoiceService.set_session_runner``），
+   服务自己不起线程。
+
+``VoiceInputManager`` 现在是一个**无状态薄委托**门面：公开方法名与签名逐字
+保持，方法体一律转发给服务。服务实例经 ``_get_voice_service()`` 惰性取得 ——
+优先用 ``owner.context`` 里注册的 ``"voice"`` 服务，没有 AppContext 时退回
+进程级单例（阶段 1 的 Tk 界面尚未接 AppContext，走的就是后者）。
 """
 
-import os
-import queue
-import shutil
 import threading
-import time
-import urllib.request
-import zipfile
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import customtkinter as ctk
 from logzero import logger
 
-from ui.agent.voice.models import (
-    ENCODER_PATTERNS,
-    DECODER_PATTERNS,
-    TOKENIZER_NAMES,
-    MODEL_MANUAL_HINT_URL,
-    MODEL_URLS,
-    MODEL_ZIP,
-    is_model_ready,
-    model_dir,
-    model_version,
+from app.context import current_context
+from services.voice_service import (
+    MAX_RECORD_SECONDS,  # 兼容再导出：界面侧不再直接使用
+    SAMPLE_RATE,  # 兼容再导出：界面侧不再直接使用
+    STATE_DOWNLOADING,
+    STATE_IDLE,
+    STATE_LOADING,
+    STATE_RECOGNIZING,
+    STATE_RECORDING,
+    VoiceInputListener,
+    VoiceService,
 )
-from ui.constants import COLORS, FONT_FAMILY, USER_AGENT
+from ui.constants import COLORS, FONT_FAMILY
 from ui.dialogs import show_notification
 from ui.i18n import _
 
-try:
-    import numpy as np
-    import sounddevice as sd
-
-    _HAVE_AUDIO_DEPS = True
-except Exception:
-    _HAVE_AUDIO_DEPS = False
-
-SAMPLE_RATE = 16000
-MAX_RECORD_SECONDS = 120  # 最长录音时长（秒），超时自动停止
 _POLL_INTERVAL_MS = 100
 
-STATE_IDLE = "idle"
-STATE_DOWNLOADING = "downloading"
-STATE_LOADING = "loading"
-STATE_RECORDING = "recording"
-STATE_RECOGNIZING = "recognizing"
+
+def _run_session_in_thread(run: Callable[[], None]) -> None:
+    """服务注入用的调度器：每次录音一个 daemon 线程
+
+    与搬移前 ``VoiceInputManager.start()`` 里那两行逐字等价
+    （``threading.Thread(target=self._record_worker, daemon=True, name="VoiceInput")``
+    然后 ``start()``）：线程名、daemon 标志、只允许一个录音会话的不变式都不变。
+    区别只在于"创建线程"这件事现在归界面层做（服务不自己起线程）。
+    """
+    threading.Thread(target=run, daemon=True, name="VoiceInput").start()
 
 
-def _voice_engine_available() -> Tuple[bool, str]:
-    """检查识别引擎依赖是否可用"""
-    if not _HAVE_AUDIO_DEPS:
-        return False, _("voice_error_missing_deps")
-    try:
-        import onnxruntime  # noqa: F401
-        import sentencepiece  # noqa: F401
-    except Exception:
-        return False, _("voice_error_missing_deps")
-    return True, ""
+def _get_voice_service(owner: object = None) -> VoiceService:
+    """惰性取得语音服务实例（**没有 AppContext 也能工作**）
 
+    1. 优先用装配层挂上来的上下文：``getattr(owner, "context", None)`` 里注册的
+       ``"voice"`` 服务（阶段 1 的 Tk 界面尚未接 AppContext，这条分支目前不会
+       命中；阶段 2 接通后自动生效）；
+    2. 取不到就退回进程级单例 ``VoiceService.instance()``。**必须是单例**：
+       ``register(listener)`` 与 ``poll_once(listener)`` 若落在不同实例上，
+       录音事件就永远送不到控件（搬移前 ``VoiceInputManager.instance()`` 也是
+       单例语义，所有麦克风按钮共享同一份录音状态）。
 
-def _load_engine() -> Optional[object]:
-    """延迟加载 SenseVoice 引擎（模型目录必须已就绪）"""
-    from ui.agent.voice.sensevoice import SenseVoice
-
-    return SenseVoice(str(model_dir()))
-
-
-class VoiceInputListener:
-    """语音输入事件监听接口（回调均在 Tk 主线程执行）"""
-
-    def on_voice_state(self, state: str, message: str = "") -> None:
-        raise NotImplementedError
-
-    def on_voice_progress(self, percent: float, message: str = "") -> None:
-        raise NotImplementedError
-
-    def on_voice_final(self, text: str) -> None:
-        raise NotImplementedError
-
-    def on_voice_error(self, message: str) -> None:
-        raise NotImplementedError
+    退回单例时顺带把界面侧的会话调度器注入进去（幂等）。
+    """
+    context = getattr(owner, "context", None) or current_context()
+    if context is not None:
+        try:
+            service = context.require("voice")
+        except Exception as e:  # noqa: BLE001 - 未注册/端口异常一律退回单例
+            logger.debug(f"[Voice] 从 context 取 voice 服务失败，退回单例: {e}")
+        else:
+            if isinstance(service, VoiceService):
+                return service
+    service = VoiceService.instance()
+    service.set_session_runner(_run_session_in_thread)
+    return service
 
 
 class VoiceInputManager:
-    """语音输入管理器（单例）- 管理模型下载、录音与识别生命周期"""
+    """语音输入管理器（单例门面）- 转发到 ``services.voice_service.VoiceService``
+
+    保留这个类（而不是让调用方直接改用 ``VoiceService``）是为了不动既有调用点：
+    ``ui/app_base.py:166``、``ui/agent/agent_chat.py:928``（只用 ``VoiceMicButton``）、
+    ``ui/windows/launcher_settings.py:2050``（``import_model_zip``）与
+    ``tests/test_voice_input.py``（``_extract_model``）。本类不持有任何状态，
+    每个方法都是一行转发。
+    """
 
     _instance: Optional["VoiceInputManager"] = None
     _instance_lock = threading.Lock()
 
-    def __init__(self) -> None:
-        self._state: str = STATE_IDLE
-        self._state_lock = threading.Lock()
-        self._listener_queues: dict = {}
-        self._listener_lock = threading.Lock()
-        self._active_listener: Optional[VoiceInputListener] = None
-        self._pending_listener: Optional[VoiceInputListener] = None
-        self._session_frames: List[np.ndarray] = []
-        self._session_frames_lock = threading.Lock()
-        self._stop_event = threading.Event()
-        self._engine: Optional[object] = None
+    def _service(self) -> VoiceService:
+        """取服务实例（每次现取，保证与 AppContext 接通后立刻生效）"""
+        return _get_voice_service(self)
 
     @classmethod
     def instance(cls) -> "VoiceInputManager":
@@ -120,296 +117,58 @@ class VoiceInputManager:
                 cls._instance = VoiceInputManager()
             return cls._instance
 
-    # ─── 状态与监听注册 ────────────────────────────────────────
+    # ─── 状态与监听注册（转发）─────────────────────────────────
 
     def get_state(self) -> str:
-        with self._state_lock:
-            return self._state
+        return self._service().get_state()
+
+    def is_recording(self) -> bool:
+        return self._service().is_recording()
 
     def is_available(self) -> Tuple[bool, str]:
         """检查语音输入所需的依赖是否可用"""
-        return _voice_engine_available()
+        return self._service().is_available()
 
     def register(self, listener: VoiceInputListener) -> None:
-        with self._listener_lock:
-            if listener not in self._listener_queues:
-                self._listener_queues[listener] = queue.Queue()
+        self._service().register(listener)
 
     def unregister(self, listener: VoiceInputListener) -> None:
-        with self._listener_lock:
-            self._listener_queues.pop(listener, None)
-            if self._active_listener is listener:
-                self._active_listener = None
+        self._service().unregister(listener)
 
     def drain_events(self, listener: VoiceInputListener) -> List[tuple]:
         """主线程轮询：取出该监听者的事件队列"""
-        q = self._listener_queues.get(listener)
-        if q is None:
-            return []
-        events: List[tuple] = []
-        try:
-            while True:
-                events.append(q.get_nowait())
-        except queue.Empty:
-            pass
-        return events
+        return self._service().drain_events(listener)
 
-    def _broadcast(self, event: tuple, active_only: bool = False) -> None:
-        with self._listener_lock:
-            targets = [self._active_listener] if active_only else list(self._listener_queues)
-        for listener in targets:
-            q = self._listener_queues.get(listener)
-            if q is not None:
-                try:
-                    q.put_nowait(event)
-                except queue.Full:
-                    try:
-                        q.get_nowait()
-                    except queue.Empty:
-                        pass
-                    q.put_nowait(event)
+    def poll_once(self, listener: VoiceInputListener) -> List[tuple]:
+        """主线程"取一次结果"（转发；调用时机由界面决定）"""
+        return self._service().poll_once(listener)
 
-    def _set_state(self, state: str, message: str = "") -> None:
-        with self._state_lock:
-            self._state = state
-        logger.info(f"[Voice] 状态切换: {state} {message}")
-        self._broadcast(("state", state, message))
+    def current_text(self) -> str:
+        """最近一次识别出的文本"""
+        return self._service().current_text()
 
-    # ─── 对外操作 ───────────────────────────────────────────────
+    # ─── 对外操作（转发）───────────────────────────────────────
 
     def toggle(self, listener: VoiceInputListener) -> None:
         """点击麦克风按钮：空闲则开始录音，录音中则停止并识别"""
-        state = self.get_state()
-        if state in (STATE_DOWNLOADING, STATE_LOADING, STATE_RECOGNIZING):
-            return  # 正在准备/识别，忽略点击
-        if state == STATE_RECORDING:
-            with self._listener_lock:
-                is_active = self._active_listener is listener
-            self.stop()
-            if not is_active:
-                # 点击了另一个输入框的按钮：先停掉当前录音，再为新输入框开始
-                with self._listener_lock:
-                    self._pending_listener = listener
-            return
-        self.start(listener)
+        self._service().toggle(listener)
 
     def start(self, listener: VoiceInputListener) -> None:
-        if self.get_state() != STATE_IDLE:
-            return
-        with self._listener_lock:
-            self._active_listener = listener
-        self._stop_event = threading.Event()
-        self._worker = threading.Thread(target=self._record_worker, daemon=True, name="VoiceInput")
-        self._worker.start()
+        """开始录音（线程由注入的调度器创建，见 _run_session_in_thread）"""
+        self._service().begin_session(listener)
 
     def stop(self) -> None:
         """请求停止录音（识别与结果由工作线程异步完成）"""
-        self._stop_event.set()
+        self._service().stop()
 
-    # ─── 工作线程 ───────────────────────────────────────────────
-
-    def _record_worker(self) -> None:
-        """工作线程：确保模型就绪 → 采集音频 → 停止后识别"""
-        try:
-            if not self._ensure_model():
-                return
-            self._set_state(STATE_LOADING, _("voice_loading_model"))
-            if self._engine is None:
-                self._engine = _load_engine()
-            self._session_frames.clear()
-
-            self._set_state(STATE_RECORDING, _("voice_recording"))
-            record_start = time.time()
-
-            def audio_callback(indata, frames, time_info, status):
-                if status:
-                    logger.debug(f"[Voice] 录音状态: {status}")
-                with self._session_frames_lock:
-                    self._session_frames.append(indata.copy())
-                # 超时自动停止
-                if time.time() - record_start > MAX_RECORD_SECONDS:
-                    self._stop_event.set()
-
-            try:
-                with sd.InputStream(
-                    samplerate=SAMPLE_RATE,
-                    channels=1,
-                    dtype="float32",
-                    blocksize=int(0.05 * SAMPLE_RATE),
-                    callback=audio_callback,
-                ):
-                    while not self._stop_event.is_set():
-                        time.sleep(0.05)
-            except sd.PortAudioError:
-                logger.error("[Voice] 未找到可用的麦克风设备")
-                self._broadcast(("error", _("voice_error_no_mic")), active_only=True)
-                return
-            except Exception as e:
-                logger.error(f"[Voice] 录音流异常: {e}", exc_info=True)
-                self._broadcast(("error", _("voice_error_unknown", err=str(e))), active_only=True)
-                return
-
-            # 识别阶段
-            self._set_state(STATE_RECOGNIZING, _("voice_recognizing"))
-            with self._session_frames_lock:
-                frames = list(self._session_frames)
-                self._session_frames.clear()
-            if frames:
-                audio = np.concatenate(frames, axis=0).reshape(-1)
-                text = self._engine.recognize(audio)
-                if text:
-                    logger.info(f"[Voice] 识别完成: {text[:80]}")
-                    self._broadcast(("final", text), active_only=True)
-        except Exception as e:
-            logger.error(f"[Voice] 录音过程异常: {e}", exc_info=True)
-            self._broadcast(("error", _("voice_error_unknown", err=str(e))), active_only=True)
-        finally:
-            self._finish_session()
-
-    def _finish_session(self) -> None:
-        """收尾：清除活动监听者并处理输入框切换"""
-        with self._listener_lock:
-            self._active_listener = None
-        self._set_state(STATE_IDLE)
-        # 录音中点击了另一个输入框的按钮：立即为新输入框开始
-        with self._listener_lock:
-            pending = self._pending_listener
-            self._pending_listener = None
-        if pending is not None:
-            self.start(pending)
-
-    # ─── 模型下载 ───────────────────────────────────────────────
-
-    def _ensure_model(self) -> bool:
-        """确保模型存在：不存在则自动下载并解压"""
-        if is_model_ready():
-            return True
-
-        self._set_state(STATE_DOWNLOADING, _("voice_downloading_model"))
-        d = model_dir()
-        d.mkdir(parents=True, exist_ok=True)
-        zip_path = d / MODEL_ZIP
-        downloaded = False
-        last_error = ""
-        for url in MODEL_URLS:
-            try:
-                self._download(url, zip_path)
-                downloaded = True
-                break
-            except Exception as e:
-                last_error = str(e)
-                logger.warning(f"[Voice] 模型下载失败 {url}: {e}")
-                zip_path.unlink(missing_ok=True)
-        if not downloaded:
-            self._broadcast(("error", _("voice_error_download", err=last_error)), active_only=True)
-            return False
-
-        self._set_state(STATE_DOWNLOADING, _("voice_extracting_model"))
-        try:
-            self._extract_model(zip_path, d)
-        except Exception as e:
-            logger.error(f"[Voice] 模型解压失败: {e}")
-            self._broadcast(("error", _("voice_error_model", err=str(e))), active_only=True)
-            return False
-        finally:
-            try:
-                zip_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-        if not is_model_ready():
-            hint = _("voice_error_model_manual", url=MODEL_MANUAL_HINT_URL, path=str(model_dir()))
-            self._broadcast(("error", hint), active_only=True)
-            return False
-        return True
+    def import_model_zip(self, zip_path: str) -> str:
+        """从本地模型压缩包导入模型（同步阻塞，供设置窗口后台线程调用）"""
+        return self._service().import_model_zip(zip_path)
 
     @staticmethod
     def _extract_model(zip_path: Path, dest: Path) -> None:
-        """解压模型 zip 到模型目录（兼容两种目录结构，递归查找目标文件）"""
-        with zipfile.ZipFile(zip_path) as zf:
-            names = zf.namelist()
-            targets: dict = {}
-            for name in names:
-                base = name.rsplit("/", 1)[-1]
-                if any(Path(base).match(p) for p in ENCODER_PATTERNS):
-                    targets.setdefault("encoder", name)
-                elif any(Path(base).match(p) for p in DECODER_PATTERNS):
-                    targets.setdefault("decoder", name)
-                elif base in TOKENIZER_NAMES:
-                    targets.setdefault("tokenizer", name)
-            if len(targets) < 3:
-                raise RuntimeError("模型压缩包缺少必要文件")
-            for kind, name in targets.items():
-                target = dest / name.rsplit("/", 1)[-1]
-                with zf.open(name) as src, open(target, "wb") as dst:
-                    while True:
-                        chunk = src.read(1 << 20)
-                        if not chunk:
-                            break
-                        dst.write(chunk)
-
-    def import_model_zip(self, zip_path: str) -> str:
-        """从本地模型压缩包导入模型（同步阻塞，供设置窗口后台线程调用）
-
-        校验压缩包内容并原子替换模型目录中的旧模型。
-
-        Args:
-            zip_path: 本地 zip 文件路径
-
-        Returns:
-            导入的模型版本标识 (fp16 / int8)
-
-        Raises:
-            RuntimeError: 压缩包无效、不是受支持的模型包或解压失败
-        """
-        zip_path = Path(zip_path)
-        if not zip_path.exists() or zip_path.suffix.lower() != ".zip":
-            raise RuntimeError(_("voice_import_invalid_file"))
-        d = model_dir()
-        d.mkdir(parents=True, exist_ok=True)
-        tmp = d / ".import_tmp"
-        if tmp.exists():
-            shutil.rmtree(tmp, ignore_errors=True)
-        tmp.mkdir(parents=True, exist_ok=True)
-        try:
-            try:
-                self._extract_model(zip_path, tmp)
-            except Exception as e:
-                logger.warning(f"[Voice] 模型导入内容校验失败: {e}")
-                raise RuntimeError(_("voice_import_wrong_package")) from e
-            if not is_model_ready(tmp):
-                raise RuntimeError(_("voice_import_wrong_package"))
-            # 原子替换旧模型文件
-            for old in list(d.glob("SenseVoice-*.onnx")) + [d / "tokenizer.bpe.model"]:
-                try:
-                    old.unlink()
-                except Exception:
-                    pass
-            for f in list(tmp.iterdir()):
-                shutil.move(str(f), str(d / f.name))
-            logger.info(f"[Voice] 模型导入成功: {zip_path}")
-            return model_version()
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
-
-    def _download(self, url: str, dest: Path) -> None:
-        """下载文件并实时上报进度"""
-        req = urllib.request.Request(url, headers={"User-Agent": str(USER_AGENT)})
-        tmp = dest.with_suffix(dest.suffix + ".part")
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            total = int(resp.headers.get("Content-Length") or 0)
-            received = 0
-            with open(tmp, "wb") as f:
-                while True:
-                    chunk = resp.read(65536)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    received += len(chunk)
-                    if total:
-                        percent = received * 100.0 / total
-                        self._broadcast(("progress", percent, _("voice_downloading_model")))
-        if tmp.exists():
-            os.replace(tmp, dest)
+        """解压模型 zip（转发；tests/test_voice_input.py 直接调用这个静态入口）"""
+        VoiceService._extract_model(zip_path, dest)
 
 
 class VoiceMicButton(ctk.CTkButton, VoiceInputListener):
@@ -450,7 +209,7 @@ class VoiceMicButton(ctk.CTkButton, VoiceInputListener):
     def _poll_once(self) -> None:
         self._poll_id = None
         try:
-            for event in VoiceInputManager.instance().drain_events(self):
+            for event in VoiceInputManager.instance().poll_once(self):
                 self._handle_event(event)
         except Exception as e:
             logger.debug(f"[Voice] 事件处理异常: {e}")

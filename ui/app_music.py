@@ -50,6 +50,82 @@ from ui.music_playlist import (
 from ui.music_risk_captcha import run_captcha_flow
 from ui.music_source import MUSIC_SOURCES, SOURCE_META, resolve_track, search_all
 from ui.music_source.base import MusicInfo as OnlineMusicInfo
+# ════════════════════════════════════════════════════════════════════════
+# 阶段 1 任务 1.4-A（形态 1：整体搬家）：音频解析/校验/转码住进了 services/
+#
+# 搬走的 10 个模块级函数实测零 GUI 触点（不碰控件、不调 after、不用 i18n），
+# 现在住在 ``services/music_audio.py``。下面这批 ``_xxx`` 别名在**导入时**绑定，
+# 所以 ``ui.app_music._extract_audio_metadata is services.music_audio.extract_audio_metadata``
+# 成立；本文件其余方法（含本轮范围外的在线搜索 / 下载回退 / 歌单 UI）继续按旧名调用，
+# 公开行为一字不变。
+#
+# 降级开关的**真正读取点**已随实现搬到服务侧（函数体按模块级全局名读它们），
+# 因此测试补丁点也一并搬到 services.music_audio —— 见
+# ``tests/test_music_fallback.py`` 顶部的中文说明。
+# ════════════════════════════════════════════════════════════════════════
+from services.music_audio import (  # noqa: F401  （常量 + 降级开关的旧名兼容）
+    AUDIO_EXTENSIONS,
+    MUSIC_METADATA_CACHE_MAX,
+    _AUDIO_FILE_MAGIC,
+    _DURATION_TOLERANCE_MIN_SEC,
+    _DURATION_TOLERANCE_RATIO,
+    _LOSSLESS_EXTENSIONS,
+    _M4A_FTYP_MAGIC,
+    _mutagen_import_error,
+)
+from services.music_audio import extract_audio_metadata as _extract_audio_metadata
+from services.music_audio import format_local_quality as _format_local_quality
+from services.music_audio import format_online_quality as _format_online_quality
+from services.music_audio import format_play_count as _format_play_count
+from services.music_audio import format_time as _format_time
+from services.music_audio import get_tag as _get_tag
+from services.music_audio import is_m4a_container as _is_m4a_container
+from services.music_audio import transcode_audio_to_wav as _transcode_audio_to_wav
+from services.music_audio import validate_audio_duration as _validate_audio_duration
+from services.music_audio import validate_audio_file_header as _validate_audio_file_header
+
+# ════════════════════════════════════════════════════════════════════════
+# 阶段 1 任务 1.4-B（形态 2：逻辑与界面切分）：**在线侧**的判定与编排搬进 services/
+#
+#   services/music_online.py    —— 搜索准入/结果归一化/分页/自动音质/取流完成判定/正在播放取值
+#   services/music_download.py  —— 多源回退下载编排、临时文件规则、B站风控重试编排
+#   services/music_wy_remote.py —— 网易云远程歌单同步编排与分页数据准备（只读、不落盘）
+#
+# 切缝与 1.4-A 同一条：**这段代码是否 import GUI、或是否直接创建/销毁控件**。
+# 控件、线程、after、i18n 文案一律留在本文件；服务把这些值当参数收进来、
+# 把新值放在返回值里（SearchOutcome / PagerPlan / SyncApplyPlan 这些数据类）。
+#
+# 1.4-A 的「引擎独占 + 界面镜像」约定原样成立：本轮**没有**任何一处在委托后
+# 改写引擎状态 —— 镜像块所在的 `_play_online_file` / `_play_file` 逐字节未动，
+# `_music_metadata_cache` / `_music_modes_used` 仍是引擎里那个对象。
+# ════════════════════════════════════════════════════════════════════════
+from services import music_download, music_online
+from services import music_wy_remote as wy_remote
+
+# ════════════════════════════════════════════════════════════════════════
+# 阶段 1 任务 1.4-C（形态 2：逻辑与界面切分）：**本地侧**的判定与编排搬进 services/
+#
+#   services/music_local.py    —— 本地歌单 CRUD/排序/播放历史/侧边栏与行清单/播放全部/底栏取值（新增）
+#   services/music_hotkeys.py  —— 全局热键键位表与注册/注销编排（新增）
+#   services/music_lyric_display.py  —— 歌词轮询判定、当前行与副文本取值、取词装载（新增）
+#   services/music_effects_panel.py  —— 音效显示文案格式化、重置默认值、临时文件清理（新增）
+#   services/desktop_lyric.py  —— 桌面歌词开关的目标可见性、待推送的歌词行（1.4-C 追加）
+#   services/music_wy_remote.py—— 1.4-B 留的 is_remote_key/strip_remote_key/entry_label 接上调用方
+#
+# 后两个（歌词显示 / 音效面板）为什么另开新模块、不直接追加进 music_lyrics.py 与
+# music_effects.py：1.4-A 的整体搬家守卫 test_services_relocation.py::
+# test_implementation_kept_the_original_line_count 把那两个文件的行数钉死在 git 原文，
+# 例外登记表 REGISTERED_LINE_DELTAS 又住在禁改的 tests/test_services_*.py 里。
+#
+# 切缝与 1.4-A / 1.4-B 同一条：**这段代码是否 import GUI、是否直接创建/销毁/配置控件、
+# 是否 self.after 排期、是否读 winfo_exists()**。控件、线程、after、i18n 文案一律留在
+# 本文件；服务把值当参数收进来、把新值放在返回值里（*Plan / *Outcome 这些数据类）。
+#
+# 1.4-A 的「引擎独占 + 界面镜像」约定原样成立：本轮**没有**一处在委托后改写引擎状态
+# —— `_play_file` / `_play_online_file` 逐字节未动。
+# ════════════════════════════════════════════════════════════════════════
+from services import desktop_lyric, music_effects_panel, music_hotkeys, music_local, music_lyric_display
+
 
 _pygame_import_error = None
 try:
@@ -58,90 +134,50 @@ try:
 except ImportError as e:
     _pygame_import_error = e
 
-_mutagen_import_error = None
-try:
-    from mutagen import File as MutagenFile
-    from mutagen.flac import FLAC
-    from mutagen.id3 import ID3
-    from mutagen.mp3 import MP3
-    from mutagen.mp4 import MP4
-    from mutagen.oggvorbis import OggVorbis
-except ImportError as e:
-    _mutagen_import_error = e
-
-_winsdk_import_error = None
-if platform.system().lower() == "windows":
-    try:
-        import asyncio as _asyncio_for_smtc
-
-        from winsdk.windows.media import (
-            MediaPlaybackStatus,
-            SystemMediaTransportControls,
-            SystemMediaTransportControlsButton,
-            SystemMediaTransportControlsDisplayUpdater,
-        )
-        from winsdk.windows.storage.streams import DataWriter, InMemoryRandomAccessStream, RandomAccessStreamReference
-
-        _winsdk_available = True
-    except ImportError as e:
-        _winsdk_import_error = e
-        _winsdk_available = False
-else:
-    _winsdk_available = False
-    _winsdk_import_error = "非 Windows 平台"
-
-AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac", ".wma", ".opus", ".aiff"}
 
 # 网易云账号歌单（侧边栏同步，只读）:
 # 条目 id 前缀（区分本地歌单与远程歌单，远程歌单不进入 PlaylistManager，
-# 因此永不落盘、永不参与本地歌单的任何编辑操作）
-_WY_REMOTE_PREFIX = "wy:"
+# 因此永不落盘、永不参与本地歌单的任何编辑操作）。
+# 阶段 1.4-B：前缀/每页条数/刷新间隔的唯一真相搬到 services.music_wy_remote
+# （`remote_key()` 也住那儿），这里保留旧名再导出，本文件其余方法一个字都不用改。
+_WY_REMOTE_PREFIX = wy_remote.REMOTE_PREFIX
 # 远程歌单歌曲列表每页条数（超过 20 首时按页展示）
-_MUSIC_WY_PAGE_SIZE = 20
+_MUSIC_WY_PAGE_SIZE = wy_remote.PAGE_SIZE
 # 定期自动刷新歌单列表的间隔（毫秒）
-_WY_REMOTE_PERIODIC_MS = 10 * 60 * 1000
+_WY_REMOTE_PERIODIC_MS = wy_remote.PERIODIC_MS
 
-PLAY_MODE_SEQUENTIAL = 0
-PLAY_MODE_LOOP_LIST = 1
-PLAY_MODE_LOOP_SINGLE = 2
-PLAY_MODE_RANDOM = 3
+# ── 播放模式 / 淡入淡出 / 轮询参数（阶段 1.4-A：以 services/music_player 为唯一真相）──
+# 旧名在下面全部保留为再导出，本文件其余 180 多个方法一个字都不用改。
+from services.music_player import ALL_PLAY_MODES  # noqa: F401
+from services.music_player import FADE_INTERVAL_MS, FADE_STEPS  # noqa: F401
+from services.music_player import FADE_OUT_PAUSE, FADE_OUT_STOP  # noqa: F401
+from services.music_player import MusicPlayerService
+from services.music_player import PLAY_MODE_LOOP_LIST, PLAY_MODE_LOOP_SINGLE  # noqa: F401
+from services.music_player import PLAY_MODE_NAMES, PLAY_MODE_RANDOM  # noqa: F401
+from services.music_player import PLAY_MODE_SEQUENTIAL  # noqa: F401
+from services.music_player import PROGRESS_POLL_IDLE_MS, PROGRESS_POLL_MS  # noqa: F401
+from services.music_state import (  # noqa: F401
+    LOAD_RETRY_MAX,
+    LOAD_RETRY_MS,
+    PERIODIC_SAVE_INTERVAL_MS,
+    SAVE_DEBOUNCE_MS,
+    apply_wy_cookie,
+    build_music_state,
+    login_retry_due,
+    parse_music_state,
+    read_saved_cookie,
+    volume_to_slider,
+)
 
-PLAY_MODE_NAMES = {
-    PLAY_MODE_SEQUENTIAL: "sequential",
-    PLAY_MODE_LOOP_LIST: "loop_list",
-    PLAY_MODE_LOOP_SINGLE: "loop_single",
-    PLAY_MODE_RANDOM: "random",
-}
+# 阶段 1.4-C：7 个动作的组合键表搬到 services.music_hotkeys
+# （注册与注销共用同一份动作顺序，不会再出现"只改了其中一处"）。
+# 这里保留旧名再导出 —— `DEFAULT_HOTKEYS` 全仓库只有本文件读，别的读者一字不用改。
+DEFAULT_HOTKEYS = music_hotkeys.DEFAULT_HOTKEYS
 
-DEFAULT_HOTKEYS = {
-    "play_pause": "ctrl+shift+space",
-    "prev": "ctrl+shift+left",
-    "next": "ctrl+shift+right",
-    "stop": "ctrl+shift+down",
-    "vol_up": "ctrl+shift+up",
-    "vol_down": "ctrl+shift+page down",
-    "vol_mute": "ctrl+shift+m",
-}
 
-FADE_STEPS = 20
-FADE_INTERVAL_MS = 50
-
-MUSIC_METADATA_CACHE_MAX = 200
 
 MUSIC_ORIGINAL_FEEDBACK_URL = "https://doc.weixin.qq.com/forms/AKgAhAf7ABQAUoAtgbcAHkCNf0v0B41mf"
 
-# ── 在线音频下载校验 ──────────────────────────────────
-# 文件头魔数 -> 扩展名（用于识别 HTML 错误页/空文件等无效响应）
-_AUDIO_FILE_MAGIC = (
-    (b"ID3", ".mp3"),  # MP3 (ID3v2)
-    (b"fLaC", ".flac"),  # FLAC
-    (b"OggS", ".ogg"),  # OGG/Opus
-    (b"RIFF", ".wav"),  # WAV
-)
-_M4A_FTYP_MAGIC = b"ftyp"  # M4A/MP4: 前4字节为 box 大小，offset 4 处为 ftyp
-# 时长校验：实际时长与预期相差比例容差 + 最小容差（秒），防 VIP 试听片段等截断文件
-_DURATION_TOLERANCE_RATIO = 0.2
-_DURATION_TOLERANCE_MIN_SEC = 10
 
 _hotkey_import_error = None
 try:
@@ -153,452 +189,25 @@ except Exception as e:
     _keyboard_available = False
 
 
-def _extract_audio_metadata(filepath: str) -> Dict[str, any]:
-    result = {
-        "title": os.path.splitext(os.path.basename(filepath))[0],
-        "artist": "",
-        "album": "",
-        "duration": 0,
-        "bitrate": 0,
-        "has_cover": False,
-        "cover_data": None,
-    }
-    if _mutagen_import_error is not None:
-        return result
-    try:
-        audio = MutagenFile(filepath)
-        if audio is None:
-            return result
-        ext = os.path.splitext(filepath)[1].lower()
-
-        # 通用码率/时长提取（各格式均有 info.bitrate）
-        try:
-            if hasattr(audio, "info"):
-                info = audio.info
-                if hasattr(info, "bitrate"):
-                    result["bitrate"] = int(getattr(info, "bitrate", 0) or 0)
-                if hasattr(info, "length"):
-                    result["duration"] = info.length
-        except Exception:
-            pass
-
-        if ext == ".mp3":
-            if hasattr(audio, "info") and hasattr(audio.info, "length"):
-                result["duration"] = audio.info.length
-            if hasattr(audio, "tags"):
-                tags = audio.tags
-                if tags:
-                    result["title"] = _get_tag(tags, "TIT2") or result["title"]
-                    result["artist"] = _get_tag(tags, "TPE1") or ""
-                    result["album"] = _get_tag(tags, "TALB") or ""
-                    for tag_name in tags.keys():
-                        if tag_name.startswith("APIC:"):
-                            result["has_cover"] = True
-                            result["cover_data"] = tags[tag_name].data
-                            break
-        elif ext == ".flac":
-            flac = FLAC(filepath)
-            if hasattr(flac, "info") and hasattr(flac.info, "length"):
-                result["duration"] = flac.info.length
-            if flac.tags:
-                result["title"] = flac.tags.get("title", [result["title"]])[0] or result["title"]
-                result["artist"] = flac.tags.get("artist", [""])[0]
-                result["album"] = flac.tags.get("album", [""])[0]
-            if flac.pictures:
-                result["has_cover"] = True
-                result["cover_data"] = flac.pictures[0].data
-        elif ext == ".ogg":
-            ogg = OggVorbis(filepath)
-            if hasattr(ogg, "info") and hasattr(ogg.info, "length"):
-                result["duration"] = ogg.info.length
-            if ogg.tags:
-                result["title"] = ogg.tags.get("title", [result["title"]])[0] or result["title"]
-                result["artist"] = ogg.tags.get("artist", [""])[0]
-                result["album"] = ogg.tags.get("album", [""])[0]
-            for key in ogg:
-                if key.startswith("cover") or key.startswith("metadata_block_picture"):
-                    result["has_cover"] = True
-                    result["cover_data"] = ogg[key][0] if isinstance(ogg[key], list) else ogg[key]
-                    break
-        elif ext == ".m4a" or ext == ".mp4":
-            mp4 = MP4(filepath)
-            if hasattr(mp4, "info") and hasattr(mp4.info, "length"):
-                result["duration"] = mp4.info.length
-            if mp4.tags:
-                result["title"] = mp4.tags.get("\xa9nam", [result["title"]])[0] or result["title"]
-                result["artist"] = mp4.tags.get("\xa9ART", [""])[0]
-                result["album"] = mp4.tags.get("\xa9alb", [""])[0]
-            if hasattr(mp4, "covr") and mp4.covr:
-                result["has_cover"] = True
-                result["cover_data"] = bytes(mp4.covr[0])
-        else:
-            try:
-                if hasattr(audio, "info") and hasattr(audio.info, "length"):
-                    result["duration"] = audio.info.length
-            except Exception:
-                pass
-    except Exception as e:
-        logger.debug(f"读取音频元数据失败: {filepath}: {e}")
-    return result
-
-
-def _get_tag(tags, tag_id: str) -> Optional[str]:
-    try:
-        frame = tags.get(tag_id)
-        if frame:
-            return str(frame.text[0]) if hasattr(frame, "text") else str(frame)
-    except Exception:
-        pass
-    return None
-
-
-def _format_time(seconds: float) -> str:
-    if seconds < 0:
-        seconds = 0
-    m = int(seconds // 60)
-    s = int(seconds % 60)
-    return f"{m}:{s:02d}"
-
-
-def _format_play_count(count: int) -> str:
-    """播放量格式化：<1万 显示完整数字，>=1万 显示 x.xw（整数时省略小数，如 12345→1.2w、10000→1w）"""
-    if count <= 0:
-        return ""
-    if count < 10000:
-        return str(count)
-    text = f"{count / 10000.0:.1f}".rstrip("0").rstrip(".")
-    return f"{text}w"
-
-
-# ── 音质显示 ─────────────────────────────────────────
-# 无损容器（即使码率字段缺失也按无损显示）
-_LOSSLESS_EXTENSIONS = {".flac", ".ape", ".wav", ".aiff", ".alac"}
-
-
-def _format_online_quality(quality: str) -> str:
-    """在线播放音质标签：音源实际获取到的音质档位"""
-    return {
-        "flac24bit": "FLAC",
-        "flac": "FLAC",
-        "320k": "320K",
-        "128k": "128K",
-    }.get(quality or "", "")
-
-
-def _format_local_quality(meta: dict, filepath: str = "") -> str:
-    """本地播放音质标签：按文件实际码率/格式判定
-
-    Returns:
-        "FLAC" / "320K" / "256K" / "192K" / "128K"，未知（码率缺失）返回空串
-    """
-    ext = os.path.splitext(filepath or "")[1].lower()
-    if ext in _LOSSLESS_EXTENSIONS:
-        return "FLAC"
-    bitrate = int(meta.get("bitrate") or 0)
-    if bitrate >= 900000:
-        return "FLAC"
-    kbps = bitrate // 1000
-    if kbps >= 320:
-        return "320K"
-    if kbps >= 256:
-        return "256K"
-    if kbps >= 192:
-        return "192K"
-    if kbps >= 128:
-        return "128K"
-    return ""
-
-
-def _validate_audio_file_header(filepath: str) -> bool:
-    """校验文件头是否为有效音频（防 HTML 错误页/空文件伪装成音频）"""
-    try:
-        with open(filepath, "rb") as f:
-            head = f.read(16)
-    except OSError:
-        return False
-    if not head:
-        return False
-    for magic, _ext in _AUDIO_FILE_MAGIC:
-        if head.startswith(magic):
-            return True
-    # MP3 裸帧同步 (0xFF Ex)
-    if len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0:
-        return True
-    # M4A/MP4: offset 4 处为 ftyp box
-    if len(head) >= 8 and head[4:8] == _M4A_FTYP_MAGIC:
-        return True
-    return False
-
-
-def _validate_audio_duration(filepath: str, expected_seconds: int) -> bool:
-    """校验音频实际时长与预期是否一致（防 VIP 试听片段/截断文件）
-
-    双方时长任一未知（mutagen 不可用/解析失败/预期未知）时放行。
-    """
-    if expected_seconds <= 0 or _mutagen_import_error is not None:
-        return True
-    try:
-        meta = _extract_audio_metadata(filepath)
-    except Exception:
-        return True
-    actual = meta.get("duration", 0)
-    if actual <= 0:
-        return True
-    tolerance = max(_DURATION_TOLERANCE_MIN_SEC, expected_seconds * _DURATION_TOLERANCE_RATIO)
-    return abs(actual - expected_seconds) <= tolerance
-
-
-def _is_m4a_container(filepath: str) -> bool:
-    """检测文件是否为 MP4/AAC 容器（ftyp box）
-
-    不依赖扩展名：B站 dash URL 带查询参数时文件可能被命名为 .mp3，
-    但内容是 AAC（SDL_mixer 无法解码）。
-    """
-    if filepath.lower().endswith(".m4a"):
-        return True
-    try:
-        with open(filepath, "rb") as f:
-            head = f.read(8)
-        return len(head) >= 8 and head[4:8] == _M4A_FTYP_MAGIC
-    except OSError:
-        return False
-
-
-def _transcode_audio_to_wav(filepath: str) -> Optional[str]:
-    """将 m4a/m4s（AAC 容器）转码为 wav 供 pygame 播放。
-
-    pygame 的 SDL_mixer 不支持 MP4/AAC 容器（B站 dash 音频流与部分平台
-    音源是 m4a）。优先用 Windows Media Foundation（winsdk，系统原生无
-    外部依赖），回退系统 ffmpeg。失败返回 None（调用方保留原文件）。
-
-    Args:
-        filepath: 音频文件路径（按文件头检测 MP4 容器，不依赖扩展名）
-
-    Returns:
-        转码后的 wav 文件路径，无需转码或失败时为 None
-    """
-    if not _is_m4a_container(filepath):
-        return None
-
-    def _finish_ok(wav_path: str) -> Optional[str]:
-        if os.path.getsize(wav_path) > 0:
-            return wav_path
-        try:
-            os.remove(wav_path)
-        except Exception:
-            pass
-        return None
-
-    # 1. Windows Media Foundation 原生转码
-    if _winsdk_available:
-        try:
-            import asyncio
-
-            from winsdk.windows.media.mediaproperties import AudioEncodingQuality, MediaEncodingProfile
-            from winsdk.windows.media.transcoding import MediaTranscoder
-            from winsdk.windows.storage import StorageFile
-
-            async def _transcode(src_path: str, dst_path: str) -> bool:
-                source = await StorageFile.get_file_from_path_async(src_path)
-                open(dst_path, "wb").close()  # MF 要求目标文件已存在
-                dest = await StorageFile.get_file_from_path_async(dst_path)
-                transcoder = MediaTranscoder()
-                profile = MediaEncodingProfile.create_wav(AudioEncodingQuality.HIGH)
-                prep = await transcoder.prepare_file_transcode_async(source, dest, profile)
-                if not prep.can_transcode:
-                    return False
-                await prep.transcode_async()
-                return True
-
-            fd, wav_path = tempfile.mkstemp(suffix=".wav", prefix="fmcl_conv_")
-            os.close(fd)
-            try:
-                ok = asyncio.run(_transcode(filepath, wav_path))
-            except Exception:
-                ok = False
-            if ok:
-                result = _finish_ok(wav_path)
-                if result:
-                    logger.info(f"Media Foundation 转码成功: {filepath} -> {result}")
-                    return result
-        except Exception as e:
-            logger.warning(f"Media Foundation 转码失败: {e}")
-
-    # 2. ffmpeg 回退
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg:
-        try:
-            fd, out_path = tempfile.mkstemp(suffix=".wav", prefix="fmcl_conv_")
-            os.close(fd)
-            os.remove(out_path)
-            proc = subprocess.run(
-                [ffmpeg, "-y", "-i", filepath, "-acodec", "pcm_s16le", out_path],
-                capture_output=True,
-                timeout=120,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            if proc.returncode == 0:
-                result = _finish_ok(out_path)
-                if result:
-                    logger.info(f"ffmpeg 转码成功: {filepath} -> {result}")
-                    return result
-            try:
-                os.remove(out_path)
-            except Exception:
-                pass
-        except Exception as e:
-            logger.warning(f"ffmpeg 转码失败: {e}")
-
-    logger.warning(f"m4a 转码不可用（无 Media Foundation/ffmpeg），保留原文件: {filepath}")
-    return None
-
-
-class _SMTCController:
-    def __init__(self):
-        self._smtc = None
-        self._callbacks: Dict[str, callable] = {}
-        self._initialized = False
-        self._parent = None
-
-    @property
-    def available(self) -> bool:
-        return _winsdk_available
-
-    def set_parent(self, parent):
-        self._parent = parent
-
-    def initialize(self, callbacks: Dict[str, callable]):
-        self._callbacks = callbacks
-
-    def update_now_playing(self, title: str, artist: str, album: str, cover_data: Optional[bytes] = None):
-        if not self.available or not self._parent:
-            return
-        self._parent.after(0, lambda: self._update_now_playing_main(title, artist, album, cover_data))
-
-    def _update_now_playing_main(self, title: str, artist: str, album: str, cover_data: Optional[bytes] = None):
-        try:
-            import asyncio
-
-            async def _update():
-                smtc = SystemMediaTransportControls.get_for_current_view()
-                updater = smtc.display_updater
-                updater.type = 3
-                props = updater.music_properties
-                props.title = title or ""
-                props.artist = artist or ""
-                props.album_title = album or ""
-                if cover_data:
-                    try:
-                        thumbnail = await self._create_thumbnail_stream(cover_data)
-                        if thumbnail:
-                            updater.thumbnail = thumbnail
-                    except Exception:
-                        pass
-                updater.update()
-                smtc.playback_status = 4
-                smtc.is_play_enabled = True
-                smtc.is_pause_enabled = True
-                smtc.is_next_enabled = True
-                smtc.is_previous_enabled = True
-                smtc.is_stop_enabled = True
-
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.ensure_future(_update())
-                else:
-                    loop.run_until_complete(_update())
-            except RuntimeError:
-                asyncio.run(_update())
-        except Exception:
-            pass
-
-    async def _create_thumbnail_stream(self, cover_data: bytes):
-        try:
-            from io import BytesIO
-
-            from PIL import Image
-
-            image = Image.open(BytesIO(cover_data))
-            image = image.resize((300, 300), Image.LANCZOS)
-            buf = BytesIO()
-            image.save(buf, format="PNG")
-            png_data = buf.getvalue()
-        except Exception:
-            png_data = cover_data
-        try:
-            stream = InMemoryRandomAccessStream()
-            writer = DataWriter(stream.get_output_stream_at(0))
-            writer.write_bytes(list(png_data))
-            await writer.store_async()
-            await writer.flush_async()
-            stream.seek(0)
-            return RandomAccessStreamReference.create_from_stream(stream)
-        except Exception:
-            return None
-
-    def set_playing(self):
-        if not self.available or not self._parent:
-            return
-        self._parent.after(0, self._set_status_main, 4)
-
-    def set_paused(self):
-        if not self.available or not self._parent:
-            return
-        self._parent.after(0, self._set_status_main, 5)
-
-    def set_stopped(self):
-        if not self.available or not self._parent:
-            return
-        self._parent.after(0, self._set_status_main, 2)
-
-    def _set_status_main(self, status: int):
-        try:
-            import asyncio
-
-            async def _update():
-                smtc = SystemMediaTransportControls.get_for_current_view()
-                smtc.playback_status = status
-
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.ensure_future(_update())
-                else:
-                    loop.run_until_complete(_update())
-            except RuntimeError:
-                asyncio.run(_update())
-        except Exception:
-            pass
-
-    def clear(self):
-        if not self.available or not self._parent:
-            return
-        self._parent.after(0, self._clear_main)
-
-    def _clear_main(self):
-        try:
-            import asyncio
-
-            async def _clear():
-                smtc = SystemMediaTransportControls.get_for_current_view()
-                smtc.display_updater.clear_all()
-                smtc.playback_status = 0
-
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.ensure_future(_clear())
-                else:
-                    loop.run_until_complete(_clear())
-            except RuntimeError:
-                asyncio.run(_clear())
-        except Exception:
-            pass
+# ════════════════════════════════════════════════════════════════════════
+# 阶段 1 任务 1.4-A（形态 1）：SMTC（Windows 系统媒体控制）控制器整体搬进
+# ``services/music_smtc.py``。类名去掉了前导下划线，这里保留 ``_SMTCController``
+# 旧名别名 —— 它仍然是"零 GUI 控件、按主线程契约使用调用方 after"的那个实现。
+# winsdk 的降级探测（``_winsdk_available`` / ``_winsdk_import_error``）也住在
+# 该模块；这里只做旧名再导出，**真正被读取的名字**是
+# ``services.music_smtc._winsdk_available`` 与 ``services.music_audio._winsdk_available``。
+# ════════════════════════════════════════════════════════════════════════
+from services.music_smtc import SMTCController as _SMTCController  # noqa: F401
+from services.music_smtc import _winsdk_available, _winsdk_import_error  # noqa: F401
 
 
 class MusicPlayerMixin(object):
     def __init_music(self):
+        # ── 播放引擎（阶段 1.4-A）：状态机/决策/纯计算住在 services/music_player.py ──
+        # 直接构造而不注册进 AppContext：注册要改 app/**（禁改文件），
+        # 而 Service 基类本身就支持"单独实例化做单元测试"。它没有 context，
+        # 所以只用状态机/决策/mixer 驱动这些不依赖 context 的成员。
+        self._music_engine = MusicPlayerService()
         self._music_playlist: List[str] = []
         self._music_current_index: int = -1
         self._music_is_playing: bool = False
@@ -609,7 +218,10 @@ class MusicPlayerMixin(object):
         self._music_progress: float = 0
         self._music_seek_offset: float = 0
         self._music_duration: float = 0
-        self._music_metadata_cache: OrderedDict = OrderedDict()
+        # 元数据缓存由引擎持有，这里**采纳同一个 OrderedDict**：范围外的
+        # _music_scan_folder_restore 仍会 self._music_metadata_cache.clear()，
+        # 共享同一个对象才能让引擎缓存同步清空（不会出现两份缓存各自为政）。
+        self._music_metadata_cache: OrderedDict = self._music_engine.metadata_cache
         self._music_mini_mode: bool = False
         self._music_progress_timer_id = None
         self._music_init_done: bool = False
@@ -621,7 +233,8 @@ class MusicPlayerMixin(object):
         self._music_fade_timer_id = None
         self._music_is_fading = False
         self._music_fade_out_target: Optional[str] = None
-        self._music_modes_used: set = set()
+        # 同上：成就判据用的"试过哪些播放模式"集合也采纳引擎里那一个
+        self._music_modes_used: set = self._music_engine.state.modes_used
         # ── 歌单管理 ──
         self._music_playlist_manager: PlaylistManager = PlaylistManager()
         # ── 在线搜索状态 ──
@@ -643,6 +256,12 @@ class MusicPlayerMixin(object):
         self._music_current_filepath: Optional[str] = None  # 当前播放的文件路径（本地/在线临时文件）
         self._music_current_quality: str = ""  # 在线播放实际获取到的音质档位（128k/320k/flac）
         self._music_temp_files: List[str] = []  # 缓存的临时文件列表
+        # 下载编排的注入缝 + 「界面自己那个 list 对象」：服务就地增删这一个 list，
+        # 范围外的旧读者（_music_cleanup_temp_files 等）看到的仍是同一份内容
+        # —— 与 1.4-A 采纳同一个 _music_metadata_cache 是同一手法。
+        self._music_download_ctx = music_download.DownloadContext(
+            temp_files=self._music_temp_files
+        )
         self._music_stream_seq: int = 0  # 在线播放请求序号（防旧线程覆盖新请求）
         # ── 复制歌名/歌手 ──
         self._music_now_title: str = ""  # 当前播放的歌名（供复制按钮使用）
@@ -1369,7 +988,7 @@ class MusicPlayerMixin(object):
         # 避免从其它子标签页返回后歌单打开状态被清空
         wy_view_id = self._music_wy_remote_view_id
         if wy_view_id:
-            cached = self._music_wy_remote_cache.get(wy_view_id)
+            cached = wy_remote.cached_songs(self._music_wy_remote_cache, wy_view_id)
             if cached is not None:
                 self._music_render_wy_remote_songs(wy_view_id, cached)
             else:
@@ -1614,43 +1233,44 @@ class MusicPlayerMixin(object):
             self._music_mode_btn.configure(text=mode_texts.get(self._music_play_mode, "🔁"))
 
     def _update_now_playing_info(self):
+        # 取值规则（音质文案怎么拼、标题/歌手/专辑/时长从哪儿取、封面走 URL 还是
+        # 内嵌字节）在 services.music_online.now_playing_plan；控件写入、SMTC 上报、
+        # 复制按钮状态刷新留在界面侧，分支与原文逐条对应。
+        # 原文在非在线分支里调了两次 _get_current_file()，两次之间只有控件
+        # configure（不改 _music_playlist / _music_current_index），而
+        # _get_current_file 是纯函数，因此合并成一次调用，结果逐字相同。
+        is_online = bool(self._music_is_online_playing and self._music_current_online_info)
+        local_path = "" if is_online else (self._get_current_file() or "")
+        local_meta = self._get_metadata(local_path) if local_path else None
+        plan = music_online.now_playing_plan(
+            online=is_online,
+            online_info=self._music_current_online_info if is_online else None,
+            current_quality=getattr(self, "_music_current_quality", "") or "",
+            local_path=local_path,
+            local_meta=local_meta,
+        )
         # 音质标签：在线歌曲按实际获取到的音质档位，本地歌曲按文件真实码率
-        if self._music_is_online_playing and self._music_current_online_info:
-            quality_text = _format_online_quality(getattr(self, "_music_current_quality", "") or "")
-        else:
-            cur_path = self._get_current_file()
-            quality_text = _format_local_quality(self._get_metadata(cur_path), cur_path) if cur_path else ""
-        self._music_quality_tag.configure(text=quality_text)
+        self._music_quality_tag.configure(text=plan.quality_text)
 
         # 在线播放优先
-        if self._music_is_online_playing and self._music_current_online_info:
-            oi = self._music_current_online_info
-            title = oi.name
-            artist = oi.singer or ""
-            album = oi.album_name or ""
-            duration = oi.interval
-
-            self._music_now_label_top.configure(text=title)
-            sub_text = artist
-            if album:
-                sub_text = f"{artist} - {album}" if artist else album
-            self._music_now_label_sub.configure(text=sub_text)
-            self._music_mini_title.configure(text=f"{title} · {quality_text}" if quality_text else title)
-            self._music_end_label.configure(text=_format_time(duration))
+        if plan.mode == music_online.NOW_PLAYING_ONLINE:
+            self._music_now_label_top.configure(text=plan.title)
+            self._music_now_label_sub.configure(text=plan.sub_text)
+            self._music_mini_title.configure(text=plan.mini_text)
+            self._music_end_label.configure(text=_format_time(plan.duration))
             self._music_cover_label.configure(text="🎵")
-            self._music_cover_artist.configure(text=artist)
-            self._music_cover_album.configure(text=album)
-            self._music_now_title = title
-            self._music_now_artist = artist
+            self._music_cover_artist.configure(text=plan.artist)
+            self._music_cover_album.configure(text=plan.album)
+            self._music_now_title = plan.title
+            self._music_now_artist = plan.artist
             self._music_refresh_copy_btn_state()
 
-            if oi.img:
-                self._fetch_and_display_online_cover(oi.img)
-            self._music_smtc.update_now_playing(title, artist, album, None)
+            if plan.cover_url:
+                self._fetch_and_display_online_cover(plan.cover_url)
+            self._music_smtc.update_now_playing(plan.title, plan.artist, plan.album, None)
             return
 
-        path = self._get_current_file()
-        if not path:
+        if plan.mode == music_online.NOW_PLAYING_EMPTY:
             self._music_now_label_top.configure(text=_("music_no_track"))
             self._music_now_label_sub.configure(text="")
             self._music_cover_label.configure(text="🎵")
@@ -1665,35 +1285,25 @@ class MusicPlayerMixin(object):
             self._music_end_label.configure(text="0:00")
             return
 
-        meta = self._get_metadata(path)
-        title = meta.get("title", os.path.basename(path))
-        artist = meta.get("artist", "")
-        album = meta.get("album", "")
-        duration = meta.get("duration", 0)
+        self._music_now_label_top.configure(text=plan.title)
+        self._music_now_label_sub.configure(text=plan.sub_text)
+        self._music_mini_title.configure(text=plan.mini_text)
 
-        self._music_now_label_top.configure(text=title)
-        sub_text = artist
-        if album:
-            sub_text = f"{artist} - {album}" if artist else album
-        self._music_now_label_sub.configure(text=sub_text)
-        self._music_mini_title.configure(text=f"{title} · {quality_text}" if quality_text else title)
+        self._music_end_label.configure(text=_format_time(plan.duration))
 
-        self._music_end_label.configure(text=_format_time(duration))
-
-        if meta.get("has_cover") and meta.get("cover_data"):
-            self._display_cover(meta["cover_data"])
+        if plan.cover_bytes:
+            self._display_cover(plan.cover_bytes)
         else:
             self._music_cover_label.configure(text="🎵")
 
-        self._music_cover_artist.configure(text=artist if artist else "")
-        self._music_cover_album.configure(text=album if album else "")
+        self._music_cover_artist.configure(text=plan.artist if plan.artist else "")
+        self._music_cover_album.configure(text=plan.album if plan.album else "")
 
-        self._music_now_title = title
-        self._music_now_artist = artist
+        self._music_now_title = plan.title
+        self._music_now_artist = plan.artist
         self._music_refresh_copy_btn_state()
 
-        cover_bytes = meta.get("cover_data") if meta.get("has_cover") else None
-        self._music_smtc.update_now_playing(title, artist, album, cover_bytes)
+        self._music_smtc.update_now_playing(plan.title, plan.artist, plan.album, plan.cover_bytes)
 
     def _music_refresh_copy_btn_state(self):
         """根据当前播放状态启用/禁用歌名、歌手复制按钮"""
@@ -1739,16 +1349,17 @@ class MusicPlayerMixin(object):
         self._music_copy_feedback_timer = self.after(1500, _restore)
 
     def _fetch_and_display_online_cover(self, url: str):
-        """异步获取在线封面图并显示"""
+        """异步获取在线封面图并显示
+
+        HTTP 200 判定与「异常一律吞掉」搬进 services.music_online.fetch_cover_bytes
+        （零 UI、http_get 可注入）；线程与 after 留在界面侧。
+        """
         app = self
 
         def _fetch():
-            try:
-                resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-                if resp.status_code == 200:
-                    app.after(0, lambda d=resp.content: app._display_cover(d))
-            except Exception:
-                pass
+            data = music_online.fetch_cover_bytes(url)
+            if data is not None:
+                app.after(0, lambda d=data: app._display_cover(d))
 
         threading.Thread(target=_fetch, daemon=True).start()
 
@@ -1767,23 +1378,22 @@ class MusicPlayerMixin(object):
             self._music_cover_label.configure(text="🎵")
 
     def _get_current_file(self) -> Optional[str]:
-        if 0 <= self._music_current_index < len(self._music_playlist):
-            return self._music_playlist[self._music_current_index]
-        return None
+        # 判据搬到 services.music_player.MusicPlayerService.current_file（零 UI）
+        return self._music_engine.current_file(self._music_playlist, self._music_current_index)
 
     def _get_metadata(self, filepath: str) -> dict:
-        if filepath in self._music_metadata_cache:
-            self._music_metadata_cache.move_to_end(filepath)
-            return self._music_metadata_cache[filepath]
+        """曲目元数据（LRU 缓存与解析规则在 services/music_player + services/music_audio）
 
-        meta = _extract_audio_metadata(filepath)
-        self._music_metadata_cache[filepath] = meta
-        while len(self._music_metadata_cache) > MUSIC_METADATA_CACHE_MAX:
-            self._music_metadata_cache.popitem(last=False)
-        return meta
+        缓存对象与引擎共享**同一个 OrderedDict**（见 __init_music），
+        所以范围外代码里的 `self._music_metadata_cache.clear()` 依然有效。
+        """
+        return self._music_engine.get_metadata(filepath)
 
     def _play_file(self, filepath: str, start_pos: float = 0):
-        if _pygame_import_error is not None:
+        # pygame 可用性判断与 mixer 三连（load→set_volume(0)→play）由
+        # services.music_player 负责；这里的 try **仍然包住"mixer + 状态迁移 + Tk 调用"**，
+        # 与原文的异常边界逐字一致（失败同样记日志并把播放态复位）。
+        if not self._music_engine.available:
             logger.warning("pygame 不可用，无法播放")
             return
         # 新播放开始：使在途/已完成的歌单预取失效
@@ -1801,14 +1411,18 @@ class MusicPlayerMixin(object):
             except Exception:
                 pass
         try:
-            mixer.music.load(processed_path)
-            mixer.music.set_volume(0)
-            mixer.music.play(start=start_pos if start_pos > 0 else 0)
+            self._music_engine.load_and_play(processed_path, start_pos)
+            self._music_engine.begin_local_playback(
+                filepath, self._get_metadata(filepath).get("duration", 0), start_pos
+            )
             self._music_is_playing = True
             self._music_is_paused = False
-            self._music_seek_offset = start_pos if start_pos > 0 else 0
-            self._music_current_filepath = filepath
-            self._music_duration = self._get_metadata(filepath).get("duration", 0)
+            # 镜像引擎独占的状态（范围外的旧读者仍按 self._music_xxx 读）
+            self._music_seek_offset = self._music_engine.state.seek_offset
+            self._music_current_filepath = self._music_engine.state.current_filepath
+            self._music_duration = self._music_engine.state.duration
+            self._music_is_fading = self._music_engine.state.is_fading
+            self._music_fade_out_target = self._music_engine.state.fade_out_target
             self._update_play_btn_ui()
             self._update_now_playing_info()
             self._start_progress_poll()
@@ -1841,7 +1455,7 @@ class MusicPlayerMixin(object):
             history_origin: 用户点播的原始歌曲（兜底时历史记录用原歌曲）
             quality: 实际获取到的音质档位（128k/320k/flac，用于显示）
         """
-        if _pygame_import_error is not None:
+        if not self._music_engine.available:
             return
         # 新播放开始：使在途/已完成的歌单预取失效
         self._music_invalidate_prefetch()
@@ -1858,17 +1472,19 @@ class MusicPlayerMixin(object):
             except Exception:
                 pass
         try:
-            mixer.music.load(processed_path)
-            mixer.music.set_volume(0)
-            mixer.music.play(start=start_pos if start_pos > 0 else 0)
+            self._music_engine.load_and_play(processed_path, start_pos)
+            self._music_engine.begin_online_playback(filepath, online_info.interval, quality, start_pos)
             self._music_is_playing = True
             self._music_is_paused = False
             self._music_is_online_playing = True
             self._music_current_online_info = online_info
-            self._music_current_quality = quality or ""
-            self._music_seek_offset = start_pos if start_pos > 0 else 0
-            self._music_current_filepath = filepath
-            self._music_duration = online_info.interval
+            self._music_current_quality = self._music_engine.state.current_quality
+            # 镜像引擎独占的状态（范围外的旧读者仍按 self._music_xxx 读）
+            self._music_seek_offset = self._music_engine.state.seek_offset
+            self._music_current_filepath = self._music_engine.state.current_filepath
+            self._music_duration = self._music_engine.state.duration
+            self._music_is_fading = self._music_engine.state.is_fading
+            self._music_fade_out_target = self._music_engine.state.fade_out_target
             self._update_play_btn_ui()
             self._update_now_playing_info()
             self._start_progress_poll()
@@ -1886,110 +1502,109 @@ class MusicPlayerMixin(object):
             self._update_play_btn_ui()
 
     def _music_cancel_fade(self):
+        # after_cancel 属于界面侧（服务不调 after）；淡入淡出的状态复位在服务里
         if self._music_fade_timer_id is not None:
             self.after_cancel(self._music_fade_timer_id)
             self._music_fade_timer_id = None
-        self._music_is_fading = False
-        self._music_fade_out_target = None
+        self._music_engine.cancel_fade()
+        self._music_is_fading = self._music_engine.state.is_fading
+        self._music_fade_out_target = self._music_engine.state.fade_out_target
 
     def _music_fade_in(self, step: int = 0):
-        if not self._music_is_playing or self._music_is_paused:
+        """淡入一步
+
+        步进数值与状态迁移由 services.music_player.fade_in_step 计算
+        （"下一步音量是多少 / 是否结束 / 是否取消"），`after` 定时器留在界面侧。
+        """
+        decision = self._music_engine.fade_in_step(
+            step, self._music_volume, self._music_is_playing, self._music_is_paused
+        )
+        if decision.cancel:
             self._music_cancel_fade()
             return
-        if step >= FADE_STEPS:
-            try:
-                mixer.music.set_volume(self._music_volume)
-            except Exception:
-                pass
-            self._music_is_fading = False
+        if decision.volume is not None:
+            self._music_engine.set_mixer_volume(decision.volume)
+        self._music_is_fading = decision.fading
+        if decision.schedule_next:
+            self._music_fade_timer_id = self.after(FADE_INTERVAL_MS, lambda: self._music_fade_in(step + 1))
+        else:
             self._music_fade_timer_id = None
-            return
-        vol = self._music_volume * (step + 1) / FADE_STEPS
-        try:
-            mixer.music.set_volume(vol)
-        except Exception:
-            pass
-        self._music_is_fading = True
-        self._music_fade_timer_id = self.after(FADE_INTERVAL_MS, lambda: self._music_fade_in(step + 1))
 
     def _music_fade_out(self, step: int = 0):
-        if not self._music_is_playing or self._music_is_paused:
+        """淡出一步
+
+        数值与状态由 services.music_player.fade_out_step 计算；走完最后一步时
+        `finished=True`，界面接着执行 `_music_execute_fade_out_target()`。
+        """
+        decision = self._music_engine.fade_out_step(
+            step, self._music_volume, self._music_is_playing, self._music_is_paused
+        )
+        if decision.cancel:
             self._music_cancel_fade()
             return
-        if step >= FADE_STEPS:
-            try:
-                mixer.music.set_volume(0)
-            except Exception:
-                pass
-            self._music_is_fading = False
+        if decision.volume is not None:
+            self._music_engine.set_mixer_volume(decision.volume)
+        self._music_is_fading = decision.fading
+        if decision.schedule_next:
+            self._music_fade_timer_id = self.after(FADE_INTERVAL_MS, lambda: self._music_fade_out(step + 1))
+        else:
             self._music_fade_timer_id = None
+        if decision.finished:
             self._music_execute_fade_out_target()
-            return
-        remaining = FADE_STEPS - 1 - step
-        vol = self._music_volume * remaining / (FADE_STEPS - 1) if FADE_STEPS > 1 else 0
-        try:
-            mixer.music.set_volume(max(0, vol))
-        except Exception:
-            pass
-        self._music_is_fading = True
-        self._music_fade_timer_id = self.after(FADE_INTERVAL_MS, lambda: self._music_fade_out(step + 1))
 
     def _music_execute_fade_out_target(self):
-        target = self._music_fade_out_target
+        # 目标值住在引擎里；take 即"取走并清空"，语义与原文一致
+        target = self._music_engine.take_fade_out_target()
         self._music_fade_out_target = None
-        if target == "pause":
-            try:
-                mixer.music.pause()
-            except Exception:
-                pass
+        if target == FADE_OUT_PAUSE:
+            self._music_engine.pause_mixer()
             self._music_is_playing = False
             self._music_is_paused = True
             self._update_play_btn_ui()
             self._music_smtc.set_paused()
-            try:
-                mixer.music.set_volume(self._music_volume)
-            except Exception:
-                pass
-        elif target == "stop":
-            try:
-                mixer.music.stop()
-                mixer.music.unload()
-            except Exception:
-                pass
+            self._music_engine.set_mixer_volume(self._music_volume)
+        elif target == FADE_OUT_STOP:
+            self._music_engine.stop_mixer()
             self._music_is_playing = False
             self._music_is_paused = False
             self._music_progress = 0
-            self._music_seek_offset = 0
+            self._music_engine.reset_seek_offset()
+            self._music_seek_offset = self._music_engine.state.seek_offset
             self._update_play_btn_ui()
             self._music_progress_bar.set(0)
             self._music_cur_label.configure(text="0:00")
             self._music_smtc.set_stopped()
-            try:
-                mixer.music.set_volume(self._music_volume)
-            except Exception:
-                pass
+            self._music_engine.set_mixer_volume(self._music_volume)
 
     def _music_toggle_play(self):
-        if not self._music_playlist and not self._music_is_online_playing:
+        # 分支判定（哪一种"非法/该走哪条路"）搬进 services.music_player.toggle_play_action；
+        # mixer 与 Tk 调用留在界面侧，分支顺序与原文逐条对应。
+        action = self._music_engine.toggle_play_action(
+            is_playing=self._music_is_playing,
+            is_paused=self._music_is_paused,
+            has_playlist=bool(self._music_playlist),
+            is_online_playing=self._music_is_online_playing,
+            has_online_info=bool(self._music_current_online_info),
+            current_index=self._music_current_index,
+            is_fading=self._music_is_fading,
+        )
+        if action == "ignore":
             return
-        if not self._music_is_playing and not self._music_is_paused:
-            if self._music_is_online_playing and self._music_current_online_info:
-                # 重播当前在线歌曲
-                self._music_play_online_url(self._music_current_online_info)
-                return
+        if action == "replay_online":
+            # 重播当前在线歌曲
+            self._music_play_online_url(self._music_current_online_info)
+            return
+        if action == "play_local":
             if self._music_current_index < 0:
-                if self._music_is_online_playing:
-                    return
                 self._music_current_index = 0
             self._play_file(
                 self._music_playlist[self._music_current_index], self._music_progress if self._music_progress > 0 else 0
             )
-        elif self._music_is_paused:
-            if self._music_is_fading:
-                return
+        elif action == "ignore_fading":
+            return
+        elif action == "resume":
             try:
-                mixer.music.unpause()
-                mixer.music.set_volume(0)
+                self._music_engine.resume_mixer()
                 self._music_is_playing = True
                 self._music_is_paused = False
                 self._update_play_btn_ui()
@@ -1999,37 +1614,35 @@ class MusicPlayerMixin(object):
                 self._music_fade_in()
             except Exception as e:
                 logger.error(f"恢复播放失败: {e}")
-        elif self._music_is_playing:
-            if self._music_is_fading:
-                return
-            self._music_fade_out_target = "pause"
+        elif action == "fade_out_pause":
+            self._music_engine.begin_fade_out(FADE_OUT_PAUSE)
+            self._music_fade_out_target = self._music_engine.state.fade_out_target
             self._stop_progress_poll()
             self._stop_lyric_poll()
             self._music_fade_out()
 
     def _music_stop(self, instant: bool = False):
-        if _pygame_import_error is not None:
+        if not self._music_engine.available:
             return
         # 停止/切换播放：在途与已完成的歌单预取全部失效
         self._music_invalidate_prefetch()
         self._music_cancel_fade()
         if not instant and self._music_is_playing and not self._music_is_paused:
-            self._music_fade_out_target = "stop"
+            self._music_engine.begin_fade_out(FADE_OUT_STOP)
+            self._music_fade_out_target = self._music_engine.state.fade_out_target
             self._stop_progress_poll()
             self._stop_lyric_poll()
             self._music_fade_out()
             return
-        try:
-            mixer.music.stop()
-            mixer.music.unload()
-        except Exception:
-            pass
+        # mixer stop + unload 由服务负责（内部吞异常，与原文 try/except pass 等价）
+        self._music_engine.stop_mixer()
         self._music_is_playing = False
         self._music_is_paused = False
         self._music_is_online_playing = False
         self._music_current_online_info = None
         self._music_progress = 0
-        self._music_seek_offset = 0
+        self._music_engine.reset_seek_offset()
+        self._music_seek_offset = self._music_engine.state.seek_offset
         self._stop_progress_poll()
         self._stop_lyric_poll()
         self._update_play_btn_ui()
@@ -2038,10 +1651,15 @@ class MusicPlayerMixin(object):
         self._music_smtc.set_stopped()
 
     def _music_invalidate_prefetch(self):
-        """新播放开始/停止：使在途与已完成的歌单预取全部失效"""
-        self._music_prefetch_seq += 1
-        self._music_prefetch_slot = None
-        self._music_prefetch_started = False
+        """新播放开始/停止：使在途与已完成的歌单预取全部失效
+
+        序号/槽位/闸门三个状态住在 services.music_player（本轮范围内独占），
+        界面侧属性只做镜像，供旧读者使用。
+        """
+        self._music_engine.invalidate_prefetch()
+        self._music_prefetch_seq = self._music_engine.state.prefetch_seq
+        self._music_prefetch_slot = self._music_engine.state.prefetch_slot
+        self._music_prefetch_started = self._music_engine.state.prefetch_started
 
     def _music_maybe_prefetch_next(self):
         """当前歌曲播放过半时，后台预取歌单中的下一首在线歌曲（放完秒播）
@@ -2049,41 +1667,26 @@ class MusicPlayerMixin(object):
         仅预取在线歌曲（本地文件加载快，无需预取）；预取为尽力而为，
         未完成/失败时播完仍走常规按需加载流程，不影响原行为。
         """
-        if self._music_prefetch_started:
+        # 判定（含"每首只触发一次"的闸门与随机索引）在 services.music_player.plan_prefetch；
+        # **线程仍由界面侧起**，音质变量也在主线程读（后台线程绝不触碰 Tk 变量）。
+        plan = self._music_engine.plan_prefetch(
+            self._music_playlist_context_songs,
+            self._music_playlist_context_idx,
+            self._music_play_mode,
+            self._music_duration,
+            self._music_progress,
+        )
+        self._music_prefetch_seq = self._music_engine.state.prefetch_seq
+        self._music_prefetch_started = self._music_engine.state.prefetch_started
+        if plan is None:
             return
-        if not self._music_playlist_context_songs:
-            return
-        # 播放过半才触发（太早预取可能因用户切歌浪费流量）
-        if self._music_duration <= 0 or self._music_progress < self._music_duration * 0.5:
-            return
-        self._music_prefetch_started = True
-        n = len(self._music_playlist_context_songs)
-        cur = self._music_playlist_context_idx
-        if n <= 1 or cur < 0:
-            return
-        # 下一首索引（与 _music_next 播放模式逻辑保持一致，预取后直接复用）
-        if self._music_play_mode == PLAY_MODE_RANDOM:
-            import random
-
-            random.seed()
-            nidx = random.randrange(n)
-            if nidx == cur:
-                nidx = (nidx + 1) % n
-        else:
-            nidx = (cur + 1) % n
-        if nidx == cur:
-            return
-        song = self._music_playlist_context_songs[nidx]
-        if song.source_type != "online":
-            return  # 本地文件加载快，无需预取
-        slot = self._music_prefetch_slot
-        if slot is not None and slot.get("seq") == self._music_prefetch_seq and slot.get("idx") == nidx:
-            return  # 该歌曲的预取已就绪，无需重复预取
         # 主线程读取用户音质偏好（后台线程绝不触碰 Tk 变量）
         raw_quality = self._music_quality_var.get()
-        self._music_prefetch_seq += 1
-        seq = self._music_prefetch_seq
-        threading.Thread(target=self._music_prefetch_worker, args=(seq, nidx, song, raw_quality), daemon=True).start()
+        threading.Thread(
+            target=self._music_prefetch_worker,
+            args=(plan.seq, plan.index, plan.song, raw_quality),
+            daemon=True,
+        ).start()
 
     def _music_prefetch_worker(self, seq: int, idx: int, song: PlaylistSong, raw_quality: str):
         """后台线程：预取歌单下一首（绝不触碰 Tk，结果经队列回主线程）"""
@@ -2118,54 +1721,46 @@ class MusicPlayerMixin(object):
             pass
 
     def _music_on_prefetch_ready(self, seq, idx, temp_path, result_info, origin_info, quality):
-        """预取下载完成（主线程）：序号仍有效则存入预取槽位，否则丢弃临时文件"""
-        if seq != self._music_prefetch_seq:
+        """预取下载完成（主线程）：序号仍有效则存入预取槽位，否则丢弃临时文件
+
+        槽位结构与"序号失效即丢弃"的判定搬到 services.music_player.accept_prefetch
+        （临时文件清理 `_discard_temp_file` 仍属界面侧）。
+        """
+        if not self._music_engine.accept_prefetch(seq, idx, temp_path, result_info, origin_info, quality):
             self._discard_temp_file(temp_path)
             return
-        self._music_prefetch_slot = {
-            "seq": seq,
-            "idx": idx,
-            "song_key": (origin_info.source, origin_info.songmid),
-            "temp_path": temp_path,
-            "result_info": result_info,
-            "origin_info": origin_info,
-            "quality": quality,
-        }
+        self._music_prefetch_slot = self._music_engine.state.prefetch_slot
 
     def _play_playlist_context_song(self, idx: int):
-        """播歌单上下文中指定索引的歌曲（支持本地/在线混合）"""
+        """播歌单上下文中指定索引的歌曲（支持本地/在线混合）
+
+        "该播哪一首"的解析（越界判定、本地文件缺失、本地路径列表与索引、
+        预取槽位六条件校验）搬进 services.music_player.resolve_context_target；
+        高亮、递归跳歌与 mixer 播放留在界面侧。
+        """
         songs = self._music_playlist_context_songs
-        if idx < 0 or idx >= len(songs):
+        target = self._music_engine.resolve_context_target(songs, idx, self._music_prefetch_slot)
+        if target is None:
             return
-        song = songs[idx]
-        self._music_playlist_context_idx = idx
-        self._highlight_playlist_song(idx)
-        if song.source_type == "local":
-            if not os.path.exists(song.file_path):
-                # 跳过不存在的本地文件，播下一首
-                self._play_playlist_context_song((idx + 1) % len(songs))
-                return
+        song = target.song
+        self._music_playlist_context_idx = target.index
+        self._highlight_playlist_song(target.index)
+        if target.kind == "local_missing":
+            # 跳过不存在的本地文件，播下一首
+            self._play_playlist_context_song((target.index + 1) % len(songs))
+            return
+        if target.kind == "local":
             # 构建本地文件列表供 _play_file 使用
-            local_paths = [s.file_path for s in songs if s.source_type == "local" and os.path.exists(s.file_path)]
-            self._music_playlist = local_paths
-            try:
-                self._music_current_index = local_paths.index(song.file_path)
-            except ValueError:
-                self._music_current_index = 0
+            self._music_playlist = target.local_paths
+            self._music_current_index = target.local_index
             self._music_progress = 0
             self._play_file(song.file_path)
         else:
             # 优先消费预取结果（序号 + 索引 + 歌曲指纹 + 文件存在校验），放完秒播
-            slot = self._music_prefetch_slot
-            if (
-                slot is not None
-                and slot.get("seq") == self._music_prefetch_seq
-                and slot.get("idx") == idx
-                and slot.get("song_key") == (song.online_source, song.online_songmid)
-                and slot.get("temp_path")
-                and os.path.exists(slot["temp_path"])
-            ):
-                self._music_prefetch_slot = None
+            slot = target.prefetched
+            if slot is not None:
+                self._music_engine.consume_prefetch_slot()
+                self._music_prefetch_slot = self._music_engine.state.prefetch_slot
                 # 使在途的按需下载结果失效（防旧线程覆盖本次预取播放）
                 self._music_stream_seq += 1
                 self._play_online_file(
@@ -2229,81 +1824,47 @@ class MusicPlayerMixin(object):
                 pass
 
     def _music_prev(self):
+        # 索引决策（含随机模式"不重复当前首"）搬进 services.music_player.prev_index
         if self._music_playlist_context_songs:
             n = len(self._music_playlist_context_songs)
             if n == 0:
                 return
-            if self._music_play_mode == PLAY_MODE_RANDOM:
-                import random
-
-                random.seed()
-                new_idx = random.randrange(n)
-                if n > 1 and new_idx == self._music_playlist_context_idx:
-                    new_idx = (new_idx + 1) % n
-            else:
-                new_idx = (self._music_playlist_context_idx - 1) % n
-            self._play_playlist_context_song(new_idx)
+            self._play_playlist_context_song(
+                self._music_engine.prev_index(self._music_play_mode, n, self._music_playlist_context_idx)
+            )
             return
         if not self._music_playlist:
             return
-        if self._music_play_mode == PLAY_MODE_RANDOM:
-            import random
-
-            random.seed()
-            new_idx = random.randrange(len(self._music_playlist))
-            if len(self._music_playlist) > 1 and new_idx == self._music_current_index:
-                new_idx = (new_idx + 1) % len(self._music_playlist)
-            self._music_current_index = new_idx
-        else:
-            self._music_current_index = (self._music_current_index - 1) % len(self._music_playlist)
+        self._music_current_index = self._music_engine.prev_index(
+            self._music_play_mode, len(self._music_playlist), self._music_current_index
+        )
         self._music_progress = 0
         self._play_file(self._music_playlist[self._music_current_index])
 
     def _music_next(self):
+        # 索引决策搬进 services.music_player：
+        #  - 歌单上下文用 next_context_index（含"预取已就绪就直接切过去"的判定：
+        #    序号有效 + 索引合法 + 歌曲指纹一致，随机模式无需重新掷骰）；
+        #  - 普通歌单用 next_index。
         if self._music_playlist_context_songs:
             n = len(self._music_playlist_context_songs)
             if n == 0:
                 return
-            # 预取已就绪（序号有效 + 索引合法 + 歌曲指纹一致）时直接切到预取目标，
-            # 与预取时的播放模式逻辑保持同一结果（随机模式无需重新掷骰）
-            slot = self._music_prefetch_slot
-            prefetched = (
-                slot is not None
-                and slot.get("seq") == self._music_prefetch_seq
-                and 0 <= slot.get("idx", -1) < n
+            self._play_playlist_context_song(
+                self._music_engine.next_context_index(
+                    self._music_playlist_context_songs,
+                    self._music_playlist_context_idx,
+                    self._music_play_mode,
+                    self._music_prefetch_slot,
+                    self._music_prefetch_seq,
+                )
             )
-            if prefetched:
-                target = self._music_playlist_context_songs[slot["idx"]]
-                if target.source_type != "online" or slot.get("song_key") != (
-                    target.online_source,
-                    target.online_songmid,
-                ):
-                    prefetched = False
-            if prefetched:
-                new_idx = slot["idx"]
-            elif self._music_play_mode == PLAY_MODE_RANDOM:
-                import random
-
-                random.seed()
-                new_idx = random.randrange(n)
-                if n > 1 and new_idx == self._music_playlist_context_idx:
-                    new_idx = (new_idx + 1) % n
-            else:
-                new_idx = (self._music_playlist_context_idx + 1) % n
-            self._play_playlist_context_song(new_idx)
             return
         if not self._music_playlist:
             return
-        if self._music_play_mode == PLAY_MODE_RANDOM:
-            import random
-
-            random.seed()
-            new_idx = random.randrange(len(self._music_playlist))
-            if len(self._music_playlist) > 1 and new_idx == self._music_current_index:
-                new_idx = (new_idx + 1) % len(self._music_playlist)
-            self._music_current_index = new_idx
-        else:
-            self._music_current_index = (self._music_current_index + 1) % len(self._music_playlist)
+        self._music_current_index = self._music_engine.next_index(
+            self._music_play_mode, len(self._music_playlist), self._music_current_index
+        )
         self._music_progress = 0
         self._play_file(self._music_playlist[self._music_current_index])
 
@@ -2314,17 +1875,14 @@ class MusicPlayerMixin(object):
             return
         self._music_cancel_fade()
         try:
-            pos = (value / 100.0) * self._music_duration if self._music_duration > 0 else 0
+            pos = self._music_engine.seek_seconds(value, self._music_duration)
             was_paused = self._music_is_paused
-            # 重载文件到指定位置（set_pos 不重置 get_pos 计时器，必须 reload）
-            mixer.music.stop()
-            mixer.music.load(self._music_current_filepath)
-            mixer.music.set_volume(0)
-            mixer.music.play(start=pos)
-            if was_paused:
-                mixer.music.pause()
+            # 重载文件到指定位置（set_pos 不重置 get_pos 计时器，必须 reload）——
+            # mixer 四行搬进 services.music_player.reload_and_seek，异常边界不变
+            self._music_engine.reload_and_seek(pos, self._music_current_filepath, was_paused)
             self._music_progress = pos
-            self._music_seek_offset = pos
+            self._music_engine.state.seek_offset = pos
+            self._music_seek_offset = self._music_engine.state.seek_offset
             if was_paused:
                 self._stop_progress_poll()
             else:
@@ -2334,29 +1892,28 @@ class MusicPlayerMixin(object):
             pass
 
     def _music_set_volume(self, value: float):
+        # "pygame 可用 + 不在淡入淡出中才设音量"这条判据在服务侧
+        # （set_mixer_volume 内部吞异常，与原文的 try/except pass 等价）
         self._music_volume = value / 100.0
-        if _pygame_import_error is None and not self._music_is_fading:
-            try:
-                mixer.music.set_volume(self._music_volume)
-            except Exception:
-                pass
+        if self._music_engine.available and not self._music_is_fading:
+            self._music_engine.set_mixer_volume(self._music_volume)
         self._update_mute_btn_ui()
 
     def _music_toggle_mute(self):
+        # 分支与"静音前音量"的记忆规则搬进 services.music_player.toggle_mute
+        # （原文 getattr(self, "_music_vol_before_mute", 0.7) 的默认值 = 引擎里的初值）
+        result = self._music_engine.toggle_mute(self._music_volume)
+        self._music_volume = result.volume
+        if result.remember is not None:
+            self._music_vol_before_mute = result.remember
         if self._music_volume > 0:
-            self._music_vol_before_mute = self._music_volume
-            self._music_volume = 0
+            self._music_vol_slider.set(volume_to_slider(self._music_volume))
+            self._music_mini_vol.set(volume_to_slider(self._music_volume))
+        else:
             self._music_vol_slider.set(0)
             self._music_mini_vol.set(0)
-        else:
-            self._music_volume = getattr(self, "_music_vol_before_mute", 0.7)
-            self._music_vol_slider.set(int(self._music_volume * 100))
-            self._music_mini_vol.set(int(self._music_volume * 100))
-        if _pygame_import_error is None and not self._music_is_fading:
-            try:
-                mixer.music.set_volume(self._music_volume)
-            except Exception:
-                pass
+        if self._music_engine.available and not self._music_is_fading:
+            self._music_engine.set_mixer_volume(self._music_volume)
         self._update_mute_btn_ui()
         self._trigger_ach("music_volume_tweaker")
 
@@ -2385,30 +1942,33 @@ class MusicPlayerMixin(object):
             self._music_progress_timer_id = None
 
     def _poll_music_progress(self):
+        # 进度换算（秒数 / 百分比）搬进 services.music_player 的纯函数；
+        # `after` 定时器与控件更新留在界面侧。
+        # 注意 `is_music_busy()` 在 mixer 不可用时返回 **None**：原文那一行会抛异常
+        # 并被下面的 try 吞掉（于是"曲目结束"分支不会被走到），用 `is False` 复现同一语义。
         if not self._music_is_playing or self._music_is_paused:
             self._stop_progress_poll()
             return
         if not self._is_music_tab_active():
-            self._music_progress_timer_id = self.after(1000, self._poll_music_progress)
+            self._music_progress_timer_id = self.after(PROGRESS_POLL_IDLE_MS, self._poll_music_progress)
             return
         try:
-            if mixer.music.get_busy():
-                elapsed = mixer.music.get_pos() / 1000.0
-                pos = elapsed + self._music_seek_offset
-                self._music_progress = pos
-                cur_text = _format_time(pos)
-                self._music_cur_label.configure(text=cur_text)
-                if self._music_duration > 0:
-                    pct = (pos / self._music_duration) * 100
-                    if 0 <= pct <= 100:
+            if self._music_engine.is_music_busy():
+                pos = self._music_engine.poll_position(self._music_seek_offset)
+                if pos is not None:
+                    self._music_progress = pos
+                    cur_text = _format_time(pos)
+                    self._music_cur_label.configure(text=cur_text)
+                    pct = self._music_engine.progress_percent(pos, self._music_duration)
+                    if pct is not None:
                         self._music_progress_bar.set(pct)
-                # 播放过半时后台预取歌单下一首（放完秒播）
-                self._music_maybe_prefetch_next()
-            if not mixer.music.get_busy() and self._music_is_playing:
+                    # 播放过半时后台预取歌单下一首（放完秒播）
+                    self._music_maybe_prefetch_next()
+            if self._music_engine.is_music_busy() is False and self._music_is_playing:
                 self._on_track_end()
         except Exception:
             pass
-        self._music_progress_timer_id = self.after(500, self._poll_music_progress)
+        self._music_progress_timer_id = self.after(PROGRESS_POLL_MS, self._poll_music_progress)
 
     # ═══════════════ 歌词轮询 ═══════════════
 
@@ -2422,39 +1982,44 @@ class MusicPlayerMixin(object):
             self._music_lyric_poll_id = None
 
     def _poll_lyric_progress(self):
-        if not self._music_is_playing or self._music_is_paused:
+        # 「该不该停」搬进 services.music_lyric_display.should_stop_polling，
+        # 「降频还是常速 + 本次显示第几毫秒」搬进 poll_plan。
+        # 播放态判定放在最前面：原文在这里就短路返回，不会在白停的时候
+        # 去读一次 Tk 状态（is_visible 内部要查 winfo_exists），这里保持同序。
+        if music_lyric_display.should_stop_polling(
+            is_playing=self._music_is_playing, is_paused=self._music_is_paused
+        ):
             self._stop_lyric_poll()
             return
-        if not self._is_music_tab_active() and not (self._music_desktop_lyric and self._music_desktop_lyric.is_visible):
-            self._music_lyric_poll_id = self.after(300, self._poll_lyric_progress)
-            return
+        plan = music_lyric_display.poll_plan(
+            tab_active=self._is_music_tab_active(),
+            desktop_visible=bool(self._music_desktop_lyric and self._music_desktop_lyric.is_visible),
+            progress=self._music_progress,
+        )
         try:
-            elapsed_ms = int(self._music_progress * 1000)
-            self._update_lyric_display(elapsed_ms)
-            if self._music_desktop_lyric and self._music_desktop_lyric.is_visible:
-                self._music_desktop_lyric.update_progress(elapsed_ms)
+            if plan.elapsed_ms is not None:
+                self._update_lyric_display(plan.elapsed_ms)
+                if self._music_desktop_lyric and self._music_desktop_lyric.is_visible:
+                    self._music_desktop_lyric.update_progress(plan.elapsed_ms)
         except Exception:
             pass
-        self._music_lyric_poll_id = self.after(100, self._poll_lyric_progress)
+        self._music_lyric_poll_id = self.after(plan.delay_ms, self._poll_lyric_progress)
 
     def _update_lyric_display(self, elapsed_ms: int):
         """更新内嵌歌词显示"""
         if not hasattr(self, "_lyric_current_label") or not self._lyric_current_label:
             return
-        current = self._music_lyric_parser.get_line_at(elapsed_ms)
-        if current is None:
-            self._lyric_current_label.configure(text="")
-            if hasattr(self, "_lyric_trans_label"):
-                self._lyric_trans_label.configure(text="")
-            return
-        self._lyric_current_label.configure(text=current.text)
-        trans = ""
-        if self._music_show_lyric_translation and current.translation:
-            trans = current.translation
-        elif self._music_show_lyric_roma and current.roma:
-            trans = current.roma
+        # 「取哪一行 + 副文本取翻译还是罗马音」搬进 services.music_lyric_display.display_plan。
+        # 没有当前行时服务给两段空串，与原文"两个标签都置空"的分支等价。
+        plan = music_lyric_display.display_plan(
+            self._music_lyric_parser,
+            elapsed_ms,
+            show_translation=self._music_show_lyric_translation,
+            show_roma=self._music_show_lyric_roma,
+        )
+        self._lyric_current_label.configure(text=plan.text)
         if hasattr(self, "_lyric_trans_label"):
-            self._lyric_trans_label.configure(text=trans)
+            self._lyric_trans_label.configure(text=plan.trans_text)
 
     def _fetch_and_start_lyric(self, online_info: OnlineMusicInfo):
         """获取歌词并开始解析"""
@@ -2462,14 +2027,14 @@ class MusicPlayerMixin(object):
 
         def _fetch():
             try:
-                src = MUSIC_SOURCES.get(online_info.source)
-                if not src:
+                # 「音源查找 + 空歌词判定 + 解析」搬进 services.music_lyric_display.load_lyric；
+                # 音源表由界面传进去，`MUSIC_SOURCES` 在本模块仍是原来的补丁点。
+                # 外层 try 也逐字保留：原文连 app.after 抛出的异常一并吞掉。
+                loaded = music_lyric_display.load_lyric(
+                    app._music_lyric_parser, online_info, MUSIC_SOURCES
+                )
+                if not loaded:
                     return
-                lrc_text = src.get_lyric(online_info)
-                if not lrc_text:
-                    return
-                app._music_lyric_parser.clear()
-                app._music_lyric_parser.parse(lrc_text)
                 app.after(0, app._start_lyric_poll)
             except Exception:
                 pass
@@ -2477,10 +2042,12 @@ class MusicPlayerMixin(object):
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _is_music_tab_active(self):
+        # 阶段 1.23（D-100）修正：原实现比较 self.tabview.get() 与 _("tab_music")，
+        # 而 _() 是在调用时重算的 —— 设置窗口切换语言会立刻改全局翻译状态却不重建
+        # 界面，于是控件标题仍是旧语言文本、与重算结果不相等，该判断恒为 False
+        # （依赖它的播放页逻辑静默失效）。改用 app_base 提供的稳定标识。
         try:
-            current = self.tabview.get()
-            target = _("tab_music")
-            return current == target
+            return self.current_tab_id() == "music"
         except Exception:
             return False
 
@@ -2496,46 +2063,42 @@ class MusicPlayerMixin(object):
                 self._music_next()
                 return
             self._update_play_btn_ui()
-            self._music_seek_offset = 0
+            self._music_engine.reset_seek_offset()
+            self._music_seek_offset = self._music_engine.state.seek_offset
             self._music_progress_bar.set(0)
             self._music_cur_label.configure(text="0:00")
             self._music_smtc.set_stopped()
             return
-        if self._music_play_mode == PLAY_MODE_LOOP_SINGLE:
+        # "下一首是哪一首"的决策（顺序/列表循环/单曲循环/随机）搬进
+        # services.music_player.track_end_action；播放动作仍留界面侧。
+        # 记录现状、疑为缺陷：歌单为空时原文的算术本身就抛（LOOP_LIST 的
+        # `% 0`、RANDOM 的 randrange(0)、LOOP_SINGLE 的空列表下标），
+        # 异常被 _poll_music_progress 的 except 吞掉 → 表现为"静默无动作"。
+        # 服务照抄同一套算术，不做额外兜底。
+        action = self._music_engine.track_end_action(
+            self._music_play_mode, self._music_current_index, len(self._music_playlist)
+        )
+        if action.kind == "replay":
             self._play_file(self._music_playlist[self._music_current_index])
-        elif self._music_play_mode == PLAY_MODE_SEQUENTIAL:
-            if self._music_current_index + 1 < len(self._music_playlist):
-                self._music_current_index += 1
-                self._music_progress = 0
-                self._play_file(self._music_playlist[self._music_current_index])
-            else:
-                self._update_play_btn_ui()
-                self._music_seek_offset = 0
-                self._music_progress_bar.set(0)
-                self._music_cur_label.configure(text="0:00")
-                self._music_smtc.set_stopped()
-        elif self._music_play_mode == PLAY_MODE_LOOP_LIST:
-            self._music_current_index = (self._music_current_index + 1) % len(self._music_playlist)
+        elif action.kind == "next":
+            self._music_current_index = action.index
             self._music_progress = 0
             self._play_file(self._music_playlist[self._music_current_index])
-        elif self._music_play_mode == PLAY_MODE_RANDOM:
-            import random
-
-            random.seed()
-            new_idx = random.randrange(len(self._music_playlist))
-            if len(self._music_playlist) > 1 and new_idx == self._music_current_index:
-                new_idx = (new_idx + 1) % len(self._music_playlist)
-            self._music_current_index = new_idx
-            self._music_progress = 0
-            self._play_file(self._music_playlist[self._music_current_index])
+        elif action.kind == "stop":
+            self._update_play_btn_ui()
+            self._music_engine.reset_seek_offset()
+            self._music_seek_offset = self._music_engine.state.seek_offset
+            self._music_progress_bar.set(0)
+            self._music_cur_label.configure(text="0:00")
+            self._music_smtc.set_stopped()
 
     def _music_cycle_mode(self):
-        modes = [PLAY_MODE_SEQUENTIAL, PLAY_MODE_LOOP_LIST, PLAY_MODE_LOOP_SINGLE, PLAY_MODE_RANDOM]
-        idx = modes.index(self._music_play_mode)
-        self._music_play_mode = modes[(idx + 1) % len(modes)]
+        # 模式语义（PLAY_MODE_* / 循环顺序 / "集齐 4 种"判据）以 services/music_player 为准
+        self._music_play_mode = self._music_engine.cycle_mode(self._music_play_mode)
         self._update_mode_btn_text()
+        # _music_modes_used 就是引擎里的那个 set（见 __init_music），故此处无需再同步
         self._music_modes_used.add(self._music_play_mode)
-        if len(self._music_modes_used) >= 4:
+        if len(self._music_modes_used) >= ALL_PLAY_MODES:
             self._check_ach("music_mode_master", True)
 
     def _music_toggle_mini_mode(self):
@@ -2558,19 +2121,10 @@ class MusicPlayerMixin(object):
         self._music_scan_folder(folder)
 
     def _music_scan_folder(self, folder: str):
-        files = []
-        try:
-            for root, dirs, filenames in os.walk(folder):
-                for fname in filenames:
-                    ext = os.path.splitext(fname)[1].lower()
-                    if ext in AUDIO_EXTENSIONS:
-                        files.append(os.path.join(root, fname))
-        except Exception as e:
-            logger.error(f"扫描文件夹失败: {folder}: {e}")
-            return
+        # 文件枚举与排序（含"异常/空目录都直接返回"）搬进 services.music_player.scan_folder
+        files = self._music_engine.scan_folder(folder, AUDIO_EXTENSIONS)
         if not files:
             return
-        files.sort(key=lambda f: os.path.basename(f).lower())
         self._music_stop()
         self._music_playlist = files
         self._music_current_index = -1
@@ -2600,10 +2154,9 @@ class MusicPlayerMixin(object):
         self._highlight_current_in_list()
 
     def _add_playlist_row(self, idx: int, filepath: str):
-        meta = self._get_metadata(filepath)
-        title = meta.get("title", os.path.basename(filepath))
-        duration = meta.get("duration", 0)
-        dur_text = _format_time(duration) if duration else ""
+        # 「歌名 - 歌手」与时长文案的拼装（含 50 字符截断）搬进
+        # services.music_local.playlist_row_plan
+        plan = music_local.playlist_row_plan(filepath, self._get_metadata(filepath))
 
         row = ctk.CTkFrame(self._music_scroll, fg_color="transparent", height=32)
         row.pack(fill=ctk.X, pady=1)
@@ -2617,23 +2170,19 @@ class MusicPlayerMixin(object):
         )
         index_label.pack(side=ctk.LEFT)
 
-        arts = ""
-        if meta.get("artist"):
-            arts = f" - {meta['artist']}"
-        t = title if len(title) <= 50 else title[:47] + "..."
         name_label = ctk.CTkLabel(
             row,
-            text=f"{t}{arts}",
+            text=plan.name_text,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_primary"],
             anchor="w",
         )
         name_label.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(5, 5))
 
-        if dur_text:
+        if plan.dur_text:
             dur_label = ctk.CTkLabel(
                 row,
-                text=dur_text,
+                text=plan.dur_text,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=9),
                 text_color=COLORS["text_secondary"],
                 width=35,
@@ -2661,11 +2210,14 @@ class MusicPlayerMixin(object):
         self._music_playlist_widgets.append({"frame": row, "name_label": name_label, "index": idx})
 
     def _play_from_index(self, idx: int):
-        if idx < 0 or idx >= len(self._music_playlist):
+        # 越界判定与取值搬进 services.music_local.play_index_target
+        # （返回 None = 索引非法）
+        filepath = music_local.play_index_target(self._music_playlist, idx)
+        if filepath is None:
             return
         self._music_current_index = idx
         self._music_progress = 0
-        self._play_file(self._music_playlist[idx])
+        self._play_file(filepath)
         self._save_music_state_later()
 
     def _highlight_current_in_list(self):
@@ -2749,9 +2301,13 @@ class MusicPlayerMixin(object):
                 pass
         self._music_playlist_sidebar_widgets.clear()
 
-        # ── "全部歌曲" 条目 ──
-        all_songs_item = self._build_sidebar_item(None, _("music_all_songs"))
-        self._music_playlist_sidebar_widgets.append(all_songs_item)
+        # ── "全部歌曲" 与用户歌单条目 ──
+        # 条目文案（系统歌单的图标前缀 + 歌曲数）与"当前选中"判据搬进
+        # services.music_local.sidebar_plan；这里只剩控件生命周期。
+        plan = music_local.sidebar_plan(self._music_playlist_manager, _("music_all_songs"))
+        self._music_playlist_sidebar_widgets.append(
+            self._build_sidebar_item(plan.all_songs.playlist_id, plan.all_songs.text)
+        )
 
         # 分隔线
         sep = ctk.CTkFrame(self._music_playlist_sidebar, fg_color=COLORS["card_border"], height=1)
@@ -2759,18 +2315,10 @@ class MusicPlayerMixin(object):
         self._music_playlist_sidebar_widgets.append({"frame": sep})
 
         # ── 用户歌单列表 ──
-        mgr = self._music_playlist_manager
-        current_id = mgr.current_playlist_id
-
-        for pl in mgr.playlists:
-            if pl.is_system:
-                # 系统歌单特殊显示
-                icon = "🕐"
-                display_name = f"{icon} {pl.name} ({pl.song_count})"
-            else:
-                display_name = f"{pl.name} ({pl.song_count})"
-            item = self._build_sidebar_item(pl.id, display_name, is_active=(pl.id == current_id))
-            self._music_playlist_sidebar_widgets.append(item)
+        for item in plan.playlists:
+            self._music_playlist_sidebar_widgets.append(
+                self._build_sidebar_item(item.playlist_id, item.text, is_active=item.is_active)
+            )
 
         # ── 网易云账号歌单（只读同步，不落盘，禁止编辑） ──
         self._music_rebuild_wy_remote_sidebar()
@@ -2788,9 +2336,11 @@ class MusicPlayerMixin(object):
         sep.pack(fill=ctk.X, padx=12, pady=4)
         self._music_playlist_sidebar_widgets.append({"frame": sep})
         # 分组标题（最近一次同步失败时附加提示）
-        title = _("music_wy_playlists")
-        if self._music_wy_sync_failed:
-            title = f"{title}（{_('music_wy_sync_failed')}）"
+        # 括号后缀的拼法搬进 services.music_wy_remote.header_title（服务不做 i18n，
+        # 两个文案由这里用 _() 取好传进去）
+        title = wy_remote.header_title(
+            _("music_wy_playlists"), _("music_wy_sync_failed"), self._music_wy_sync_failed
+        )
         header = ctk.CTkLabel(
             self._music_playlist_sidebar,
             text=title,
@@ -2800,14 +2350,12 @@ class MusicPlayerMixin(object):
         header.pack(anchor=ctk.W, padx=10, pady=(4, 2))
         self._music_playlist_sidebar_widgets.append({"frame": header})
         # 远程歌单条目（只读：不绑定右键菜单，禁止编辑）
-        for pl in remote:
-            display_name = f"{pl['name']} ({pl['track_count']})"
-            item = self._build_sidebar_item(
-                self._music_wy_remote_key(pl["id"]),
-                display_name,
-                is_active=(pl["id"] == self._music_wy_remote_view_id),
+        # 条目 id 的前缀（remote_key）与显示文案（entry_label）都在
+        # services.music_wy_remote 里 —— 1.4-B 留的入口，本轮接上调用方。
+        for item in wy_remote.sidebar_items(remote, self._music_wy_remote_view_id):
+            self._music_playlist_sidebar_widgets.append(
+                self._build_sidebar_item(item.playlist_id, item.text, is_active=item.is_active)
             )
-            self._music_playlist_sidebar_widgets.append(item)
 
     def _build_sidebar_item(
         self, playlist_id: Optional[str], text: str, is_active: bool = False
@@ -2933,12 +2481,11 @@ class MusicPlayerMixin(object):
         name = show_input_dialog(
             parent=self, title=_("music_new_playlist"), prompt=_("music_playlist_name_placeholder"), initial_value=""
         )
-        if not name or not name.strip():
+        # 「名字空白则不新建」+「新建后选为当前歌单」搬进
+        # services.music_local.create_named_playlist（返回 None = 名字无效）
+        pl = music_local.create_named_playlist(self._music_playlist_manager, name)
+        if pl is None:
             return
-        name = name.strip()
-        mgr = self._music_playlist_manager
-        pl = mgr.create_playlist(name)
-        mgr.set_current_playlist(pl.id)
         self._music_show_playlist(pl.id)
         self._save_music_state_later()
 
@@ -2946,20 +2493,22 @@ class MusicPlayerMixin(object):
         """弹出重命名歌单对话框"""
         from ui.dialogs import show_input_dialog
 
-        pl = self._music_playlist_manager.get_playlist(playlist_id)
-        if pl is None:
+        # 「歌单不存在就不弹框」搬进 services.music_local.rename_target_name
+        initial = music_local.rename_target_name(self._music_playlist_manager, playlist_id)
+        if initial is None:
             return
 
         name = show_input_dialog(
             parent=self,
             title=_("music_rename_playlist"),
             prompt=_("music_playlist_name_placeholder"),
-            initial_value=pl.name,
+            initial_value=initial,
         )
-        if not name or not name.strip():
+        # 空名判定搬进 apply_rename；它的返回值是"是否真的发起了重命名"，
+        # 不含 manager.rename_playlist 的成功与否（原文对那个返回值不作判断，
+        # 系统歌单改名失败也照常重建侧边栏并落盘）。
+        if not music_local.apply_rename(self._music_playlist_manager, playlist_id, name):
             return
-        name = name.strip()
-        self._music_playlist_manager.rename_playlist(playlist_id, name)
         self._rebuild_playlist_sidebar()
         self._save_music_state_later()
 
@@ -2993,12 +2542,11 @@ class MusicPlayerMixin(object):
         self._music_wy_remote_view_songs = []
         self._music_wy_update_pager()
 
-        mgr = self._music_playlist_manager
-        pl = mgr.get_playlist(playlist_id)
+        # 「取歌单 + 设为当前歌单」搬进 services.music_local.open_playlist
+        # （歌单不存在时**不会**改动当前歌单，原文同序）
+        pl = music_local.open_playlist(self._music_playlist_manager, playlist_id)
         if pl is None:
             return
-
-        mgr.set_current_playlist(playlist_id)
 
         # 恢复该歌单的排序模式
         self._update_sort_buttons(pl.sort_mode)
@@ -3048,11 +2596,14 @@ class MusicPlayerMixin(object):
             text_color=COLORS["text_secondary"],
         ).pack(side=ctk.LEFT)
 
-        # 显示的文本
-        display_text = song.get_display_text(max_title=50)
+        # 显示文本 / 时长 / 来源标记 / 要不要移除按钮，搬进
+        # services.music_local.song_row_plan。下面三个显示条件**逐字保留**：
+        # 它们与"文本是否为空"不是一回事（online_source 为空串时原文照样
+        # 建一个空标签），所以只替换取值、不动条件。
+        plan = music_local.song_row_plan(song, readonly)
         name_label = ctk.CTkLabel(
             row,
-            text=display_text,
+            text=plan.display_text,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_primary"],
             anchor="w",
@@ -3063,7 +2614,7 @@ class MusicPlayerMixin(object):
         if song.source_type == "online" and song.online_interval:
             ctk.CTkLabel(
                 row,
-                text=_format_time(song.online_interval),
+                text=plan.dur_text,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=9),
                 text_color=COLORS["text_secondary"],
                 width=35,
@@ -3073,14 +2624,14 @@ class MusicPlayerMixin(object):
         if song.source_type == "online":
             ctk.CTkLabel(
                 row,
-                text=song.online_source.upper(),
+                text=plan.source_tag,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=8),
                 text_color=COLORS["accent"],
                 width=28,
             ).pack(side=ctk.RIGHT, padx=(0, 2))
 
-        # 移除按钮（只读歌单不显示：禁止编辑）
-        if not readonly:
+        # 移除按钮（只读歌单不显示：禁止编辑）；判据 = not readonly，由服务给出
+        if plan.show_remove:
             remove_btn = ctk.CTkButton(
                 row,
                 text="✕",
@@ -3132,57 +2683,41 @@ class MusicPlayerMixin(object):
 
     def _music_remove_song_from_playlist(self, song_index: int):
         """从当前歌单中移除歌曲"""
-        if self._music_wy_remote_view_id:
-            return  # 远程歌单只读，禁止编辑
-        pl = self._music_playlist_manager.get_current_playlist()
+        # 「远程歌单只读 + 取当前歌单 + 移除」搬进
+        # services.music_local.remove_song_from_current；
+        # 返回值就是要重绘的那个歌单（None = 什么都没移除）。
+        pl = music_local.remove_song_from_current(
+            self._music_playlist_manager, song_index, readonly=bool(self._music_wy_remote_view_id)
+        )
         if pl is None:
             return
-        if self._music_playlist_manager.remove_song(pl.id, song_index):
-            self._rebuild_playlist_song_list(pl)
-            self._rebuild_playlist_sidebar()
-            self._save_music_state_later()
+        self._rebuild_playlist_song_list(pl)
+        self._rebuild_playlist_sidebar()
+        self._save_music_state_later()
 
     def _music_do_sort(self, mode: str):
         """执行歌单排序"""
-        # 网易云远程歌单（只读）：仅内存内排序，不落盘；同模式再次点击切换方向
+        # 网易云远程歌单（只读）：仅内存内排序，不落盘；同模式再次点击切换方向。
+        # 「空歌单判定 + 同模式翻转 + 就地排序」搬进
+        # services.music_local.remote_sort_plan（返回 None = 无需动作）。
         if self._music_wy_remote_view_id:
             songs = self._music_wy_remote_view_songs
-            if not songs:
+            sorted_mode = music_local.remote_sort_plan(
+                songs, self._music_wy_remote_sort_mode, mode
+            )
+            if sorted_mode is None:
                 return
-            if self._music_wy_remote_sort_mode == mode:
-                if mode == SORT_ADD_TIME_DESC:
-                    mode = SORT_ADD_TIME_ASC
-                elif mode == SORT_ADD_TIME_ASC:
-                    mode = SORT_ADD_TIME_DESC
-                elif mode == SORT_NAME_ASC:
-                    mode = SORT_NAME_DESC
-                elif mode == SORT_NAME_DESC:
-                    mode = SORT_NAME_ASC
-            self._music_wy_remote_sort_mode = mode
-            transient = Playlist(id=self._music_wy_remote_key(self._music_wy_remote_view_id), songs=songs, sort_mode=mode)
-            PlaylistManager._sort_playlist_internal(transient)
-            self._update_sort_buttons(mode)
+            self._music_wy_remote_sort_mode = sorted_mode
+            self._update_sort_buttons(sorted_mode)
             self._music_render_wy_remote_songs(self._music_wy_remote_view_id, songs)
             return
-        mgr = self._music_playlist_manager
-        pl = mgr.get_current_playlist()
-        if pl is None:
+        # 「取当前歌单 + 同模式翻转 + 排序」搬进
+        # services.music_local.local_sort_plan（返回 None = 没有当前歌单）
+        plan = music_local.local_sort_plan(self._music_playlist_manager, mode)
+        if plan is None:
             return
-
-        # 如果当前排序模式相同，切换方向
-        if pl.sort_mode == mode:
-            if mode == SORT_ADD_TIME_DESC:
-                mode = SORT_ADD_TIME_ASC
-            elif mode == SORT_ADD_TIME_ASC:
-                mode = SORT_ADD_TIME_DESC
-            elif mode == SORT_NAME_ASC:
-                mode = SORT_NAME_DESC
-            elif mode == SORT_NAME_DESC:
-                mode = SORT_NAME_ASC
-
-        mgr.sort(pl.id, mode)
-        self._update_sort_buttons(mode)
-        self._rebuild_playlist_song_list(pl)
+        self._update_sort_buttons(plan.mode)
+        self._rebuild_playlist_song_list(plan.playlist)
         self._save_music_state_later()
 
     def _update_sort_buttons(self, mode: str):
@@ -3234,29 +2769,26 @@ class MusicPlayerMixin(object):
             "height": 26,
         }
 
-        # 构造歌单项（本地歌单检查与添加共用同一去重规则）
-        if is_online:
-            song = PlaylistSong.from_online_info(song_info)
-        else:
-            song = PlaylistSong.from_local_file(song_info, self._get_metadata(song_info))
-
-        for pl in playlists:
-            # 逐歌单检查是否已存在（不是"任意歌单已存在"，否则一个歌单加了会全部显示已加）
-            exists = mgr.is_song_in_playlist(pl.id, song)
-
-            display_text = pl.name
-            if exists:
-                display_text = f"{pl.name} ✓"
-
+        # 「构造歌单项 + 逐歌单查重 + 条目文案（已存在加 ✓）」搬进
+        # services.music_local.add_to_playlist_menu_plan。
+        # 调用点与原文读元数据的位置一致（在菜单窗口创建之后），
+        # 所以窗口弹出来的时机与原文相同。
+        plan = music_local.add_to_playlist_menu_plan(
+            self._music_playlist_manager,
+            song_info,
+            is_online,
+            None if is_online else self._get_metadata(song_info),
+        )
+        for item in plan.items:
             btn = ctk.CTkButton(
                 menu,
-                text=display_text,
-                command=lambda pid=pl.id: self._music_add_song_to_playlist(pid, song_info, is_online) or menu.destroy(),
+                text=item.text,
+                command=lambda pid=item.playlist_id: self._music_add_song_to_playlist(pid, song_info, is_online) or menu.destroy(),
                 **btn_cfg,
             )
             btn.pack(fill=ctk.X, padx=4, pady=1)
 
-            if exists:
+            if item.exists:
                 btn.configure(state="disabled")
 
         # 自动定位
@@ -3271,21 +2803,22 @@ class MusicPlayerMixin(object):
 
     def _music_add_song_to_playlist(self, playlist_id: str, song_info, is_online: bool = False):
         """将歌曲添加到指定歌单"""
-        mgr = self._music_playlist_manager
-
-        if is_online:
-            song = PlaylistSong.from_online_info(song_info)
-        else:
-            meta = self._get_metadata(song_info)
-            song = PlaylistSong.from_local_file(song_info, meta)
-
-        if mgr.add_song(playlist_id, song):
-            self._rebuild_playlist_sidebar()
-            # 如果当前正在查看该歌单，刷新列表
-            current = mgr.get_current_playlist()
-            if current and current.id == playlist_id:
-                self._rebuild_playlist_song_list(current)
-            self._save_music_state_later()
+        # 「构造歌单项 + 去重添加 + 判断当前是否正在看这个歌单」搬进
+        # services.music_local.add_song_to_playlist（元数据只在本地分支才取）
+        outcome = music_local.add_song_to_playlist(
+            self._music_playlist_manager,
+            playlist_id,
+            song_info,
+            is_online,
+            None if is_online else self._get_metadata(song_info),
+        )
+        if not outcome.added:
+            return
+        self._rebuild_playlist_sidebar()
+        # 如果当前正在查看该歌单，刷新列表
+        if outcome.playlist is not None:
+            self._rebuild_playlist_song_list(outcome.playlist)
+        self._save_music_state_later()
 
     # ── 播放历史记录 ──
 
@@ -3293,30 +2826,30 @@ class MusicPlayerMixin(object):
         """记录本地歌曲到播放历史"""
         if not hasattr(self, "_music_playlist_manager"):
             return
-        meta = self._get_metadata(filepath)
-        song = PlaylistSong.from_local_file(filepath, meta)
-        self._music_playlist_manager.record_to_history(song)
+        # 「构造歌单项 + 写进历史」搬进 services.music_local.record_history_local
+        music_local.record_history_local(
+            self._music_playlist_manager, filepath, self._get_metadata(filepath)
+        )
         self._music_refresh_history_ui()
 
     def _music_record_play_history_online(self, online_info):
         """记录在线歌曲到播放历史"""
         if not hasattr(self, "_music_playlist_manager"):
             return
-        try:
-            song = PlaylistSong.from_online_info(online_info)
-        except Exception:
-            return
-        self._music_playlist_manager.record_to_history(song)
+        # 「构造歌单项（转不了就放弃）+ 写进历史」搬进
+        # services.music_local.record_history_online
+        music_local.record_history_online(self._music_playlist_manager, online_info)
         self._music_refresh_history_ui()
 
     def _music_refresh_history_ui(self):
         """记录历史后刷新 UI（当前正停留在历史歌单视图时立即重绘）"""
         try:
-            if self._music_tab_mode != "playlist":
-                return
-            mgr = self._music_playlist_manager
-            current = mgr.get_current_playlist()
-            if current is None or current.id != HISTORY_PLAYLIST_ID:
+            # 「停在歌单标签页 + 正在看历史歌单」的判据搬进
+            # services.music_local.history_refresh_target
+            current = music_local.history_refresh_target(
+                self._music_playlist_manager, self._music_tab_mode
+            )
+            if current is None:
                 return
             self._rebuild_playlist_song_list(current)
         except Exception:
@@ -3329,8 +2862,12 @@ class MusicPlayerMixin(object):
     # 因此永不写入 music.json、永不参与本地歌单的增删改（禁止编辑）。
 
     def _music_wy_remote_key(self, pl_id: str) -> str:
-        """远程歌单的侧边栏条目 id（与本地歌单 id 区分）"""
-        return f"{_WY_REMOTE_PREFIX}{pl_id}"
+        """远程歌单的侧边栏条目 id（与本地歌单 id 区分）
+
+        前缀约定的唯一真相在 services.music_wy_remote.remote_key
+        （该模块只读、不落盘、不碰 PlaylistManager）。
+        """
+        return wy_remote.remote_key(pl_id)
 
     def _music_wy_sync_remote_playlists(self):
         """同步网易云登录账号创建的歌单列表（后台线程，结果经队列回主线程）
@@ -3345,64 +2882,72 @@ class MusicPlayerMixin(object):
         threading.Thread(target=self._music_wy_sync_worker, args=(seq,), daemon=True).start()
 
     def _music_wy_sync_worker(self, seq: int):
-        """后台线程：检查登录态并拉取歌单列表（绝不触碰 Tk）"""
-        state, data = "ok", []
-        try:
-            from ui.music_source import wy_get_user_playlists, wy_is_logged_in
+        """后台线程：检查登录态并拉取歌单列表（绝不触碰 Tk）
 
-            if not wy_is_logged_in():
-                state = "logged_out"
-            else:
-                data = wy_get_user_playlists()
-                if data is None:
-                    state = "error"
-        except Exception as e:
-            logger.warning(f"网易云歌单同步失败: {e}")
-            state = "error"
-        self._music_wy_queue.put(("sync", seq, state, data))
+        登录态判定与拉取（含异常降级为 error 态）在
+        services.music_wy_remote.sync_playlists；本方法只把结果投进主线程队列，
+        队列的事件种类以该模块的 EVENT_* 为唯一真相。
+        """
+        state, data = wy_remote.sync_playlists()
+        self._music_wy_queue.put(wy_remote.make_event(wy_remote.EVENT_SYNC, seq, state, data))
 
     def _music_wy_dispatcher_tick(self):
         """主线程调度器：统一处理后台线程投递的事件（worker 不直接触碰 Tk）"""
         if not hasattr(self, "_music_wy_queue"):
             return
         try:
-            while True:
-                try:
-                    event = self._music_wy_queue.get_nowait()
-                except queue.Empty:
-                    break
+            # drain_events 是生成器：处理某条事件抛异常时它随即关闭，
+            # 剩余事件仍留在队列里、下一次 tick 再取（与原文 while+break 等价）；
+            # 换成「先取完再返回列表」会把这批事件摘掉却不处理，等于丢事件。
+            for event in wy_remote.drain_events(self._music_wy_queue):
                 self._music_wy_handle_event(event)
         except Exception as e:
             logger.debug(f"网易云歌单事件处理异常: {e}")
         try:
-            self._music_wy_dispatcher_id = self.after(200, self._music_wy_dispatcher_tick)
+            self._music_wy_dispatcher_id = self.after(
+                wy_remote.DISPATCH_INTERVAL_MS, self._music_wy_dispatcher_tick
+            )
         except Exception:
             pass
 
     def _music_wy_handle_event(self, event):
+        # 事件种类（队列的线上协议）以 services.music_wy_remote 的 EVENT_* 为唯一真相；
+        # EVENT_PREFETCH_FAIL 故意不分派：预取失败不设槽位，播完时走常规按需流程
         kind = event[0]
         try:
-            if kind == "sync":
+            if kind == wy_remote.EVENT_SYNC:
                 self._music_wy_apply_sync(event[1], event[2], event[3])
-            elif kind == "tracks":
+            elif kind == wy_remote.EVENT_TRACKS:
                 self._music_wy_apply_tracks(event[1], event[2])
-            elif kind == "prefetch":
+            elif kind == wy_remote.EVENT_PREFETCH:
                 self._music_on_prefetch_ready(event[1], event[2], event[3], event[4], event[5], event[6])
-            # "prefetch_fail"：预取失败不设槽位，播完时走常规按需流程
         except Exception as e:
             logger.debug(f"网易云歌单事件执行异常: {e}")
 
     def _music_wy_apply_sync(self, seq: int, state: str, playlists: List[dict]):
         """主线程应用歌单列表同步结果"""
-        if seq != self._music_wy_sync_seq:
+        # 应用结论（过期/退出/失败/无变化/更新）在
+        # services.music_wy_remote.plan_sync_apply；写回顺序与原文逐条对应 ——
+        # 中间那次 _music_show_playlist 会让侧边栏看到**旧的** sync_failed
+        # 与旧的歌单列表，顺序一换侧边栏标题就变了。
+        plan = wy_remote.plan_sync_apply(
+            seq=seq,
+            sync_seq=self._music_wy_sync_seq,
+            state=state,
+            playlists=playlists,
+            current_playlists=self._music_wy_remote_playlists,
+            view_id=self._music_wy_remote_view_id,
+            tab_mode=self._music_tab_mode,
+        )
+        if plan.kind == wy_remote.SYNC_STALE:
             return  # 过期同步结果（已触发新的同步），丢弃
         self._music_wy_sync_busy = False
-        if state == "logged_out":
+        if plan.kind == wy_remote.SYNC_LOGGED_OUT:
             # 账号已退出（设置页退出/登录失效）：清空远程歌单与歌曲缓存
-            if self._music_wy_remote_view_id:
+            if plan.clear_view:
                 self._music_wy_remote_view_id = None
                 self._music_wy_remote_view_songs = []
-                if self._music_tab_mode == "playlist":
+                if plan.fallback_to_history:
                     history = self._music_playlist_manager.get_or_create_history_playlist()
                     self._music_show_playlist(history.id)
             self._music_wy_remote_playlists = []
@@ -3411,25 +2956,24 @@ class MusicPlayerMixin(object):
             self._music_wy_sync_failed = False
             self._rebuild_playlist_sidebar()
             return
-        if state == "error":
+        if plan.kind == wy_remote.SYNC_ERROR:
             # 网络/接口失败：保留上次成功结果，侧边栏标题标记同步失败
             self._music_wy_sync_failed = True
             return
-        self._music_wy_sync_failed = False
-        if self._music_wy_remote_playlists == playlists:
+        if plan.kind == wy_remote.SYNC_UNCHANGED:
+            self._music_wy_sync_failed = False
             return  # 无变化，不重建侧边栏
-        old_ids = {p["id"] for p in self._music_wy_remote_playlists}
-        new_ids = {p["id"] for p in playlists}
+        self._music_wy_sync_failed = False
         # 清除已不在列表中的歌单的歌曲缓存与加载标记
-        for pid in old_ids - new_ids:
+        for pid in plan.drop_ids:
             self._music_wy_remote_cache.pop(pid, None)
             self._music_wy_loading_ids.discard(pid)
         self._music_wy_remote_playlists = playlists
         # 当前查看的远程歌单已被删除：切回播放历史
-        if self._music_wy_remote_view_id and self._music_wy_remote_view_id not in new_ids:
+        if plan.clear_view:
             self._music_wy_remote_view_id = None
             self._music_wy_remote_view_songs = []
-            if self._music_tab_mode == "playlist":
+            if plan.fallback_to_history:
                 history = self._music_playlist_manager.get_or_create_history_playlist()
                 self._music_show_playlist(history.id)
         self._rebuild_playlist_sidebar()
@@ -3441,9 +2985,10 @@ class MusicPlayerMixin(object):
         self._music_wy_remote_view_id = pl_id
         self._music_wy_remote_page = 1  # 切换歌单后回到第一页
         self._update_sort_buttons(self._music_wy_remote_sort_mode)
-        cached = self._music_wy_remote_cache.get(pl_id)
+        # 缓存命中（含空歌单成功缓存 []）：直接渲染；None = 没缓存过要去后台拉，
+        # 这个区分语义在 services.music_wy_remote.cached_songs
+        cached = wy_remote.cached_songs(self._music_wy_remote_cache, pl_id)
         if cached is not None:
-            # 缓存命中（含空歌单成功缓存 []）：直接渲染
             self._music_render_wy_remote_songs(pl_id, cached)
         else:
             self._music_show_wy_remote_loading(pl_id)
@@ -3458,25 +3003,29 @@ class MusicPlayerMixin(object):
         threading.Thread(target=self._music_wy_tracks_worker, args=(pl_id,), daemon=True).start()
 
     def _music_wy_tracks_worker(self, pl_id: str):
-        """后台线程：拉取歌单歌曲（绝不触碰 Tk）"""
-        try:
-            from ui.music_source import wy_get_playlist_tracks
+        """后台线程：拉取歌单歌曲（绝不触碰 Tk）
 
-            infos = wy_get_playlist_tracks(pl_id)
-        except Exception as e:
-            logger.warning(f"获取网易云歌单歌曲失败 [{pl_id}]: {e}")
-            infos = None
-        self._music_wy_queue.put(("tracks", pl_id, infos))
+        拉取与失败降级（None = 失败，[] = 空歌单）在
+        services.music_wy_remote.fetch_playlist_tracks。
+        """
+        infos = wy_remote.fetch_playlist_tracks(pl_id)
+        self._music_wy_queue.put(wy_remote.make_event(wy_remote.EVENT_TRACKS, pl_id, infos))
 
     def _music_wy_apply_tracks(self, pl_id: str, infos):
-        """主线程应用歌单歌曲拉取结果（None=失败，[]=空歌单）"""
+        """主线程应用歌单歌曲拉取结果（None=失败，[]=空歌单）
+
+        三种去向（仅缓存 / 显示失败 / 渲染）在
+        services.music_wy_remote.tracks_action；PlaylistSong 转换与控件操作
+        留在界面侧（远程歌单只读、不落盘）。
+        """
         self._music_wy_loading_ids.discard(pl_id)
-        if self._music_wy_remote_view_id != pl_id:
+        action = wy_remote.tracks_action(pl_id, infos, self._music_wy_remote_view_id)
+        if action == wy_remote.TRACKS_CACHE_ONLY:
             # 用户已切换歌单：成功结果仅缓存，供下次点击直接使用
             if infos is not None:
                 self._music_wy_remote_cache[pl_id] = [PlaylistSong.from_online_info(i) for i in infos]
             return
-        if infos is None:
+        if action == wy_remote.TRACKS_FAILED:
             self._music_show_wy_remote_failed(pl_id)
             return
         songs = [PlaylistSong.from_online_info(i) for i in infos]
@@ -3526,14 +3075,15 @@ class MusicPlayerMixin(object):
         self._music_playlist_widgets.append({"frame": label})
 
     def _music_render_wy_remote_songs(self, pl_id: str, songs: List[PlaylistSong]):
-        """渲染远程歌单当前页歌曲列表（只读，禁止编辑，超过 20 首分页）"""
+        """渲染远程歌单当前页歌曲列表（只读，禁止编辑，超过 20 首分页）
+
+        页码钳制与切片范围在 services.music_wy_remote.page_window。
+        """
         self._music_wy_remote_view_songs = songs
-        total = len(songs)
-        pages = max(1, math.ceil(total / _MUSIC_WY_PAGE_SIZE))
-        if self._music_wy_remote_page > pages:
-            self._music_wy_remote_page = pages
-        start = (self._music_wy_remote_page - 1) * _MUSIC_WY_PAGE_SIZE
-        page_songs = songs[start : start + _MUSIC_WY_PAGE_SIZE]
+        window = wy_remote.page_window(len(songs), self._music_wy_remote_page)
+        self._music_wy_remote_page = window.page
+        start = window.start
+        page_songs = songs[start : window.stop]
         transient = Playlist(id=self._music_wy_remote_key(pl_id), name="", songs=page_songs)
         self._rebuild_playlist_song_list(transient, readonly=True)
         # 记录每行在完整歌单中的真实索引（高亮/自动翻页依赖）
@@ -3543,37 +3093,43 @@ class MusicPlayerMixin(object):
         self._music_wy_update_pager()
 
     def _music_wy_update_pager(self):
-        """更新远程歌单分页栏（<=20 首或非远程视图时隐藏）"""
+        """更新远程歌单分页栏（<=20 首或非远程视图时隐藏）
+
+        可见性/页码钳制/按钮状态在 services.music_wy_remote.pager_plan。
+        """
         frame = getattr(self, "_music_wy_pager_frame", None)
         if frame is None or not frame.winfo_exists():
             return
-        if not self._music_wy_remote_view_id:
+        plan = wy_remote.pager_plan(
+            total=len(self._music_wy_remote_view_songs),
+            page=self._music_wy_remote_page,
+            has_view=bool(self._music_wy_remote_view_id),
+        )
+        self._music_wy_remote_page = plan.page
+        if plan.hidden:
             frame.pack_forget()
             return
-        songs = self._music_wy_remote_view_songs
-        total = len(songs)
-        if total <= _MUSIC_WY_PAGE_SIZE:
-            frame.pack_forget()
-            return
-        pages = max(1, math.ceil(total / _MUSIC_WY_PAGE_SIZE))
-        if self._music_wy_remote_page > pages:
-            self._music_wy_remote_page = pages
         frame.pack(fill=ctk.X, pady=(4, 0))
         self._music_wy_pager_page_label.configure(
-            text=_("music_wy_playlist_page", page=self._music_wy_remote_page, total=pages)
+            text=_("music_wy_playlist_page", page=plan.page, total=plan.pages)
         )
-        self._music_wy_pager_prev.configure(state="normal" if self._music_wy_remote_page > 1 else "disabled")
-        self._music_wy_pager_next.configure(state="normal" if self._music_wy_remote_page < pages else "disabled")
+        self._music_wy_pager_prev.configure(state="normal" if plan.prev_enabled else "disabled")
+        self._music_wy_pager_next.configure(state="normal" if plan.next_enabled else "disabled")
 
     def _music_wy_go_page(self, page: int):
-        """远程歌单翻页（仅内存内展示切换，不影响完整播放列表）"""
+        """远程歌单翻页（仅内存内展示切换，不影响完整播放列表）
+
+        越界/同页守卫在 services.music_wy_remote.go_page_target。
+        """
         if not self._music_wy_remote_view_id:
             return
         songs = self._music_wy_remote_view_songs
-        pages = max(1, math.ceil(len(songs) / _MUSIC_WY_PAGE_SIZE))
-        if page < 1 or page > pages or page == self._music_wy_remote_page:
+        target = wy_remote.go_page_target(
+            page=page, current_page=self._music_wy_remote_page, total=len(songs)
+        )
+        if target is None:
             return
-        self._music_wy_remote_page = page
+        self._music_wy_remote_page = target
         self._music_render_wy_remote_songs(self._music_wy_remote_view_id, songs)
 
     def _music_wy_start_periodic(self):
@@ -3594,31 +3150,21 @@ class MusicPlayerMixin(object):
 
     def _music_play_playlist_all(self):
         """播放当前歌单的所有可播放歌曲（支持本地/在线混合）"""
+        # 「第一首可播歌曲 + 歌单上下文副本」搬进 services.music_local.play_all_target
         # 网易云远程歌单：播放远程歌曲（全部为在线歌曲）
         if self._music_wy_remote_view_id:
-            songs = self._music_wy_remote_view_songs
-            if not songs:
+            target = music_local.play_all_target(self._music_wy_remote_view_songs, remote=True)
+        else:
+            pl = self._music_playlist_manager.get_current_playlist()
+            if pl is None:
                 return
-            self._music_playlist_context_songs = list(songs)
-            for idx, s in enumerate(songs):
-                if s.source_type == "online":
-                    self._play_playlist_context_song(idx)
-                    return
-            return
-        mgr = self._music_playlist_manager
-        pl = mgr.get_current_playlist()
-        if pl is None or not pl.songs:
+            target = music_local.play_all_target(pl.songs)
+        if target is None:
             return
         # 保存歌单上下文，供上下曲使用
-        self._music_playlist_context_songs = list(pl.songs)
-        # 找到第一首可播歌曲
-        for idx, s in enumerate(pl.songs):
-            if s.source_type == "local" and os.path.exists(s.file_path):
-                self._play_playlist_context_song(idx)
-                return
-            elif s.source_type == "online":
-                self._play_playlist_context_song(idx)
-                return
+        self._music_playlist_context_songs = target.context_songs
+        if target.index >= 0:
+            self._play_playlist_context_song(target.index)
 
     # ═══════════════ 注册热键 ─────────────────────
 
@@ -3633,13 +3179,21 @@ class MusicPlayerMixin(object):
             try:
                 self._music_warmup_hook = _keyboard.hook(lambda e: None)
                 time.sleep(0.1)
-                _keyboard.add_hotkey(DEFAULT_HOTKEYS["play_pause"], self._music_hotkey_play_pause)
-                _keyboard.add_hotkey(DEFAULT_HOTKEYS["prev"], self._music_hotkey_prev)
-                _keyboard.add_hotkey(DEFAULT_HOTKEYS["next"], self._music_hotkey_next)
-                _keyboard.add_hotkey(DEFAULT_HOTKEYS["stop"], self._music_hotkey_stop)
-                _keyboard.add_hotkey(DEFAULT_HOTKEYS["vol_up"], self._music_hotkey_vol_up)
-                _keyboard.add_hotkey(DEFAULT_HOTKEYS["vol_down"], self._music_hotkey_vol_down)
-                _keyboard.add_hotkey(DEFAULT_HOTKEYS["vol_mute"], self._music_hotkey_vol_mute)
+                # 7 个动作的组合键与注册顺序以 services.music_hotkeys 为唯一真相
+                # （注销用的是同一份 HOTKEY_ACTIONS，不会再出现两处错位）；
+                # backend 与回调由界面注入，服务只负责遍历编排。
+                music_hotkeys.register_all(
+                    _keyboard,
+                    {
+                        "play_pause": self._music_hotkey_play_pause,
+                        "prev": self._music_hotkey_prev,
+                        "next": self._music_hotkey_next,
+                        "stop": self._music_hotkey_stop,
+                        "vol_up": self._music_hotkey_vol_up,
+                        "vol_down": self._music_hotkey_vol_down,
+                        "vol_mute": self._music_hotkey_vol_mute,
+                    },
+                )
                 self._music_hotkeys_registered = True
                 logger.info("音乐播放全局热键已注册")
             except Exception as e:
@@ -3659,13 +3213,9 @@ class MusicPlayerMixin(object):
         if not _keyboard_available:
             return
         try:
-            _keyboard.remove_hotkey(DEFAULT_HOTKEYS["play_pause"])
-            _keyboard.remove_hotkey(DEFAULT_HOTKEYS["prev"])
-            _keyboard.remove_hotkey(DEFAULT_HOTKEYS["next"])
-            _keyboard.remove_hotkey(DEFAULT_HOTKEYS["stop"])
-            _keyboard.remove_hotkey(DEFAULT_HOTKEYS["vol_up"])
-            _keyboard.remove_hotkey(DEFAULT_HOTKEYS["vol_down"])
-            _keyboard.remove_hotkey(DEFAULT_HOTKEYS["vol_mute"])
+            # 与注册共用 services.music_hotkeys.HOTKEY_ACTIONS 的同一份顺序；
+            # 异常仍在这里的 try 里吞掉（原文的边界逐字保留）。
+            music_hotkeys.unregister_all(_keyboard)
             if self._music_warmup_hook is not None:
                 self._music_warmup_hook()
                 self._music_warmup_hook = None
@@ -3687,47 +3237,48 @@ class MusicPlayerMixin(object):
         self.after(0, self._music_stop)
 
     def _music_hotkey_vol_up(self):
-        self.after(0, lambda: self._adjust_volume(5))
+        # 步长以 services.music_hotkeys.VOLUME_HOTKEY_STEP 为唯一真相
+        self.after(0, lambda: self._adjust_volume(music_hotkeys.VOLUME_HOTKEY_STEP))
 
     def _music_hotkey_vol_down(self):
-        self.after(0, lambda: self._adjust_volume(-5))
+        self.after(0, lambda: self._adjust_volume(-music_hotkeys.VOLUME_HOTKEY_STEP))
 
     def _music_hotkey_vol_mute(self):
         self.after(0, self._music_toggle_mute)
 
     def _adjust_volume(self, delta: int):
-        new_vol = max(0, min(100, int(self._music_volume * 100) + delta))
+        # 0..100 钳制算式搬进 services.music_player.volume_percent_after_delta
+        new_vol = self._music_engine.volume_percent_after_delta(self._music_volume, delta)
         self._music_volume = new_vol / 100.0
         self._music_vol_slider.set(new_vol)
         if hasattr(self, "_music_mini_vol"):
             self._music_mini_vol.set(new_vol)
-        if _pygame_import_error is None and not self._music_is_fading:
-            try:
-                mixer.music.set_volume(self._music_volume)
-            except Exception:
-                pass
+        if self._music_engine.available and not self._music_is_fading:
+            self._music_engine.set_mixer_volume(self._music_volume)
         self._update_mute_btn_ui()
         self._trigger_ach("music_volume_tweaker")
 
     def _save_music_state_later(self):
-        self.after(500, self._save_music_state)
+        # 防抖延迟以 services.music_state.SAVE_DEBOUNCE_MS 为准（定时器留界面侧）
+        self.after(SAVE_DEBOUNCE_MS, self._save_music_state)
 
     def _save_music_state(self):
         if not hasattr(self, "_music_init_done") or not self._music_init_done:
             return
         try:
-            state = {
-                "music_last_folder": self._music_last_folder,
-                "music_current_index": self._music_current_index,
-                "music_progress": self._music_progress,
-                "music_volume": self._music_volume,
-                "music_play_mode": PLAY_MODE_NAMES.get(self._music_play_mode, "loop_list"),
-                "music_mini_mode": self._music_mini_mode,
-                "music_last_playlist_id": self._music_playlist_manager.current_playlist_id,
-                "music_last_song_idx_in_playlist": (
-                    self._music_playlist_context_idx if self._music_playlist_context_songs else -1
-                ),
-            }
+            # 键名/取值规则住在 services.music_state.build_music_state；
+            # **取值仍由界面提供**（这些属性被 100+ 个范围外方法读写，所有权没搬）
+            state = build_music_state(
+                last_folder=self._music_last_folder,
+                current_index=self._music_current_index,
+                progress=self._music_progress,
+                volume=self._music_volume,
+                play_mode=self._music_play_mode,
+                mini_mode=self._music_mini_mode,
+                playlist_id=self._music_playlist_manager.current_playlist_id,
+                playlist_context_idx=self._music_playlist_context_idx,
+                playlist_context_songs=self._music_playlist_context_songs,
+            )
             if hasattr(self, "callbacks") and "save_music_state" in self.callbacks:
                 self.callbacks["save_music_state"](state)
             # 标记歌单为脏，由后台定时器统一写入磁盘，避免频繁 I/O 卡顿
@@ -3744,29 +3295,15 @@ class MusicPlayerMixin(object):
         启动早期 callbacks 尚未就绪（主窗口先以空 dict 创建），
         与 _load_music_state 相同：就绪前定时重试。
         """
-        if not hasattr(self, "callbacks") or not self.callbacks:
-            if _retry_count < 60:
-                self.after(500, lambda: self._music_apply_wy_saved_login(_retry_count + 1))
+        # 重试判据（回调没就绪 / 没有 get_wy_cookie 回调 → retry_count < 60 就重试）
+        # 与"读 Cookie + 应用 Cookie"的容错都在 services.music_state 里
+        if login_retry_due(getattr(self, "callbacks", None), _retry_count):
+            self.after(LOAD_RETRY_MS, lambda: self._music_apply_wy_saved_login(_retry_count + 1))
             return
-        get_fn = self.callbacks.get("get_wy_cookie")
-        if not get_fn:
-            if _retry_count < 60:
-                self.after(500, lambda: self._music_apply_wy_saved_login(_retry_count + 1))
-            return
-        try:
-            cookie = get_fn()
-        except Exception as e:
-            logger.debug(f"读取网易云登录 Cookie 失败: {e}")
-            return
+        cookie = read_saved_cookie(self.callbacks)
         if not cookie:
             return
-        try:
-            from ui.music_source import wy_apply_cookie
-
-            wy_apply_cookie(cookie)
-            logger.info("已应用网易云音乐登录 Cookie")
-        except Exception as e:
-            logger.warning(f"应用网易云音乐登录 Cookie 失败: {e}")
+        apply_wy_cookie(cookie)
         # 登录恢复成功后同步网易云账号歌单（未登录时由同步逻辑自动清空）
         try:
             self._music_wy_sync_remote_playlists()
@@ -3778,31 +3315,32 @@ class MusicPlayerMixin(object):
             return
         load_fn = self.callbacks.get("load_music_state")
         if not load_fn:
-            if _retry_count < 60:
-                self.after(500, lambda: self._load_music_state(_retry_count + 1))
+            if _retry_count < LOAD_RETRY_MAX:
+                self.after(LOAD_RETRY_MS, lambda: self._load_music_state(_retry_count + 1))
             return
         try:
             state = load_fn()
             if not state:
                 return
-            folder = state.get("music_last_folder", "")
-            vol = state.get("music_volume", None)
-            mode = state.get("music_play_mode", "loop_list")
-            self._music_current_index = state.get("music_current_index", -1)
-            self._music_progress = state.get("music_progress", 0)
-            self._music_mini_mode = state.get("music_mini_mode", False)
+            # 键名/默认值/坏值容错全在 services.music_state.parse_music_state
+            # （音乐模式名 → 模式号的映射也在那里；未知名字回退 loop_list）
+            parsed = parse_music_state(state)
+            folder = parsed.last_folder
+            vol = parsed.volume
+            self._music_current_index = parsed.current_index
+            self._music_progress = parsed.progress
+            self._music_mini_mode = parsed.mini_mode
 
             if vol is not None:
                 self._music_volume = float(vol)
 
-            mode_map = {v: k for k, v in PLAY_MODE_NAMES.items()}
-            self._music_play_mode = mode_map.get(mode, PLAY_MODE_LOOP_LIST)
+            self._music_play_mode = parsed.play_mode
             self._update_mode_btn_text()
 
             if hasattr(self, "_music_vol_slider") and self._music_vol_slider.winfo_exists():
-                self._music_vol_slider.set(int(self._music_volume * 100))
+                self._music_vol_slider.set(volume_to_slider(self._music_volume))
             if hasattr(self, "_music_mini_vol") and self._music_mini_vol.winfo_exists():
-                self._music_mini_vol.set(int(self._music_volume * 100))
+                self._music_mini_vol.set(volume_to_slider(self._music_volume))
             self._update_mute_btn_ui()
 
             if folder and os.path.isdir(folder):
@@ -3814,7 +3352,7 @@ class MusicPlayerMixin(object):
                 self._music_playlist_manager.load()
                 self._rebuild_playlist_sidebar()
                 # 自动切换到上次打开的歌单，若不存在则回退到播放历史
-                saved_pl_id = state.get("music_last_playlist_id")
+                saved_pl_id = parsed.last_playlist_id
                 target_id = None
                 if saved_pl_id and self._music_playlist_manager.get_playlist(saved_pl_id):
                     target_id = saved_pl_id
@@ -3824,12 +3362,12 @@ class MusicPlayerMixin(object):
                 self._music_show_playlist(target_id)
                 # 恢复歌单中的歌曲位置和进度
                 pl = self._music_playlist_manager.get_current_playlist()
-                saved_song_idx = state.get("music_last_song_idx_in_playlist", -1)
+                saved_song_idx = parsed.song_index
                 if pl and 0 <= saved_song_idx < len(pl.songs):
                     self._music_playlist_context_songs = list(pl.songs)
                     self._music_playlist_context_idx = saved_song_idx
                     song = pl.songs[saved_song_idx]
-                    self._music_progress = state.get("music_progress", 0)
+                    self._music_progress = parsed.progress
                     # 同步 _music_playlist 供本地播放使用
                     if song.source_type == "local" and os.path.exists(song.file_path):
                         local_paths = [
@@ -3854,8 +3392,12 @@ class MusicPlayerMixin(object):
     # ═══════════════ 定时保存 ═══════════════
 
     def _music_start_periodic_save(self):
-        """启动后台定时保存（每 30 秒检查脏标记并落盘）"""
-        self._music_periodic_save_id = self.after(30000, self._music_periodic_save_tick)
+        """启动后台定时保存（每 30 秒检查脏标记并落盘）
+
+        周期值以 services.music_state.PERIODIC_SAVE_INTERVAL_MS 为准；
+        `after` 定时器与 tick 的实现留在界面侧。
+        """
+        self._music_periodic_save_id = self.after(PERIODIC_SAVE_INTERVAL_MS, self._music_periodic_save_tick)
 
     def _music_periodic_save_tick(self):
         try:
@@ -3901,24 +3443,30 @@ class MusicPlayerMixin(object):
     # ═══════════════ 在线搜索逻辑 ═══════════════
 
     def _music_do_search(self):
-        keyword = self._music_search_entry.get().strip()
+        # 取值规则（strip、空则不搜）在 services.music_online.normalize_keyword
+        keyword = music_online.normalize_keyword(self._music_search_entry.get())
         if not keyword:
             return
         self._music_search_keyword = keyword
-        self._music_start_search(1)
+        self._music_start_search(music_online.FIRST_SEARCH_PAGE)
 
     def _music_start_search(self, page: int):
-        """发起搜索请求（页码从 1 开始），带忙碌标记与请求序号防并发覆盖"""
-        if self._music_search_busy:
+        """发起搜索请求（页码从 1 开始），带忙碌标记与请求序号防并发覆盖
+
+        准入判定（忙碌/页码非法）与「每页条数取当前音源的服务端限制」在
+        services.music_online.plan_search；控件与线程留在界面侧。
+        """
+        plan = music_online.plan_search(
+            page=page,
+            busy=self._music_search_busy,
+            source_id=self._music_selected_source,
+        )
+        if plan is None:
             return
-        if page < 1:
-            return
-        self._music_search_page = page
-        self._music_search_busy = True
+        self._music_search_page = plan.page
+        self._music_search_busy = plan.busy
         self._music_search_total_pages = 0  # 新请求未返回前不沿用旧音源的页数
-        # 每页条数按当前音源的服务端限制（如网易云每页最多 20 条）
-        src = MUSIC_SOURCES.get(self._music_selected_source)
-        self._music_search_page_size = src.limits.get("search", 30) if src else 30
+        self._music_search_page_size = plan.page_size
         self._music_search_seq += 1
         seq = self._music_search_seq
         self._music_search_btn.configure(state="disabled", text="...")
@@ -3929,16 +3477,11 @@ class MusicPlayerMixin(object):
         ).start()
 
     def _music_online_search_thread(self, keyword: str, page: int, seq: int):
-        try:
-            source_id = self._music_selected_source
-            src = MUSIC_SOURCES.get(source_id)
-            if src:
-                results = src.search(keyword, page=page, limit=self._music_search_page_size)
-            else:
-                results = []
-        except Exception as e:
-            logger.warning(f"在线搜索失败 [{source_id}]: {e}")
-            results = []
+        # 单音源搜索（含「音源缺失 -> 空结果」与异常降级为 warning）在
+        # services.music_online.run_source_search
+        results = music_online.run_source_search(
+            self._music_selected_source, keyword, page, self._music_search_page_size
+        )
         self.after(0, lambda: self._music_rebuild_search_results(results, seq))
 
     def _music_rebuild_search_results(self, results, seq: Optional[int] = None):
@@ -3946,24 +3489,25 @@ class MusicPlayerMixin(object):
             return  # 过期请求（用户已重新搜索/翻页），丢弃
         self._music_search_busy = False
         self._music_search_results = results
-        # 音源提供总数时一次性算出总页数；否则按满页启发式判断下一页
-        src = MUSIC_SOURCES.get(self._music_selected_source)
-        total = src.last_search_total if src else 0
-        if total > 0:
-            self._music_search_total_pages = max(1, math.ceil(total / self._music_search_page_size))
-            self._music_search_has_more = self._music_search_page < self._music_search_total_pages
-        else:
-            self._music_search_total_pages = 0
-            self._music_search_has_more = len(results) >= self._music_search_page_size
+        # 音源提供总数时一次性算出总页数；否则按满页启发式判断下一页。
+        # 页数与状态栏形态的判定在 services.music_online.summarize_search。
+        outcome = music_online.summarize_search(
+            results,
+            source_id=self._music_selected_source,
+            page=self._music_search_page,
+            page_size=self._music_search_page_size,
+        )
+        self._music_search_total_pages = outcome.total_pages
+        self._music_search_has_more = outcome.has_more
         self._music_render_search_rows(results)
-        if results:
-            count = len(results)
+        if outcome.status == music_online.STATUS_RESULTS:
+            count = outcome.count
             song_count_key = "music_song_count"
             count_text = _(song_count_key, count=count)
             if count_text == song_count_key:
                 count_text = f"{count} 首"
             self._music_search_status.configure(text=count_text)
-        elif self._music_search_page > 1:
+        elif outcome.status == music_online.STATUS_NO_MORE:
             # 非首页但无结果：已到最后一页
             no_more_key = "music_search_no_more"
             no_more_text = _(no_more_key)
@@ -4000,8 +3544,12 @@ class MusicPlayerMixin(object):
             logger.warning(f"百度百科原唱回填调度失败: {e}")
 
     def _music_apply_original_backfill(self, results: List[OnlineMusicInfo]):
-        """主线程应用百度百科原唱回填：仅当结果仍是当前展示的搜索页时刷新"""
-        if results is not self._music_search_results:
+        """主线程应用百度百科原唱回填：仅当结果仍是当前展示的搜索页时刷新
+
+        「仍是当前页」是**对象身份**判定，规则在
+        services.music_online.backfill_targets_current。
+        """
+        if not music_online.backfill_targets_current(results, self._music_search_results):
             return
         if not getattr(self, "_music_online_frame", None) or not self._music_online_frame.winfo_exists():
             return
@@ -4011,14 +3559,17 @@ class MusicPlayerMixin(object):
             logger.warning(f"百度百科原唱回填渲染失败: {e}")
 
     def _music_search_go_page(self, page: int):
-        """跳转到指定页码"""
-        if page < 1 or self._music_search_busy:
+        """跳转到指定页码（三条守卫在 services.music_online.go_page_target）"""
+        target = music_online.go_page_target(
+            page=page,
+            current_page=self._music_search_page,
+            busy=self._music_search_busy,
+            keyword=self._music_search_keyword,
+            has_results=bool(self._music_search_results),
+        )
+        if target is None:
             return
-        if not self._music_search_keyword:
-            return
-        if page == self._music_search_page and self._music_search_results:
-            return
-        self._music_start_search(page)
+        self._music_start_search(target)
 
     def _music_search_prev_page(self):
         self._music_search_go_page(self._music_search_page - 1)
@@ -4027,20 +3578,23 @@ class MusicPlayerMixin(object):
         self._music_search_go_page(self._music_search_page + 1)
 
     def _music_rebuild_pager(self):
-        """重建分页栏：全部页码按钮（一次性按总页数生成）+ 上一页/下一页状态"""
+        """重建分页栏：全部页码按钮（一次性按总页数生成）+ 上一页/下一页状态
+
+        页码集合与按钮可用性在 services.music_online.pager_plan；控件留在界面侧。
+        """
         if not hasattr(self, "_music_pager_frame"):
             return
         cur = self._music_search_page
         busy = self._music_search_busy
 
         # 音源提供总数时直接生成全部页码；否则满页时推测下一页存在，逐页追加
-        if self._music_search_total_pages > 0:
-            last = self._music_search_total_pages
-        elif self._music_search_has_more:
-            last = cur + 1
-        else:
-            last = cur
-        pages = list(range(1, last + 1))
+        plan = music_online.pager_plan(
+            current_page=cur,
+            total_pages=self._music_search_total_pages,
+            has_more=self._music_search_has_more,
+            busy=busy,
+        )
+        pages = plan.pages
 
         for w in self._music_pager_widgets:
             try:
@@ -4075,9 +3629,9 @@ class MusicPlayerMixin(object):
         except Exception:
             pass
 
-        self._music_pager_prev.configure(state=ctk.NORMAL if (cur > 1 and not busy) else ctk.DISABLED)
+        self._music_pager_prev.configure(state=ctk.NORMAL if plan.prev_enabled else ctk.DISABLED)
         self._music_pager_next.configure(
-            state=ctk.NORMAL if (self._music_search_has_more and not busy) else ctk.DISABLED
+            state=ctk.NORMAL if plan.next_enabled else ctk.DISABLED
         )
 
         page_key = "music_search_page"
@@ -4087,7 +3641,10 @@ class MusicPlayerMixin(object):
         self._music_pager_label.configure(text=page_text)
 
     def _music_add_search_row(self, idx: int, info: OnlineMusicInfo):
-        is_original = info.is_original
+        # 要显示什么（歌名截断、原唱徽章 key、时长、播放量、音源标签）在
+        # services.music_online.search_row_plan；控件构建与事件绑定留在界面侧。
+        row_plan = music_online.search_row_plan(idx, info)
+        is_original = row_plan.is_original
         row = ctk.CTkFrame(
             self._music_online_scroll,
             fg_color=COLORS["bg_light"] if is_original else "transparent",
@@ -4097,20 +3654,19 @@ class MusicPlayerMixin(object):
 
         index_label = ctk.CTkLabel(
             row,
-            text=str(idx + 1),
+            text=row_plan.index_text,
             width=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=10),
             text_color=COLORS["text_secondary"],
         )
         index_label.pack(side=ctk.LEFT)
 
-        name_text = info.name if len(info.name) <= 35 else info.name[:33] + "..."
-        display = f"{name_text} - {info.singer}" if info.singer else name_text
+        # 歌名截断（35/33）与「歌名 - 歌手」的拼法在 search_row_plan 里
         name_wrap = ctk.CTkFrame(row, fg_color="transparent")
         name_wrap.pack(side=ctk.LEFT, fill=ctk.X, expand=True, padx=(5, 5))
         name_label = ctk.CTkLabel(
             name_wrap,
-            text=display,
+            text=row_plan.display,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_primary"],
             anchor="w",
@@ -4118,32 +3674,28 @@ class MusicPlayerMixin(object):
         name_label.pack(side=ctk.LEFT)
 
         if is_original:
-            tag_text = _("music_original_tag")
-            if info.original_name:
-                tag_text = _("music_original_tag_with_name", name=info.original_name)
+            # 徽章文案的 i18n key 由服务给出（文案函数只能在界面调）
             ctk.CTkLabel(
                 name_wrap,
-                text=tag_text,
+                text=_(row_plan.tag_key, **row_plan.tag_params),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=9),
                 text_color=COLORS["warning"],
             ).pack(side=ctk.LEFT, padx=(6, 0))
 
-        dur_text = _format_time(info.interval) if info.interval else ""
-        if dur_text:
+        if row_plan.dur_text:
             ctk.CTkLabel(
                 row,
-                text=dur_text,
+                text=row_plan.dur_text,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=9),
                 text_color=COLORS["text_secondary"],
                 width=40,
             ).pack(side=ctk.RIGHT)
 
         # 播放量（音源未提供时为 0，不显示）
-        play_text = _format_play_count(info.play_count)
-        if play_text:
+        if row_plan.play_text:
             ctk.CTkLabel(
                 row,
-                text=play_text,
+                text=row_plan.play_text,
                 font=ctk.CTkFont(family=FONT_FAMILY, size=9),
                 text_color=COLORS["text_secondary"],
                 width=44,
@@ -4151,7 +3703,7 @@ class MusicPlayerMixin(object):
 
         source_label = ctk.CTkLabel(
             row,
-            text=info.source.upper(),
+            text=row_plan.source_text,
             font=ctk.CTkFont(family=FONT_FAMILY, size=8),
             text_color=COLORS["accent"],
             width=28,
@@ -4191,17 +3743,10 @@ class MusicPlayerMixin(object):
         音源搜索结果的 types/maxbr 由服务器按当前账号返回（免费用户
         最高 128k、音乐包 320k、黑胶VIP 无损、SVIP 母带，登录与否
         直接影响可用音质），自动模式即从高到低选第一个可用的。
+
+        判定在 services.music_online.resolve_auto_quality（零 UI、音源表可注入）。
         """
-        if online_info is None:
-            return "128k"
-        src = MUSIC_SOURCES.get(online_info.source)
-        if src is None:
-            return "128k"
-        try:
-            return src.get_best_quality(online_info, "flac24bit")
-        except Exception as e:
-            logger.debug(f"自动音质解析失败，回退 128k: {e}")
-            return "128k"
+        return music_online.resolve_auto_quality(online_info)
 
     def _music_resolve_auto_quality_async(self, online_info: OnlineMusicInfo) -> Tuple[OnlineMusicInfo, str]:
         """后台线程解析自动音质（含音质信息补齐）
@@ -4211,26 +3756,12 @@ class MusicPlayerMixin(object):
         （按 songmid 匹配）补齐，再取最高可用音质——否则自动解析
         只能回退 128k，且 URL 获取缺少 hash 等详情。
 
+        规则整体在 services.music_online.resolve_auto_quality_with_backfill。
+
         Returns:
             (补齐后的歌曲信息, 解析出的音质档位)
         """
-        info = online_info
-        if info is None:
-            return info, "128k"
-        if info.types:
-            return info, self._music_resolve_auto_quality(info)
-        src = MUSIC_SOURCES.get(info.source)
-        if src is not None:
-            try:
-                keyword = f"{info.name} {info.singer}".strip() or info.name
-                items = src.search(keyword, page=1, limit=10)
-                for it in items or []:
-                    if it.songmid == info.songmid and it.types:
-                        info = it
-                        break
-            except Exception as e:
-                logger.debug(f"自动音质信息补齐失败 [{info.source}]: {e}")
-        return info, self._music_resolve_auto_quality(info)
+        return music_online.resolve_auto_quality_with_backfill(online_info)
 
     def _music_play_online_url(self, online_info: OnlineMusicInfo):
         """触发在线歌曲播放：获取URL -> 下载到临时文件 -> 播放。
@@ -4274,41 +3805,27 @@ class MusicPlayerMixin(object):
             (临时文件路径, 实际播放的歌曲信息, 实际音质)：
             全部失败时路径为 None（info 保持原值）
         """
-        result_path = None
-        result_info = online_info
-        result_quality = quality
-        if online_info is None:
-            return None, result_info, result_quality
-
-        result_path, _, result_quality = self._try_download_from_source(online_info, quality)
-        if result_path:
-            return result_path, result_info, result_quality
-
-        fallback_q = fallback_quality or quality
-        # 原音源失败 -> 跨源兜底（仅尝试一次，不递归）
-        logger.info(f"原音源不可用 [{online_info.source}]: {online_info.name} - {online_info.singer}，开始跨源兜底")
-        fallback = self._resolve_fallback(online_info, fallback_q)
-        if fallback:
-            result = self._download_fallback_result(fallback, quality)
-            if result:
-                return result
-
-        # B站触发风控时：弹验证码让用户手动完成，通过后带 grisk_id 自动重试兜底
-        risk_retry = self._music_try_bili_risk_retry(online_info, quality, fallback_q)
-        if risk_retry:
-            return risk_retry
-
-        # 全部音源均失败：汇总一条日志（单源失败细节已在 resolve_track 内降为 debug）
-        logger.warning(f"跨源兜底失败，所有音源均不可用: {online_info.name} - {online_info.singer} [{online_info.source}]")
-        return None, result_info, result_quality
+        # 编排（取流 -> 跨源兜底 -> B站风控重试 -> 汇总日志）整体在
+        # services.music_download.fetch_online_song。临时文件表由界面自己那个
+        # list 对象经 ctx 交进去；B站风控那条路要弹窗，所以把界面的
+        # _music_try_bili_risk_retry 作为 risk_retry 传进去（它是必填参数，
+        # 服务不给自己留一条「静默跳过风控」的默认路径）。
+        return music_download.fetch_online_song(
+            online_info,
+            quality,
+            fallback_quality,
+            risk_retry=self._music_try_bili_risk_retry,
+            ctx=self._music_download_ctx,
+            notify_source=self._notify_fallback_source,
+        )
 
     def _resolve_fallback(self, online_info: OnlineMusicInfo, quality: str) -> Optional[Tuple[OnlineMusicInfo, str]]:
-        """跨源兜底解析：返回 (匹配歌曲, 播放URL) 或 None"""
-        try:
-            return resolve_track(online_info, quality)
-        except Exception as e:
-            logger.warning(f"跨源兜底解析失败: {e}")
-            return None
+        """跨源兜底解析：返回 (匹配歌曲, 播放URL) 或 None
+
+        真正的搜索/候选筛选/逐档位试 URL 在 services.music_source.resolve_track；
+        这层 try/except 与日志在 services.music_download.resolve_fallback。
+        """
+        return music_download.resolve_fallback(online_info, quality)
 
     def _download_fallback_result(
         self, fallback: Tuple[OnlineMusicInfo, str], quality: str
@@ -4317,21 +3834,17 @@ class MusicPlayerMixin(object):
 
         跨源兜底内部会尝试多个音质，无法精确得知最终命中档位，
         此处沿用用户请求的音质用于显示。
+
+        编排（文件头 + 时长双重校验、失败即删临时文件）在
+        services.music_download.download_fallback_result；「已切换到其它音源」
+        的状态栏提示留在界面（_notify_fallback_source，含 i18n 与 after）。
         """
-        fb_info, fb_url = fallback
-        logger.info(f"跨源兜底命中 [{fb_info.source}]: {fb_info.name} - {fb_info.singer}")
-        result_path = self._music_download_to_temp(
-            fb_url,
-            fb_info.name,
-            extra_headers=self._music_get_download_headers(fb_info.source),
-            extra_cookies=self._music_get_download_cookies(fb_info.source),
+        return music_download.download_fallback_result(
+            fallback,
+            quality,
+            ctx=self._music_download_ctx,
+            notify_source=self._notify_fallback_source,
         )
-        if result_path:
-            if _validate_audio_file_header(result_path) and _validate_audio_duration(result_path, fb_info.interval):
-                self._notify_fallback_source(fb_info.source)
-                return result_path, fb_info, quality
-            self._discard_temp_file(result_path)
-        return None
 
     def _music_try_bili_risk_retry(
         self, online_info: OnlineMusicInfo, quality: str, fallback_quality: Optional[str] = None
@@ -4340,49 +3853,23 @@ class MusicPlayerMixin(object):
 
         Returns:
             验证通过且兜底成功: (临时文件路径, 实际歌曲信息, 音质)；否则 None
+
+        编排（取风控参数 -> 跑验证流程 -> 换 grisk_id -> 重试兜底）在
+        services.music_download.try_bili_risk_retry；本方法只把三个对话框动作
+        接进去 —— 服务在**与原文相同的时刻**调用它们（开窗在起验证流程之前、
+        关窗在 finally 里），切主线程（after）在这里做。
         """
-        src = MUSIC_SOURCES.get("bili")
-        if src is None:
-            return None
-        try:
-            risk = src.take_pending_risk()
-        except Exception:
-            return None
-        if not risk:
-            return None
-
-        dialog_ref: Dict[str, object] = {}
-        stop_event = threading.Event()
-
-        def on_status(text: str):
-            self.after(0, lambda: self._music_update_risk_dialog(dialog_ref, text))
-
-        self.after(0, lambda: self._music_open_risk_dialog(dialog_ref, stop_event))
-        try:
-            result = run_captcha_flow(risk["gt"], risk["challenge"], on_status=on_status, stop_event=stop_event)
-        except Exception as e:
-            logger.warning(f"风控验证流程异常: {e}")
-            result = None
-        finally:
-            self.after(0, lambda: self._music_close_risk_dialog(dialog_ref))
-        if not result:
-            return None
-
-        grisk_id = src.validate_risk(
-            risk["token"],
-            result["geetest_challenge"],
-            result["geetest_seccode"],
-            result["geetest_validate"],
+        return music_download.try_bili_risk_retry(
+            online_info,
+            quality,
+            fallback_quality,
+            ctx=self._music_download_ctx,
+            open_dialog=lambda ref, ev: self.after(0, lambda: self._music_open_risk_dialog(ref, ev)),
+            update_dialog=lambda ref, text: self.after(
+                0, lambda: self._music_update_risk_dialog(ref, text)
+            ),
+            close_dialog=lambda ref: self.after(0, lambda: self._music_close_risk_dialog(ref)),
         )
-        if not grisk_id:
-            logger.warning("B站风控验证未通过")
-            return None
-        src.set_gaia_vtoken(grisk_id)
-        logger.info("B站风控验证通过，自动重试跨源兜底")
-        fallback = self._resolve_fallback(online_info, fallback_quality or quality)
-        if not fallback:
-            return None
-        return self._download_fallback_result(fallback, quality)
 
     def _music_open_risk_dialog(self, dialog_ref: Dict[str, object], stop_event: threading.Event):
         """打开风控验证提示窗口"""
@@ -4454,81 +3941,48 @@ class MusicPlayerMixin(object):
                 pass
 
     def _notify_fallback_source(self, source_id: str):
-        """左下角状态栏提示已切换到其它音源播放"""
-        src = MUSIC_SOURCES.get(source_id)
-        name = getattr(src, "source_name", None) or source_id
+        """左下角状态栏提示已切换到其它音源播放
+
+        音源显示名的取值规则在 services.music_download.source_display_name；
+        i18n 文案与 after 切主线程留在界面侧。
+        """
+        name = music_download.source_display_name(source_id)
         message = _("music_fallback_status", source=name)
         self.after(0, lambda: self.set_status(message, "info"))
 
     def _music_get_download_headers(self, source_id: str) -> Dict:
-        """获取音源下载所需的附加请求头（如 B站 upos CDN 的 Referer）"""
-        src = MUSIC_SOURCES.get(source_id)
-        if src is not None:
-            try:
-                return src.get_download_headers()
-            except Exception:
-                pass
-        return {}
+        """获取音源下载所需的附加请求头（如 B站 upos CDN 的 Referer）
+
+        音源缺失/抛异常 -> 空 dict，规则在
+        services.music_download.get_download_headers。
+        """
+        return music_download.get_download_headers(source_id)
 
     def _music_get_download_cookies(self, source_id: str) -> Optional[Dict]:
-        """获取音源下载所需的附加 cookies（如 B站 dash URL 的 buvid 一致性）"""
-        src = MUSIC_SOURCES.get(source_id)
-        if src is not None:
-            try:
-                return src.get_download_cookies()
-            except Exception:
-                pass
-        return None
+        """获取音源下载所需的附加 cookies（如 B站 dash URL 的 buvid 一致性）
+
+        音源缺失/抛异常 -> None（不是空 dict，语义不同不能混），规则在
+        services.music_download.get_download_cookies。
+        """
+        return music_download.get_download_cookies(source_id)
 
     def _try_download_from_source(self, online_info: OnlineMusicInfo, quality: str) -> Tuple[Optional[str], Optional[str], str]:
-        """尝试从指定音源获取 URL 并下载，校验文件有效后返回 (临时文件路径, 实际URL, 实际音质)。"""
-        src = MUSIC_SOURCES.get(online_info.source)
-        if src is None:
-            return None, None, quality
-        url = None
-        actual_quality = quality
-        try:
-            url = src.get_music_url(online_info, quality)
-            if not url:
-                # 请求档位失败时按高到低回退（各音源对不可用音质返回 None）
-                for fallback_q in ["flac", "320k", "128k"]:
-                    if fallback_q != quality:
-                        url = src.get_music_url(online_info, fallback_q)
-                        if url:
-                            actual_quality = fallback_q
-                            break
-        except Exception as e:
-            logger.warning(f"获取在线URL失败 [{online_info.source}]: {e}")
-        if not url:
-            logger.warning(f"无法获取播放URL [{online_info.source}]: {online_info.name}")
-            return None, None, quality
-        temp_path = self._music_download_to_temp(
-            url,
-            online_info.name,
-            extra_headers=self._music_get_download_headers(online_info.source),
-            extra_cookies=self._music_get_download_cookies(online_info.source),
+        """尝试从指定音源获取 URL 并下载，校验文件有效后返回 (临时文件路径, 实际URL, 实际音质)。
+
+        音质回退顺序（flac -> 320k -> 128k）、下载、文件头与时长双重校验全在
+        services.music_download.try_download_from_source。
+        """
+        return music_download.try_download_from_source(
+            online_info, quality, ctx=self._music_download_ctx
         )
-        if not temp_path:
-            return None, url, actual_quality
-        # 文件头 + 时长双重校验：无效文件视为获取失败（触发跨源兜底）
-        if not _validate_audio_file_header(temp_path):
-            logger.warning(f"下载文件无效（非音频文件头）[{online_info.source}]: {online_info.name}")
-            self._discard_temp_file(temp_path)
-            return None, url, actual_quality
-        if not _validate_audio_duration(temp_path, online_info.interval):
-            logger.warning(f"下载文件为试听/截断片段 [{online_info.source}]: {online_info.name}")
-            self._discard_temp_file(temp_path)
-            return None, url, actual_quality
-        return temp_path, url, actual_quality
 
     def _discard_temp_file(self, temp_path: str):
-        """删除无效的临时文件并移出缓存列表"""
-        try:
-            os.remove(temp_path)
-        except Exception:
-            pass
-        if temp_path in self._music_temp_files:
-            self._music_temp_files.remove(temp_path)
+        """删除无效的临时文件并移出缓存列表
+
+        规则在 services.music_download.discard_temp_file；传的是界面自己那个
+        list 对象，范围外的旧读者看到的仍是同一份内容。
+        """
+        music_download.discard_temp_file(temp_path, self._music_temp_files)
 
     def _music_on_stream_ready(
         self,
@@ -4547,10 +4001,13 @@ class MusicPlayerMixin(object):
             origin_info: 用户点播的原始歌曲信息（兜底时用于播放历史记录）
             quality: 实际获取到的音质档位（128k/320k/flac，用于显示）
         """
-        if seq != self._music_stream_seq:
+        # 序号守卫与「有没有取到文件」的判定在
+        # services.music_online.stream_ready_action；控件写入留在界面侧。
+        action = music_online.stream_ready_action(seq, self._music_stream_seq, temp_path)
+        if action == music_online.STREAM_STALE:
             return  # 用户已切换播放目标，丢弃过期结果
         self._music_search_status.configure(text="")
-        if temp_path:
+        if action == music_online.STREAM_PLAY:
             self._play_online_file(temp_path, online_info, 0, history_origin=origin_info, quality=quality)
         else:
             self._music_search_status.configure(text=_("music_url_failed"))
@@ -4569,71 +4026,23 @@ class MusicPlayerMixin(object):
             name_hint: 临时文件名提示
             extra_headers: 附加请求头（如 B站 upos CDN 需要 Referer）
             extra_cookies: 附加 cookies（如 B站 dash URL 的 buvid 与 cookie 一致性校验）
+
+        整体（非音频响应快速失败、后缀判定、mkstemp 命名、空文件丢弃、m4a 转码、
+        数量裁剪）在 services.music_download.download_to_temp；临时文件表用的是
+        界面自己那个 list 对象（_music_download_ctx.temp_files），范围外的旧读者
+        看到的仍是同一份内容。
         """
-        try:
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-            if extra_headers:
-                headers.update(extra_headers)
-            resp = requests.get(url, timeout=30, stream=True, headers=headers, cookies=extra_cookies)
-            resp.raise_for_status()
-            content_type = resp.headers.get("Content-Type", "")
-            # 快速失败：HTML 错误页/非音频响应不浪费带宽
-            if "text/html" in content_type or content_type.startswith("text/") or "json" in content_type:
-                logger.warning(f"下载响应非音频（Content-Type: {content_type}）: {url[:120]}")
-                return None
-            ext = ".mp3"
-            # 用 urlparse 取路径判断后缀：播放 URL 常带查询参数，endswith 会失效
-            url_path = urlparse(url).path.lower()
-            if "flac" in content_type or url_path.endswith(".flac"):
-                ext = ".flac"
-            elif "ogg" in content_type or url_path.endswith(".ogg"):
-                ext = ".ogg"
-            elif "m4a" in content_type or url_path.endswith(".m4a") or url_path.endswith(".m4s"):
-                ext = ".m4a"
-            safe_name = "".join(c for c in name_hint if c.isalnum() or c in "._- ")[:50]
-            fd, temp_path = tempfile.mkstemp(suffix=ext, prefix=f"fmcl_{safe_name}_")
-            os.close(fd)
-            with open(temp_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=65536):
-                    if chunk:
-                        f.write(chunk)
-            if os.path.getsize(temp_path) == 0:
-                os.remove(temp_path)
-                return None
-            self._music_temp_files.append(temp_path)
-            # pygame 的 SDL_mixer 不支持 m4a 容器（B站 dash/部分平台音源）：
-            # 下载后自动转码为 wav，转码失败则保留原文件交由 pygame 尝试
-            converted = _transcode_audio_to_wav(temp_path)
-            if converted:
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
-                if temp_path in self._music_temp_files:
-                    self._music_temp_files.remove(temp_path)
-                self._music_temp_files.append(converted)
-                return converted
-            # 限制临时文件数量
-            while len(self._music_temp_files) > 10:
-                old = self._music_temp_files.pop(0)
-                try:
-                    os.remove(old)
-                except Exception:
-                    pass
-            return temp_path
-        except Exception as e:
-            logger.warning(f"下载音频流失败: {e}")
-            return None
+        return music_download.download_to_temp(
+            url,
+            name_hint,
+            extra_headers,
+            extra_cookies,
+            ctx=self._music_download_ctx,
+        )
 
     def _music_cleanup_temp_files(self):
-        """清理所有缓存的临时文件"""
-        for fp in self._music_temp_files:
-            try:
-                if os.path.exists(fp):
-                    os.remove(fp)
-            except Exception:
-                pass
-        self._music_temp_files.clear()
+        """清理所有缓存的临时文件（规则在 services.music_download.cleanup_temp_files）"""
+        music_download.cleanup_temp_files(self._music_temp_files)
 
     def _stop_search_loading(self):
         """停止搜索加载状态（切换标签页时调用）"""
@@ -4649,12 +4058,14 @@ class MusicPlayerMixin(object):
     # ═══════════════ 桌面歌词管理 ═══════════════
 
     def _music_toggle_desktop_lyric(self):
-        if self._music_desktop_lyric and self._music_desktop_lyric.is_visible:
-            self._music_hide_desktop_lyric()
-            self._music_dlrc_btn.configure(fg_color=COLORS["bg_light"])
-        else:
+        # 「不存在或不可见 → 应变可见」的判据搬进 services.desktop_lyric.target_visible
+        # （两个分支的先后顺序调换，语义与原文一致）
+        if desktop_lyric.target_visible(self._music_desktop_lyric):
             self._music_show_desktop_lyric()
             self._music_dlrc_btn.configure(fg_color=COLORS["accent"])
+        else:
+            self._music_hide_desktop_lyric()
+            self._music_dlrc_btn.configure(fg_color=COLORS["bg_light"])
 
     def _music_show_desktop_lyric(self):
         """显示桌面歌词窗口"""
@@ -4664,8 +4075,11 @@ class MusicPlayerMixin(object):
             except Exception as e:
                 logger.warning(f"创建桌面歌词窗口失败: {e}")
                 return
-        if self._music_lyric_parser.is_parsed:
-            self._music_desktop_lyric.set_lyric_lines(self._music_lyric_parser.lines)
+        # 「解析完了才推歌词行」搬进 services.desktop_lyric.ready_lines；
+        # 它返回 parser.lines 本身（窗口存的是同一个 list 对象，原文如此）
+        lines = desktop_lyric.ready_lines(self._music_lyric_parser)
+        if lines is not None:
+            self._music_desktop_lyric.set_lyric_lines(lines)
         self._music_desktop_lyric.show_lyric()
         self._start_lyric_poll()
 
@@ -4705,7 +4119,10 @@ class MusicPlayerMixin(object):
         # 底部: 重置按钮
         ctk.CTkButton(
             main,
-            text=_("music_cache_clear"),
+            # 阶段 1.20 修正：这里原用 _("music_cache_clear")（"清除缓存"），
+            # 但 command 是 _music_reset_fx，其 docstring 写明"重置所有音效"
+            # （把 EQ / 混响 / 变调 / 变速全部复位）—— 按钮名与功能不符。
+            text=_("music_fx_reset"),
             width=100,
             height=30,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
@@ -4785,7 +4202,7 @@ class MusicPlayerMixin(object):
 
             ctk.CTkLabel(
                 col_frame,
-                text=f"{s.eq_gains[i]:+.0f}",
+                text=music_effects_panel.eq_gain_text(s.eq_gains[i]),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=7),
                 text_color=COLORS["text_secondary"],
             ).pack()
@@ -4817,7 +4234,7 @@ class MusicPlayerMixin(object):
         row1.pack(fill=ctk.X, padx=10, pady=(0, 3))
         ctk.CTkLabel(row1, text="Delay", font=label_font, text_color=COLORS["text_secondary"]).pack(side=ctk.LEFT)
         self._music_reverb_delay_label = ctk.CTkLabel(
-            row1, text=f"{s.reverb_delay_ms:.0f}ms", font=label_font, text_color=COLORS["text_secondary"]
+            row1, text=music_effects_panel.reverb_delay_text(s.reverb_delay_ms), font=label_font, text_color=COLORS["text_secondary"]
         )
         self._music_reverb_delay_label.pack(side=ctk.RIGHT)
         delay_slider = ctk.CTkSlider(
@@ -4838,7 +4255,7 @@ class MusicPlayerMixin(object):
         row2.pack(fill=ctk.X, padx=10, pady=(0, 3))
         ctk.CTkLabel(row2, text="Decay", font=label_font, text_color=COLORS["text_secondary"]).pack(side=ctk.LEFT)
         self._music_reverb_decay_label = ctk.CTkLabel(
-            row2, text=f"{s.reverb_decay:.1f}", font=label_font, text_color=COLORS["text_secondary"]
+            row2, text=music_effects_panel.reverb_decay_text(s.reverb_decay), font=label_font, text_color=COLORS["text_secondary"]
         )
         self._music_reverb_decay_label.pack(side=ctk.RIGHT)
         decay_slider = ctk.CTkSlider(
@@ -4859,7 +4276,7 @@ class MusicPlayerMixin(object):
         row3.pack(fill=ctk.X, padx=10, pady=(0, 8))
         ctk.CTkLabel(row3, text="Wet", font=label_font, text_color=COLORS["text_secondary"]).pack(side=ctk.LEFT)
         self._music_reverb_wet_label = ctk.CTkLabel(
-            row3, text=f"{s.reverb_wet_level:.1f}", font=label_font, text_color=COLORS["text_secondary"]
+            row3, text=music_effects_panel.reverb_wet_text(s.reverb_wet_level), font=label_font, text_color=COLORS["text_secondary"]
         )
         self._music_reverb_wet_label.pack(side=ctk.RIGHT)
         wet_slider = ctk.CTkSlider(
@@ -4898,7 +4315,7 @@ class MusicPlayerMixin(object):
         ).pack(side=ctk.LEFT)
 
         self._music_pitch_label = ctk.CTkLabel(
-            header, text=f"{s.pitch_semitones:+.1f} semitones", font=label_font, text_color=COLORS["text_secondary"]
+            header, text=music_effects_panel.pitch_text(s.pitch_semitones), font=label_font, text_color=COLORS["text_secondary"]
         )
         self._music_pitch_label.pack(side=ctk.RIGHT)
 
@@ -4928,7 +4345,10 @@ class MusicPlayerMixin(object):
         sp_enable_var = ctk.BooleanVar(value=s.speed_enabled)
         ctk.CTkCheckBox(
             header,
-            text=_("music_pitch_label"),
+            # 阶段 1.20 修正：这是**变速**分区的标题（右侧显示 f"{speed_rate:.2f}x"），
+            # 原用 _("music_pitch_label")（"变速/变调"，含变调字样）。
+            # 真正的变调分区在 _build_fx_pitch_section，用的是 _("music_pitch")（"变调"）。
+            text=_("music_speed"),
             variable=sp_enable_var,
             font=ctk.CTkFont(family=FONT_FAMILY, size=11),
             text_color=COLORS["text_primary"],
@@ -4938,7 +4358,7 @@ class MusicPlayerMixin(object):
         ).pack(side=ctk.LEFT)
 
         self._music_speed_label = ctk.CTkLabel(
-            header, text=f"{s.speed_rate:.2f}x", font=label_font, text_color=COLORS["text_secondary"]
+            header, text=music_effects_panel.speed_text(s.speed_rate), font=label_font, text_color=COLORS["text_secondary"]
         )
         self._music_speed_label.pack(side=ctk.RIGHT)
 
@@ -4969,17 +4389,17 @@ class MusicPlayerMixin(object):
     def _music_on_reverb_delay(self, value: float):
         self._music_effects.settings.reverb_delay_ms = value
         if hasattr(self, "_music_reverb_delay_label"):
-            self._music_reverb_delay_label.configure(text=f"{value:.0f}ms")
+            self._music_reverb_delay_label.configure(text=music_effects_panel.reverb_delay_text(value))
 
     def _music_on_reverb_decay(self, value: float):
         self._music_effects.settings.reverb_decay = value
         if hasattr(self, "_music_reverb_decay_label"):
-            self._music_reverb_decay_label.configure(text=f"{value:.1f}")
+            self._music_reverb_decay_label.configure(text=music_effects_panel.reverb_decay_text(value))
 
     def _music_on_reverb_wet(self, value: float):
         self._music_effects.settings.reverb_wet_level = value
         if hasattr(self, "_music_reverb_wet_label"):
-            self._music_reverb_wet_label.configure(text=f"{value:.1f}")
+            self._music_reverb_wet_label.configure(text=music_effects_panel.reverb_wet_text(value))
 
     def _music_on_pitch_toggle(self, enabled: bool):
         self._music_effects.settings.pitch_enabled = enabled
@@ -4987,7 +4407,7 @@ class MusicPlayerMixin(object):
     def _music_on_pitch_change(self, value: float):
         self._music_effects.settings.pitch_semitones = value
         if hasattr(self, "_music_pitch_label"):
-            self._music_pitch_label.configure(text=f"{value:+.1f} semitones")
+            self._music_pitch_label.configure(text=music_effects_panel.pitch_text(value))
 
     def _music_on_speed_toggle(self, enabled: bool):
         self._music_effects.settings.speed_enabled = enabled
@@ -4995,21 +4415,14 @@ class MusicPlayerMixin(object):
     def _music_on_speed_change(self, value: float):
         self._music_effects.settings.speed_rate = value
         if hasattr(self, "_music_speed_label"):
-            self._music_speed_label.configure(text=f"{value:.2f}x")
+            self._music_speed_label.configure(text=music_effects_panel.speed_text(value))
 
     def _music_reset_fx(self):
         """重置所有音效"""
         s = self._music_effects.settings
-        s.eq_enabled = False
-        s.eq_gains = [0.0] * 10
-        s.reverb_enabled = False
-        s.reverb_delay_ms = 60.0
-        s.reverb_decay = 0.4
-        s.reverb_wet_level = 0.3
-        s.pitch_enabled = False
-        s.pitch_semitones = 0.0
-        s.speed_enabled = False
-        s.speed_rate = 1.0
+        # 「重置成哪些默认值」搬进 services.music_effects_panel.reset_effect_settings。
+        # pan_enabled / pan_value 刻意不重置 —— 原文的 _music_reset_fx 也没碰它们。
+        music_effects_panel.reset_effect_settings(s)
 
         # 更新UI滑块
         if hasattr(self, "_music_eq_sliders"):
@@ -5028,13 +4441,9 @@ class MusicPlayerMixin(object):
 
     def _music_cleanup_fx_files(self):
         """清理音效处理产生的临时文件"""
-        for fp in self._music_effects_processed_files:
-            try:
-                if os.path.exists(fp):
-                    os.remove(fp)
-            except Exception:
-                pass
-        self._music_effects_processed_files.clear()
+        # 「存在才删 + 吞异常 + 清空」搬进 services.music_effects_panel.cleanup_temp_files；
+        # 它就地清空界面这个 list，范围外的旧读者看到的仍是同一个对象。
+        music_effects_panel.cleanup_temp_files(self._music_effects_processed_files)
         self._music_effects.cleanup()
 
     # ═══════════════ 清理 ═══════════════
@@ -5056,33 +4465,18 @@ class MusicPlayerMixin(object):
     def _update_music_footer(self):
         if not hasattr(self, "_music_footer_frame"):
             return
-        path = self._get_current_file()
-        if (path or self._music_is_online_playing) and (self._music_is_playing or self._music_is_paused):
-            if self._music_is_online_playing and self._music_current_online_info:
-                oi = self._music_current_online_info
-                title = oi.name
-                artist = oi.singer or ""
-                text = title
-                if artist:
-                    text = f"{title} - {artist}"
-            else:
-                meta = self._get_metadata(path)
-                title = meta.get("title", os.path.basename(path))
-                artist = meta.get("artist", "")
-                text = title
-                if artist:
-                    text = f"{title} - {artist}"
-            if len(text) > 40:
-                text = text[:38] + "..."
-            self._music_footer_label.configure(text=text)
-            if not self._music_footer_frame.winfo_ismapped():
-                self._music_footer_frame.pack(side=ctk.LEFT, expand=True)
-                self._music_footer_label.pack(side=ctk.RIGHT, padx=(0, 5))
-                self._music_footer_next.pack(side=ctk.RIGHT, padx=1)
-                self._music_footer_play.pack(side=ctk.RIGHT, padx=1)
-                self._music_footer_prev.pack(side=ctk.RIGHT, padx=1)
-            self._music_footer_play.configure(text="⏸" if self._music_is_playing else "▶")
-        else:
+        # 可见性判定 + 「歌名 - 歌手」拼装与 40 字符截断 + 播放/暂停字形，
+        # 搬进 services.music_local.footer_plan；元数据只在本地分支才取
+        # （read_metadata 是注入缝，读名仍是 self._get_metadata）。
+        plan = music_local.footer_plan(
+            path=self._get_current_file(),
+            is_online_playing=self._music_is_online_playing,
+            online_info=self._music_current_online_info,
+            is_playing=self._music_is_playing,
+            is_paused=self._music_is_paused,
+            read_metadata=self._get_metadata,
+        )
+        if not plan.visible:
             try:
                 for _w in [
                     self._music_footer_frame,
@@ -5094,6 +4488,15 @@ class MusicPlayerMixin(object):
                     _w.pack_forget()
             except Exception:
                 pass
+            return
+        self._music_footer_label.configure(text=plan.text)
+        if not self._music_footer_frame.winfo_ismapped():
+            self._music_footer_frame.pack(side=ctk.LEFT, expand=True)
+            self._music_footer_label.pack(side=ctk.RIGHT, padx=(0, 5))
+            self._music_footer_next.pack(side=ctk.RIGHT, padx=1)
+            self._music_footer_play.pack(side=ctk.RIGHT, padx=1)
+            self._music_footer_prev.pack(side=ctk.RIGHT, padx=1)
+        self._music_footer_play.configure(text=plan.play_text)
 
     def _on_footer_music_toggle(self):
         self._music_toggle_play()

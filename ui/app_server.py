@@ -1,10 +1,16 @@
-"""ModernApp 服务器 Mixin - 开服标签页相关方法"""
+"""ModernApp 服务器 Mixin - 开服标签页相关方法
+
+业务逻辑已搬到 ``services/server_service.py``（阶段 1 任务 1.9）：控制台日志解析
+（玩家加入/离开）、进程退出监控（含"恰好投递一次 ``server_exit``"，D-84）、进程内存
+采样（D-80 / D-81）、日志行缓冲上限（D-86）、每服启动配置读写、可用版本分页。
+本文件只剩纯界面部分（控件构建、对话框、``after`` 调度、``_task_queue`` 投递）；
+下面每个方法都退化成对服务的薄委托，**方法名与签名保持不变**，界面可见行为不变。
+"""
 
 import os
-import platform
-import re
 import subprocess
 import sys
+import threading
 import tkinter.messagebox as messagebox
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -12,9 +18,11 @@ from typing import Any, Callable, Dict, List, Optional
 import customtkinter as ctk
 from logzero import logger
 
-from launcher.server_config import get_server_launch_memory, set_server_launch_memory
+from app.context import current_context
+from services.server_service import ServerService, get_process_memory
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
+from ui.log_widget import LOG_BUFFER_MAX_LINES, append_line
 from ui.windows.modpack_server import ModpackServerWindow
 from ui.windows.server_config_editor import ServerConfigEditorWindow
 from ui.windows.server_mod_browser import ServerModBrowserWindow
@@ -22,8 +30,49 @@ from ui.windows.server_resource_manager import ServerResourceManagerWindow
 from version_utils import has_mod_loader
 
 
+def _get_server_service(owner: Any = None) -> ServerService:
+    """惰性取得服务器服务实例。
+
+    写成**模块级函数**（而不是只在 Mixin 上的方法）是因为 ``ServerTabMixin`` 的
+    几个方法会被测试与探针以"未绑定方法 + 假对象"的方式直接调用 ——
+    ``ServerTabMixin._watch_server_exit(FakeApp())``（见
+    ``tests/test_thread_safety_fixes.py``、``poc/probe_server_exit.py``），
+    那些假对象上并没有 ``_server_service`` 方法。``ui/agent/voice_input.py`` 的
+    ``_get_voice_service(owner)`` 是同一个套路。
+
+    取法：优先用 ``AppContext`` 里注册的那个（阶段 2 接上之后），取不到就在
+    ``owner`` 上造一个并缓存 —— ``ServerService`` 不需要 ``AppContext``，
+    构造期也只保存参数。
+    """
+    ctx = getattr(owner, "context", None) or current_context()
+    if ctx is not None:
+        getter = getattr(ctx, "try_get", None)
+        if callable(getter):
+            try:
+                service = getter(ServerService.name)
+            except Exception:
+                service = None
+            if service is not None:
+                return service
+    service = getattr(owner, "_server_service_fallback", None)
+    if service is None:
+        service = ServerService()
+        try:
+            owner._server_service_fallback = service
+        except Exception:
+            # owner 可能是 __slots__ 对象或 None：不缓存，本次调用照常可用
+            pass
+    return service
+
+
 class ServerTabMixin(object):
     """服务器标签页 Mixin"""
+
+    # ── 服务层接线 ───────────────────────────────────────────────
+
+    def _server_service(self) -> ServerService:
+        """惰性取得服务器服务实例（见模块级 :func:`_get_server_service`）。"""
+        return _get_server_service(self)
 
     def _build_server_tab_content(self):
         """构建开服标签页内容"""
@@ -643,12 +692,11 @@ class ServerTabMixin(object):
         self.server_available_version_buttons.clear()
 
         versions = self._server_available_versions
-        total_pages = max(1, (len(versions) + self._server_page_size - 1) // self._server_page_size)
-        self._server_current_page = max(1, min(self._server_current_page, total_pages))
-
-        start = (self._server_current_page - 1) * self._server_page_size
-        end = start + self._server_page_size
-        page_versions = versions[start:end]
+        # 分页算法（总页数 / 页码夹取 / 切片）已搬进 services/server_service.paginate
+        page_versions, current_page, total_pages = _get_server_service(self).paginate_versions(
+            versions, self._server_current_page, self._server_page_size
+        )
+        self._server_current_page = current_page
 
         self._server_page_label.configure(text=f"{self._server_current_page}/{total_pages}")
         self._server_prev_page_btn.configure(state=ctk.NORMAL if self._server_current_page > 1 else ctk.DISABLED)
@@ -717,7 +765,11 @@ class ServerTabMixin(object):
         """安装服务器按钮回调"""
         version_id = self.server_version_entry.get().strip()
         if not version_id:
-            self.set_status(_("server_install_error"), "error")
+            # 修正（阶段 1.20）：这里原先用 _("server_install_error")，而该键的文案是
+            # "服务器安装失败: {error}"，且调用点没传 error —— 用户会看到字面量
+            # "{error}"。但更根本的问题是键选错了：这是"输入框为空"，不是"安装失败"。
+            # 改用为此专门存在、却一直无人引用的 server_enter_version。
+            self.set_status(_("server_enter_version"), "error")
             return
 
         self.set_status(_("server_install_loading", version_id=version_id), "loading")
@@ -816,8 +868,22 @@ class ServerTabMixin(object):
         """一键加入服务器（后台线程）：安装客户端版本后直连 localhost:25565"""
         try:
             # 确保客户端版本已安装
-            if "install_game" in self.callbacks:
-                self.callbacks["install_game"](version_id)
+            # 修正（阶段 1.19）：原键名 "install_game" 核心层从未提供过，这段自上线起
+            # 就没执行过。注意 install_server() 的第 1 步已经装过同名客户端版本，所以
+            # 原版服务器走的是"已安装 → 直接跳过"的快路径；只有加载器后缀目录
+            # （如 1.20.1-forge-47.2.0）或外部放入的服务器目录才会真正缺客户端版本。
+            # 因此这里先查已安装列表，缺了才补装，补装失败给出明确错误，
+            # 而不是把模糊的启动失败留给 launch_game。
+            # 本函数在后台线程执行，禁止触碰 Tk 控件，只能通过 _task_queue 回报。
+            if "get_installed_version_ids" in self.callbacks and "install_version" in self.callbacks:
+                installed_ids = self.callbacks["get_installed_version_ids"]() or []
+                if version_id not in installed_ids:
+                    install_ok, _install_info = self.callbacks["install_version"](version_id)
+                    if not install_ok:
+                        self._task_queue.put(
+                            ("server_join_error", _("version_install_failed", version=version_id))
+                        )
+                        return
 
             # 启动游戏并直连服务器
             if "launch_game" in self.callbacks:
@@ -877,7 +943,7 @@ class ServerTabMixin(object):
         try:
             if "get_server_dir" not in self.callbacks:
                 return None
-            return Path(self.callbacks["get_server_dir"]()) / version_id
+            return _get_server_service(self).server_dir_path(self.callbacks["get_server_dir"](), version_id)
         except Exception as e:
             logger.warning(f"获取服务器目录失败: {e}")
             return None
@@ -887,10 +953,7 @@ class ServerTabMixin(object):
         server_dir = self._get_server_dir_path(version_id)
         if server_dir is None:
             return None
-        try:
-            return get_server_launch_memory(server_dir)
-        except Exception:
-            return None
+        return _get_server_service(self).get_launch_memory(server_dir)
 
     def _sync_server_memory_display(self, version_id: Optional[str] = None):
         """让内存下拉框显示指定服务器的独立设置"""
@@ -912,7 +975,7 @@ class ServerTabMixin(object):
         server_dir = self._get_server_dir_path(version_id)
         if server_dir is None:
             return
-        success, error = set_server_launch_memory(server_dir, choice)
+        success, error = _get_server_service(self).set_launch_memory(server_dir, choice)
         if success:
             self.set_status(_("server_memory_saved", version=version_id, memory=choice), "info")
         else:
@@ -920,36 +983,34 @@ class ServerTabMixin(object):
 
     def _append_server_log(self, message: str):
         """追加日志到服务器控制台（线程安全）并解析玩家事件"""
-        # 解析玩家加入
-        join_match = re.search(r"joined the game$", message)
-        if join_match:
-            # 提取玩家名（格式: [HH:MM:SS] [Server thread/INFO]: <PlayerName> joined the game）
-            name_match = re.search(r"<([^>]+)> joined the game", message)
-            if name_match:
-                player = name_match.group(1)
-                if player not in self._server_online_players:
-                    self._server_online_players.append(player)
-                    self.after(0, self._update_player_display)
-
-        # 解析玩家离开
-        leave_match = re.search(r"left the game$", message)
-        if leave_match:
-            name_match = re.search(r"<([^>]+)> left the game", message)
-            if name_match:
-                player = name_match.group(1)
-                if player in self._server_online_players:
-                    self._server_online_players.remove(player)
-                    self.after(0, self._update_player_display)
+        # 玩家加入/离开的解析与在线列表维护已搬进 services/server_service。
+        # 返回的每个动作对应改造前的一次 self.after(0, self._update_player_display)
+        # —— 改造前只在列表真的发生变化时才投递，这里保持同样的次数。
+        for _action in _get_server_service(self).apply_player_events(self._server_online_players, message):
+            self.after(0, self._update_player_display)
 
         def _do_append():
             if not hasattr(self, "server_log_text") or not self.server_log_text.winfo_exists():
                 return
             self.server_log_text.configure(state=ctk.NORMAL)
-            self.server_log_text.insert(ctk.END, message + "\n")
-            self.server_log_text.see(ctk.END)
+            # 阶段 1.22 修正（D-86）：原先只 append、从不删除，服务器挂机数天
+            # 会让文本控件内存持续增长。append_line 限制保留最近 N 行。
+            append_line(self.server_log_text, message)
             self.server_log_text.configure(state=ctk.DISABLED)
 
-        self.after(0, _do_append)
+        # 阶段 1.23 修正（D-85）：原先无条件 self.after(0, _do_append)，
+        # 会把渲染推迟到下一轮事件循环。而 _poll_queue 处理完 server_log 之后
+        # 紧接着处理 server_exit，那里会开一个模态对话框 —— 结果是崩溃排查时
+        # "对话框先弹出、最后几行日志还没渲染"，用户看不到最关键的崩溃现场。
+        #
+        # 已核实 _append_server_log 的全部 6 个调用点都在主线程
+        # （_poll_queue 的 server_log/server_started 分支、UI 构建期、
+        #  命令输入框事件），所以主线程时直接同步渲染即可，
+        # 不必绕一圈 after。保留 else 分支以维持线程安全语义。
+        if threading.current_thread() is threading.main_thread():
+            _do_append()
+        else:
+            self.after(0, _do_append)
 
     def _update_player_display(self):
         """更新玩家列表显示"""
@@ -977,54 +1038,26 @@ class ServerTabMixin(object):
         try:
             if "get_server_process" in self.callbacks:
                 proc = self.callbacks["get_server_process"]()
-                if proc is not None and proc.poll() is None:
-                    pid = proc.pid
-                    mem_mb = self._get_process_memory(pid)
-                    if mem_mb is not None:
-                        if mem_mb >= 1024:
-                            text = f"{mem_mb / 1024:.1f} GB"
-                        else:
-                            text = f"{mem_mb} {_('mb')}"
-                        self.server_mem_label.configure(text=text)
+                # 「句柄非 None 且仍在运行 → 读 pid 的内存」这个判定已搬进服务层；
+                # 翻译单位仍由界面注入（服务层不得依赖 ui.i18n）。
+                service = _get_server_service(self)
+                mem_mb = service.running_process_memory(proc)
+                if mem_mb is not None:
+                    self.server_mem_label.configure(text=service.format_memory_mb(mem_mb, _("mb")))
         except Exception:
             pass
 
         # 每 2 秒刷新一次
         self._server_mem_monitor_after_id = self.after(2000, self._update_mem_display)
 
-    @staticmethod
-    def _get_process_memory(pid: int) -> Optional[int]:
-        """获取进程的内存占用（MB），Windows 用 tasklist，Linux 用 /proc"""
-        import subprocess
-
-        try:
-            import platform
-
-            if platform.system() == "Windows":
-                result = subprocess.run(
-                    ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                )
-                for line in result.stdout.splitlines():
-                    if f'"{pid}"' in line:
-                        # CSV 格式: "name","pid","session","session#","mem"
-                        parts = line.strip('"').split('","')
-                        if len(parts) >= 5:
-                            mem_str = parts[4].replace(",", "").replace(" K", "").strip()
-                            return int(mem_str) // 1024  # KB -> MB
-            else:
-                # Linux: /proc/<pid>/status
-                with open(f"/proc/{pid}/status", "r") as f:
-                    for line in f:
-                        if line.startswith("VmRSS:"):
-                            kb = int(line.split()[1])
-                            return kb // 1024  # KB -> MB
-        except Exception:
-            pass
-        return None
+    # 服务器内存采样的实现已搬进 services/server_service.get_process_memory（阶段 1 任务 1.9）。
+    #
+    # 这里用 staticmethod **直接指向**服务层函数、而不是写一层转发，有两个原因：
+    # 1. 行为要与改造前逐字一致（转发层会多一层调用栈，异常堆栈会变）；
+    # 2. poc/probe_server_mem.py 用 inspect.getsource(ServerTabMixin._get_process_memory)
+    #    检查三个平台分支（"Windows" / "Darwin" / "/proc/"）是否仍在实现里 ——
+    #    直接指向服务层函数才能让那个探针继续看到真实实现。
+    _get_process_memory = staticmethod(get_process_memory)
 
     def _on_server_cmd_enter(self, event=None):
         """命令输入框回车回调"""
@@ -1049,32 +1082,31 @@ class ServerTabMixin(object):
             self._append_server_log(_("server_cmd_error_not_running"))
 
     def _watch_server_exit(self):
-        """监控服务器进程退出并实时读取日志（后台线程）"""
-        if "get_server_process" not in self.callbacks:
-            return
+        """监控服务器进程退出并实时读取日志（后台线程）。
 
-        proc = self.callbacks["get_server_process"]()
-        if proc is None:
-            return
+        **无论走哪条路径都必须恰好投递一次 ``server_exit``。**
 
-        # 清空上次启动的日志缓存
-        self._server_log_lines = []
+        阶段 1.23 修正（D-84）：原实现有三条路径直接 return 或吞掉异常而不投递
+        ``server_exit``（缺少 ``get_server_process`` 回调、进程句柄为 None、
+        读日志/等待退出抛异常）。而 ``server_exit`` 是**唯一**会恢复界面状态的
+        消息 —— 见 ``ui/app_handlers.py`` 的 ``server_exit`` 分支，它负责：
+        禁用"停止"按钮、恢复"启动"按钮、停止内存监控定时器、复位状态栏与内存
+        显示、触发成就与插件钩子。
 
-        try:
-            # 读取所有输出直到 EOF（即使进程已经退出也能读取管道中残留的数据）
-            while True:
-                line = proc.stdout.readline()
-                if not line:
-                    break
-                text = line.decode("utf-8", errors="replace").rstrip("\r\n")
-                if text:
-                    self._server_log_lines.append(text)
-                    self._task_queue.put(("server_log", text))
-
-            exit_code = proc.wait()
-            self._task_queue.put(("server_exit", exit_code))
-        except Exception as e:
-            logger.error(f"监控服务器退出失败: {e}")
+        缺少这条消息，界面就永久停在"运行中"：启动按钮一直禁用、内存定时器
+        空转，用户**再也无法启动服务器**（只能重启启动器）。
+        """
+        # 读管道 → 写日志缓冲（含 5000 行上限）→ 回捞退出码 → 以 finally 保证
+        # 恰好一次退出回调，全部在 services.server_service.ServerConsoleWatcher.watch
+        # 里。界面这一层只做两件事：交出日志缓冲列表（服务原地增删，崩溃报告
+        # ui/app_crash.py 读的就是同一份），以及把两个回调投递进 _task_queue。
+        _get_server_service(self).watch_server_exit(
+            self._server_log_lines,
+            get_process=self.callbacks.get("get_server_process"),
+            on_log=lambda text: self._task_queue.put(("server_log", text)),
+            on_exit=lambda exit_code: self._task_queue.put(("server_exit", exit_code)),
+            max_lines=LOG_BUFFER_MAX_LINES,
+        )
 
     def _ask_server_exit_quality(self, exit_code: int):
         """服务器退出后询问用户服务器是否正常运行，否则触发 AI 分析"""
@@ -1099,7 +1131,7 @@ class ServerTabMixin(object):
         dialog.geometry(f"+{x}+{y}")
 
         # 标题
-        exit_info = f" ({exit_code=})" if exit_code != 0 else ""
+        exit_info = _get_server_service(self).format_exit_info(exit_code)
         tk.Label(
             dialog,
             text=_("server_exit_question_title") + exit_info,

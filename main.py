@@ -26,59 +26,6 @@ from logzero import logger
 from config import config
 
 
-def _get_icon_path():
-    """获取图标路径（兼容开发环境和 PyInstaller 打包）"""
-    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_path, "icon.ico")
-
-
-def _create_splash(ctk):
-    """创建启动画面 - 屏幕中央展示图标，加载完成后关闭"""
-    from ui import FONT_FAMILY
-
-    splash = ctk.CTkToplevel()
-    splash.overrideredirect(True)
-    splash.attributes("-topmost", True)
-    splash.configure(fg_color="#1a1a2e")
-
-    # 窗口尺寸
-    w, h = 320, 320
-    splash.geometry(f"{w}x{h}")
-    splash.update_idletasks()  # 让窗口实际渲染后再计算居中位置
-
-    # 始终居中于屏幕（兼容多显示器和 DPI 缩放）
-    sw = splash.winfo_screenwidth()
-    sh = splash.winfo_screenheight()
-    x = (sw - w) // 2
-    y = (sh - h) // 2
-    splash.geometry(f"+{x}+{y}")
-
-    # 加载图标
-    icon_path = _get_icon_path()
-    if os.path.exists(icon_path):
-        try:
-            from PIL import Image as PILImage
-
-            icon_img = ctk.CTkImage(PILImage.open(icon_path), size=(128, 128))
-            ctk.CTkLabel(splash, image=icon_img, text="").place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
-        except Exception:
-            ctk.CTkLabel(splash, text="\u26cf", font=ctk.CTkFont(size=64)).place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
-    else:
-        ctk.CTkLabel(splash, text="\u26cf", font=ctk.CTkFont(size=64)).place(relx=0.5, rely=0.38, anchor=ctk.CENTER)
-
-    # 标题文字
-    ctk.CTkLabel(
-        splash, text="FMCL", font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"), text_color="#a0a0b0"
-    ).place(relx=0.5, rely=0.65, anchor=ctk.CENTER)
-
-    # 加载提示
-    ctk.CTkLabel(splash, text="Loading...", font=ctk.CTkFont(size=12), text_color="#666680").place(
-        relx=0.5, rely=0.76, anchor=ctk.CENTER
-    )
-
-    return splash
-
-
 def set_chinese_language():
     """
     启动时自动将 .minecraft/options.txt 中的语言设置改为中文
@@ -136,17 +83,19 @@ def setup_logging():
     slog._log_path = structured_log_path
 
 
-def _show_startup_error(message: str, base_dir):
-    """启动阶段致命错误提示（UI 尚未初始化，直接弹窗并退出）"""
-    try:
-        import tkinter.messagebox
+def _show_startup_error(message: str, base_dir) -> None:
+    """启动阶段致命错误提示（UI 尚未初始化，直接弹窗并退出）。
 
-        tkinter.messagebox.showerror(
-            "FMCL 启动失败",
-            f"{message}\n\n数据目录: {base_dir}\n\n请检查磁盘空间与目录权限，或重新安装启动器。",
-        )
-    except Exception:
-        pass
+    实现已搬到 ``ui/splash.py``（界面代码不再留在入口文件里）。
+    这里用延迟导入而非模块顶层导入：既让 ``main.py -A`` 这类 CLI 模式不加载
+    界面模块，也不改变模块导入与日志顺序。
+    """
+    try:
+        from ui.splash import show_startup_error
+
+        show_startup_error(message, base_dir)
+    except Exception as e:
+        logger.error(f"显示启动错误弹窗失败: {e}")
 
 
 def _auto_refresh_tokens(account_system):
@@ -164,6 +113,8 @@ def _auto_refresh_tokens(account_system):
 
 def main():
     """主程序入口"""
+    # UI 能力端口（阶段 1 任务 1.3）：主窗口创建后装配，退出路径里 stop()
+    ui_port = None
     try:
         # 配置日志
         setup_logging()
@@ -223,11 +174,38 @@ def main():
 
         set_app_reference(app)
 
+        # ── UI 能力端口：核心层/服务层与界面交互的唯一入口（阶段 1 任务 1.3） ──
+        # 必须在 UI 主线程创建并 start()：端口用 root.after 轮询消费 worker 线程的请求
+        # （绝不让 worker 直接 root.after / 碰 Tk）。界面销毁后请求会被安全丢弃。
+        from ui.ports_tk import TkUIPort
+
+        ui_port = TkUIPort(app)
+        ui_port.start()
+
+        # ── AppContext：服务注册表 + 共享设施（阶段 1 任务 1.17） ──
+        # 在这之前 AppContext 虽然完整，却没有任何生产代码构造它 —— 后果是
+        # 界面侧的 `_get_xxx_service(owner)` 永远拿不到上下文，**每个窗口各自 new 一份服务**。
+        # 这里补上接线，并采用**懒注册**：服务实例在第一次被取用时才建，
+        # 启动期不必为 onnxruntime / pygame / winsdk 之类重依赖付代价。
+        # `start_all()` 目前是空操作（13 个服务都没覆盖 Service.start），
+        # 但保留它，后续服务要读盘/建连接池时不需要再改启动路径。
+        from app.bootstrap import attach, build_context
+
+        context = build_context(config=config, ui=ui_port, scheduler=lambda fn: app.after(0, fn))
+        attach(context, app)
+        logger.info("AppContext 已建立：注册 %d 个服务（懒实例化）", len(context.names()))
+        try:
+            context.start_all()
+        except Exception as e:  # noqa: BLE001 - 服务启动失败绝不能挡住界面
+            logger.error(f"服务启动失败: {e}", exc_info=True)
+
         app.withdraw()  # 先隐藏主窗口，等启动画面结束后再显示
 
         logger.info("正在创建启动画面...")
-        # 创建启动画面
-        splash = _create_splash(ctk)
+        # 创建启动画面（界面代码已搬到 ui/splash.py）
+        from ui.splash import create_splash, show_error_dialog
+
+        splash = create_splash(ctk)
         logger.info("启动画面创建完成")
         splash_start = time.time()
         _launcher_result = {}  # 线程安全存储 launcher 实例
@@ -262,6 +240,12 @@ def main():
                 launcher = MinecraftLauncher(config)
                 logger.info("_init_launcher: 3. MinecraftLauncher 创建完成")
                 _launcher_result["launcher"] = launcher
+                # 把 launcher 也放进 AppContext（服务/界面以后可以用 ctx.try_get("launcher")
+                # 取到同一个实例，而不是各自持有一份引用）。失败不影响启动。
+                try:
+                    context.register_instance("launcher", launcher, replace=True)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"把 launcher 注册进 AppContext 失败: {e}")
                 _launcher_ready.set()
                 logger.info("_init_launcher: 4. 正在调度 splash 关闭回调...")
                 app.after(0, _try_dismiss_splash)
@@ -313,15 +297,13 @@ def main():
 
         def _show_init_error(app_ref, message):
             """显示初始化失败错误弹窗"""
-            import tkinter.messagebox
-
             try:
                 splash.destroy()
             except Exception:
                 pass
             app_ref.deiconify()
             app_ref.set_status(f"启动器初始化失败: {message}", "error")
-            tkinter.messagebox.showerror("启动失败", f"{message}\n\n请检查日志文件获取详细信息。")
+            show_error_dialog("启动失败", f"{message}\n\n请检查日志文件获取详细信息。")
 
         def _post_init_achievements():
             """启动后后台执行：成就同步 + 签到（不阻塞 UI）"""
@@ -353,13 +335,29 @@ def main():
         def _on_launcher_ready(launcher):
             """Launcher 初始化完成回调（主线程执行）"""
             app.deiconify()  # 显示主窗口
+
+            # ── UI 能力端口注入（阶段 1 任务 1.3） ──
+            # 核心层不再 import tkinter，需要问答/进度/剪贴板时走这个端口。
+            # 账号模块的注入放在这里而不是更早：launcher 包（minecraft_launcher_lib）
+            # 是刻意延迟到后台线程再导入的，提前 import 会破坏原有启动顺序。
+            try:
+                launcher.set_ui_port(ui_port)
+                logger.info("UI 能力端口已注入启动器核心")
+            except AttributeError:
+                logger.warning("launcher 尚未提供 set_ui_port()，跳过核心注入（core.py 侧改动未合入）")
+            try:
+                from launcher.account import set_ui_port as set_account_ui_port
+
+                set_account_ui_port(ui_port)
+                logger.info("UI 能力端口已注入账号模块")
+            except Exception as e:
+                logger.warning(f"账号模块 UI 端口注入失败: {e}")
+
             callbacks = launcher.get_callbacks()
 
             # 注册配置错误回调（弹出错误弹窗）
             def _config_error_handler(title, message):
-                import tkinter.messagebox
-
-                app.after(0, lambda: tkinter.messagebox.showerror(title, message, parent=app))
+                app.after(0, lambda: show_error_dialog(title, message, parent=app))
 
             config.set_error_callback(_config_error_handler)
 
@@ -455,7 +453,7 @@ def main():
             app.set_status("启动器就绪", "success")
 
             # 启动顺序：协议同意 → 公告 → 预下载
-            app._on_app_ready(on_agreement_complete=lambda: _show_notice_then_predownload(app))
+            app._on_app_ready(on_agreement_complete=lambda: _show_notice_then_predownload(app, ui_port))
 
             # 更新 AGENT 助手的回调和 Token
             if hasattr(app, "_update_agent_callbacks"):
@@ -486,6 +484,18 @@ def main():
         logger.info("=" * 60)
         logger.info("程序退出")
         logger.info("=" * 60)
+        # 停止 UI 能力端口：取消 after 轮询、放行等待中的请求（界面可能已销毁）
+        if ui_port is not None:
+            try:
+                ui_port.stop()
+            except Exception as e:
+                logger.warning(f"UI 能力端口停止失败: {e}")
+        # 逆序停服务并关闭任务池（阶段 1 任务 1.17）。任何服务的异常都不得打断退出流程，
+        # 所以 stop_all 内部已经逐个兜住异常。
+        try:
+            context.stop_all()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"服务停止失败: {e}")
         # 关闭结构化日志
         try:
             from structured_logger import slog
@@ -496,7 +506,7 @@ def main():
         sys.exit(0)
 
 
-def _show_notice_then_predownload(app):
+def _show_notice_then_predownload(app, ui_port):
     """公告展示 → 确认后预下载检查"""
 
     def _do_fetch():
@@ -504,19 +514,19 @@ def _show_notice_then_predownload(app):
 
         content = fetch_notice()
         if content:
-            app.after(0, lambda: show_notice_dialog(app, content, on_dismiss=lambda: _do_predownload_check(app)))
+            app.after(0, lambda: show_notice_dialog(app, content, on_dismiss=lambda: _do_predownload_check(app, ui_port)))
         else:
-            app.after(0, lambda: _do_predownload_check(app))
+            app.after(0, lambda: _do_predownload_check(app, ui_port))
 
     threading.Thread(target=_do_fetch, daemon=True).start()
 
 
-def _do_predownload_check(app):
-    """预下载检查"""
+def _do_predownload_check(app, ui_port):
+    """预下载检查（界面交互全部通过 UI 能力端口）"""
     from launcher.predownload import run_predownload_check
     from ui.i18n import _
 
-    run_predownload_check(app, config.minecraft_dir, _)
+    run_predownload_check(ui_port, config.minecraft_dir, _)
     app.lift()
     app.focus_force()
 

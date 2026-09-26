@@ -13,6 +13,7 @@ import customtkinter as ctk
 
 from ui.constants import COLORS, FONT_FAMILY, _get_fmcl_version
 from ui.i18n import _, get_current_language
+from ui.log_widget import append_line
 
 
 class ModernAppBase(ctk.CTk):
@@ -262,59 +263,58 @@ class ModernAppBase(ctk.CTk):
         self.tabview.pack(fill=ctk.BOTH, expand=True, padx=0, pady=0)
 
         # ── 添加所有标签页（tab bar 会显示全部，但内容只有游戏页立即构建）──
-        self.game_tab = self.tabview.add(_("tab_game"))
-        self.game_tab.configure(fg_color="transparent")
+        # 阶段 1.20：登记 稳定标识 -> 当前语言显示名 的映射。
+        # 原先 _tab_builders 乃至调用方都拿"当前语言的显示名"当键，其中
+        # ui/app_handlers.py 甚至直接硬编码了 "💾 备份" —— 语言不是 zh_CN 时
+        # 按标题做的判断会静默失效（例如切到备份页不再刷新世界列表）。
+        self._tab_display_names: Dict[str, str] = {}
+
+        def _add_tab(tab_id: str, title_key: str):
+            """创建标签页，并登记它的稳定标识与当前显示名。"""
+            name = _(title_key)
+            frame = self.tabview.add(name)
+            frame.configure(fg_color="transparent")
+            self._tab_display_names[tab_id] = name
+            return frame
+
+        self.game_tab = _add_tab("game", "tab_game")
 
         # 添加"基岩"标签页（仅 Windows 可用）
         if platform.system().lower() == "windows":
-            self.bedrock_tab = self.tabview.add(_("tab_bedrock"))
-            self.bedrock_tab.configure(fg_color="transparent")
+            self.bedrock_tab = _add_tab("bedrock", "tab_bedrock")
         else:
             self.bedrock_tab = None
 
-        self.backup_tab = self.tabview.add(_("tab_backup"))
-        self.backup_tab.configure(fg_color="transparent")
+        self.backup_tab = _add_tab("backup", "tab_backup")
+        self.server_tab = _add_tab("server", "tab_server")
+        self.links_tab = _add_tab("links", "tab_links")
 
-        self.server_tab = self.tabview.add(_("tab_server"))
-        self.server_tab.configure(fg_color="transparent")
+        # 添加"联机"标签页。
+        # 阶段 1.21 修正（D-82）：原实现只在 Windows 下创建该标签页，于是
+        # ui/app_online.py 里"当前平台不支持"的解释分支**永远不可达** ——
+        # 非 Windows 用户连标签页都看不到，自然也得不到任何说明。
+        # 改为始终创建，由 _build_online_tab_content() 内部按平台决定渲染
+        # 联机界面还是渲染"不支持"说明页。
+        self.online_tab = _add_tab("online", "tab_online")
 
-        self.links_tab = self.tabview.add(_("tab_links"))
-        self.links_tab.configure(fg_color="transparent")
+        self.agent_tab = _add_tab("agent", "tab_agent")
+        self.achievements_tab = _add_tab("achievements", "tab_achievements")
+        self.music_tab = _add_tab("music", "tab_music")
+        self.tools_tab = _add_tab("tools", "tab_tools")
+        self.about_tab = _add_tab("about", "tab_about")
 
-        # 添加"联机"标签页（仅 Windows 可用）
-        if platform.system().lower() == "windows":
-            self.online_tab = self.tabview.add(_("tab_online"))
-            self.online_tab.configure(fg_color="transparent")
-        else:
-            self.online_tab = None
-
-        self.agent_tab = self.tabview.add(_("tab_agent"))
-        self.agent_tab.configure(fg_color="transparent")
-
-        self.achievements_tab = self.tabview.add(_("tab_achievements"))
-        self.achievements_tab.configure(fg_color="transparent")
-
-        self.music_tab = self.tabview.add(_("tab_music"))
-        self.music_tab.configure(fg_color="transparent")
-
-        self.tools_tab = self.tabview.add(_("tab_tools"))
-        self.tools_tab.configure(fg_color="transparent")
-
-        self.about_tab = self.tabview.add(_("tab_about"))
-        self.about_tab.configure(fg_color="transparent")
-
-        # ── 注册延迟构建器（首次切到该标签时才会调用）──
+        # ── 注册延迟构建器（按稳定标识索引，首次切到该标签时才会调用）──
         self._tab_builders = {
-            _("tab_backup"): self._build_backup_tab_content,
-            _("tab_links"): self._build_links_tab_content,
-            _("tab_music"): self._build_music_tab_content,
-            _("tab_tools"): self._build_tools_tab_content,
-            _("tab_about"): self._build_about_tab_content,
+            "backup": self._build_backup_tab_content,
+            "links": self._build_links_tab_content,
+            "music": self._build_music_tab_content,
+            "tools": self._build_tools_tab_content,
+            "about": self._build_about_tab_content,
         }
         if self.online_tab is not None:
-            self._tab_builders[_("tab_online")] = self._build_online_tab_content
+            self._tab_builders["online"] = self._build_online_tab_content
         if self.bedrock_tab is not None:
-            self._tab_builders[_("tab_bedrock")] = self._build_bedrock_tab_content
+            self._tab_builders["bedrock"] = self._build_bedrock_tab_content
 
         # 设置默认标签页为"游戏"（不触发 command 回调）
         self.tabview.set(_("tab_game"))
@@ -328,11 +328,31 @@ class ModernAppBase(ctk.CTk):
         # 绑定 tab 切换回调（在 set 之后，确保只对用户切屏生效）
         self.tabview.configure(command=self._on_tab_switch)
 
+    def tab_id_for(self, display_name: Optional[str]) -> Optional[str]:
+        """把标签页显示名（随语言变化）翻译回稳定标识。
+
+        显示名不再是判断依据；任何需要"这是哪个标签页"的地方都应该用
+        :meth:`current_tab_id`，这样切换语言也不会让逻辑失效。
+        """
+        if display_name is None:
+            return None
+        for tab_id, name in getattr(self, "_tab_display_names", {}).items():
+            if name == display_name:
+                return tab_id
+        return None
+
+    def current_tab_id(self) -> Optional[str]:
+        """当前选中的标签页稳定标识（如 ``"backup"``），失败返回 None。"""
+        try:
+            return self.tab_id_for(self.tabview.get())
+        except Exception:
+            return None
+
     def _on_tab_switch(self, tab_name=None):
         """延迟构建标签页内容 — 仅在首次切换到该标签时构建一次"""
         if tab_name is None:
             tab_name = self.tabview.get()
-        builder = self._tab_builders.pop(tab_name, None)
+        builder = self._tab_builders.pop(self.tab_id_for(tab_name), None)
         if builder is not None:
             builder()
 
@@ -877,14 +897,13 @@ class ModernAppBase(ctk.CTk):
         """追加日志到 UI 日志框（线程安全）"""
 
         def _do_append():
-            self.log_text.insert(ctk.END, message + "\n")
-            self.log_text.see(ctk.END)
+            # 阶段 1.22 修正（D-86）：两个日志框原先只 append、从不删除，
+            # 长时间运行（AGENT 常开）会让 Tk 文本控件内存持续增长。
+            # append_line 统一按"最多保留最近 LOG_VIEW_MAX_LINES 行"写入，
+            # 并且自身不抛异常（控件已销毁时静默降级）。
+            append_line(self.log_text, message)
             if hasattr(self, "_agent_log_text"):
-                try:
-                    self._agent_log_text.insert(ctk.END, message + "\n")
-                    self._agent_log_text.see(ctk.END)
-                except Exception:
-                    pass
+                append_line(self._agent_log_text, message)
 
         if self.winfo_exists():
             self.after(0, _do_append)
@@ -936,7 +955,15 @@ class ModernAppBase(ctk.CTk):
                 return
             from ui.windows.account_manager import AccountManagerWindow
 
-            AccountManagerWindow(self, account_system, on_account_changed=lambda: self._update_sidebar_account())
+            AccountManagerWindow(
+                self,
+                account_system,
+                on_account_changed=lambda: self._update_sidebar_account(),
+                # 阶段 1.23（D-110）：手动角色名输入框在 f158841 被移除、迁移到账号系统，
+                # 但成就 personalize_rename（换名字）的触发点没跟着搬，导致它永不触发。
+                # 现在接到"新建离线账号"这个真正给角色起名的动作上。
+                on_offline_account_added=lambda _name: self._trigger_ach("personalize_rename"),
+            )
         except Exception as e:
             from logzero import logger
 

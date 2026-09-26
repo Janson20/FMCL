@@ -1,4 +1,23 @@
-"""Modrinth 资源浏览窗口 - 浏览并安装模组、资源包、光影"""
+"""Modrinth 资源浏览窗口 - 浏览并安装模组、资源包、光影
+
+业务逻辑已搬到 ``services/mod_browser_service.py``（阶段 1 任务 1.8-B）：
+双源（Modrinth + CurseForge）搜索编排与结果归一化、AI 关键词搜索编排、
+安装目标目录解析与已装实例匹配、模组/资源包/光影的下载安装调用。
+本文件只剩纯界面部分（控件构建、``after`` 调度、``filedialog``、i18n 文案、
+``CTkImage`` 之外的一切渲染、``_trigger_ach``、线程启动）；下面每个受影响的方法
+都退化成对服务的**薄委托**，**方法名与签名保持不变**，界面可见行为不变。
+
+既有的三处修复在本轮**原样保留**（改造过程中逐个复核过）：
+
+- **D-91**：版本/加载器下拉框的纯值镜像 ``_mirror_version`` / ``_mirror_loader``
+  仍在主线程写入，两个 getter 只读镜像 —— 全文件**没有** ``CTkOptionMenu.get()``；
+- **D-103**：分页与"显示区间"一律走 ``_browsable_hits``（本地缓存条数），
+  该方法的判定体搬到了 ``services/browse_common.browsable_count``；
+- **D-93**：``_begin_request`` / ``_is_stale`` / ``_do_tab_search(tab_key, seq)`` /
+  ``_do_ai_search(tab_key, query, token, seq)`` / ``_publish_*`` 六件套逐个保留，
+  世代判定与原子提交的**代码形状一字未改**（``tests/test_mod_browser_staleness.py``
+  的 19 条守卫继续有效）。
+"""
 
 import threading
 from pathlib import Path
@@ -7,8 +26,52 @@ from typing import Any, Callable, Dict, List, Optional
 import customtkinter as ctk
 from logzero import logger
 
+from app.context import current_context
+from services.browse_common import (
+    MOD_LOADER_COMPAT_MAP,
+    browsable_count,
+    format_downloads,
+    page_slice,
+    total_pages as browse_total_pages,
+)
+from services.mod_browser_service import (
+    CLIENT_TABS,
+    TAB_MODS,
+    TAB_RESOURCE_PACKS,
+    TAB_SHADERS,
+    ModBrowserService,
+    compat_loader,
+)
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
+
+
+def _get_mod_browser_service(owner: Any = None) -> ModBrowserService:
+    """惰性取得服务实例（实现见 ``services/mod_browser_service.py``）。
+
+    查找顺序："``owner.context.try_get`` → ``owner`` 上自造并缓存"。
+    服务不需要 ``AppContext``，构造期也只保存参数，因此界面在
+    ``__init__`` 之前（例如后台线程里）调用也安全。
+    """
+    ctx = getattr(owner, "context", None) or current_context()
+    if ctx is not None:
+        getter = getattr(ctx, "try_get", None)
+        if callable(getter):
+            try:
+                service = getter(ModBrowserService.name)
+            except Exception:
+                service = None
+            if service is not None:
+                return service
+    service = getattr(owner, "_mod_browser_service_fallback", None)
+    if service is None:
+        service = ModBrowserService()
+        try:
+            owner._mod_browser_service_fallback = service
+        except Exception:
+            # owner 可能是 __slots__ 对象或 None：不缓存，本次调用照常可用
+            pass
+    return service
 
 
 def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
@@ -27,12 +90,15 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
     PAGE_SIZE = 10
 
-    TAB_MODS = "mods"
-    TAB_RESOURCE_PACKS = "resourcepacks"
-    TAB_SHADERS = "shaders"
+    # 三个标签页键与服务层**同一份数据**：服务要按 tab_key 分派后端入口，
+    # 界面要拿它们当状态字典的键，两份各自硬编码迟早漂移。
+    TAB_MODS: str = TAB_MODS
+    TAB_RESOURCE_PACKS: str = TAB_RESOURCE_PACKS
+    TAB_SHADERS: str = TAB_SHADERS
 
     # 特殊模组加载器兼容映射：将无法被 API 识别的加载器映射为兼容等效类型
-    MOD_LOADER_COMPAT_MAP: Dict[str, str] = {"legacyfabric": "fabric", "cleanroom": "forge"}
+    # （实现已搬到服务层；类属性保留同名的**同一份字典**，公开面不变）
+    MOD_LOADER_COMPAT_MAP: Dict[str, str] = MOD_LOADER_COMPAT_MAP
 
     @property
     def _search_loader(self) -> Optional[str]:
@@ -41,9 +107,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         对特殊加载器进行兼容映射，因为 CurseForge 和 Modrinth API
         不识别 legacyfabric、cleanroom 等加载器类型。
         """
-        if self._mod_loader is None:
-            return None
-        return self.MOD_LOADER_COMPAT_MAP.get(self._mod_loader, self._mod_loader)
+        return compat_loader(self._mod_loader)
 
     def __init__(self, parent, version_id: Optional[str] = None, callbacks: Optional[Dict[str, Callable]] = None):
         super().__init__(parent)
@@ -166,13 +230,21 @@ class ModBrowserWindow(ctk.CTkToplevel):
         )
         self._tabview.pack(fill=ctk.BOTH, expand=True, pady=(0, 5))
 
-        self._tabview.add(_("mod_browser_tab_mods"))
-        self._tabview.add(_("mod_browser_tab_resourcepacks"))
-        self._tabview.add(_("mod_browser_tab_shaders"))
+        # 阶段 1.23（D-100）：标签页显示名在**构建时**记录一次。
+        # 原先 _on_tab_changed 在调用时重算 _()，而设置窗口的 _on_language_change
+        # 会**立刻**改全局翻译状态却不重建界面 —— 于是切换语言后控件标题仍是旧
+        # 语言文本，重算出的新语言文本与之不相等，标签映射直接断裂（切页不生效）。
+        self._tab_titles = {
+            self.TAB_MODS: _("mod_browser_tab_mods"),
+            self.TAB_RESOURCE_PACKS: _("mod_browser_tab_resourcepacks"),
+            self.TAB_SHADERS: _("mod_browser_tab_shaders"),
+        }
+        for _title in self._tab_titles.values():
+            self._tabview.add(_title)
 
-        self._build_tab_content(self._tabview.tab(_("mod_browser_tab_mods")), self.TAB_MODS)
-        self._build_tab_content(self._tabview.tab(_("mod_browser_tab_resourcepacks")), self.TAB_RESOURCE_PACKS)
-        self._build_tab_content(self._tabview.tab(_("mod_browser_tab_shaders")), self.TAB_SHADERS)
+        self._build_tab_content(self._tabview.tab(self._tab_titles[self.TAB_MODS]), self.TAB_MODS)
+        self._build_tab_content(self._tabview.tab(self._tab_titles[self.TAB_RESOURCE_PACKS]), self.TAB_RESOURCE_PACKS)
+        self._build_tab_content(self._tabview.tab(self._tab_titles[self.TAB_SHADERS]), self.TAB_SHADERS)
 
         self._tabview.configure(command=self._on_tab_changed)
 
@@ -232,6 +304,11 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
         default_version = state["default_version"] or _("mod_browser_all_versions")
         version_var = ctk.StringVar(value=default_version)
+        # 阶段 1.22 修正（D-91）：下拉框当前值额外用**纯 Python 值**镜像一份。
+        # 原因：ctk.StringVar 是 Tk 变量，只能在主线程读；而 `_get_selected_version()`
+        # 会被后台搜索/安装线程调用（worker 读 Tk 变量在 Tk 下不可靠、在 Qt 下会崩）。
+        # 每个改动点都在主线程回调里更新这个镜像，后台线程只读它。
+        self._mirror_version(tab_key, default_version)
         version_menu = ctk.CTkOptionMenu(
             filter_frame,
             variable=version_var,
@@ -244,6 +321,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             button_hover_color=COLORS["card_border"],
             dropdown_fg_color=COLORS["bg_medium"],
             dropdown_hover_color=COLORS["bg_light"],
+            command=lambda value, tk=tab_key: self._mirror_version(tk, value),
         )
         version_menu.pack(side=ctk.LEFT, padx=(0, 8))
         state["version_var"] = version_var
@@ -256,6 +334,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
                     default_loader_display = display
                     break
             loader_var = ctk.StringVar(value=default_loader_display)
+            # 同 D-91：加载器筛选也用纯值镜像一份（后台线程只读镜像）
+            self._mirror_loader(tab_key, default_loader_display)
             loader_menu = ctk.CTkOptionMenu(
                 filter_frame,
                 variable=loader_var,
@@ -268,6 +348,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 button_hover_color=COLORS["card_border"],
                 dropdown_fg_color=COLORS["bg_medium"],
                 dropdown_hover_color=COLORS["bg_light"],
+                command=lambda value, tk=tab_key: self._mirror_loader(tk, value),
             )
             loader_menu.pack(side=ctk.LEFT)
             state["loader_var"] = loader_var
@@ -351,12 +432,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
 
     def _on_tab_changed(self, value=None):
         selected = self._tabview.get()
-        tab_map = {
-            _("mod_browser_tab_mods"): self.TAB_MODS,
-            _("mod_browser_tab_resourcepacks"): self.TAB_RESOURCE_PACKS,
-            _("mod_browser_tab_shaders"): self.TAB_SHADERS,
-        }
-        tab_key = tab_map.get(selected)
+        # 用构建时记录的显示名反查（见 _tab_titles 处的说明）：不能再调用时重算 _()
+        tab_key = {title: key for key, title in self._tab_titles.items()}.get(selected)
         if tab_key:
             self._switch_to_tab(tab_key)
 
@@ -367,7 +444,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
             has_content = any(not isinstance(w, ctk.CTkLabel) or w != state["loading_label"] for w in children)
             if not has_content or (len(children) == 1 and children[0] == state["loading_label"]):
                 self._set_tab_status(tab_key, _("mod_browser_loading"))
-                self._run_in_thread(lambda: self._do_tab_search(tab_key))
+                seq = self._begin_request(tab_key)
+                self._run_in_thread(lambda: self._do_tab_search(tab_key, seq))
 
     def _on_tab_search(self, tab_key: str):
         state = self._tab_states[tab_key]
@@ -378,58 +456,118 @@ class ModBrowserWindow(ctk.CTkToplevel):
         state["_ai_cached_hits"] = None
         state["_cached_hits"] = None  # 清除常规搜索缓存
         self._set_tab_status(tab_key, _("mod_browser_searching"))
-        self._run_in_thread(lambda: self._do_tab_search(tab_key))
+        seq = self._begin_request(tab_key)
+        self._run_in_thread(lambda: self._do_tab_search(tab_key, seq))
 
-    def _do_tab_search(self, tab_key: str):
+    # ─── 请求世代守卫（阶段 1.22 修正 D-93）─────────────────────────
+    # 原实现没有任何请求序号/取消/过期判定，于是有两个真实竞态：
+    #   ① 连打两次搜索时，"晚返回的旧请求"会把新结果覆盖掉；
+    #   ② 旧请求先写缓存、新请求后写缓存，而两个 after(0) 渲染回调
+    #      的执行顺序不确定 → 列表显示 A 的第一页、缓存却是 B 的结果，
+    #      用户一按"下一页"就翻到完全不相干的内容。
+    # 守卫方式：每次**用户意图**（搜索 / AI 搜索 / 切页 / 首次加载）自增世代号，
+    # 工作线程与 after 回调都带着自己那一代，对不上就整批丢弃（连缓存都不写）。
+
+    def _begin_request(self, tab_key: str) -> int:
+        """开始一次"决定显示内容"的新请求，返回其世代号。"""
+        state = self._tab_states[tab_key]
+        seq = int(state.get("_req_seq") or 0) + 1
+        state["_req_seq"] = seq
+        return seq
+
+    def _is_stale(self, tab_key: str, seq: Optional[int]) -> bool:
+        """该请求是否已被更新的请求取代（``seq`` 为 None 表示"不做世代判定"）。"""
+        if seq is None:
+            return False
+        return seq != self._tab_states[tab_key].get("_req_seq")
+
+    def _do_tab_search(self, tab_key: str, seq: Optional[int] = None):
         state = self._tab_states[tab_key]
 
         # 如果已有缓存，直接本地分页（翻页复用）
         if state["_cached_hits"] is not None:
             offset = state["current_offset"]
-            page = state["_cached_hits"][offset : offset + self.PAGE_SIZE]
-            self.after(0, lambda: self._render_tab_results(tab_key, page))
+            page = page_slice(state["_cached_hits"], offset, self.PAGE_SIZE)
+            self.after(0, lambda: self._render_tab_results(tab_key, page, seq))
             return
 
         try:
-            if tab_key == self.TAB_MODS:
-                from curseforge import unified_search_mods
-
-                result = unified_search_mods(
-                    query=state["current_query"],
-                    game_version=self._get_selected_version(tab_key),
-                    mod_loader=self._get_selected_loader(tab_key),
-                    offset=0,
-                    limit=300,  # 请求大批量以触发多页拉取
-                )
-            elif tab_key == self.TAB_RESOURCE_PACKS:
-                from curseforge import unified_search_resource_packs
-
-                result = unified_search_resource_packs(
-                    query=state["current_query"], game_version=self._get_selected_version(tab_key), offset=0, limit=300
-                )
-            elif tab_key == self.TAB_SHADERS:
-                from curseforge import unified_search_shaders
-
-                result = unified_search_shaders(
-                    query=state["current_query"], game_version=self._get_selected_version(tab_key), offset=0, limit=300
-                )
-            else:
+            # 原文对**未知标签页**是 ``else: return``（什么都不发、也不报错），
+            # 而且那条分支发生在读筛选值**之前** —— 这里照原样先判一次，
+            # 否则未知 tab_key 会先在 ``_get_selected_version`` 上抛 KeyError，
+            # 被下面同一个 ``except`` 兜成"搜索失败"错误态（可见行为就变了）。
+            if tab_key not in CLIENT_TABS:
                 return
 
-            all_hits = result.get("hits", [])
-            state["total_hits"] = result.get("total_hits", 0)
-            state["_cached_hits"] = all_hits  # 缓存全部拉取结果用于本地分页
-            # 保存来源统计用于显示
-            sources = result.get("sources", {})
-            state["_sources"] = sources
+            # 三个标签页 → 三个双源入口的映射、结果归一化、来源统计都在服务层；
+            # 服务按属性调用 ``curseforge.unified_search_*``，所以
+            # ``tests/test_mod_browser_staleness.py`` 的 monkeypatch 替身照旧生效。
+            outcome = _get_mod_browser_service(self).search_client_tab(
+                tab_key,
+                state["current_query"],
+                self._get_selected_version(tab_key),
+                self._get_selected_loader(tab_key),
+            )
+            if outcome is None:
+                return
 
-            # 渲染首页
-            page = all_hits[: self.PAGE_SIZE]
-            self.after(0, lambda: self._render_tab_results(tab_key, page))
+            # 阶段 1.22（D-93）：**发布动作整体搬到主线程**并带上世代号。
+            # 原来在工作线程里直接写 state（缓存/总数/来源），再 after(0) 渲染，
+            # 于是"缓存"与"被渲染的那一页"可能来自不同的请求。
+            # 现在两者在同一次主线程回调里原子完成 —— 要么都生效、要么都丢弃。
+            self.after(
+                0,
+                lambda: self._publish_tab_results(
+                    tab_key, outcome.hits, outcome.total_hits, outcome.sources, seq
+                ),
+            )
 
         except Exception as e:
             logger.error(f"搜索失败 ({tab_key}): {e}")
-            self.after(0, lambda err=str(e): self._render_tab_error(tab_key, err))
+            self.after(0, lambda err=str(e): self._render_tab_error(tab_key, err, seq))
+
+    def _publish_tab_results(
+        self,
+        tab_key: str,
+        all_hits: List[Dict],
+        total_hits: int,
+        sources: Dict,
+        seq: Optional[int] = None,
+    ):
+        """在主线程一次性提交一次常规搜索的结果（缓存 + 首页渲染 + 状态）。
+
+        阶段 1.22（D-93）：三个副作用必须在同一代里原子完成。
+        """
+        if self._is_stale(tab_key, seq):
+            logger.debug(f"丢弃过期搜索结果: {tab_key} seq={seq}")
+            return
+        state = self._tab_states[tab_key]
+        state["_cached_hits"] = all_hits
+        state["total_hits"] = total_hits
+        state["_sources"] = sources
+        offset = state["current_offset"]
+        self._render_tab_results(tab_key, all_hits[offset : offset + self.PAGE_SIZE], seq)
+
+    def _publish_ai_results(
+        self,
+        tab_key: str,
+        all_hits: List[Dict],
+        keywords: List[str],
+        query: str,
+        seq: Optional[int] = None,
+    ):
+        """AI 搜索结果的原子提交（缓存 + 渲染 + 状态 + 按钮复位）。"""
+        if self._is_stale(tab_key, seq):
+            logger.debug(f"丢弃过期 AI 搜索结果: {tab_key} seq={seq}")
+            return
+        state = self._tab_states[tab_key]
+        state["_ai_cached_hits"] = all_hits
+        state["total_hits"] = len(all_hits)
+        state["current_offset"] = 0
+        self._render_tab_results(tab_key, all_hits[: self.PAGE_SIZE], seq)
+        kw_text = ", ".join(keywords) if keywords else query
+        self._set_tab_status(tab_key, _("ai_search_done", keywords=kw_text, total=len(all_hits)))
+        self._restore_ai_button(tab_key)
 
     def _on_ai_search(self, tab_key: str):
         from tkinter import messagebox
@@ -440,7 +578,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
         if not query:
             state["current_query"] = ""
             state["current_offset"] = 0
-            self._run_in_thread(lambda: self._do_tab_search(tab_key))
+            seq = self._begin_request(tab_key)
+            self._run_in_thread(lambda: self._do_tab_search(tab_key, seq))
             return
 
         token = self.callbacks.get("get_jdz_token", lambda: None)()
@@ -457,42 +596,43 @@ class ModBrowserWindow(ctk.CTkToplevel):
             except Exception:
                 pass
         self._set_tab_status(tab_key, _("ai_search_optimizing"))
-        self._run_in_thread(lambda: self._do_ai_search(tab_key, query, token))
+        seq = self._begin_request(tab_key)
+        self._run_in_thread(lambda: self._do_ai_search(tab_key, query, token, seq))
 
-    def _do_ai_search(self, tab_key: str, query: str, token: str):
-        from modrinth import ai_merged_search
-
-        state = self._tab_states[tab_key]
-
+    def _do_ai_search(self, tab_key: str, query: str, token: str, seq: Optional[int] = None):
         try:
-            result = ai_merged_search(
-                query=query,
-                token=token,
-                search_type=tab_key,
-                game_version=self._get_selected_version(tab_key),
-                mod_loader=self._get_selected_loader(tab_key) if tab_key == self.TAB_MODS else None,
-                max_per_keyword=30,
+            # 关键词扩展 → 逐词搜索 → 去重 → 按下载量排序 → 单词失败只告警，
+            # 这五件事本来就在 ``modrinth.ai_merged_search`` 里，服务只做编排
+            # （含 ``max_per_keyword=30`` 与"仅模组页传加载器"这两个约定）。
+            outcome = _get_mod_browser_service(self).search_ai_merged_tab(
+                tab_key,
+                query,
+                token,
+                self._get_selected_version(tab_key),
+                self._get_selected_loader(tab_key) if tab_key == self.TAB_MODS else None,
             )
 
-            all_hits = result.get("hits", [])
-            keywords = result.get("keywords", [])
-
-            state["_ai_cached_hits"] = all_hits
-            state["total_hits"] = len(all_hits)
-            state["current_offset"] = 0
-
-            page = all_hits[: self.PAGE_SIZE]
-            kw_text = ", ".join(keywords) if keywords else query
-            self.after(0, lambda: self._render_tab_results(tab_key, page))
+            # 阶段 1.22（D-93）：与常规搜索同理 —— 一次性提交，且必须是最新一代。
+            # 原来的 3 个 after(0, ...) 是分开排队的，执行顺序不确定，
+            # 会出现"状态栏说 AI 搜索完成、列表却还是常规搜索的结果"。
             self.after(
-                0, lambda: self._set_tab_status(tab_key, _("ai_search_done", keywords=kw_text, total=len(all_hits)))
+                0,
+                lambda: self._publish_ai_results(
+                    tab_key, outcome.hits, outcome.keywords, query, seq
+                ),
             )
-            self.after(0, lambda: self._restore_ai_button(tab_key))
 
         except Exception as e:
             logger.error(f"AI 搜索失败 ({tab_key}): {e}")
-            self.after(0, lambda err=str(e): self._render_tab_error(tab_key, err))
-            self.after(0, lambda: self._restore_ai_button(tab_key))
+            if not self._is_stale(tab_key, seq):
+                self.after(0, lambda err=str(e): self._render_tab_error(tab_key, err, seq))
+            self.after(0, lambda: self._restore_ai_button_if_current(tab_key, seq))
+
+    def _restore_ai_button_if_current(self, tab_key: str, seq: Optional[int] = None):
+        """只在请求仍是最新一代时复位 AI 按钮（避免旧请求把新请求的按钮状态改回去）。"""
+        if self._is_stale(tab_key, seq):
+            return
+        self._restore_ai_button(tab_key)
 
     def _restore_ai_button(self, tab_key: str):
         state = self._tab_states.get(tab_key)
@@ -504,28 +644,58 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 except Exception:
                     pass
 
+    def _mirror_version(self, tab_key: str, display_value: Optional[str]) -> None:
+        """把版本下拉框的显示值镜像成"纯值"（**只能在主线程调用**）。
+
+        阶段 1.22 修正（D-91）。镜像规则与改造前 `_get_selected_version()` 的判定
+        完全一致：空值或"全部版本"→ ``None``，否则就是版本字符串。
+        """
+        state = self._tab_states.get(tab_key)
+        if state is None:
+            return
+        if not display_value or display_value == _("mod_browser_all_versions"):
+            state["selected_version"] = None
+        else:
+            state["selected_version"] = display_value
+
+    def _mirror_loader(self, tab_key: str, display_value: Optional[str]) -> None:
+        """把加载器下拉框的显示值镜像成加载器标识（**只能在主线程调用**）。
+
+        判定与改造前 `_get_selected_loader()` 一致：按显示名反查 ``loader_options``，
+        找不到就是 ``None``。
+        """
+        state = self._tab_states.get(tab_key)
+        if state is None:
+            return
+        loader = None
+        for display, value in state.get("loader_options", []):
+            if display == display_value:
+                loader = value
+                break
+        state["selected_loader"] = loader
+
     def _get_selected_version(self, tab_key: str) -> Optional[str]:
-        """获取当前筛选选中的游戏版本（未选择返回 None）"""
+        """获取当前筛选选中的游戏版本（未选择返回 None）。
+
+        阶段 1.22 修正（D-91）：读的是主线程维护的**纯值镜像**，不再读
+        ``ctk.StringVar`` —— 本方法会被后台搜索/安装线程调用，而 Tk 变量只能在
+        主线程读（AGENTS.md：never let workers touch Tk）。
+        """
         state = self._tab_states[tab_key]
-        var = state.get("version_var")
-        if var is None:
+        if "selected_version" not in state:
+            # 兜底：镜像尚未建立（例如下拉框还没构建）时退回默认值
             return state.get("default_version")
-        value = var.get()
-        if not value or value == _("mod_browser_all_versions"):
-            return None
-        return value
+        return state.get("selected_version")
 
     def _get_selected_loader(self, tab_key: str) -> Optional[str]:
-        """获取当前筛选选中的模组加载器（未选择返回 None）"""
+        """获取当前筛选选中的模组加载器（未选择返回 None）。
+
+        阶段 1.22 修正（D-91）：同 :meth:`_get_selected_version`，读纯值镜像。
+        """
         state = self._tab_states[tab_key]
-        var = state.get("loader_var")
-        if var is None:
+        if "selected_loader" not in state:
             return state.get("default_loader")
-        value = var.get()
-        for display, loader in state.get("loader_options", []):
-            if display == value:
-                return loader
-        return None
+        return state.get("selected_loader")
 
     def _load_version_options(self):
         """后台加载游戏版本列表，填充筛选下拉菜单"""
@@ -551,12 +721,23 @@ class ModBrowserWindow(ctk.CTkToplevel):
                     menu.configure(values=options)
                     if var.get() not in options:
                         var.set(all_display)
+                        # 阶段 1.22（D-91）：Tk 变量被改写时，纯值镜像也要跟着改，
+                        # 否则后台线程会一直读到旧版本号。
+                        self._mirror_version(tab_key, all_display)
                 except Exception:
                     pass
 
         self.after(0, _apply)
 
-    def _render_tab_results(self, tab_key: str, hits: List[Dict]):
+    def _render_tab_results(self, tab_key: str, hits: List[Dict], seq: Optional[int] = None):
+        """渲染某一页结果。
+
+        ``seq`` 不为 None 时先做世代校验（阶段 1.22 / D-93）：过期的渲染请求
+        必须整个丢弃，否则"旧请求的 after 回调晚于新请求执行"就会把界面改回旧数据。
+        """
+        if self._is_stale(tab_key, seq):
+            logger.debug(f"丢弃过期渲染: {tab_key} seq={seq}")
+            return
         state = self._tab_states[tab_key]
         list_frame = state["list_frame"]
 
@@ -587,13 +768,21 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._update_tab_pagination(tab_key)
 
         start = state["current_offset"] + 1
-        end = min(state["current_offset"] + self.PAGE_SIZE, state["total_hits"])
+        # 阶段 1.23（D-103）：区间上界以**本地实际条目数**为准，不能用后端报的
+        # total_hits —— 否则会出现"显示 291-300，共 1500 个"这种与内容矛盾的文案。
+        available = self._browsable_hits(state)
+        end = min(state["current_offset"] + self.PAGE_SIZE, available)
         result_label = state["result_count_label"]
         if result_label:
-            result_label.configure(text=_("mod_browser_result_range", start=start, end=end, total=state["total_hits"]))
+            result_label.configure(text=_("mod_browser_result_range", start=start, end=end, total=available))
         self._set_tab_status(tab_key, _("mod_browser_total_found", total=state["total_hits"]))
 
-    def _render_tab_error(self, tab_key: str, error_msg: str):
+    def _render_tab_error(self, tab_key: str, error_msg: str, seq: Optional[int] = None):
+        """渲染错误态。``seq`` 不为 None 时同样要做世代校验（D-93）：
+        旧请求的失败不能覆盖新请求已经拿到的成功结果。"""
+        if self._is_stale(tab_key, seq):
+            logger.debug(f"丢弃过期错误渲染: {tab_key} seq={seq}")
+            return
         state = self._tab_states[tab_key]
         list_frame = state["list_frame"]
 
@@ -719,9 +908,25 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 anchor=ctk.W,
             ).pack(fill=ctk.X, padx=10, pady=(0, 8))
 
+    def _browsable_hits(self, state: Dict) -> int:
+        """**本地能翻到的**条目数（阶段 1.23 修正 D-103）。
+
+        缺陷：请求用 ``limit=300`` 一次拉一批，而后端在 ``total_hits`` 里报的是
+        **匹配总数**（可能上千）。原实现用 ``total_hits`` 算页数，于是缓存只有
+        300 条时分页却显示"1 / 150"：翻到缓存尾部就是**空页但页码仍在**，
+        状态栏与内容互相矛盾。
+
+        分页与"显示区间"都必须以**本地实际拥有的条目**为准；``total_hits`` 只用于
+        "共找到 N 个"这种信息性提示。
+        """
+        # 优先级（AI 缓存 → 常规缓存 → 退回后端总数）的判定体搬到了服务层，
+        # 本方法保持同名同签名，D-103 的守卫与调用点一字不改。
+        return browsable_count(state.get("_ai_cached_hits"), state.get("_cached_hits"), state.get("total_hits", 0))
+
     def _update_tab_pagination(self, tab_key: str):
         state = self._tab_states[tab_key]
-        total_pages = max(1, (state["total_hits"] + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        available = self._browsable_hits(state)
+        total_pages = browse_total_pages(available, self.PAGE_SIZE)
         current_page = (state["current_offset"] // self.PAGE_SIZE) + 1
 
         page_label = state["page_label"]
@@ -733,8 +938,9 @@ class ModBrowserWindow(ctk.CTkToplevel):
         if prev_btn:
             prev_btn.configure(state=ctk.NORMAL if state["current_offset"] > 0 else ctk.DISABLED)
         if next_btn:
+            # 用 available 而不是 total_hits：否则会给出一个翻过去必定空白的"下一页"
             next_btn.configure(
-                state=ctk.NORMAL if state["current_offset"] + self.PAGE_SIZE < state["total_hits"] else ctk.DISABLED
+                state=ctk.NORMAL if state["current_offset"] + self.PAGE_SIZE < available else ctk.DISABLED
             )
 
     def _on_tab_prev_page(self, tab_key: str):
@@ -747,11 +953,14 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 self._render_page_from_cache(tab_key)
             else:
                 self._set_tab_status(tab_key, _("mod_browser_loading"))
-                self._run_in_thread(lambda: self._do_tab_search(tab_key))
+                seq = self._begin_request(tab_key)
+                self._run_in_thread(lambda: self._do_tab_search(tab_key, seq))
 
     def _on_tab_next_page(self, tab_key: str):
         state = self._tab_states[tab_key]
-        if state["current_offset"] + self.PAGE_SIZE < state["total_hits"]:
+        # 阶段 1.23（D-103）：与按钮可用性用同一口径（本地实际条目数），
+        # 否则按钮虽已禁用、键盘/程序化触发仍会翻到空页。
+        if state["current_offset"] + self.PAGE_SIZE < self._browsable_hits(state):
             state["current_offset"] += self.PAGE_SIZE
             if state["_ai_cached_hits"] is not None:
                 self._render_page_from_ai_cache(tab_key)
@@ -759,7 +968,8 @@ class ModBrowserWindow(ctk.CTkToplevel):
                 self._render_page_from_cache(tab_key)
             else:
                 self._set_tab_status(tab_key, _("mod_browser_loading"))
-                self._run_in_thread(lambda: self._do_tab_search(tab_key))
+                seq = self._begin_request(tab_key)
+                self._run_in_thread(lambda: self._do_tab_search(tab_key, seq))
 
     def _render_page_from_cache(self, tab_key: str):
         """从常规搜索缓存渲染页面"""
@@ -768,7 +978,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         if cached is None:
             return
         offset = state["current_offset"]
-        page = cached[offset : offset + self.PAGE_SIZE]
+        page = page_slice(cached, offset, self.PAGE_SIZE)
         self._render_tab_results(tab_key, page)
         self._update_tab_pagination(tab_key)
 
@@ -778,7 +988,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
         if cached is None:
             return
         offset = state["current_offset"]
-        page = cached[offset : offset + self.PAGE_SIZE]
+        page = page_slice(cached, offset, self.PAGE_SIZE)
         self._render_tab_results(tab_key, page)
         self._update_tab_pagination(tab_key)
 
@@ -833,23 +1043,18 @@ class ModBrowserWindow(ctk.CTkToplevel):
             if not mods_dir:
                 mods_dir = self._get_mods_dir()
 
-            if source == "curseforge":
-                from curseforge import install_mod as cf_install
-
-                success, result = cf_install(
-                    int(project_id), game_version=game_version, mod_loader=mod_loader, mods_dir=mods_dir
-                )
-                installed_names = [title] if success else []
-            else:
-                from modrinth import install_mod_with_deps
-
-                success, result, installed_names = install_mod_with_deps(
-                    project_id,
-                    game_version=game_version,
-                    mod_loader=mod_loader,
-                    mods_dir=mods_dir,
-                    status_callback=lambda msg: self.after(0, lambda: self._set_tab_status(self.TAB_MODS, msg)),
-                )
+            # 两条分支（curseforge 无依赖列表 / modrinth 带依赖递归）、
+            # "已装文件名列表"的约定、以及下载器的 status_callback 接线都在服务层；
+            # 状态栏文案与成就触发留在本方法里（下文一字未改）。
+            success, result, installed_names = _get_mod_browser_service(self).install_mod(
+                project_id,
+                title,
+                source,
+                game_version,
+                mod_loader,
+                mods_dir,
+                status_callback=lambda msg: self.after(0, lambda: self._set_tab_status(self.TAB_MODS, msg)),
+            )
 
             if success:
                 if len(installed_names) > 1:
@@ -889,8 +1094,6 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._run_in_thread(lambda: self._install_resource_pack(project_id, title, save_dir))
 
     def _install_resource_pack(self, project_id: str, title: str, rp_dir: Optional[str] = None):
-        from modrinth import install_resource_pack
-
         try:
             game_version = self._get_selected_version(self.TAB_RESOURCE_PACKS)
             if not game_version:
@@ -902,7 +1105,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             if not rp_dir:
                 rp_dir = self._get_resourcepacks_dir()
 
-            success, result = install_resource_pack(
+            success, result = _get_mod_browser_service(self).install_resource_pack(
                 project_id,
                 game_version=game_version,
                 resourcepacks_dir=rp_dir,
@@ -945,8 +1148,6 @@ class ModBrowserWindow(ctk.CTkToplevel):
         self._run_in_thread(lambda: self._install_shader(project_id, title, save_dir))
 
     def _install_shader(self, project_id: str, title: str, shader_dir: Optional[str] = None):
-        from modrinth import install_shader
-
         try:
             game_version = self._get_selected_version(self.TAB_SHADERS)
             if not game_version:
@@ -956,7 +1157,7 @@ class ModBrowserWindow(ctk.CTkToplevel):
             if not shader_dir:
                 shader_dir = self._get_shaderpacks_dir()
 
-            success, result = install_shader(
+            success, result = _get_mod_browser_service(self).install_shader(
                 project_id,
                 game_version=game_version,
                 shaderpacks_dir=shader_dir,
@@ -991,33 +1192,26 @@ class ModBrowserWindow(ctk.CTkToplevel):
         return self._resolve_install_dir(self.TAB_SHADERS)
 
     def _resolve_install_dir(self, tab_key: str) -> str:
-        """解析安装目标目录
+        """解析安装目标目录（薄委托：services/mod_browser_service.py）
 
         依据当前筛选的游戏版本/加载器，在已安装版本中查找匹配实例：
         - 命中 → .minecraft/versions/<实例文件夹>/mods|resourcepacks|shaderpacks
         - 未命中或未指定筛选 → .minecraft 根目录下的全局资源目录
+
+        两个 getter 作为**回调**传进服务（而不是先算出值再传）：服务内部的
+        "先算 target、再匹配实例"顺序因此与改造前逐字一致。
         """
-        mc_dir = Path(".")
-        if "get_minecraft_dir" in self.callbacks:
-            mc_dir = Path(self.callbacks["get_minecraft_dir"]())
-
-        subdirs = {
-            self.TAB_MODS: "mods",
-            self.TAB_RESOURCE_PACKS: "resourcepacks",
-            self.TAB_SHADERS: "shaderpacks",
-        }
-        sub = subdirs.get(tab_key, "mods")
-
-        target_version = self._get_selected_version(tab_key) or self._game_version
-        target_loader = self._get_selected_loader(tab_key) if tab_key == self.TAB_MODS else None
-
-        folder = self._match_installed_instance(target_version, target_loader)
-        if folder:
-            return str(mc_dir / "versions" / folder / sub)
-        return str(mc_dir / sub)
+        return _get_mod_browser_service(self).resolve_install_dir(
+            self.callbacks,
+            tab_key,
+            self._game_version,
+            self.version_id,
+            self._get_selected_version,
+            self._get_selected_loader,
+        )
 
     def _match_installed_instance(self, game_version: Optional[str], mod_loader: Optional[str]) -> Optional[str]:
-        """在已安装版本中查找与目标版本/加载器匹配的实例文件夹名
+        """在已安装版本中查找与目标版本/加载器匹配的实例文件夹名（薄委托）
 
         优先级:
         1. 窗口来源版本自身（filter 与来源一致时直接命中）
@@ -1031,46 +1225,14 @@ class ModBrowserWindow(ctk.CTkToplevel):
         Returns:
             实例文件夹名（版本 ID），未找到返回 None
         """
-        if not game_version:
-            return None
-
-        try:
-            installed = self.callbacks.get("get_installed_versions", lambda: [])()
-        except Exception as e:
-            logger.warning(f"获取已安装版本失败: {e}")
-            installed = []
-
-        exact: List[str] = []
-        version_only: List[str] = []
-        for inst in installed:
-            folder = getattr(inst, "folder_name", "") or ""
-            if not folder or getattr(inst, "vanilla_name", "") != game_version:
-                continue
-            if mod_loader:
-                if getattr(inst, "loader_type", None) == mod_loader:
-                    exact.append(folder)
-            else:
-                version_only.append(folder)
-
-        if exact:
-            if self.version_id in exact:
-                return self.version_id
-            return exact[0]
-        if version_only:
-            # 偏好带加载器的实例（资源按实例目录存放）
-            for inst in installed:
-                if getattr(inst, "folder_name", "") in version_only and getattr(inst, "has_loader", False):
-                    return inst.folder_name
-            return version_only[0]
-        return None
+        return _get_mod_browser_service(self).match_installed_instance(
+            self.callbacks, self.version_id, game_version, mod_loader
+        )
 
     @staticmethod
     def _format_downloads(count: int) -> str:
-        if count >= 1_000_000:
-            return f"{count / 1_000_000:.1f}M"
-        elif count >= 1_000:
-            return f"{count / 1_000:.1f}K"
-        return str(count)
+        """下载量格式化（实现逐字搬到 :func:`services.browse_common.format_downloads`）"""
+        return format_downloads(count)
 
     def _set_tab_status(self, tab_key: str, text: str):
         try:

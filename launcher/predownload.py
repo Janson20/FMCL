@@ -1,4 +1,8 @@
-"""预下载模块 - 启动时检测并预下载 Minecraft 资源包"""
+"""预下载模块 - 启动时检测并预下载 Minecraft 资源包
+
+界面交互（询问、进度窗口、完成/失败提示）全部通过 ``app.ports.UIPort`` 完成，
+本模块不再 import tkinter（分层约束见 ``scripts/check_services_purity.py``）。
+"""
 
 import os
 import shutil
@@ -11,6 +15,8 @@ from typing import Callable, Optional
 
 import requests
 from logzero import logger
+
+from app.ports import Choice, ProgressReport, UIPort
 
 PREDOWNLOAD_URL = "https://jingdu.qzz.io/static/fmcl/minecraft.rar"
 PREDOWNLOAD_LITE_URL = "https://jingdu.qzz.io/static/fmcl/lite.rar"
@@ -42,6 +48,10 @@ class Predownloader:
         self._downloaded_bytes = 0
         self._total_size = 0
         self._range_supported = True
+        #: D-116（第 12 轮）：某个分段**因为异常**（网络/HTTP）失败，而不是用户按了取消。
+        #: 两者都会置 `_cancel_event`，必须分开记账，否则"网络断了"会被当成"用户取消"
+        #: 而一声不吭（界面把 cancelled 定义成"只关窗、不弹提示"）。
+        self._part_failed = False
 
     def set_progress_callback(self, callback: Callable):
         self._progress_callback = callback
@@ -63,6 +73,7 @@ class Predownloader:
 
             rar_path = self.minecraft_dir / "minecraft.rar"
             self._downloaded_bytes = 0
+            self._part_failed = False
 
             if self.num_threads > 1:
                 self._range_supported = True
@@ -87,6 +98,15 @@ class Predownloader:
                         result = self._download_single_thread(rar_path)
                         if result != RESULT_COMPLETED:
                             return result
+                    elif self._part_failed:
+                        # D-116（第 12 轮，**行为变更**）：分段因为网络/HTTP 异常而失败，
+                        # 改前会返回 RESULT_CANCELLED，而界面把"取消"定义成"只关窗、
+                        # 不弹任何提示" —— 用户看到进度窗自己消失、没有任何解释，
+                        # 而单线程路径同样情况返回的是 RESULT_ERROR（会弹错误框）。
+                        # 现在两条路径一致：失败要报失败。
+                        logger.error("分段下载失败，本次预下载按失败处理（不是用户取消）")
+                        self._cleanup(rar_path)
+                        return RESULT_ERROR
                     else:
                         self._cleanup(rar_path)
                         return RESULT_CANCELLED
@@ -167,6 +187,7 @@ class Predownloader:
                                 self._progress_callback(display_bytes, display_total, "download")
         except Exception as e:
             logger.error(f"下载分段 {part_num} 失败: {e}")
+            self._part_failed = True  # D-116：与"用户取消"区分开
             self._cancel_event.set()
 
     def _merge_parts(self, filepath: Path):
@@ -241,40 +262,89 @@ class Predownloader:
                     pass
 
 
-def run_predownload_check(parent, minecraft_dir: Path, _tr) -> Optional[bool]:
+def run_predownload_check(ui: UIPort, minecraft_dir: Path, _tr) -> Optional[bool]:
+    """预下载检查入口（原来的 ``parent`` 参数换成 UI 能力端口）。
+
+    Args:
+        ui: UI 能力端口：问答 / 进度窗口 / 提示全部走它，本模块不碰 tkinter。
+        minecraft_dir: .minecraft 目录。
+        _tr: i18n 取词函数。
+
+    Returns:
+        ``None``  —— 已经预下载过，直接返回；
+        ``False`` —— 用户放弃预下载（此时仍会写"已询问过"标记，与原实现一致）；
+        ``True``  —— 已发起下载（返回时进度窗口已按原 ``wait_window`` 语义关闭）。
+
+    线程约定：与原实现一致 —— 本函数由主线程（``app.after`` 回调）调用，
+    下载仍然跑在 ``_run_download`` 线程里，没有把阻塞工作搬到新线程。
+    """
     if is_predownloaded(minecraft_dir):
         return None
 
-    result = {"action": None}
-
-    dialog = _create_prompt_dialog(parent, _tr, result)
-    if dialog is None:
-        return None
-
-    dialog.wait_window()
+    # 原来的自建 tk 三按钮弹窗换成端口问答：yes=完整版 / lite=轻量版 / no=取消。
+    # 窗口被关闭、超时或没有回答时 choose 返回 None，与原实现里 result["action"]
+    # 为 None 的路径一致（写标记 + 返回 False）。
+    action = ui.choose(
+        _tr("predownload_title"),
+        _tr("predownload_prompt"),
+        [
+            Choice("yes", _tr("predownload_yes")),
+            Choice("lite", _tr("predownload_lite")),
+            Choice("no", _tr("predownload_cancel")),
+        ],
+        default=None,
+        hint=_tr("predownload_hint"),
+    )
 
     create_predownloaded_marker(minecraft_dir)
 
-    if result["action"] not in ("yes", "lite"):
+    if action not in ("yes", "lite"):
         return False
 
-    url = PREDOWNLOAD_URL if result["action"] == "yes" else PREDOWNLOAD_LITE_URL
+    url = PREDOWNLOAD_URL if action == "yes" else PREDOWNLOAD_LITE_URL
     predownloader = Predownloader(url, minecraft_dir, num_threads=4)
+    predownloader.set_progress_callback(_make_progress_callback(ui, _tr))
 
-    progress_win = _create_progress_window(parent, _tr, predownloader)
-
-    def on_download_done(dl_result):
-        progress_win.after(0, lambda: _finish_predownload(progress_win, parent, _tr, dl_result))
+    finished = threading.Event()
 
     def _run_download():
         dl_result = predownloader.run()
-        if progress_win.winfo_exists():
-            progress_win.after(0, lambda: on_download_done(dl_result))
+        # 收尾在主线程之外执行：关闭进度窗/弹提示都由端口负责切主线程
+        _finish_predownload(ui, _tr, dl_result)
+        finished.set()
 
     download_thread = threading.Thread(target=_run_download, daemon=True)
     download_thread.start()
 
-    progress_win.wait_window()
+    if finished.is_set():
+        # 极端情况：下载在建窗之前就结束了（例如 head 请求直接失败）。
+        # 此时 close_progress 已经发过，再建窗就没人会关它，直接收工。
+        logger.warning("预下载在建窗之前就结束了，跳过进度窗口")
+        return True
+
+    # 建窗 + 模态等待，等价原来的
+    #   progress_win = _create_progress_window(...) ; progress_win.wait_window()
+    # 先起线程再建窗是刻意的：modal 等待会在主线程阻塞，而端口只在主线程就地建窗
+    # （worker 的上报只能入队），所以窗口必须由这一次调用创建。
+    # wait_event 是兜底：等待"窗口关闭"或"下载线程结束"二者先到 —— 就算
+    # close_progress 抢在窗口之前被轮询消费掉，主线程也不会死等。
+    ui.show_progress(
+        ProgressReport(
+            title=_tr("predownload_progress_title"),
+            message=_tr("predownload_status_downloading"),
+            current=0,
+            total=100,
+        ),
+        heading=_tr("predownload_progress_label"),
+        detail="0 MB / 0 MB",
+        cancel_label=_tr("predownload_cancel_btn"),
+        on_cancel=predownloader.cancel,
+        modal=True,
+        wait_event=finished,
+    )
+    # 兜底：若上面是因 wait_event 提前结束的，确保残留的进度窗口被关掉
+    # （正常路径下这里是无操作：窗口已由 close_progress 关闭）
+    ui.close_progress(_tr("predownload_progress_title"))
 
     return True
 
@@ -349,7 +419,15 @@ def _extract_with_tool(
                         progress_callback(pct, 100, "extract")
                     except ValueError:
                         pass
-            proc.wait()
+            returncode = proc.wait()
+            # D-115（第 12 轮，**行为变更**）：这一段以前只 `proc.wait()` 就返回，
+            # **返回码从不检查** —— 解压失败会被当成成功（调用方还会打一行
+            # "使用 xxx 解压成功" 并报"预下载完成"），用户看到完成提示、磁盘上
+            # 却一个文件都没解出来。同函数的另一个分支用的是
+            # `subprocess.run(..., check=True)`，两边判据本来就不一致；
+            # 现在统一成"非 0 即失败"。
+            if returncode != 0:
+                raise RuntimeError(f"{tool} 解压失败（返回码 {returncode}）")
         else:
             subprocess.run(cmd, check=True, creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
     else:
@@ -359,179 +437,16 @@ def _extract_with_tool(
             progress_callback(100, 100, "extract")
 
 
-def _create_prompt_dialog(parent, _tr, result):
-    import tkinter as tk
+def _make_progress_callback(ui: UIPort, _tr) -> Callable:
+    """构造 ``Predownloader`` 的进度回调。
 
-    dialog = tk.Toplevel(parent)
-    dialog.title(_tr("predownload_title"))
-    dialog.geometry("500x200")
-    dialog.resizable(False, False)
-    dialog.attributes("-topmost", True)
-    dialog.configure(bg="#1a1a2e")
-    dialog.transient(parent)
-    dialog.grab_set()
+    保留原实现的节流（0.1 秒一次，解压阶段不节流）与三阶段文案，差异只在于
+    不再直接改 Tk 部件，而是把 ``ProgressReport`` 交给 UI 端口 —— 这些回调
+    实际是在下载/解压线程里跑的，端口负责切回主线程。
 
-    if parent.winfo_exists():
-        dialog.update_idletasks()
-        pw = parent.winfo_width()
-        ph = parent.winfo_height()
-        px = parent.winfo_x()
-        py = parent.winfo_y()
-        w, h = 500, 200
-        x = px + (pw - w) // 2
-        y = py + (ph - h) // 2
-        dialog.geometry(f"{w}x{h}+{x}+{y}")
-
-    tk.Label(
-        dialog,
-        text=_tr("predownload_prompt"),
-        font=("Microsoft YaHei", 13),
-        fg="#ffffff",
-        bg="#1a1a2e",
-        wraplength=400,
-        justify=tk.CENTER,
-    ).pack(pady=(30, 15))
-
-    tk.Label(
-        dialog,
-        text=_tr("predownload_hint"),
-        font=("Microsoft YaHei", 10),
-        fg="#a0a0b0",
-        bg="#1a1a2e",
-        wraplength=400,
-        justify=tk.CENTER,
-    ).pack(pady=(0, 20))
-
-    btn_frame = tk.Frame(dialog, bg="#1a1a2e")
-    btn_frame.pack()
-
-    def on_yes():
-        result["action"] = "yes"
-        dialog.grab_release()
-        dialog.destroy()
-
-    def on_lite():
-        result["action"] = "lite"
-        dialog.grab_release()
-        dialog.destroy()
-
-    def on_no():
-        result["action"] = "no"
-        dialog.grab_release()
-        dialog.destroy()
-
-    tk.Button(
-        btn_frame,
-        text=_tr("predownload_yes"),
-        font=("Microsoft YaHei", 11),
-        fg="#ffffff",
-        bg="#e94560",
-        activebackground="#ff6b81",
-        activeforeground="#ffffff",
-        relief="flat",
-        cursor="hand2",
-        bd=0,
-        highlightthickness=0,
-        width=12,
-        height=1,
-        command=on_yes,
-    ).pack(side=tk.LEFT, padx=6)
-
-    tk.Button(
-        btn_frame,
-        text=_tr("predownload_lite"),
-        font=("Microsoft YaHei", 11),
-        fg="#ffffff",
-        bg="#0f3460",
-        activebackground="#1a5276",
-        activeforeground="#ffffff",
-        relief="flat",
-        cursor="hand2",
-        bd=0,
-        highlightthickness=0,
-        width=12,
-        height=1,
-        command=on_lite,
-    ).pack(side=tk.LEFT, padx=6)
-
-    tk.Button(
-        btn_frame,
-        text=_tr("predownload_cancel"),
-        font=("Microsoft YaHei", 11),
-        fg="#a0a0b0",
-        bg="#16213e",
-        activebackground="#2d3a5c",
-        activeforeground="#ffffff",
-        relief="flat",
-        cursor="hand2",
-        bd=0,
-        highlightthickness=0,
-        width=12,
-        height=1,
-        command=on_no,
-    ).pack(side=tk.LEFT, padx=6)
-
-    return dialog
-
-
-def _create_progress_window(parent, _tr, predownloader: Predownloader):
-    import tkinter as tk
-    from tkinter import ttk
-
-    win = tk.Toplevel(parent)
-    win.title(_tr("predownload_progress_title"))
-    win.geometry("480x220")
-    win.resizable(False, False)
-    win.attributes("-topmost", True)
-    win.configure(bg="#1a1a2e")
-    win.transient(parent)
-    win.grab_set()
-
-    if parent.winfo_exists():
-        win.update_idletasks()
-        pw = parent.winfo_width()
-        ph = parent.winfo_height()
-        px = parent.winfo_x()
-        py = parent.winfo_y()
-        w, h = 480, 220
-        x = px + (pw - w) // 2
-        y = py + (ph - h) // 2
-        win.geometry(f"{w}x{h}+{x}+{y}")
-
-    tk.Label(
-        win, text=_tr("predownload_progress_label"), font=("Microsoft YaHei", 13, "bold"), fg="#ffffff", bg="#1a1a2e"
-    ).pack(pady=(25, 5))
-
-    status_label = tk.Label(
-        win, text=_tr("predownload_status_downloading"), font=("Microsoft YaHei", 10), fg="#a0a0b0", bg="#1a1a2e"
-    )
-    status_label.pack(pady=(0, 10))
-
-    progress_var = tk.DoubleVar(value=0)
-    progress_bar = ttk.Progressbar(win, variable=progress_var, maximum=100, mode="determinate", length=420)
-    progress_bar.pack(pady=(5, 5))
-
-    detail_label = tk.Label(win, text="0 MB / 0 MB", font=("Microsoft YaHei", 10), fg="#a0a0b0", bg="#1a1a2e")
-    detail_label.pack(pady=(0, 10))
-
-    cancel_btn = tk.Button(
-        win,
-        text=_tr("predownload_cancel_btn"),
-        font=("Microsoft YaHei", 11),
-        fg="#a0a0b0",
-        bg="#16213e",
-        activebackground="#2d3a5c",
-        activeforeground="#ffffff",
-        relief="flat",
-        cursor="hand2",
-        bd=0,
-        highlightthickness=0,
-        width=14,
-        height=1,
-        command=predownloader.cancel,
-    )
-    cancel_btn.pack(pady=(0, 15))
-
+    ``detail`` 是端口认识的扩展参数，用来复用原来的明细文案
+    （下载时 "x.x MB / y.y MB"、合并时留空、解压时 "nn%"）。
+    """
     last_update_time = [time.time()]
 
     def on_progress(current, total, phase):
@@ -541,39 +456,39 @@ def _create_progress_window(parent, _tr, predownloader: Predownloader):
         last_update_time[0] = now
 
         if phase == "download":
-            pct = (current / total * 100) if total > 0 else 0
-            progress_var.set(pct)
             mb_current = current / (1024 * 1024)
             mb_total = total / (1024 * 1024)
-            detail_label.config(text=f"{mb_current:.1f} MB / {mb_total:.1f} MB")
-            status_label.config(text=_tr("predownload_status_downloading"))
+            ui.show_progress(
+                ProgressReport(
+                    message=_tr("predownload_status_downloading"),
+                    current=max(0, int(current)),
+                    total=int(total) if total > 0 else 1,
+                ),
+                detail=f"{mb_current:.1f} MB / {mb_total:.1f} MB",
+            )
         elif phase == "merge":
-            progress_var.set(100)
-            status_label.config(text=_tr("predownload_status_merging"))
-            detail_label.config(text="")
+            ui.show_progress(
+                ProgressReport(message=_tr("predownload_status_merging"), current=1, total=1),
+                detail="",
+            )
         elif phase == "extract":
-            progress_var.set(current)
-            status_label.config(text=_tr("predownload_status_extracting"))
-            detail_label.config(text=f"{int(current)}%")
+            ui.show_progress(
+                ProgressReport(message=_tr("predownload_status_extracting"), current=int(current), total=100),
+                detail=f"{int(current)}%",
+            )
 
-    predownloader.set_progress_callback(on_progress)
-
-    def on_close():
-        predownloader.cancel()
-
-    win.protocol("WM_DELETE_WINDOW", on_close)
-
-    return win
+    return on_progress
 
 
-def _finish_predownload(progress_win, parent, _tr, dl_result: str):
-    import tkinter.messagebox as messagebox
+def _finish_predownload(ui: UIPort, _tr, dl_result: str) -> None:
+    """收尾：关闭进度窗口，按结果弹完成/失败提示。
 
-    if progress_win.winfo_exists():
-        progress_win.grab_release()
-        progress_win.destroy()
+    本函数在下载线程里被调用，切主线程由 UI 端口负责。
+    与原实现一致：``RESULT_CANCELLED``（用户取消 / 关窗）只关窗，不弹任何提示。
+    """
+    ui.close_progress(_tr("predownload_progress_title"))
 
     if dl_result == RESULT_COMPLETED:
-        messagebox.showinfo(_tr("predownload_complete_title"), _tr("predownload_complete_msg"), parent=parent)
+        ui.show_info(_tr("predownload_complete_title"), _tr("predownload_complete_msg"))
     elif dl_result == RESULT_ERROR:
-        messagebox.showerror(_tr("predownload_error_title"), _tr("predownload_error_msg"), parent=parent)
+        ui.show_error(_tr("predownload_error_title"), _tr("predownload_error_msg"))

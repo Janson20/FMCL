@@ -1,4 +1,17 @@
-"""整合包开服窗口 - 选择 .mrpack 文件，安装为服务器"""
+"""整合包开服窗口 - 选择 .mrpack 文件，安装为服务器
+
+业务逻辑已搬到 ``services/modpack_service.py``（阶段 1 任务 1.8-B）：服务端安装入口
+的调用与结果判定、``current/max`` 的进度百分比口径。本文件只剩纯界面部分
+（控件构建、``filedialog`` / ``messagebox`` / 通知、``_mp_progress`` 轮询与
+``after`` 调度、``CTkBooleanVar``、i18n 文案、``_trigger_ach``、父窗口刷新）；
+下面每个受影响的方法都退化成对服务的**薄委托**，**方法名与签名保持不变**，
+界面可见行为不变。
+
+本窗口只处理 ``.mrpack`` 一种格式，因此"读元数据"就是一次
+``callbacks["get_mrpack_information"]`` 调用（不涉及 ``modpack_install`` 那套六分支
+探测），保持原样不动。D-95 的两个守卫（没有 ``on_progress`` 赋值、
+``hasattr(launcher_inst, "_mp_progress")`` 轮询写法）一字未改。
+"""
 
 import os
 import threading
@@ -7,9 +20,39 @@ from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 
+from app.context import current_context
+from services.modpack_service import ModpackService, progress_percent
 from ui.constants import COLORS, FONT_FAMILY
 from ui.dialogs import show_notification
 from ui.i18n import _
+
+
+def _get_modpack_service(owner: Any = None) -> ModpackService:
+    """惰性取得服务实例（实现见 ``services/modpack_service.py``）。
+
+    查找顺序："``owner.context.try_get`` → ``owner`` 上自造并缓存"。
+    服务不需要 ``AppContext``，构造期也只保存参数，因此界面在
+    ``__init__`` 之前（例如后台线程里）调用也安全。
+    """
+    ctx = getattr(owner, "context", None) or current_context()
+    if ctx is not None:
+        getter = getattr(ctx, "try_get", None)
+        if callable(getter):
+            try:
+                service = getter(ModpackService.name)
+            except Exception:
+                service = None
+            if service is not None:
+                return service
+    service = getattr(owner, "_modpack_service_fallback", None)
+    if service is None:
+        service = ModpackService()
+        try:
+            owner._modpack_service_fallback = service
+        except Exception:
+            # owner 可能是 __slots__ 对象或 None：不缓存，本次调用照常可用
+            pass
+    return service
 
 
 def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
@@ -55,7 +98,8 @@ class ModpackServerWindow(ctk.CTkToplevel):
         self.geometry(f"{w}x{h}+{x}+{y}")
 
         self._launcher_instance: Optional[Any] = None
-        self._orig_on_progress: Optional[Callable] = None
+        # 阶段 1.22（D-95）：这里原本还有一个 `_orig_on_progress` 字段，全仓库无人读写，
+        # 已删除（同族问题见 ui/windows/modpack_install.py 里 finally 的说明）。
 
         self._build_ui()
 
@@ -355,8 +399,9 @@ class ModpackServerWindow(ctk.CTkToplevel):
                     mc_data = mp.get("vanilla", {})
                     phase = mp.get("phase", "")
 
-                    mp_pct = (mp_data.get("current", 0) / max(mp_data.get("max", 1), 1)) * 100
-                    mc_pct = (mc_data.get("current", 0) / max(mc_data.get("max", 1), 1)) * 100
+                    # current/max 的百分比口径与客户端安装窗口共用同一份实现
+                    mp_pct = progress_percent(mp_data)
+                    mc_pct = progress_percent(mc_data)
 
                     self._mp_progress_label.configure(
                         text=_("mp_prog_mrpack_label", pct=f"{mp_pct:.0f}", label=mp_data.get("label", ""))
@@ -387,8 +432,9 @@ class ModpackServerWindow(ctk.CTkToplevel):
         self.after(0, _poll_progress)
 
         try:
-            success, result = self.callbacks["install_mrpack_server"](
-                self._mrpack_path, optional_files=optional_files, server_name=server_name
+            # 服务端入口只有一条路（没有统一入口、没有格式分发），调用本身在服务层
+            success, result = _get_modpack_service(self).call_server_install_entry(
+                self.callbacks, self._mrpack_path, optional_files, server_name
             )
             self.after(0, lambda: self._on_install_done(success, result))
         except Exception as e:

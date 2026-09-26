@@ -1,4 +1,27 @@
-"""资源管理窗口 - 模组/资源包/地图/光影管理"""
+"""资源管理窗口 - 模组/资源包/地图/光影管理
+
+业务逻辑已搬到 ``services/resource_service.py``（阶段 1 任务 1.8-A）：目录解析、
+扫描、搜索/过滤/分页、启停（``.disabled`` 后缀约定）、删除/安装/导入、导出文本、
+双源更新检查与批量更新、缩略图取图与去重、成就触发。本文件只剩纯界面部分
+（控件构建、``after`` 调度、``messagebox`` / ``filedialog``、剪贴板、通知弹窗、
+``CTkImage`` 构造、``TaskRunner`` 缩略图池、i18n 文案）；下面每个受影响的方法
+都退化成对服务的**薄委托**，**方法名与签名保持不变**，界面可见行为不变。
+
+``_trigger_ach`` / ``_check_ach`` 的实现搬到了服务层，这里**继续可导入**，
+且与那里是**同一批对象**（``ui.windows.resource_manager._trigger_ach is
+services.resource_service._trigger_ach``）。
+
+既有缺陷原样保留（本轮只搬家，不顺手修）：
+
+- **D-91 / D-103 同型缺陷在本文件里不存在**（已逐处核对）：没有任何工作线程读
+  控件值；分页总数一律由 ``len(filtered)`` / ``len(sorted_items)`` 算出，
+  没有用后端 ``total_hits``。
+- ``_update_pagination`` **全文件没有任何调用点**（死代码），保留不删。
+- ``_check_full_house`` 查的 ``"datapacks"`` 不在 ``RESOURCE_TYPES`` 里，
+  每次都抛 ``KeyError`` 被吞掉 → ``modder_full_house`` 成就不可达。
+- ``_export_mod_list`` 的禁用标记是硬编码英文 ``" [Disabled]"``。
+- 客户端 ``_open_folder`` 只有 Windows 分支（macOS/Linux 上必然失败）。
+"""
 
 import logging
 import os
@@ -10,6 +33,15 @@ from typing import Any, Callable, Dict, List, Optional
 import customtkinter as ctk
 from logzero import logger
 
+from app.tasks import TaskRunner
+from app.context import current_context
+from services.resource_service import (
+    THUMB_WORKERS,
+    InstallResult,
+    ResourceService,
+    _check_ach,
+    _trigger_ach,
+)
 from ui.constants import COLORS, FONT_FAMILY, RESOURCE_TYPES
 from ui.dialogs import show_notification
 from ui.i18n import _
@@ -22,26 +54,53 @@ except ImportError:
     HAS_DND = False
 
 
-def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
-    try:
-        from achievement_engine import get_achievement_engine
+def _get_resource_service(owner: Any = None) -> ResourceService:
+    """惰性取得资源服务实例。
 
-        engine = get_achievement_engine()
-        if engine:
-            engine.update_progress(achievement_id, value=value, trigger_type=trigger_type)
-    except Exception:
-        pass
+    写成**模块级函数**（而不是只在窗口类上的方法）与 ``ui/app_server.py`` 的
+    ``_get_server_service(owner)`` / ``ui/app_online.py`` 的
+    ``_get_online_service(owner)`` 保持同一形式：查找顺序是
+    "``owner.context.try_get`` → ``owner`` 上自造并缓存"，
+    ``ResourceService`` 不需要 ``AppContext``，构造期也只保存参数。
+    """
+    ctx = getattr(owner, "context", None) or current_context()
+    if ctx is not None:
+        getter = getattr(ctx, "try_get", None)
+        if callable(getter):
+            try:
+                service = getter(ResourceService.name)
+            except Exception:
+                service = None
+            if service is not None:
+                return service
+    service = getattr(owner, "_resource_service_fallback", None)
+    if service is None:
+        service = ResourceService()
+        try:
+            owner._resource_service_fallback = service
+        except Exception:
+            # owner 可能是 __slots__ 对象或 None：不缓存，本次调用照常可用
+            pass
+    return service
 
 
-def _check_ach(achievement_id: str, condition: bool):
-    try:
-        from achievement_engine import get_achievement_engine
+def _report_install_result(owner: Any, result: InstallResult) -> bool:
+    """把服务的安装结果映射成状态栏文案，返回 ``result.ok``。
 
-        engine = get_achievement_engine()
-        if engine:
-            engine.check_and_unlock(achievement_id, condition)
-    except Exception:
-        pass
+    ``outcome`` → i18n 键的映射刻意留在**界面层**：服务层因此不需要知道任何文案键，
+    而 ``scripts/check_i18n.py`` 仍能看到这些**字面量键**
+    （若改成服务传键、界面写 ``_(key)``，这几个键会从"键存在性 / 占位符一致 /
+    调用点缺参"三项静态检查里静默掉出去）。
+    """
+    if result.outcome == "exists":
+        owner._set_status(_("rm_file_exists", name=result.name))
+    elif result.outcome == "map_exists":
+        owner._set_status(_("rm_map_exists", name=result.name))
+    elif result.outcome == "unsupported":
+        owner._set_status(_("rm_unsupported_format", ext=result.ext))
+    elif result.outcome == "failed":
+        owner._set_status(_("rm_install_failed", error=result.error))
+    return result.ok
 
 
 class ResourceManagerWindow(ctk.CTkToplevel):
@@ -72,6 +131,16 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         self._mod_metadata: List[Dict] = []
         self._mod_loading: bool = False
+
+        # ─── 缩略图加载状态（阶段 1.22 修正 D-92）───
+        # 原实现"每个 zip 起一个线程"，无节流、无去重、无取消；而 _on_search
+        # 会在**不换代**的情况下重渲染列表，于是搜索框每敲一个字符就为每个
+        # 条目再起一批线程。现在改为：有界线程池 + 按路径去重 + 代际校验。
+        self._thumb_pool: Optional[TaskRunner] = None
+        #: 每当列表被"重新加载"（而非仅重渲染）就递增，用于丢弃过期回调
+        self._thumb_generation: int = 0
+        #: 本代际内已在队列/执行中的 zip 路径，防止重复解压
+        self._thumb_inflight: set = set()
         self._search_text: str = ""
         self._current_items: List[Dict] = []
         self._filtered_items: List[Dict] = []
@@ -94,10 +163,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self.after(200, self._refresh_current_list)
 
     def _get_minecraft_dir(self) -> Path:
-        """获取当前版本的 .minecraft 目录"""
-        if "get_minecraft_dir" in self.callbacks:
-            return Path(self.callbacks["get_minecraft_dir"]())
-        return Path(".") / ".minecraft"
+        """获取当前版本的 .minecraft 目录（薄委托：services/resource_service.py）"""
+        return _get_resource_service(self).minecraft_dir(self.callbacks)
 
     def _has_mod_loader(self, version_id: str) -> bool:
         """判断版本是否安装了模组加载器（需要版本隔离）
@@ -106,28 +173,12 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
         参考 PCL-CE: McInstance.Modable 属性。
         """
-        from version_utils import has_mod_loader_from_json
-
-        mc_dir = self._get_minecraft_dir()
-        return has_mod_loader_from_json(version_id, str(mc_dir))
+        service = _get_resource_service(self)
+        return service.has_mod_loader(version_id, service.minecraft_dir(self.callbacks))
 
     def _get_resource_dir(self, resource_type: str) -> Path:
-        """获取指定资源类型的目录，仅模组加载器版本使用版本隔离目录"""
-        mc_dir = self._get_minecraft_dir()
-        folder_name: str = RESOURCE_TYPES[resource_type]["folder"]
-
-        # 版本隔离：仅当版本安装了模组加载器时，才使用隔离目录
-        # 原版客户端虽然 versions/{版本名}/ 也存在（含 jar/json），
-        # 但启动时未设置 gameDirectory，游戏资源（saves 等）仍在全局目录
-        if self._has_mod_loader(self.version_id):
-            version_dir = mc_dir / "versions" / self.version_id / folder_name
-            logger.info(f"使用版本隔离目录: {version_dir}")
-            return version_dir
-
-        # 回退：全局 .minecraft/{folder}/
-        global_dir = mc_dir / folder_name
-        logger.info(f"使用全局目录: {global_dir}")
-        return global_dir
+        """获取指定资源类型的目录，仅模组加载器版本使用版本隔离目录（薄委托）"""
+        return _get_resource_service(self).resource_dir_for(self.callbacks, self.version_id, resource_type)
 
     def _get_resource_label(self, rtype: str) -> str:
         labels = {
@@ -365,39 +416,21 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             logger.warning(f"拖拽注册失败: {e}")
 
     def _on_drop(self, event):
-        """拖拽文件放下回调"""
+        """拖拽文件放下回调（路径解析与"能不能装"的判定薄委托到服务层）"""
+        service = _get_resource_service(self)
         # tkinterdnd2 传递的路径可能用 {} 包裹且以空格分隔
         raw = event.data
-        # 处理 Windows 路径格式
-        if raw.startswith("{"):
-            files = []
-            i = 0
-            while i < len(raw):
-                if raw[i] == "{":
-                    end = raw.index("}", i)
-                    files.append(raw[i + 1 : end])
-                    i = end + 2
-                else:
-                    parts = raw[i:].split()
-                    files.extend(parts)
-                    break
-        else:
-            files = raw.split()
+        files = service.parse_drop_paths(raw)
 
         current_type = self._tab_var.get()
-        ext_filter = RESOURCE_TYPES[current_type]["extensions"]
 
         installed = 0
         for fpath in files:
             fpath = fpath.strip()
             if not fpath:
                 continue
-            p = Path(fpath)
-            if p.exists() and p.suffix.lower() in ext_filter:
-                if self._install_resource(fpath, current_type):
-                    installed += 1
-            elif p.exists() and p.is_dir() and current_type == "saves":
-                # 地图存档可能是文件夹
+            # 地图存档可能是文件夹
+            if service.accept_drop_entry(fpath, current_type):
                 if self._install_resource(fpath, current_type):
                     installed += 1
 
@@ -477,23 +510,18 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._refresh_mod_list(resource_dir)
             return
 
-        # 非模组类型：检查缓存
+        # 非模组类型：检查缓存（mtime 比对本身在服务层）
         if not force and current_type in self._scan_cache:
             cached_items, cached_mtime = self._scan_cache[current_type]
-            if resource_dir.exists():
-                try:
-                    current_mtime = resource_dir.stat().st_mtime
-                    if current_mtime == cached_mtime:
-                        logger.info(f"使用缓存扫描结果: type={current_type}, items={len(cached_items)}")
-                        self._current_items = cached_items
-                        if not cached_items:
-                            self._empty_label.pack(fill=ctk.BOTH, expand=True)
-                            self._set_status(_("rm_folder_empty", label=self._get_resource_label(current_type)))
-                        else:
-                            self._render_filtered_list(current_type)
-                        return
-                except Exception:
-                    pass
+            if _get_resource_service(self).scan_cache_usable(cached_mtime, resource_dir):
+                logger.info(f"使用缓存扫描结果: type={current_type}, items={len(cached_items)}")
+                self._current_items = cached_items
+                if not cached_items:
+                    self._empty_label.pack(fill=ctk.BOTH, expand=True)
+                    self._set_status(_("rm_folder_empty", label=self._get_resource_label(current_type)))
+                else:
+                    self._render_filtered_list(current_type)
+                return
 
         if not resource_dir.exists():
             self._current_items = []
@@ -520,14 +548,13 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             return
 
         # 缩略图进度跟踪（仅资源包和光影标签页）
+        # 阶段 1.22（D-92）：这里是一次"重新加载"，换代并清空在途去重表。
+        # 换代后，上一轮尚未返回的缩略图回调不会再抬高新一轮的计数器。
+        self._thumb_generation += 1
+        self._thumb_inflight.clear()
         self._thumbnail_loaded = 0
         self._thumbnail_total = 0
-        zip_items = []
-        for item in items:
-            if current_type in ("resourcepacks", "shaderpacks") and not item.get("is_dir"):
-                ext = Path(item["path"]).suffix.lower()
-                if ext in (".zip",) and not item.get("_thumbnail"):
-                    zip_items.append(item)
+        zip_items = _get_resource_service(self).thumbnail_candidates(items, current_type)
 
         if zip_items:
             self._thumbnail_total = len(zip_items)
@@ -535,15 +562,15 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._render_filtered_list(current_type)
 
     def _refresh_mod_list(self, mods_dir: Path):
-        """刷新模组列表（含元数据提取）"""
-        from modrinth import extract_all_mods_metadata
+        """刷新模组列表（含元数据提取；提取自身薄委托到服务层）"""
+        service = _get_resource_service(self)
 
         self._mod_loading = True
         self._loading_label.pack(before=self._drop_frame, fill=ctk.X, padx=12, pady=(5, 10))
 
         def _load_metadata():
             try:
-                results = extract_all_mods_metadata(
+                results = service.extract_mods_metadata(
                     mods_dir,
                     status_callback=lambda done, total: self.after(
                         0, lambda d=done, t=total: self._update_mod_loading(d, t)
@@ -578,30 +605,25 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._check_full_house()
 
     def _check_full_house(self):
-        """检查是否已安装所有资源类型（全家福成就）"""
-        try:
-            has_mods = bool(self._mod_metadata)
-            has_resourcepacks = self._dir_has_content(self._get_resource_dir("resourcepacks"))
-            has_saves = self._dir_has_content(self._get_resource_dir("saves"))
-            has_shaders = self._dir_has_content(self._get_resource_dir("shaderpacks"))
-            has_datapacks = self._dir_has_content(self._get_resource_dir("datapacks"))
-            full_house = has_mods and has_resourcepacks and has_saves and has_shaders and has_datapacks
-            _check_ach("modder_full_house", full_house)
-        except Exception:
-            pass
+        """检查是否已安装所有资源类型（全家福成就）
+
+        判定在服务层；**注意这里不是逐字搬家** —— 原文那五种资源目录的判定里
+        ``"datapacks"`` 必然 ``KeyError``（``RESOURCE_TYPES`` 只有 4 个键），
+        被吞掉后成就从不触发（D-109）。任务下发者已裁决按 4 语言文案实现
+        「Forge / Fabric / NeoForge 各装过一个版本」（``version_utils.has_all_mod_loaders``），
+        本轮把这条**悬空的接线**补在服务层，见 ``services/resource_service.py``
+        的 ``check_full_house``。
+        """
+        _get_resource_service(self).check_full_house(self._get_minecraft_dir())
 
     @staticmethod
     def _dir_has_content(directory: Path) -> bool:
-        try:
-            if not directory.exists():
-                return False
-            return any(directory.iterdir())
-        except Exception:
-            return False
+        """目录是否有内容（薄委托；本方法无 self，故直接走服务类的静态方法）"""
+        return ResourceService.dir_has_content(directory)
 
     def _on_search(self, event=None):
-        """搜索过滤"""
-        self._search_text = self._search_entry.get().strip().lower()
+        """搜索过滤（词规范化薄委托；控件读取留在界面）"""
+        self._search_text = _get_resource_service(self).normalize_search(self._search_entry.get())
         self._current_page = 1
         self._page_cache.clear()
         current_type = self._tab_var.get()
@@ -625,19 +647,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("mod_folder_empty"))
             return
 
-        # 搜索过滤
-        if self._search_text:
-            filtered = [
-                m
-                for m in self._mod_metadata
-                if self._search_text in m.get("name", "").lower()
-                or self._search_text in m.get("modid", "").lower()
-                or self._search_text in m.get("author", "").lower()
-                or self._search_text in m.get("description", "").lower()
-                or self._search_text in m.get("filename", "").lower()
-            ]
-        else:
-            filtered = self._mod_metadata
+        # 搜索过滤（匹配规则在服务层）
+        service = _get_resource_service(self)
+        filtered = service.filter_mods(self._mod_metadata, self._search_text)
 
         self._filtered_items = filtered
 
@@ -647,9 +659,10 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("mod_search_no_results"))
             return
 
-        total_pages = max(1, (len(filtered) + self._page_size - 1) // self._page_size)
-        if self._current_page > total_pages:
-            self._current_page = total_pages
+        # 页数计算与页码钳制在服务层（原：max(1, ceil(...)) + if 越界则钳到末页）
+        self._current_page = service.clamp_page(
+            self._current_page, service.total_pages(len(filtered), self._page_size)
+        )
 
         self._render_current_page()
 
@@ -658,12 +671,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._list_frame.pack_forget()
         self._empty_label.pack_forget()
 
-        if self._search_text:
-            self._filtered_items = [
-                item for item in self._current_items if self._search_text in item.get("name", "").lower()
-            ]
-        else:
-            self._filtered_items = self._current_items
+        service = _get_resource_service(self)
+        self._filtered_items = service.filter_items(self._current_items, self._search_text)
 
         if not self._filtered_items:
             self._empty_label.pack(fill=ctk.BOTH, expand=True)
@@ -671,24 +680,26 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("rm_search_no_results"))
             return
 
-        total_pages = max(1, (len(self._filtered_items) + self._page_size - 1) // self._page_size)
-        if self._current_page > total_pages:
-            self._current_page = total_pages
+        # 页数计算与页码钳制在服务层
+        self._current_page = service.clamp_page(
+            self._current_page, service.total_pages(len(self._filtered_items), self._page_size)
+        )
 
         self._render_current_page()
 
     def _render_current_page(self):
         """渲染当前分页的资源列表（使用页面缓存加速翻页）"""
         current_type = self._tab_var.get()
+        service = _get_resource_service(self)
         total = len(self._filtered_items)
-        total_pages = max(1, (total + self._page_size - 1) // self._page_size)
+        total_pages = service.total_pages(total, self._page_size)
 
         start = (self._current_page - 1) * self._page_size
         end = min(start + self._page_size, total)
         page_items = self._filtered_items[start:end]
 
         cache_key = f"{current_type}_{self._current_page}"
-        items_key = tuple(item.get("path", item.get("name", "")) for item in page_items)
+        items_key = service.page_items_key(page_items)
 
         cached = self._page_cache.get(cache_key)
         if cached and cached.get("items_key") == items_key:
@@ -730,9 +741,15 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._set_status(_("rm_list_count", count=total, page=self._current_page, total_pages=total_pages, label=label))
 
     def _update_pagination(self):
-        """更新分页控件状态"""
+        """更新分页控件状态
+
+        记录现状、疑为缺陷：**本方法全文件没有任何调用点**（列表渲染走的是
+        ``_update_pagination_labels``），属于死代码。为保证"方法名与签名一字不变"，
+        本轮原样保留，只把页数计算薄委托出去。
+        """
+        service = _get_resource_service(self)
         total = len(self._filtered_items)
-        total_pages = max(1, (total + self._page_size - 1) // self._page_size)
+        total_pages = service.total_pages(total, self._page_size)
         self._page_label.configure(text=_("rm_page_info", current=self._current_page, total=total_pages))
         self._prev_btn.configure(state=ctk.NORMAL if self._current_page > 1 else ctk.DISABLED)
         self._next_btn.configure(state=ctk.NORMAL if self._current_page < total_pages else ctk.DISABLED)
@@ -745,8 +762,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
 
     def _on_next_page(self):
         """下一页"""
+        service = _get_resource_service(self)
         total = len(self._filtered_items)
-        total_pages = max(1, (total + self._page_size - 1) // self._page_size)
+        total_pages = service.total_pages(total, self._page_size)
         if self._current_page < total_pages:
             self._current_page += 1
             self._render_current_page()
@@ -904,65 +922,12 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         icon_label.pack(fill=ctk.BOTH, expand=True)
 
     def _scan_resources(self, resource_dir: Path, resource_type: str) -> List[Dict]:
-        """扫描资源目录"""
-        items = []
-        try:
-            entries = list(resource_dir.iterdir())
-            logger.info(f"目录 {resource_dir} 共有 {len(entries)} 个条目")
-            if resource_type == "saves":
-                # 地图是文件夹
-                for entry in sorted(entries):
-                    if entry.is_dir() and not entry.name.startswith("."):
-                        # 检查是否是有效的地图存档
-                        level_dat = entry / "level.dat"
-                        items.append(
-                            {
-                                "name": entry.name,
-                                "path": str(entry),
-                                "is_dir": True,
-                                "has_level_dat": level_dat.exists(),
-                            }
-                        )
-            else:
-                # 模组/资源包/光影是文件
-                ext_filter = RESOURCE_TYPES[resource_type]["extensions"]
-                for entry in sorted(entries):
-                    if not entry.is_file():
-                        continue
-                    # 检查文件扩展名：支持 .jar 和 .jar.disabled 等格式
-                    is_disabled = entry.suffix.lower() == ".disabled"
-                    actual_ext = (
-                        entry.suffixes[-2].lower() if is_disabled and len(entry.suffixes) >= 2 else entry.suffix.lower()
-                    )
-                    if actual_ext in ext_filter or entry.suffix.lower() in ext_filter:
-                        # 文件大小
-                        try:
-                            size = entry.stat().st_size
-                            size_str = self._format_size(size)
-                        except Exception:
-                            size_str = "?"
-                        items.append(
-                            {
-                                "name": entry.name,
-                                "path": str(entry),
-                                "is_dir": False,
-                                "size": size_str,
-                                "disabled": is_disabled,
-                            }
-                        )
-        except Exception as e:
-            logger.error(f"扫描资源目录失败: {e}")
-
-        return items
+        """扫描资源目录（薄委托：枚举/排序/体积/禁用态判定都在服务层）"""
+        return _get_resource_service(self).scan_resources(resource_dir, resource_type)
 
     def _format_size(self, size: int) -> str:
-        """格式化文件大小"""
-        if size < 1024:
-            return f"{size} B"
-        elif size < 1024 * 1024:
-            return f"{size / 1024:.1f} KB"
-        else:
-            return f"{size / (1024 * 1024):.1f} MB"
+        """格式化文件大小（薄委托）"""
+        return _get_resource_service(self).format_size(size)
 
     def _create_resource_item(self, item: Dict, resource_type: str):
         """创建资源列表项"""
@@ -1071,10 +1036,25 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             size_label.pack(side=ctk.LEFT, padx=(0, 5))
 
     def _set_thumbnail_icon(self, icon_frame: ctk.CTkFrame, base64_data: str, size: int):
-        """设置缩略图图标（会先清除已有的子控件，避免与 emoji 图标重叠）"""
+        """设置缩略图图标（会先清除已有的子控件，避免与 emoji 图标重叠）
+
+        任务 1.24（D-114，调查 D-94 时实测出来的真实现场）：晚到的缩略图回调可能打到
+        一个**已被销毁**的卡片上 —— 翻页 / 刷新走 cache-miss 分支时会
+        `destroy()` 掉 `_list_frame` 的全部子控件，而 zip 的取图还在线程池里。
+        此时 `icon_frame.winfo_children()` 抛
+        ``TclError: bad window path name``（实测复现见 `poc/_probe_d94_page_cache.py`），
+        它抛在 `after` 回调里 → 走 Tk 的 report_callback_exception（用户看到控制台堆栈），
+        **并且同一函数后面的 `_on_thumbnail_done()` 永远执行不到**，缩略图进度标签
+        就永久停在 x/y。控件已经不在了就是"没什么可画"，直接返回即可。
+        """
         if not self.winfo_exists():
             return
-        for w in icon_frame.winfo_children():
+        try:
+            children = icon_frame.winfo_children()
+        except Exception:  # noqa: BLE001 - 目标控件已被销毁（翻页/换代）
+            logger.debug("缩略图目标控件已销毁，跳过绘制")
+            return
+        for w in children:
             w.destroy()
         try:
             import base64
@@ -1090,25 +1070,120 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         except Exception:
             pass
 
+    #: 缩略图解压的并发上限（原实现是"每个 zip 一个线程"，大型整合包会瞬间上百）
+    #: 值来自 ``services/resource_service.py`` 的 ``THUMB_WORKERS`` —— **不要在这里
+    #: 写字面量 4**，D-92 的上限只保留一个真源（tests 会钉住它等于 4）。
+    _THUMB_WORKERS = THUMB_WORKERS
+
+    def _thumb_runner(self) -> TaskRunner:
+        """惰性创建缩略图线程池（有界 + daemon）。
+
+        阶段 1.22 修正（D-92）：``TaskRunner`` 的工作线程是 daemon，即使不显式
+        回收也不会拖住启动器退出；并发数有上限，直接消灭线程风暴。
+        """
+        if self._thumb_pool is None:
+            self._thumb_pool = TaskRunner(max_workers=self._THUMB_WORKERS, name="rm-thumb")
+        return self._thumb_pool
+
     def _load_thumbnail_async(self, icon_frame: ctk.CTkFrame, item: Dict, size: int):
-        """异步加载资源包/光影的预览缩略图（完成后更新进度）"""
+        """异步加载资源包/光影的预览缩略图（有界并发 + 去重 + 代际校验）。
+
+        阶段 1.22 修正（D-92）。原实现的四个问题与现在的做法：
+
+        ==================  ====================================================
+        原实现               现在
+        ==================  ====================================================
+        每个 zip 起一个线程   交给 ``TaskRunner`` 的有界池（``_THUMB_WORKERS``）
+        无去重               按 zip 路径去重（``_thumb_inflight``）
+        无代际校验           带 ``_thumb_generation``，过期结果不碰界面
+        worker 写共享字典     缓存写入回到主线程执行
+        ==================  ====================================================
+        """
         zip_path = Path(item["path"])
+        service = _get_resource_service(self)
+        key = service.claim_thumbnail(self._thumb_inflight, zip_path)
+        if key is None:
+            return
+        generation = self._thumb_generation
 
-        def _load():
-            try:
-                from modrinth import extract_zip_thumbnail
+        def _load(ctx) -> Optional[str]:
+            # 取消检查属于 TaskContext 协议（调度层），留在界面侧
+            ctx.raise_if_cancelled()
+            return service.load_thumbnail(zip_path, max_size=size)
 
-                thumbnail = extract_zip_thumbnail(zip_path, max_size=size)
-                if thumbnail:
-                    item["_thumbnail"] = thumbnail
-                    self.after(0, lambda: self._set_thumbnail_icon(icon_frame, thumbnail, size))
-            except Exception:
-                pass
-            finally:
-                self.after(0, self._on_thumbnail_done)
+        def _loaded(thumbnail) -> None:
+            # on_done 在没有 scheduler 的情况下是在 worker 线程上执行的，
+            # 所以这里显式切回 Tk 主线程 —— 与改造前的线程语义保持一致。
+            self.after(
+                0, lambda: self._apply_thumbnail(generation, key, icon_frame, item, thumbnail, size)
+            )
 
-        thread = threading.Thread(target=_load, daemon=True)
-        thread.start()
+        def _failed(exc) -> None:
+            logger.debug(f"缩略图加载失败 {zip_path.name}: {exc}")
+            self.after(0, lambda: self._apply_thumbnail(generation, key, icon_frame, item, None, size))
+
+        self._thumb_runner().submit(
+            _load,
+            name=f"thumb:{zip_path.name}",
+            pass_context=True,
+            on_done=_loaded,
+            on_error=_failed,
+        )
+
+    def _apply_thumbnail(
+        self,
+        generation: int,
+        key: str,
+        icon_frame: ctk.CTkFrame,
+        item: Dict,
+        thumbnail: Optional[str],
+        size: int,
+    ) -> None:
+        """在主线程应用缩略图结果（只能由 ``after`` 调度进来）。
+
+        两件事分开处理：
+
+        - **缓存写入不受代际约束**：某个 zip 的缩略图不会因为列表被重渲染而失效，
+          所以总是写缓存，避免下次重新解压。
+        - **界面更新与进度计数受代际约束**：换代后旧的 ``icon_frame`` 已被销毁，
+          再去操作它会抛 TclError；旧结果也不该抬高新代际的计数器。
+        """
+        service = _get_resource_service(self)
+        service.release_thumbnail(self._thumb_inflight, key)
+        if thumbnail:
+            item["_thumbnail"] = thumbnail
+
+        if not service.thumbnail_is_current(generation, self._thumb_generation):
+            return  # 列表已重新加载：结果已进缓存，界面交给新的那一批
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            return
+
+        if thumbnail:
+            self._set_thumbnail_icon(icon_frame, thumbnail, size)
+        self._on_thumbnail_done()
+
+    def _release_thumb_pool(self) -> None:
+        """回收缩略图线程池（供 ``destroy()`` 与单元测试调用）。
+
+        池里都是 daemon 线程，不回收也不会拖住启动器退出；但主动取消能立刻
+        停止对已关闭窗口的无用工作。抽成独立方法是为了能在不构造 Tk 窗口的
+        情况下验证回收行为。
+        """
+        pool, self._thumb_pool = getattr(self, "_thumb_pool", None), None
+        if pool is None:
+            return
+        try:
+            pool.shutdown(wait=False, cancel_pending=True)
+        except Exception as e:  # noqa: BLE001 - 关闭失败不应影响窗口销毁
+            logger.debug(f"回收缩略图线程池失败: {e}")
+
+    def destroy(self):
+        """关闭窗口时回收缩略图线程池（阶段 1.22）。"""
+        self._release_thumb_pool()
+        super().destroy()
 
     def _on_thumbnail_done(self):
         """缩略图加载完成回调，更新进度状态"""
@@ -1128,101 +1203,20 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("rm_thumbnail_progress", count=count, label=label, loaded=loaded, total=total))
 
     def _install_resource(self, src_path: str, resource_type: str) -> bool:
-        """安装资源文件到对应目录"""
-        import shutil  # 延迟导入：仅资源管理窗口使用
+        """安装资源文件到对应目录（薄委托：复制/解压/"已存在"判定在服务层）
 
-        try:
-            resource_dir = self._get_resource_dir(resource_type)
-            resource_dir.mkdir(parents=True, exist_ok=True)
-
-            src = Path(src_path)
-
-            if resource_type == "saves":
-                return self._install_save(src, resource_dir)
-            else:
-                dst = resource_dir / src.name
-                if dst.exists():
-                    logger.warning(f"资源已存在: {dst}")
-                    self._set_status(_("rm_file_exists", name=src.name))
-                    return False
-                shutil.copy2(str(src), str(dst))
-                logger.info(f"资源安装成功: {src.name} -> {dst}")
-                return True
-
-        except Exception as e:
-            logger.error(f"安装资源失败: {e}")
-            self._set_status(_("rm_install_failed", error=str(e)))
-            return False
+        目录解析用 ``lambda`` **延迟到服务层的 try 内部**求值 —— 原文那一行
+        ``resource_dir = self._get_resource_dir(resource_type)`` 就在 ``try`` 里，
+        提前求值会改变异常边界。
+        """
+        result = _get_resource_service(self).install_resource(
+            src_path, resource_type, lambda: self._get_resource_dir(resource_type)
+        )
+        return _report_install_result(self, result)
 
     def _install_save(self, src: Path, saves_dir: Path) -> bool:
-        """安装地图存档：支持zip自动解压和文件夹直接复制"""
-        import shutil  # 延迟导入
-        import zipfile
-
-        if src.is_dir():
-            # 文件夹直接复制到 saves/地图名/
-            dst = saves_dir / src.name
-            if dst.exists():
-                logger.warning(f"地图已存在: {dst}")
-                self._set_status(_("rm_map_exists", name=src.name))
-                return False
-            shutil.copytree(str(src), str(dst))
-            logger.info(f"地图安装成功(文件夹): {src.name} -> {dst}")
-            return True
-
-        elif src.suffix.lower() == ".zip":
-            # zip 文件解压到 saves/地图名/ 下
-            # 地图名 = zip 文件名去掉扩展名
-            map_name = src.stem
-            dst = saves_dir / map_name
-            if dst.exists():
-                logger.warning(f"地图已存在: {dst}")
-                self._set_status(_("rm_map_exists", name=map_name))
-                return False
-
-            with zipfile.ZipFile(str(src), "r") as zf:
-                namelist = zf.namelist()
-                # 检查zip内部结构：可能是直接包含level.dat，也可能有一层包装目录
-                # 情况1: zip内顶层就有 level.dat -> 解压到 saves/地图名/
-                # 情况2: zip内有一个子目录包含 level.dat -> 解压该子目录到 saves/地图名/
-                top_entries = [n for n in namelist if "/" not in n.rstrip("/") or n.count("/") == 0]
-                has_root_level_dat = any(n == "level.dat" for n in namelist)
-
-                if has_root_level_dat:
-                    # 直接解压所有内容到 dst
-                    zf.extractall(str(dst))
-                else:
-                    # 查找包含 level.dat 的子目录
-                    level_dat_entries = [n for n in namelist if n.endswith("level.dat")]
-                    if level_dat_entries:
-                        # 取 level.dat 所在的子目录名
-                        sub_dir = level_dat_entries[0].rsplit("level.dat", 1)[0].rstrip("/")
-                        # 解压该子目录的内容到 dst
-                        for member in zf.namelist():
-                            if member.startswith(sub_dir + "/"):
-                                # 去掉子目录前缀，提取到 dst
-                                relative = member[len(sub_dir) + 1 :]
-                                if not relative:
-                                    continue
-                                target = dst / relative
-                                if member.endswith("/"):
-                                    target.mkdir(parents=True, exist_ok=True)
-                                else:
-                                    target.parent.mkdir(parents=True, exist_ok=True)
-                                    with zf.open(member) as src_file:
-                                        with open(str(target), "wb") as dst_file:
-                                            dst_file.write(src_file.read())
-                    else:
-                        # 没找到 level.dat，直接全部解压
-                        zf.extractall(str(dst))
-
-            logger.info(f"地图安装成功(zip): {src.name} -> {dst}")
-            return True
-
-        else:
-            logger.warning(f"不支持的地图格式: {src.suffix}")
-            self._set_status(_("rm_unsupported_format", ext=src.suffix))
-            return False
+        """安装地图存档：支持zip自动解压和文件夹直接复制（薄委托，逐字搬进服务层）"""
+        return _report_install_result(self, _get_resource_service(self).install_save(src, saves_dir))
 
     def _select_file_install(self):
         """通过文件选择对话框安装资源"""
@@ -1258,30 +1252,23 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("rm_no_resources_installed"))
 
     def _open_folder(self):
-        """打开当前资源类型的文件夹"""
+        """打开当前资源类型的文件夹（薄委托：建目录 + shell 启动在服务层）"""
         current_type = self._tab_var.get()
         resource_dir = self._get_resource_dir(current_type)
-        resource_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            os.startfile(str(resource_dir))
+            _get_resource_service(self).open_resource_folder(resource_dir)
         except Exception as e:
             logger.error(f"打开文件夹失败: {e}")
             self._set_status(_("rm_open_folder_failed", error=str(e)))
 
     def _delete_resource(self, path: str, name: str):
-        """删除资源"""
-        import shutil  # 延迟导入
-
+        """删除资源（薄委托：删除动作在服务层，确认弹窗/文案/刷新留界面）"""
         if not messagebox.askyesno(_("rm_delete_confirm_title"), _("rm_delete_confirm_msg", name=name)):
             return
 
         try:
-            p = Path(path)
-            if p.is_dir():
-                shutil.rmtree(str(p))
-            else:
-                p.unlink()
+            _get_resource_service(self).delete_path(path)
             logger.info(f"已删除: {name}")
             self._set_status(_("rm_deleted", name=name))
             self._refresh_current_list()
@@ -1294,22 +1281,12 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         from structured_logger import slog
 
         try:
-            p = Path(path)
-            mod_name = p.name
+            # 改名约定（禁用 = 追加 .disabled / 启用 = Path.with_suffix("")）在服务层
+            new_name = _get_resource_service(self).toggle_mod(path, is_disabled)
             if is_disabled:
-                # 启用：移除 .disabled 后缀
-                new_path = p.with_suffix("")
-                p.rename(new_path)
-                logger.info(f"模组已启用: {p.name} -> {new_path.name}")
-                self._set_status(_("rm_enabled_status", name=new_path.name))
-                slog.info("mod_enabled", mod_name=mod_name, new_name=new_path.name)
+                self._set_status(_("rm_enabled_status", name=new_name))
             else:
-                # 禁用：添加 .disabled 后缀
-                new_path = Path(str(p) + ".disabled")
-                p.rename(new_path)
-                logger.info(f"模组已禁用: {p.name} -> {new_path.name}")
-                self._set_status(_("rm_disabled_status", name=new_path.name))
-                slog.info("mod_disabled", mod_name=mod_name, new_name=new_path.name)
+                self._set_status(_("rm_disabled_status", name=new_name))
             self._refresh_current_list()
         except Exception as e:
             logger.error(f"切换模组状态失败: {e}")
@@ -1332,19 +1309,9 @@ class ResourceManagerWindow(ctk.CTkToplevel):
             self._set_status(_("mod_export_empty"))
             return
 
-        lines = []
-        lines.append(f"=== {_('mod_export_header', version=self.version_id)} ===\n")
-
-        for i, mod in enumerate(mods, 1):
-            name = mod.get("name", mod.get("filename", "???"))
-            modid = mod.get("modid", "-")
-            version = mod.get("version", "-")
-            disabled = " [Disabled]" if mod.get("disabled") else ""
-            lines.append(f"{i}. {name}{disabled}")
-            lines.append(f"   modid: {modid}  |  version: {version}")
-
-        lines.append(f"\nTotal: {len(mods)} mods")
-        text = "\n".join(lines)
+        # 文本生成在服务层；标题行由界面用 i18n 拼好（服务层不 import ui.i18n）
+        header = f"=== {_('mod_export_header', version=self.version_id)} ===\n"
+        text = _get_resource_service(self).client_mod_list_text(mods, header)
 
         try:
             self.clipboard_clear()
@@ -1360,17 +1327,14 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         if self._update_checking:
             return
 
-        from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
-        from version_utils import resolve_search_loader
-
-        game_version = parse_game_version_from_version(self.version_id)
-        mod_loader = resolve_search_loader(parse_mod_loader_from_version(self.version_id))
+        service = _get_resource_service(self)
+        game_version, mod_loader = service.update_targets(self.version_id)
 
         if not game_version:
             self._set_status(_("mod_update_unknown_version"))
             return
 
-        mods_with_modid = [m for m in self._mod_metadata if m.get("modid") and not m.get("disabled")]
+        mods_with_modid = service.updatable_mods(self._mod_metadata)
 
         if not mods_with_modid:
             self._set_status(_("mod_update_no_modid"))
@@ -1384,71 +1348,32 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         self._set_status(_("mod_checking_updates_progress", current=0, total=len(mods_with_modid)))
 
         def _do_check():
-            import threading as _threading
-            from concurrent.futures import ThreadPoolExecutor, as_completed
+            service = _get_resource_service(self)
+            total = len(mods_with_modid)
+
+            def _on_progress(current, prog_total):
+                # 仍在服务层的锁内被调用；这里 after 回主线程并把值绑进默认参数
+                self.after(
+                    0,
+                    lambda c=current, t=prog_total: self._set_status(
+                        _("mod_checking_updates_progress", current=c, total=t)
+                    ),
+                )
+
+            def _on_update(modid, info):
+                self._update_info[modid] = info
 
             try:
-                from curseforge import check_update_dual_source
-                from modrinth import compare_mod_versions
+                # 双源检查的并发度(8)、进度时机、结果字典键都在服务层
+                updates_found = service.check_updates(
+                    mods_with_modid,
+                    game_version,
+                    mod_loader,
+                    on_progress=_on_progress,
+                    on_update=_on_update,
+                )
 
-                lock = _threading.Lock()
-                checked = [0]
-                updates_found = [0]
-                total = len(mods_with_modid)
-
-                def _check_one(mod):
-                    modid = mod["modid"]
-                    current_version = mod.get("version", "")
-
-                    try:
-                        # 双源检查（Modrinth + CurseForge），取最新版本
-                        update = check_update_dual_source(
-                            modid=modid,
-                            mod_name=mod.get("name", modid),
-                            current_version=current_version,
-                            game_version=game_version,
-                            mod_loader=mod_loader,
-                        )
-                        if not update:
-                            return None
-
-                        return {
-                            "modid": modid,
-                            "project_id": update["project_id"],
-                            "source": update.get("source", "modrinth"),
-                            "latest_version": update["latest_version"],
-                            "current_version": update["current_version"],
-                            "mod_name": mod.get("name", modid),
-                            "mod_path": mod.get("path", ""),
-                        }
-                    except Exception as e:
-                        logger.debug(f"检查模组更新失败 ({modid}): {e}")
-                        return None
-                    finally:
-                        with lock:
-                            checked[0] += 1
-                            self.after(
-                                0,
-                                lambda c=checked[0]: self._set_status(
-                                    _("mod_checking_updates_progress", current=c, total=total)
-                                ),
-                            )
-
-                with ThreadPoolExecutor(max_workers=8) as executor:
-                    futures = {executor.submit(_check_one, mod): mod for mod in mods_with_modid}
-                    for future in as_completed(futures):
-                        result = future.result()
-                        if result:
-                            updates_found[0] += 1
-                            self._update_info[result["modid"]] = {
-                                "project_id": result["project_id"],
-                                "latest_version": result["latest_version"],
-                                "current_version": result["current_version"],
-                                "mod_name": result["mod_name"],
-                                "mod_path": result["mod_path"],
-                            }
-
-                self.after(0, lambda: self._on_update_check_done(updates_found[0], total))
+                self.after(0, lambda: self._on_update_check_done(updates_found, total))
 
             except Exception as e:
                 logger.error(f"检查模组更新失败: {e}")
@@ -1534,7 +1459,8 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         sorted_items = sorted(self._update_info.items(), key=lambda x: x[1].get("mod_name", x[0]))
         page_size = 10
         current_page = [1]
-        total_pages = max(1, (len(sorted_items) + page_size - 1) // page_size)
+        # 页数走服务：总数取的是**本地缓存条数** len(sorted_items)，不是后端 total_hits
+        total_pages = _get_resource_service(self).total_pages(len(sorted_items), page_size)
 
         def _render_dialog_page():
             for w in list_frame.winfo_children():
@@ -1691,91 +1617,26 @@ class ResourceManagerWindow(ctk.CTkToplevel):
         dialog.destroy()
         self._set_status(_("mod_update_batch_starting", count=len(modids)))
 
-        import threading as _threading
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
-        from modrinth import download_mod, parse_game_version_from_version, parse_mod_loader_from_version
-        from version_utils import resolve_search_loader
-
-        game_version = parse_game_version_from_version(self.version_id)
-        mod_loader = resolve_search_loader(parse_mod_loader_from_version(self.version_id))
+        service = _get_resource_service(self)
+        game_version, mod_loader = service.update_targets(self.version_id)
 
         if not game_version or not mod_loader:
             self._set_status(_("mod_update_failed", error=_("mod_browser_unknown_loader")))
             return
 
-        lock = _threading.Lock()
-        done = [0]
-        success_count = [0]
-        fail_count = [0]
-
-        def _download_one(modid):
-            info = self._update_info.get(modid)
-            if not info:
-                return False, modid
-
-            project_id = info["project_id"]
-            mod_name = info["mod_name"]
-            mod_path = info["mod_path"]
-
-            try:
-                # 复用已缓存的 latest_version 信息，直接获取该版本的 files
-                from modrinth import get_project_latest_version
-
-                version = get_project_latest_version(project_id, game_version=game_version, mod_loader=mod_loader)
-                if not version:
-                    return False, mod_name
-
-                files = version.get("files", [])
-                primary = next((f for f in files if f.get("primary")), None) or (files[0] if files else None)
-                if not primary:
-                    return False, mod_name
-
-                download_url = primary.get("url", "")
-                filename = primary.get("filename", f"{mod_name}.jar")
-                if not download_url:
-                    return False, mod_name
-
-                mods_dir = str(Path(mod_path).parent)
-
-                # 删除旧文件
-                try:
-                    old_path = Path(mod_path)
-                    if old_path.exists():
-                        old_path.unlink()
-                except Exception:
-                    pass
-
-                hashes = primary.get("hashes")
-                dl_success, _dl_result = download_mod(download_url, mods_dir, filename, expected_hashes=hashes)
-
-                if dl_success:
-                    logger.info(f"模组更新完成: {mod_name} → {version.get('version_number','?')}")
-                    return True, mod_name
-                else:
-                    return False, mod_name
-
-            except Exception as e:
-                logger.error(f"更新模组失败 ({mod_name}): {e}")
-                return False, mod_name
-            finally:
-                with lock:
-                    done[0] += 1
-                    self.after(
-                        0, lambda d=done[0]: self._set_status(_("mod_update_batch_progress", done=d, total=len(modids)))
-                    )
+        def _on_progress(done, total):
+            self.after(
+                0, lambda d=done, t=total: self._set_status(_("mod_update_batch_progress", done=d, total=t))
+            )
 
         def _run_batch():
-            with ThreadPoolExecutor(max_workers=8) as executor:
-                futures = {executor.submit(_download_one, mid): mid for mid in modids}
-                for future in as_completed(futures):
-                    ok, name = future.result()
-                    if ok:
-                        success_count[0] += 1
-                    else:
-                        fail_count[0] += 1
+            # 并发度(8)、单模组失败聚合、旧文件删除时机都在服务层
+            # （服务内的 ThreadPoolExecutor 在一次同步调用里建池并 join 完）
+            success_count, fail_count = service.batch_update_mods(
+                modids, self._update_info, game_version, mod_loader, on_progress=_on_progress
+            )
 
-            self.after(0, lambda: self._on_batch_done(success_count[0], fail_count[0]))
+            self.after(0, lambda: self._on_batch_done(success_count, fail_count))
 
         thread = threading.Thread(target=_run_batch, daemon=True)
         thread.start()

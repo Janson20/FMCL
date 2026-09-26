@@ -1,4 +1,17 @@
-"""Modrinth 整合包浏览窗口 - 搜索、浏览并下载整合包"""
+"""Modrinth 整合包浏览窗口 - 搜索、浏览并下载整合包
+
+业务逻辑已搬到 ``services/modpack_service.py``（阶段 1 任务 1.8-B）：单源搜索与
+结果归一化、AI 合并搜索、版本列表的分组/排序（``_build_sorted_version_list``）、
+版本下载调用。本文件只剩纯界面部分（控件构建、版本选择器子窗口、``after`` 调度、
+i18n 文案、渲染、线程启动）；下面每个受影响的方法都退化成对服务的**薄委托**，
+**方法名与签名保持不变**，界面可见行为不变。
+
+既有的两处现状缺陷照旧保留（本轮只搬家）：
+
+- ``_fetch_versions_and_pick`` 里"获取版本列表失败: {e}"是**硬编码中文**，没走 i18n；
+- 本窗口**没有**请求世代守卫（D-93 只加在 ``mod_browser`` 上）：worker 线程直接写
+  ``self._total_hits`` / ``self._ai_cached_hits`` 再 ``after(0, ...)`` 渲染。
+"""
 
 import os
 import threading
@@ -7,8 +20,44 @@ from typing import Any, Callable, Dict, List, Optional
 import customtkinter as ctk
 from logzero import logger
 
+from app.context import current_context
+from services.browse_common import (
+    MODPACK_VERSION_PAGE_SIZE,
+    format_downloads,
+    page_slice,
+    total_pages as browse_total_pages,
+)
+from services.modpack_service import ModpackService
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
+
+
+def _get_modpack_service(owner: Any = None) -> ModpackService:
+    """惰性取得服务实例（实现见 ``services/modpack_service.py``）。
+
+    查找顺序："``owner.context.try_get`` → ``owner`` 上自造并缓存"。
+    服务不需要 ``AppContext``，构造期也只保存参数，因此界面在
+    ``__init__`` 之前（例如后台线程里）调用也安全。
+    """
+    ctx = getattr(owner, "context", None) or current_context()
+    if ctx is not None:
+        getter = getattr(ctx, "try_get", None)
+        if callable(getter):
+            try:
+                service = getter(ModpackService.name)
+            except Exception:
+                service = None
+            if service is not None:
+                return service
+    service = getattr(owner, "_modpack_service_fallback", None)
+    if service is None:
+        service = ModpackService()
+        try:
+            owner._modpack_service_fallback = service
+        except Exception:
+            # owner 可能是 __slots__ 对象或 None：不缓存，本次调用照常可用
+            pass
+    return service
 
 
 class ModpackBrowserWindow(ctk.CTkToplevel):
@@ -179,13 +228,14 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         self._run_in_thread(self._do_search)
 
     def _do_search(self):
-        from modrinth import search_modpacks
-
         try:
-            result = search_modpacks(query=self._current_query, offset=self._current_offset, limit=self.PAGE_SIZE)
+            # 单源搜索 + 结果归一化在服务层；渲染/错误态留在本方法里（下文一字未改）。
+            outcome = _get_modpack_service(self).search_modpacks(
+                self._current_query, self._current_offset, self.PAGE_SIZE
+            )
 
-            hits = result.get("hits", [])
-            self._total_hits = result.get("total_hits", 0)
+            hits = outcome.hits
+            self._total_hits = outcome.total_hits
 
             self.after(0, self._render_results, hits)
 
@@ -221,19 +271,15 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         self._run_in_thread(self._do_ai_search, query, token)
 
     def _do_ai_search(self, query: str, token: str):
-        from modrinth import ai_merged_search
-
         try:
-            result = ai_merged_search(query=query, token=token, search_type="modpacks", max_per_keyword=30)
-
-            all_hits = result.get("hits", [])
-            keywords = result.get("keywords", [])
+            # 关键词扩展 + 逐词搜索 + 去重 + 排序（search_type="modpacks"）在服务层
+            all_hits, keywords = _get_modpack_service(self).search_ai_modpacks(query, token)
 
             self._ai_cached_hits = all_hits
             self._total_hits = len(all_hits)
             self._current_offset = 0
 
-            page = all_hits[: self.PAGE_SIZE]
+            page = page_slice(all_hits, 0, self.PAGE_SIZE)
             kw_text = ", ".join(keywords) if keywords else query
             self.after(0, self._render_results, page)
             self.after(0, self._set_status, _("ai_search_done", keywords=kw_text, total=len(all_hits)))
@@ -360,14 +406,13 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
 
     @staticmethod
     def _format_downloads(count: int) -> str:
-        if count >= 1_000_000:
-            return f"{count / 1_000_000:.1f}M"
-        elif count >= 1_000:
-            return f"{count / 1_000:.1f}K"
-        return str(count)
+        """下载量格式化（实现逐字搬到 :func:`services.browse_common.format_downloads`）"""
+        return format_downloads(count)
 
     def _update_pagination(self):
-        total_pages = max(1, (self._total_hits + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        # 与 server_mod_browser 同理：本窗口按 offset/limit 向后端取一页，
+        # ``_total_hits`` 是后端报的匹配总数，这里用它算页数是正确口径。
+        total_pages = browse_total_pages(self._total_hits, self.PAGE_SIZE)
         current_page = (self._current_offset // self.PAGE_SIZE) + 1
 
         self._page_label.configure(text=f"{current_page} / {total_pages}")
@@ -398,21 +443,20 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         if self._ai_cached_hits is None:
             return
         offset = self._current_offset
-        page = self._ai_cached_hits[offset : offset + self.PAGE_SIZE]
+        page = page_slice(self._ai_cached_hits, offset, self.PAGE_SIZE)
         self._render_results(page)
         self._update_pagination()
 
-    VERSION_PAGE_SIZE = 50
+    #: 版本选择器一次渲染多少条（数据源在服务层，界面沿用同名类属性）
+    VERSION_PAGE_SIZE = MODPACK_VERSION_PAGE_SIZE
 
     def _on_install_modpack(self, project_id: str, title: str):
         self._set_status(_("mp_browser_fetching_versions", title=title))
         self._run_in_thread(self._fetch_versions_and_pick, project_id, title)
 
     def _fetch_versions_and_pick(self, project_id: str, title: str):
-        from modrinth import get_modpack_versions
-
         try:
-            versions = get_modpack_versions(project_id)
+            versions = _get_modpack_service(self).fetch_modpack_versions(project_id)
         except Exception as e:
             logger.error(f"获取整合包版本列表失败: {e}")
             self.after(0, self._set_status, f"获取版本列表失败: {e}")
@@ -429,30 +473,13 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         self.after(0, self._show_version_picker, project_id, title, all_sorted, len(versions))
 
     def _build_sorted_version_list(self, versions: List[Dict]) -> List[Dict]:
-        grouped: Dict[str, List[Dict]] = {}
-        for v in versions:
-            game_versions = v.get("game_versions", [])
-            label = game_versions[0] if game_versions else _("mp_browser_unknown_version")
-            grouped.setdefault(label, []).append(v)
+        """按 MC 版本分组 + 组内倒序 + 插分组头（薄委托：services/modpack_service.py）
 
-        def _mc_sort_key(mc_label: str) -> tuple:
-            parts = mc_label.split(".")
-            try:
-                return tuple(int(p) for p in parts)
-            except (ValueError, IndexError):
-                return (0,)
-
-        group_order = sorted(grouped.keys(), key=_mc_sort_key, reverse=True)
-
-        for mc_label in group_order:
-            grouped[mc_label].sort(key=lambda v: v.get("date_published", ""), reverse=True)
-
-        result: List[Dict] = []
-        for mc_label in group_order:
-            result.append({"_header": mc_label, "_count": len(grouped[mc_label])})
-            result.extend(grouped[mc_label])
-
-        return result
+        "未知版本"的占位文案由本层用 i18n 拼好传进服务 —— 服务层不 import
+        ``ui.i18n``，而 ``scripts/check_i18n.py`` 仍能在**界面文件**里看到
+        ``mp_browser_unknown_version`` 这个字面量键。
+        """
+        return _get_modpack_service(self).build_sorted_version_list(versions, _("mp_browser_unknown_version"))
 
     def _show_version_picker(self, project_id: str, title: str, all_sorted: List[Dict], total_count: int):
         picker = ctk.CTkToplevel(self)
@@ -629,8 +656,6 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         self._run_in_thread(self._download_version, project_id, title, version_data)
 
     def _download_version(self, project_id: str, title: str, version_data: Dict):
-        from modrinth import download_modpack_file
-
         version_number = version_data.get("version_number", "")
 
         def _status(msg):
@@ -639,7 +664,9 @@ class ModpackBrowserWindow(ctk.CTkToplevel):
         _status(_("mp_browser_downloading", title=title, version=version_number))
 
         try:
-            success, result = download_modpack_file(project_id, version_data=version_data, status_callback=_status)
+            success, result = _get_modpack_service(self).download_modpack_version(
+                project_id, version_data, status_callback=_status
+            )
         except Exception as e:
             logger.error(f"整合包下载异常: {e}")
             self.after(0, self._set_status, _("mp_browser_download_error", error=str(e)))

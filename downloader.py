@@ -21,8 +21,8 @@ import requests
 from logzero import logger
 
 from download_config import DOWNLOAD_POOL_SIZE
+from services.user_agent import USER_AGENT
 from structured_logger import slog
-from ui.constants import USER_AGENT
 
 
 def _patch_neoforge_normalize():

@@ -1,7 +1,13 @@
-"""ModernApp 崩溃处理 Mixin - 崩溃诊断、AI 分析"""
+"""ModernApp 崩溃处理 Mixin - 崩溃诊断、AI 分析
+
+业务逻辑已搬到 ``services/crash_service.py``（阶段 1 任务 1.7）：崩溃原因诊断、
+日志尾部读取、AI 上下文组装、以及 AI 请求本身。本文件只剩纯界面部分
+（崩溃对话框、隐私同意弹窗、AI 结果弹窗、加载窗口）与"起线程 + 把结果切回主
+线程"的接线；下面每个方法都退化成对服务的薄委托，**方法名与签名保持不变**，
+界面可见行为不变。
+"""
 
 import os
-import platform
 import re
 import sys
 import threading
@@ -11,145 +17,46 @@ from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 
+from services.crash_service import CRASH_TYPES as _CRASH_TYPES
+from services.crash_service import CrashService
+from services.errors import ServiceError
 from ui.constants import COLORS, FONT_FAMILY
 
 
 class CrashHandlerMixin(object):
     """崩溃处理 Mixin"""
 
-    # ── 崩溃类型检测 ──────────────────────────────────────────────
+    # ── 崩溃类型检测表（唯一对象在 services/crash_service.py）────────────
 
-    CRASH_TYPES = [
-        {
-            "name": "Mixin 错误",
-            "icon": "\U0001f9ec",
-            "required": ["org.spongepowered.asm.mixin"],
-            "optional": ["mixin apply for mod", ".mixins.json"],
-            "cause": "优化类模组（如 Sodium、OptiFine）在修改游戏底层代码时注入失败，可能因目标代码不存在、签名不匹配或版本错误。",
-            "advice": "检查崩溃报告中 .mixins.json 前的模组名，更新或移除该模组。",
-        },
-        {
-            "name": "模组加载异常",
-            "icon": "\u26a0\ufe0f",
-            "required": ["Mod Loading has failed", "net.minecraftforge.fml.LoadingFailedException"],
-            "optional": ["Could not execute entrypoint stage"],
-            "cause": "某个模组初始化失败（配置文件错误、注册表溢出等）。",
-            "advice": "查看崩溃报告中 Suspected Mod 字段或 Mod List 中标记为 E 的模组，更新或移除该模组。",
-        },
-        {
-            "name": "依赖缺失/版本错误",
-            "icon": "\U0001f517",
-            "required": ["ClassNotFoundException", "NoClassDefFoundError", "NoSuchMethodError", "NoSuchFieldError"],
-            "optional": ["Missing mod", "Requires", "depends"],
-            "cause": "缺少必需的模组、模组版本与游戏或其他模组不兼容，或 API 版本不匹配。",
-            "advice": "安装缺失的依赖模组，或更新相关模组到兼容版本。",
-        },
-        {
-            "name": "模组冲突",
-            "icon": "\u2694\ufe0f",
-            "required": ["Exception caught during firing event: null"],
-            "optional": ["conflict", "incompatible", "already registered", "Duplicate"],
-            "cause": "两个或多个模组同时修改同一游戏内容，或模组之间不兼容。",
-            "advice": "查看 Suspected Mods 字段，逐个禁用可疑模组定位冲突来源。",
-        },
-        {
-            "name": "内存溢出",
-            "icon": "\U0001f4be",
-            "required": ["java.lang.OutOfMemoryError"],
-            "optional": ["Unable to allocate", "heap space", "Metaspace", "GC overhead limit exceeded"],
-            "cause": "分配给 Minecraft 的内存不足、内存泄漏（通常由模组引起）或数据集过大。",
-            "advice": "在启动器设置中增加最大内存分配（建议 4-8GB），或检查是否有模组导致内存泄漏。",
-        },
-        {
-            "name": "渲染与图形错误",
-            "icon": "\U0001f3a8",
-            "required": ["OpenGL"],
-            "optional": ["GL error", "Shader", "Tesselator", "Rendering", "GPU", "Driver"],
-            "cause": "显卡驱动问题、过时的 OpenGL 版本、着色器编译错误或显卡不兼容。",
-            "advice": "更新显卡驱动，移除或更新光影/渲染优化模组，确保显卡支持所需 OpenGL 版本。",
-        },
-        {
-            "name": "线程与并发错误",
-            "icon": "\U0001f9f5",
-            "required": ["ConcurrentModificationException"],
-            "optional": ["Deadlock", "Thread stuck", "Wait timed out"],
-            "cause": "模组在多线程环境下未正确处理同步。",
-            "advice": "更新相关模组，或尝试移除最近添加的模组。",
-        },
-        {
-            "name": "网络同步错误",
-            "icon": "\U0001f310",
-            "required": ["Connection refused"],
-            "optional": ["Read timed out", "Packet handler", "NetworkManager"],
-            "cause": "模组自定义网络包未正确注册、数据结构不一致或网络环境不稳定。",
-            "advice": "检查网络连接，更新涉及网络功能的模组。",
-        },
-        {
-            "name": "世界生成错误",
-            "icon": "\U0001f5fa\ufe0f",
-            "required": ["World Generation"],
-            "optional": ["Chunk Loading", "Structure", "Biome", "Feature"],
-            "cause": "模组的生物群系、结构或特征注册错误、生成算法有 bug，或与其他修改世界生成的模组冲突。",
-            "advice": "更新涉及世界生成的模组，或创建新世界测试。",
-        },
-        {
-            "name": "服务端/客户端逻辑错误",
-            "icon": "\U0001f9e9",
-            "required": ["Integrated Server"],
-            "optional": ["Dedicated Server", "Logic error"],
-            "cause": "模组未正确区分逻辑客户端与逻辑服务器，导致数据不同步。",
-            "advice": "更新相关模组，检查模组是否支持当前游戏版本。",
-        },
-        {
-            "name": "Java 虚拟机崩溃",
-            "icon": "\U0001f4a5",
-            "required": ["SIGSEGV", "EXCEPTION_ACCESS_VIOLATION"],
-            "optional": ["Problematic frame", "fatal error"],
-            "cause": "Java 版本不兼容、JVM 参数错误、本地代码崩溃（通常由模组触发）或硬件/驱动问题。",
-            "advice": "更换兼容的 Java 版本，检查 JVM 参数，更新显卡驱动。",
-        },
-    ]
+    CRASH_TYPES = _CRASH_TYPES
+
+    # ── 服务层接线 ───────────────────────────────────────────────
+
+    def _crash_service(self) -> CrashService:
+        """惰性取得崩溃服务实例。
+
+        优先用 ``AppContext`` 里注册的那个（阶段 2 接上之后），取不到就自己造一个
+        并缓存下来 —— ``CrashService`` 不需要 ``AppContext``，构造期也只保存参数。
+        """
+        ctx = getattr(self, "context", None)
+        if ctx is not None:
+            getter = getattr(ctx, "try_get", None)
+            if callable(getter):
+                try:
+                    service = getter(CrashService.name)
+                except Exception:
+                    service = None
+                if service is not None:
+                    return service
+        service = getattr(self, "_crash_service_fallback", None)
+        if service is None:
+            service = CrashService()
+            self._crash_service_fallback = service
+        return service
 
     def _diagnose_crash(self, crash_files: dict) -> list:
-        """根据崩溃日志内容分析崩溃类型，返回匹配到的崩溃类型列表"""
-        # 收集所有可用的日志文本
-        text_parts = []
-
-        for key in ("crash_report", "game_log", "debug_log", "jvm_crash_log"):
-            path = crash_files.get(key)
-            if path and os.path.exists(path):
-                try:
-                    for enc in ("utf-8", "gbk", "latin-1"):
-                        try:
-                            text_parts.append(Path(path).read_text(enc, errors="ignore"))
-                            break
-                        except (UnicodeDecodeError, UnicodeError):
-                            continue
-                except Exception:
-                    pass
-
-        combined_text = "\n".join(text_parts)
-        if not combined_text.strip():
-            return []
-
-        matched = []
-        for crash_type in self.CRASH_TYPES:
-            required_hits = sum(1 for kw in crash_type["required"] if kw in combined_text)
-            optional_hits = sum(1 for kw in crash_type["optional"] if kw in combined_text)
-            if required_hits > 0:
-                matched.append(
-                    {
-                        "name": crash_type["name"],
-                        "icon": crash_type["icon"],
-                        "cause": crash_type["cause"],
-                        "advice": crash_type["advice"],
-                        "score": required_hits + optional_hits * 0.5,
-                    }
-                )
-
-        # 按匹配得分降序排列
-        matched.sort(key=lambda x: x["score"], reverse=True)
-        return matched[:3]  # 最多返回前 3 个最可能的崩溃类型
+        """根据崩溃日志内容分析崩溃类型，返回匹配到的崩溃类型列表（委托服务层）"""
+        return self._crash_service().diagnose_crash(crash_files)
 
     def _show_crash_dialog(self, exit_code: int, crash_files: dict):
         """显示崩溃提示对话框"""
@@ -537,113 +444,14 @@ class CrashHandlerMixin(object):
         close_btn.place(x=w // 2 - 20, y=h - 36, width=40)
 
     def _read_file_tail(self, filepath: str, lines: int = 200) -> str:
-        """读取文件最后 lines 行"""
-        if not filepath or not os.path.exists(filepath):
-            return ""
-        try:
-            for enc in ("utf-8", "gbk", "latin-1"):
-                try:
-                    with open(filepath, "r", encoding=enc, errors="ignore") as f:
-                        return "".join(f.readlines()[-lines:])
-                except (UnicodeDecodeError, UnicodeError):
-                    continue
-        except Exception:
-            pass
-        return ""
+        """读取文件最后 lines 行（委托服务层）"""
+        return self._crash_service().read_file_tail(filepath, lines)
 
     def _collect_ai_context(self, crash_files: dict, exit_code: int) -> str:
-        """收集发送给 AI 的崩溃上下文信息"""
-        parts = []
-
-        # 系统信息
-        parts.append(
-            f"[系统信息]\nOS: {platform.system()} {platform.release()}\n"
-            f"Python: {platform.python_version()}\n"
-            f"Architecture: {platform.machine()}\n"
-            f"退出码: {exit_code}"
+        """收集发送给 AI 的崩溃上下文信息（委托服务层）"""
+        return self._crash_service().collect_ai_context(
+            crash_files, exit_code, log_buffer=getattr(self, "_log_buffer", None)
         )
-
-        # 崩溃报告（完整内容，通常不大）
-        crash_report = crash_files.get("crash_report")
-        if crash_report:
-            content = self._read_file_tail(crash_report, 99999)
-            if content:
-                parts.append(f"[崩溃报告]\n{content}")
-
-        # 游戏日志最后 200 行
-        game_log = crash_files.get("game_log")
-        if game_log:
-            content = self._read_file_tail(game_log, 200)
-            if content:
-                parts.append(f"[游戏日志（最后200行）]\n{content}")
-
-        # debug 日志最后 200 行
-        debug_log = crash_files.get("debug_log")
-        if debug_log:
-            content = self._read_file_tail(debug_log, 200)
-            if content:
-                parts.append(f"[Debug 日志（最后200行）]\n{content}")
-
-        # JVM 崩溃日志
-        jvm_log = crash_files.get("jvm_crash_log")
-        if jvm_log:
-            content = self._read_file_tail(jvm_log, 200)
-            if content:
-                parts.append(f"[JVM 崩溃日志（最后200行）]\n{content}")
-
-        # 启动器日志最后 200 行
-        launcher_log = ""
-        if hasattr(self, "_log_buffer") and self._log_buffer:
-            launcher_log = self._log_buffer.getvalue()
-        if not launcher_log.strip():
-            disk_log = None
-            try:
-                from config import config as _cfg
-
-                disk_log = _cfg.log_file
-            except Exception:
-                system = platform.system().lower()
-                if system == "linux":
-                    disk_log = Path.home() / ".local" / "share" / "fmcl" / "fmcl.log"
-                else:
-                    disk_log = Path("latest.log")
-            if disk_log and disk_log.exists():
-                for enc in ("utf-8", "gbk", "latin-1"):
-                    try:
-                        launcher_log = disk_log.read_text(enc, errors="ignore")
-                        break
-                    except (UnicodeDecodeError, UnicodeError):
-                        continue
-        if launcher_log.strip():
-            log_lines = launcher_log.strip().splitlines()[-200:]
-            parts.append(f"[启动器日志（最后200行）]\n" + "\n".join(log_lines))
-
-        # 结构化日志（JSONL 格式，包含安装/启动/崩溃等核心流程的结构化记录）
-        try:
-            from config import config
-
-            structured_log_path = config.base_dir / "latest_structured.log"
-            if structured_log_path.exists():
-                structured_content = self._read_file_tail(str(structured_log_path), 100)
-                if structured_content:
-                    parts.append(f"[结构化日志（最后100行）]\n{structured_content}")
-        except Exception:
-            pass
-
-        from structured_logger import slog
-
-        slog.info(
-            "ai_context_collected",
-            exit_code=exit_code,
-            has_crash_report=bool(crash_files.get("crash_report")),
-            has_game_log=bool(crash_files.get("game_log")),
-            has_debug_log=bool(crash_files.get("debug_log")),
-            has_jvm_log=bool(crash_files.get("jvm_crash_log")),
-            has_launcher_log=bool(launcher_log.strip()),
-            context_length=len("\n\n".join(parts)),
-        )
-
-        return "\n\n".join(parts)
 
     def _ai_analyze_server_crash(self, exit_code: int):
         """AI 分析服务器崩溃（后台线程请求，主线程弹窗）"""
@@ -668,93 +476,16 @@ class CrashHandlerMixin(object):
         self._do_server_ai_analyze(context, exit_code, token)
 
     def _collect_server_ai_context(self, exit_code: int) -> str:
-        """收集发送给 AI 的服务器崩溃上下文"""
-        parts = []
-
-        # 系统信息
-        parts.append(
-            f"[系统信息]\nOS: {platform.system()} {platform.release()}\n"
-            f"Python: {platform.python_version()}\n"
-            f"Architecture: {platform.machine()}\n"
-            f"退出码: {exit_code}\n"
-            f"场景: 服务器崩溃分析"
+        """收集发送给 AI 的服务器崩溃上下文（委托服务层）"""
+        return self._crash_service().collect_server_ai_context(
+            exit_code,
+            version_id=getattr(self, "selected_server_version", "") or "",
+            server_log_lines=getattr(self, "_server_log_lines", []),
+            log_buffer=getattr(self, "_log_buffer", None),
         )
-
-        # 服务器版本
-        version_id = getattr(self, "selected_server_version", "") or ""
-        if version_id:
-            parts.append(f"[服务器版本]\n{version_id}")
-
-        # 服务器控制台日志（_server_log_lines 在 _watch_server_exit 中收集）
-        server_log_lines = getattr(self, "_server_log_lines", [])
-        if server_log_lines:
-            parts.append(f"[服务器日志（最后200行）]\n" + "\n".join(server_log_lines[-200:]))
-
-        # 启动器日志最后 200 行
-        launcher_log = ""
-        if hasattr(self, "_log_buffer") and self._log_buffer:
-            launcher_log = self._log_buffer.getvalue()
-        if not launcher_log.strip():
-            disk_log = None
-            try:
-                from config import config as _cfg
-
-                disk_log = _cfg.log_file
-            except Exception:
-                system = platform.system().lower()
-                if system == "linux":
-                    disk_log = Path.home() / ".local" / "share" / "fmcl" / "fmcl.log"
-                else:
-                    disk_log = Path("latest.log")
-            if disk_log and disk_log.exists():
-                for enc in ("utf-8", "gbk", "latin-1"):
-                    try:
-                        launcher_log = disk_log.read_text(enc, errors="ignore")
-                        break
-                    except (UnicodeDecodeError, UnicodeError):
-                        continue
-        if launcher_log.strip():
-            log_lines = launcher_log.strip().splitlines()[-200:]
-            parts.append(f"[启动器日志（最后200行）]\n" + "\n".join(log_lines))
-
-        # 结构化日志
-        try:
-            from config import config
-
-            structured_log_path = config.base_dir / "latest_structured.log"
-            if structured_log_path.exists():
-                structured_content = self._read_file_tail(str(structured_log_path), 100)
-                if structured_content:
-                    parts.append(f"[结构化日志（最后100行）]\n{structured_content}")
-        except Exception:
-            pass
-
-        from structured_logger import slog
-
-        slog.info(
-            "server_ai_context_collected",
-            exit_code=exit_code,
-            has_server_log=bool(server_log_lines),
-            has_launcher_log=bool(launcher_log.strip()),
-            context_length=len("\n\n".join(parts)),
-        )
-
-        return "\n\n".join(parts)
 
     def _do_server_ai_analyze(self, context: str, exit_code: int, token: str):
         """执行服务器 AI 分析（已通过隐私检查）"""
-        system_prompt = (
-            "你是一个 Minecraft 服务器崩溃日志分析专家。根据用户提供的服务器日志、启动器日志和系统信息，"
-            "分析服务器崩溃或异常退出的原因并给出具体、可操作的建议。\n"
-            "请用中文回复，格式如下：\n"
-            "## 崩溃原因分析\n（简明扼要地说明崩溃原因）\n\n"
-            "## 建议操作\n（列出具体的解决步骤，每步用数字编号）"
-        )
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"请分析以下 Minecraft 服务器异常退出信息：\n\n{context}"},
-        ]
-
         # 显示加载窗口
         import tkinter as tk
 
@@ -780,51 +511,16 @@ class CrashHandlerMixin(object):
         tk.Label(loading, text="请稍候，这可能需要几秒钟", font=(FONT_FAMILY, 9), fg="#667788", bg="#1a1a2e").pack()
 
         def _do_analyze():
-            import json
-            import urllib.error
-            import urllib.request
-
             try:
-                req_data = json.dumps({"model": "deepseek-chat", "messages": messages, "stream": False}).encode("utf-8")
-
-                req = urllib.request.Request(
-                    "https://jingdu.qzz.io/api/deepseek/v1/chat/completions",
-                    data=req_data,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {token}",
-                        "User-Agent": "FMCL/1.0 (Minecraft Launcher; server-crash-analyzer)",
-                    },
-                    method="POST",
-                )
-                with urllib.request.urlopen(req, timeout=120) as resp:
-                    result = json.loads(resp.read().decode("utf-8"))
-
-                ai_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-                if not ai_content:
-                    ai_content = "AI 未返回有效分析结果。"
-                from structured_logger import slog
-
-                slog.info("ai_server_crash_analysis", exit_code=exit_code, result_length=len(ai_content))
-                self.after(0, lambda: _show_result(ai_content))
-            except urllib.error.HTTPError as e:
-                _code = e.code
-                body = ""
-                try:
-                    body = e.read().decode("utf-8", errors="ignore")
-                except Exception:
-                    pass
-                _err_msg = f"HTTP {_code}: {body[:200]}"
-                from structured_logger import slog
-
-                slog.error("ai_server_crash_analysis_failed", exit_code=exit_code, error=_err_msg)
-                self.after(0, lambda: _show_error(_err_msg))
+                ai_content = self._crash_service().analyze_server_crash(context, exit_code, token)
+            except ServiceError as e:
+                _err_msg = e.message
+                self.after(0, lambda msg=_err_msg: _show_error(msg))
             except Exception as e:
                 _err_msg = str(e)
-                from structured_logger import slog
-
-                slog.error("ai_server_crash_analysis_failed", exit_code=exit_code, error=_err_msg)
-                self.after(0, lambda: _show_error(_err_msg))
+                self.after(0, lambda msg=_err_msg: _show_error(msg))
+            else:
+                self.after(0, lambda content=ai_content: _show_result(content))
             finally:
                 self.after(0, loading.destroy)
 
@@ -1010,51 +706,16 @@ class CrashHandlerMixin(object):
         tk.Label(loading, text="请稍候，这可能需要几秒钟", font=(FONT_FAMILY, 9), fg="#667788", bg="#1a1a2e").pack()
 
         def _do_analyze():
-            import json
-            import urllib.error
-            import urllib.request
-
             try:
-                req_data = json.dumps({"model": "deepseek-chat", "messages": messages, "stream": False}).encode("utf-8")
-
-                req = urllib.request.Request(
-                    "https://jingdu.qzz.io/api/deepseek/v1/chat/completions",
-                    data=req_data,
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {token}",
-                        "User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)",
-                    },
-                    method="POST",
-                )
-                with urllib.request.urlopen(req, timeout=120) as resp:
-                    result = json.loads(resp.read().decode("utf-8"))
-
-                ai_content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-                if not ai_content:
-                    ai_content = "AI 未返回有效分析结果。"
-                from structured_logger import slog
-
-                slog.info("ai_crash_analysis", exit_code=exit_code, result_length=len(ai_content))
-                self.after(0, lambda: _show_result(ai_content))
-            except urllib.error.HTTPError as e:
-                _code = e.code
-                body = ""
-                try:
-                    body = e.read().decode("utf-8", errors="ignore")
-                except Exception:
-                    pass
-                _err_msg = f"HTTP {_code}: {body[:200]}"
-                from structured_logger import slog
-
-                slog.error("ai_crash_analysis_failed", exit_code=exit_code, error=_err_msg)
-                self.after(0, lambda: _show_error(_err_msg))
+                ai_content = self._crash_service().analyze_crash(context, exit_code, token)
+            except ServiceError as e:
+                _err_msg = e.message
+                self.after(0, lambda msg=_err_msg: _show_error(msg))
             except Exception as e:
                 _err_msg = str(e)
-                from structured_logger import slog
-
-                slog.error("ai_crash_analysis_failed", exit_code=exit_code, error=_err_msg)
-                self.after(0, lambda: _show_error(_err_msg))
+                self.after(0, lambda msg=_err_msg: _show_error(msg))
+            else:
+                self.after(0, lambda content=ai_content: _show_result(content))
             finally:
                 self.after(0, loading.destroy)
 

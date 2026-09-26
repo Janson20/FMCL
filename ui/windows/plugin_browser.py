@@ -1,14 +1,62 @@
-"""插件市场浏览窗口 - 在线搜索和安装第三方插件"""
+"""插件市场浏览窗口 - 在线搜索和安装第三方插件
+
+业务逻辑已搬到 ``services/plugin_browser_service.py``（阶段 1 任务 1.8-B）：
+市场索引拉取、更新检查、搜索+标签过滤、分页判定、已装状态查询、权限分档，
+以及"下载 → 安装 → 授权 → 加载 → 启用"和"从市场更新"两条编排链。
+本文件只剩纯界面部分（控件构建、``PluginPermissionDialog``、``after`` 调度、
+i18n 文案、渲染、线程启动）；下面每个受影响的方法都退化成对服务的**薄委托**，
+**方法名与签名保持不变**，界面可见行为不变。
+
+记录现状、疑为缺陷（本轮只搬家，不顺手修）：``_check_updates_async`` 的 worker
+在**线程里**直接写 ``self._update_info``，再 ``after(0, ...)`` 渲染 ——
+与 D-93 是同一族竞态（晚返回的旧检查会覆盖新结果），本窗口没有世代守卫。
+"""
 
 import threading
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 from logzero import logger
 
+from app.context import current_context
+from services.browse_common import (
+    page_slice,
+    permission_summary,
+    tag_bar_display,
+    total_pages as browse_total_pages,
+)
+from services.plugin_browser_service import PluginBrowserService
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
 from ui.windows.plugin_permission_dialog import PluginPermissionDialog
+
+
+def _get_plugin_browser_service(owner: Any = None) -> PluginBrowserService:
+    """惰性取得服务实例（实现见 ``services/plugin_browser_service.py``）。
+
+    查找顺序："``owner.context.try_get`` → ``owner`` 上自造并缓存"。
+    服务不需要 ``AppContext``，构造期也只保存参数，因此界面在
+    ``__init__`` 之前（例如后台线程里）调用也安全。
+    """
+    ctx = getattr(owner, "context", None) or current_context()
+    if ctx is not None:
+        getter = getattr(ctx, "try_get", None)
+        if callable(getter):
+            try:
+                service = getter(PluginBrowserService.name)
+            except Exception:
+                service = None
+            if service is not None:
+                return service
+    service = getattr(owner, "_plugin_browser_service_fallback", None)
+    if service is None:
+        service = PluginBrowserService()
+        try:
+            owner._plugin_browser_service_fallback = service
+        except Exception:
+            # owner 可能是 __slots__ 对象或 None：不缓存，本次调用照常可用
+            pass
+    return service
 
 RISK_COLORS_MAP = {"high": "#e74c3c", "medium": "#f39c12", "low": "#2ecc71"}
 
@@ -188,7 +236,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         self._set_status(_("plugin_market_loading"), "loading")
 
         def _load():
-            plugins, error = self._market.fetch_index(force=force)
+            # 索引拉取（含缓存判定与网络）在服务层；线程与回主线程留在本方法里。
+            plugins, error = _get_plugin_browser_service(self).fetch_market_index(self._market, force)
             self.after(0, lambda: self._on_index_loaded(plugins, error))
 
         threading.Thread(target=_load, daemon=True).start()
@@ -208,17 +257,19 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         """异步检查插件更新"""
 
         def _check():
-            versions = self._pm.get_installed_versions_map()
-            self._update_info = self._market.check_updates(versions)
+            # "取已装版本表 → 问市场要更新信息"两步合并成服务层一个入口
+            # （worker 线程里写 self._update_info 是现状，见模块头说明）。
+            self._update_info = _get_plugin_browser_service(self).check_market_updates(self._pm, self._market)
             self.after(0, lambda: (self._render_page(), self._update_status_summary()))
 
         threading.Thread(target=_check, daemon=True).start()
 
     def _update_status_summary(self):
         """在状态栏显示更新摘要"""
-        update_count = sum(1 for info in self._update_info.values() if info["has_update"])
-        if update_count > 0:
-            self._set_status(_("plugin_market_updates_available", count=update_count), "warning")
+        # 统计口径（``info["has_update"]`` 是硬下标）搬到服务层
+        pending = _get_plugin_browser_service(self).update_count(self._update_info)
+        if pending > 0:
+            self._set_status(_("plugin_market_updates_available", count=pending), "warning")
 
     def _update_tag_bar(self):
         """更新标签筛选栏"""
@@ -226,7 +277,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
             w.destroy()
         self._tag_buttons.clear()
 
-        tag_map = self._market.get_available_tags()
+        # 数据源（市场可用标签表）在服务层；控件构建与显隐留在本方法里。
+        tag_map = _get_plugin_browser_service(self).available_tags(self._market)
         if not tag_map:
             self._tag_frame.pack_forget()
             return
@@ -250,7 +302,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         self._tag_buttons["_all"] = all_btn
 
         for tag_key, tag_name in tag_map.items():
-            display = tag_name[:4]
+            # 按钮文本的截断口径（前 4 个字符）与服务层共用同一份实现
+            display = tag_bar_display(tag_name)
             btn = ctk.CTkButton(
                 self._tag_frame,
                 text=display,
@@ -280,10 +333,9 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         self._apply_filter()
 
     def _apply_filter(self):
-        """应用搜索 + 标签筛选"""
-        query = (self._search_entry.get() or "").strip()
-        tags = [self._active_tag] if self._active_tag else None
-        self._filtered = self._market.search(query=query, tags=tags)
+        """应用搜索 + 标签筛选（控件读取与渲染留界面，规范化与查询在服务层）"""
+        query = self._search_entry.get()
+        self._filtered = _get_plugin_browser_service(self).filter_plugins(self._market, query, self._active_tag)
         self._current_page = 0
         self._render_page()
 
@@ -310,13 +362,15 @@ class PluginBrowserWindow(ctk.CTkToplevel):
 
         start = self._current_page * self.PAGE_SIZE
         end = min(start + self.PAGE_SIZE, total)
-        page_items = self._filtered[start:end]
+        page_items = page_slice(self._filtered, start, self.PAGE_SIZE)
 
         for plugin in page_items:
             self._create_plugin_card(plugin)
 
         # 分页
-        total_pages = (total + self.PAGE_SIZE - 1) // self.PAGE_SIZE
+        # 与 ``_change_page`` 共用同一个页数函数。``total == 0`` 时本方法已在
+        # 上面提前 return，因此这里的 ``max(1, ...)`` 对可达输入与原文等价。
+        total_pages = browse_total_pages(total, self.PAGE_SIZE)
         self._page_label.configure(text=f"{self._current_page + 1} / {total_pages}")
         self._prev_btn.configure(state="normal" if self._current_page > 0 else "disabled")
         self._next_btn.configure(state="normal" if end < total else "disabled")
@@ -335,13 +389,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         license_val = plugin.get("license", "")
         homepage = plugin.get("homepage", "")
 
-        # 已安装检查
-        installed = pid in (self._pm.get_all_plugin_meta() or {})
-        installed_state = ""
-        if installed:
-            state = self._pm.get_plugin_state(pid)
-            if state:
-                installed_state = state.value
+        # 已安装检查（判定本身搬到了服务层）
+        installed, installed_state = _get_plugin_browser_service(self).installed_lookup(self._pm, pid)
 
         # 更新检查
         update_info = self._update_info.get(pid, {})
@@ -432,21 +481,10 @@ class PluginBrowserWindow(ctk.CTkToplevel):
             tag_btn.pack(side=ctk.LEFT, padx=1)
 
         if permissions:
-            high_count = sum(1 for p in permissions if p in ("network.socket", "core.launch_hook", "core.process"))
-            medium_count = sum(
-                1 for p in permissions if p in ("filesystem.write", "core.download", "core.version", "data.settings")
-            )
-            low_count = len(permissions) - high_count - medium_count
-            perm_parts = []
-            if high_count:
-                perm_parts.append(f"H:{high_count}")
-            if medium_count:
-                perm_parts.append(f"M:{medium_count}")
-            if low_count:
-                perm_parts.append(f"L:{low_count}")
+            # 三档权限计数与 ``"| H:1 M:2 L:3"`` 的拼装都在服务层（逐字保留）
             ctk.CTkLabel(
                 info_row,
-                text=f"| {' '.join(perm_parts)}",
+                text=permission_summary(permissions),
                 font=ctk.CTkFont(family=FONT_FAMILY, size=10),
                 text_color=COLORS["text_secondary"],
             ).pack(side=ctk.LEFT, padx=4)
@@ -541,30 +579,23 @@ class PluginBrowserWindow(ctk.CTkToplevel):
             try:
                 self.after(0, lambda: self._set_status(_("plugin_market_downloading", name=name), "loading"))
 
-                fmpl_path, error = self._market.download_plugin(
-                    pid,
-                    progress_callback=lambda stage, cur, tot: self.after(
+                def _progress(stage, cur, tot):
+                    # 进度回调在**下载线程**里被调用，这里照原文自己 after 切回主线程
+                    # （per-call 闭包，等价于原文 lambda 的默认参数绑定）。
+                    self.after(
                         0,
-                        lambda s=stage, c=cur, t=tot: self._set_status(
-                            _("plugin_market_downloading_progress", name=name, cur=c, total=t), "loading"
+                        lambda: self._set_status(
+                            _("plugin_market_downloading_progress", name=name, cur=cur, total=tot), "loading"
                         ),
-                    ),
+                    )
+
+                # "下载 → （有错则中止）→ 安装 → 授权 → 加载 → 启用"整条链在服务层；
+                # 成败判定与状态栏留在这里（下文一字未改）。
+                ok, msg = _get_plugin_browser_service(self).install_plugin(
+                    self._pm, self._market, pid, permissions, progress_callback=_progress
                 )
 
-                if error:
-                    self.after(0, lambda e=error: self._on_install_failed(pid, e))
-                    return
-
-                # 安装
-                ok, msg = self._pm.install_from_file(fmpl_path, pid)
-
                 if ok:
-                    # 授权权限
-                    if permissions:
-                        self._pm.grant_manifest_permissions(pid)
-                    # 启用
-                    self._pm.load_plugin(pid)
-                    self._pm.enable_plugin(pid)
                     self.after(0, lambda n=name: self._on_install_success(pid, n))
                 else:
                     self.after(0, lambda m=msg: self._on_install_failed(pid, m))
@@ -600,14 +631,17 @@ class PluginBrowserWindow(ctk.CTkToplevel):
 
         def _do_update():
             try:
-                ok, msg = self._pm.update_plugin_from_market(
-                    pid,
-                    progress_callback=lambda stage, cur, tot: self.after(
+                def _progress(stage, cur, tot):
+                    self.after(
                         0,
-                        lambda s=stage, c=cur, t=tot: self._set_status(
-                            _("plugin_market_downloading_progress", name=name, cur=c, total=t), "loading"
+                        lambda: self._set_status(
+                            _("plugin_market_downloading_progress", name=name, cur=cur, total=tot), "loading"
                         ),
-                    ),
+                    )
+
+                # 市场更新调用（含进度回调的透传约定）在服务层
+                ok, msg = _get_plugin_browser_service(self).update_plugin_from_market(
+                    self._pm, pid, progress_callback=_progress
                 )
                 if ok:
                     self.after(0, lambda n=name: self._on_update_success(pid, n))
@@ -633,15 +667,11 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         self._render_page()
 
     def _enable_plugin(self, pid: str):
-        """启用已安装但禁用状态的插件"""
-        permissions = []
-        meta = self._pm.get_all_plugin_meta().get(pid, {})
-        manifest_data = meta.get("manifest", {})
-        if manifest_data:
-            permissions = manifest_data.get("permissions", [])
+        """启用已安装但禁用状态的插件（前置查询与启停调用在服务层，权限对话框留界面）"""
+        service = _get_plugin_browser_service(self)
+        manifest_data, permissions = service.enable_target(self._pm, pid)
         if permissions:
-            perm_state = self._pm.get_permission_state(pid)
-            if perm_state and perm_state.get_ungranted_permissions():
+            if service.has_ungranted_permissions(self._pm, pid):
                 dialog = PluginPermissionDialog(
                     self, plugin_name=manifest_data.get("name", pid), permissions=permissions
                 )
@@ -649,12 +679,8 @@ class PluginBrowserWindow(ctk.CTkToplevel):
                     self._pm.grant_manifest_permissions(pid)
                 else:
                     return
-        try:
-            self._pm.load_plugin(pid)
-            ok, msg = self._pm.enable_plugin(pid)
-        except Exception as e:
-            logger.error(f"启用插件失败 ({pid}): {e}")
-            ok, msg = False, str(e)
+        # 加载 + 启用（异常在这里被吞成 (False, str(e))，与原文逐字一致）在服务层
+        ok, msg = service.enable_installed_plugin(self._pm, pid)
         if ok:
             self._set_status(_("plugin_state_enabled") + f": {pid}")
         else:
@@ -671,8 +697,11 @@ class PluginBrowserWindow(ctk.CTkToplevel):
         self._apply_filter()
 
     def _change_page(self, delta: int):
-        new_page = self._current_page + delta
-        if 0 <= new_page < (len(self._filtered) + self.PAGE_SIZE - 1) // self.PAGE_SIZE:
+        """翻页（越界判定薄委托到服务层：返回 None 表示不翻页）"""
+        new_page = _get_plugin_browser_service(self).page_after_delta(
+            self._current_page, delta, len(self._filtered), self.PAGE_SIZE
+        )
+        if new_page is not None:
             self._current_page = new_page
             self._render_page()
 

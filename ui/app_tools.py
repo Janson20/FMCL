@@ -1,66 +1,68 @@
-"""ModernApp 工具 Mixin - 工具标签页相关方法"""
+"""ModernApp 工具 Mixin - 工具标签页相关方法
 
-import base64
-import hashlib
+业务逻辑已搬到 ``services/tool_service.py``（阶段 1 任务 1.6）：8 个工具
+（垃圾清理、端口检测、哈希计算、坐标转换、每日运势、MC 冷知识、MC 知识问答、
+多线程下载器）的算法与 IO。本文件只剩纯界面部分（卡片与部件、读输入框、
+把结果刷到控件上）与"起线程 + 把结果切回主线程"的接线；受影响的方法都退化成
+对服务的薄委托，**方法名与签名保持不变**，界面可见行为不变。
+
+未受影响的界面代码（卡片构建、勾选联动、控件排版、文案、颜色、间距）
+逐字保留 —— 改写由 ``poc/build_app_tools.py`` 按行区间拼接完成，
+未列入替换清单的行不可能被改动。
+
+唯一对象在服务里的常量/工具函数在这里只做**绑定**（与 ``ui/app_monitor.py``
+对 ``services/monitor_service.py`` 的做法一致）：``_MC_FACTS`` /
+``_QUIZ_SYSTEM_PROMPT`` / ``_format_size`` / ``_mc_write_varint`` /
+``_mc_read_varint`` 看到的都还是服务里那一份。
+"""
+
 import io
-import json
 import os
-import socket
-import struct
 import threading
-import time
-from datetime import date
 from pathlib import Path
 from tkinter import filedialog
 from typing import Any, Dict, List, Optional
 
 import customtkinter as ctk
-import requests
 from logzero import logger
 
+from services import tool_service as _tool_svc
+from services.errors import InvalidArgument
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
 
-
-def _mc_write_varint(buf: bytearray, value: int):
-    while True:
-        byte = value & 0x7F
-        value >>= 7
-        if value != 0:
-            byte |= 0x80
-        buf.append(byte)
-        if value == 0:
-            break
-
-
-def _mc_read_varint(sock: socket.socket) -> int:
-    value = 0
-    shift = 0
-    while True:
-        data = sock.recv(1)
-        if not data:
-            raise ConnectionError("Connection closed")
-        byte = data[0]
-        value |= (byte & 0x7F) << shift
-        if not (byte & 0x80):
-            break
-        shift += 7
-    return value
-
-
-def _format_size(bytes_count: int) -> str:
-    if bytes_count < 1024:
-        return f"{bytes_count} B"
-    elif bytes_count < 1024 * 1024:
-        return f"{bytes_count / 1024:.1f} KB"
-    elif bytes_count < 1024 * 1024 * 1024:
-        return f"{bytes_count / (1024 * 1024):.1f} MB"
-    else:
-        return f"{bytes_count / (1024 * 1024 * 1024):.2f} GB"
+# ─── 已搬进 services/tool_service.py 的工具函数（同一批对象）────────────
+_format_size = _tool_svc._format_size
+_mc_write_varint = _tool_svc._mc_write_varint
+_mc_read_varint = _tool_svc._mc_read_varint
 
 
 class ToolsTabMixin(object):
     """工具标签页 Mixin"""
+
+    # ── 服务层接线（实现在 services/tool_service.py）──────────────
+
+    def _tool_service(self) -> "_tool_svc.ToolService":
+        """惰性取得工具箱服务实例。
+
+        优先用 ``AppContext`` 里注册的那个（阶段 2 接上之后），取不到就自己造一个
+        并缓存下来 —— ``ToolService`` 不需要 ``AppContext``，构造期也只保存参数。
+        """
+        ctx = getattr(self, "context", None)
+        if ctx is not None:
+            getter = getattr(ctx, "try_get", None)
+            if callable(getter):
+                try:
+                    service = getter(_tool_svc.ToolService.name)
+                except Exception:
+                    service = None
+                if service is not None:
+                    return service
+        service = getattr(self, "_tool_service_fallback", None)
+        if service is None:
+            service = _tool_svc.ToolService()
+            self._tool_service_fallback = service
+        return service
 
     def _build_tools_tab_content(self):
         content = ctk.CTkScrollableFrame(self.tools_tab, fg_color="transparent")
@@ -301,10 +303,7 @@ class ToolsTabMixin(object):
         }
 
     def _add_junk_file_row(self, dir_key: str, fp: str, size: int):
-        try:
-            rel = os.path.relpath(fp, self._clean_junk_base)
-        except ValueError:
-            rel = fp
+        rel = self._tool_service().relative_path_from(fp, self._clean_junk_base)
         info = self._clean_junk_dirs[dir_key]
         row = ctk.CTkFrame(info["file_frame"], fg_color="transparent")
         row.pack(fill=ctk.X, pady=(1, 0))
@@ -359,12 +358,12 @@ class ToolsTabMixin(object):
             self._clean_junk_folder_entry.insert(0, path)
 
     def _is_protected_system_dir(self, path: str) -> bool:
-        sys_root = os.path.normcase(os.path.normpath(os.environ.get("SystemRoot", r"C:\Windows")))
-        p = os.path.normcase(os.path.normpath(os.path.abspath(path)))
-        return p == sys_root or p.startswith(sys_root + os.sep)
+        """路径是否在系统目录内（实现在 services/tool_service.py）"""
+        return self._tool_service().is_protected_system_dir(path)
 
     def _on_clean_junk(self):
         btn = self._clean_junk_btn
+        service = self._tool_service()
 
         scan_dir = self._clean_junk_folder_entry.get().strip()
         if not scan_dir:
@@ -372,42 +371,24 @@ class ToolsTabMixin(object):
         if not os.path.isdir(scan_dir):
             self.set_status(_("tool_clean_junk_folder_error"), "error")
             return
-        if self._is_protected_system_dir(scan_dir):
+        if service.is_protected_system_dir(scan_dir):
             self.set_status(_("tool_clean_junk_system_dir_error"), "error")
             return
 
         try:
-            max_depth = int(self._clean_junk_depth_entry.get().strip())
-        except ValueError:
+            max_depth = service.parse_max_depth(self._clean_junk_depth_entry.get().strip())
+        except InvalidArgument:
             self.set_status(_("tool_clean_junk_depth_error"), "error")
             return
-        max_depth = max(1, max_depth)
 
         btn.configure(state=ctk.DISABLED, text=_("tool_clean_junk_scanning"))
 
         def _task():
             try:
-                base = os.path.abspath(scan_dir)
-                junk_files = []
-                total_size = 0
-
-                for root, dirs, files in os.walk(base):
-                    dirs[:] = [d for d in dirs if not self._is_protected_system_dir(os.path.join(root, d))]
-                    rel = os.path.relpath(root, base)
-                    depth = 0 if rel == "." else rel.count(os.sep) + 1
-                    if depth >= max_depth:
-                        dirs[:] = []
-                    for f in files:
-                        if f.endswith(".log") or f.endswith(".tmp"):
-                            fp = os.path.join(root, f)
-                            try:
-                                size = os.path.getsize(fp)
-                            except OSError:
-                                size = 0
-                            junk_files.append((fp, size))
-                            total_size += size
-
-                junk_files.sort(key=lambda item: item[1], reverse=True)
+                scan = service.scan_junk_files(scan_dir, max_depth)
+                junk_files = scan.files
+                total_size = scan.total_size
+                base = scan.base
 
                 def _update_ui():
                     self._clean_junk_list_frame.pack_forget()
@@ -428,25 +409,12 @@ class ToolsTabMixin(object):
                         self._clean_junk_status.pack(anchor=ctk.W, padx=16, pady=(0, 8))
                         self._clean_junk_base = base
                         self._clean_junk_list_frame.pack(fill=ctk.X, padx=16, pady=(0, 6))
-                        dirs_map = {}
-                        for fp, size in junk_files:
-                            dirs_map.setdefault(os.path.dirname(fp), []).append((fp, size))
-                        for d, files in sorted(
-                            dirs_map.items(),
-                            key=lambda item: sum(s for _f, s in item[1]),
-                            reverse=True,
-                        ):
-                            try:
-                                rel_dir = os.path.relpath(d, base)
-                            except ValueError:
-                                rel_dir = d
-                            if rel_dir == ".":
-                                display = os.path.basename(base.rstrip(os.sep)) or base
-                            else:
-                                display = rel_dir
-                            self._add_junk_dir_row(d, display, len(files), sum(s for _f, s in files))
-                            for fp, size in files:
-                                self._add_junk_file_row(d, fp, size)
+                        for group in service.group_junk_files(base, junk_files):
+                            self._add_junk_dir_row(
+                                group.dir, group.display, len(group.files), sum(s for _f, s in group.files)
+                            )
+                            for fp, size in group.files:
+                                self._add_junk_file_row(group.dir, fp, size)
                         self._refresh_junk_selection()
                         self._clean_junk_selected_label.pack(anchor=ctk.W, padx=16, pady=(0, 8))
                         btn.configure(
@@ -477,12 +445,7 @@ class ToolsTabMixin(object):
 
     # ═══════════ MC 知识问答 ═══════════
 
-    _QUIZ_SYSTEM_PROMPT = (
-        """你是一个 Minecraft 知识题库生成器。请生成 20 道 Minecraft 相关的选择题（4个选项）。"""
-        """\n输出严格 JSON 数组，每个元素为：\n"""
-        """{"id": 序号, "question": "问题", "options": ["A.选项1", "B.选项2", "C.选项3", "D.选项4"], "answer": "正确选项的完整文本（如 B.选项2）", "explanation": "简短解释"}\n"""
-        """要求：涵盖 MC 生物、方块、合成、红石、附魔、维度、版本历史、游戏机制等各个方面。"""
-    )
+    _QUIZ_SYSTEM_PROMPT = _tool_svc.QUIZ_SYSTEM_PROMPT
 
     def _build_tool_minecraft_quiz(self, parent):
         card = self._make_tool_card(parent, _("tool_quiz_title"), _("tool_quiz_desc"))
@@ -538,24 +501,12 @@ class ToolsTabMixin(object):
         self.after(50, self._quiz_sync_token_status)
 
     def _quiz_load_from_file(self):
-        path = self._get_quiz_path()
-        if path.exists():
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, list):
-                    self._quiz_questions = data
-            except Exception:
-                self._quiz_questions = []
+        loaded = self._tool_service().load_quiz_questions(self._get_quiz_path())
+        if loaded is not None:
+            self._quiz_questions = loaded
 
     def _quiz_save_to_file(self):
-        path = self._get_quiz_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(self._quiz_questions, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"保存 quiz.json 失败: {e}")
+        self._tool_service().save_quiz_questions(self._get_quiz_path(), self._quiz_questions)
 
     def _get_quiz_path(self) -> Path:
         try:
@@ -630,19 +581,13 @@ class ToolsTabMixin(object):
         if getattr(self, "_quiz_refilling", False):
             return
         self._quiz_refilling = True
+        service = self._tool_service()
 
         def _task():
             try:
                 new_qs = self._quiz_call_ai_generate()
                 if new_qs:
-                    max_id = 0
-                    for q in self._quiz_questions:
-                        if isinstance(q.get("id"), int) and q["id"] > max_id:
-                            max_id = q["id"]
-                    reindexed = []
-                    for i, q in enumerate(new_qs):
-                        q["id"] = max_id + i + 1
-                        reindexed.append(q)
+                    reindexed = service.merge_generated_questions(self._quiz_questions, new_qs)
                     self._quiz_questions.extend(reindexed)
                     self._quiz_save_to_file()
 
@@ -660,30 +605,14 @@ class ToolsTabMixin(object):
 
     def _quiz_call_ai_generate(self) -> List[Dict]:
         token = self._get_quiz_token()
-        if not token:
-            raise ValueError(_("tool_quiz_not_logged_in"))
 
-        from ui.agent.providers.jingdu import JingduProvider
+        def _chat(messages):
+            from ui.agent.providers.jingdu import JingduProvider
 
-        provider = JingduProvider(api_key=token)
-        messages = [
-            {"role": "system", "content": self._QUIZ_SYSTEM_PROMPT},
-            {"role": "user", "content": "请生成 20 道 Minecraft 知识选择题（JSON 格式）。"},
-        ]
-        resp = provider.chat(messages)
-        content = resp.get("content", "")
-        if not content:
-            raise ValueError("AI 返回内容为空")
+            provider = JingduProvider(api_key=token)
+            return provider.chat(messages)
 
-        json_start = content.find("[")
-        json_end = content.rfind("]") + 1
-        if json_start == -1 or json_end <= json_start:
-            raise ValueError("AI 返回内容未包含有效的 JSON 数组")
-        raw = content[json_start:json_end]
-        questions = json.loads(raw)
-        if not isinstance(questions, list) or len(questions) == 0:
-            raise ValueError("AI 返回的 JSON 格式不正确")
-        return questions
+        return self._tool_service().generate_quiz(token, chat=_chat)
 
     def _quiz_show_current(self):
         for w in self._quiz_content_frame.winfo_children():
@@ -781,7 +710,7 @@ class ToolsTabMixin(object):
         correct = q.get("answer", "")
         explanation = q.get("explanation", "")
 
-        is_correct = selected.strip() == correct.strip()
+        is_correct = self._tool_service().check_choice_answer(selected, correct)
         self._quiz_result_label.configure(
             text=_("tool_quiz_correct") if is_correct else _("tool_quiz_wrong", correct=correct),
             text_color="#4caf50" if is_correct else "#cd5c5c",
@@ -820,7 +749,7 @@ class ToolsTabMixin(object):
         correct = q.get("answer", "")
         explanation = q.get("explanation", "")
 
-        is_correct = answer.strip().lower() == correct.strip().lower()
+        is_correct = self._tool_service().check_text_answer(answer, correct)
         self._quiz_result_label.configure(
             text=_("tool_quiz_correct") if is_correct else _("tool_quiz_wrong", correct=correct),
             text_color="#4caf50" if is_correct else "#cd5c5c",
@@ -858,13 +787,12 @@ class ToolsTabMixin(object):
             text_color=COLORS["text_secondary"],
         ).pack(anchor=ctk.W, pady=10)
 
+        service = self._tool_service()
+
         def _task():
             try:
                 questions = self._quiz_call_ai_generate()
-                reindexed = []
-                for i, q in enumerate(questions):
-                    q["id"] = i + 1
-                    reindexed.append(q)
+                reindexed = service.reindex_questions(questions)
                 self._quiz_questions = reindexed
                 self._quiz_current_index = 0
                 self._quiz_save_to_file()
@@ -895,8 +823,7 @@ class ToolsTabMixin(object):
         if not self._quiz_questions:
             return
 
-        if self._quiz_current_index < len(self._quiz_questions):
-            self._quiz_questions.pop(self._quiz_current_index)
+        self._tool_service().drop_question(self._quiz_questions, self._quiz_current_index)
         self._quiz_save_to_file()
 
         if not self._quiz_questions:
@@ -918,48 +845,7 @@ class ToolsTabMixin(object):
 
     # ═══════════ Minecraft 冷知识 ═══════════
 
-    _MC_FACTS = [
-        "MC 最早叫 Cave Game，2009年由 Notch 用 Java 开发。",
-        "爬行者最初是猪的模型 Bug 导致的，模型倒了但代码正确。",
-        "Minecraft 的世界比地球大 8 倍，最大可达 6 千万×6 千万方块。",
-        "狼可以被染色的项圈染色，用染料右键即可更换颜色。",
-        "末影龙是 MC 第一个加入的 Boss，Herobrine 从未正式存在。",
-        "金胡萝卜是游戏中回复饱食度最高的食物，性价比远超金苹果。",
-        "在下界睡觉会引发爆炸，所以不要在下界放床。",
-        "史莱姆不会受到摔落伤害，因为它们太Q弹了。",
-        "可以用绳子拴住鸡，带它到悬崖边——但它不会飞。",
-        "附魔金苹果需要使用 8 个金块和 1 个苹果合成，非常昂贵。",
-        "信标的顶部可以是玻璃，不影响光柱效果。",
-        "末影人碰到水会受到伤害，所以它们怕下雨。",
-        "用精准采集的工具可以获取完整的草方块而不是泥土。",
-        "MC 中的音乐由 C418 创作，其 Sweden 是最知名的曲目。",
-        "铁傀儡会送给村民小孩罂粟花，这是 MC 最暖心的细节。",
-        "在困难模式下，僵尸可以砸开木门进入房屋。",
-        "使用命名牌将生物改名为 Dinnerbone 或 Grumm 会让它倒立。",
-        "MC 的甘蔗不需要种在水源旁，水可以隔一格方块。",
-        "下界合金装备不会在岩浆中烧毁，掉进岩浆也能捡回来。",
-        "海龟壳头盔让你能在水下多呼吸 10 秒。",
-        "用剪刀剪羊可获得 1-3 个羊毛，远多于直接击杀。",
-        "附魔台上的符文来自银河标准字母，不是乱码。",
-        "MC 中一天为 20 分钟，白天 10 分钟，夜晚 7 分钟。",
-        "豹猫会吓跑爬行者，养一只在家附近可以有效防爆。",
-        "堆肥桶可以通过堆肥获得骨粉，各种植物的堆肥成功率不同。",
-        "MC 的 11 号唱片是一段诡异的录音，包含脚步声和逃跑声。",
-        "用蜂蜜瓶可以直接合成糖，不需要甘蔗。",
-        "哞菇被雷劈中后会变成棕色哞菇，再被雷劈又会变回来。",
-        "MC 有超过 400 种可制造的物品。",
-        "在 MC 的创造模式中，按 F3+N 可以快速切换旁观模式。",
-        "海豚会带领玩家寻找海底遗迹和沉船宝藏。",
-        "用胡萝卜钓竿可以控制骑着的猪走向。",
-        "MC 首次发布于 2009 年 5 月 17 日，至今已超过 15 年。",
-        "营火可以用来熏制食物，比熔炉更快。",
-        "凋零是唯一可以由玩家建造并召唤的 Boss。",
-        "海晶灯在水下提供光源，亮度与荧石相同。",
-        "马的跳跃高度由隐藏的跳高属性决定，优生优育很重要。",
-        "用精准采集的镐可以获取完整的末影箱。",
-        "工作台的世界其实是一个不断旋转的外景天空盒。",
-        "MC 中 Java 版的指令比基岩版更灵活多样。",
-    ]
+    _MC_FACTS = _tool_svc.MC_FACTS
 
     def _build_tool_minecraft_facts(self, parent):
         card = self._make_tool_card(parent, _("tool_fact_title"), _("tool_fact_desc"))
@@ -996,16 +882,11 @@ class ToolsTabMixin(object):
         self._on_new_fact()
 
     def _on_new_fact(self):
-        today = date.today().isoformat()
-        seed_str = f"fmcl_fact_{today}"
-        seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16)
-        index = seed % len(self._MC_FACTS)
+        index = self._tool_service().fact_of_the_day()
         self._show_fact(index, _("tool_fact_today"))
 
     def _on_random_fact(self):
-        import random as _random
-
-        index = _random.randint(0, len(self._MC_FACTS) - 1)
+        index = self._tool_service().random_fact_index()
         self._show_fact(index, _("tool_fact_random_title"))
 
     def _show_fact(self, index: int, tag: str):
@@ -1150,11 +1031,10 @@ class ToolsTabMixin(object):
         if not port_str:
             self.set_status(_("tool_port_no_port"), "error")
             return
+        service = self._tool_service()
         try:
-            port = int(port_str)
-            if port < 1 or port > 65535:
-                raise ValueError
-        except ValueError:
+            port = service.parse_port(port_str)
+        except InvalidArgument:
             self.set_status(_("tool_port_invalid_port"), "error")
             return
 
@@ -1162,26 +1042,8 @@ class ToolsTabMixin(object):
         btn.configure(state=ctk.DISABLED, text=_("tool_port_testing"))
 
         def _task():
-            sock = None
-            start = time.time()
-            err = None
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(5)
-                sock.connect((host, port))
-                sock.shutdown(socket.SHUT_RDWR)
-            except Exception as e:
-                err = str(e)
-            finally:
-                if sock:
-                    try:
-                        sock.close()
-                    except Exception:
-                        pass
-            elapsed = time.time() - start
-
-            status = "open" if err is None else "closed"
-            entry = (host, port, status, round(elapsed * 1000, 1), err)
+            probe = service.probe_port(host, port)
+            entry = (host, port, probe.status, probe.latency_ms, probe.error)
             self._port_results.insert(0, entry)
             if len(self._port_results) > 10:
                 self._port_results = self._port_results[:10]
@@ -1239,10 +1101,11 @@ class ToolsTabMixin(object):
         info_frame = ctk.CTkFrame(self._port_server_info_frame, fg_color=COLORS["bg_medium"], corner_radius=8)
         info_frame.pack(fill=ctk.X, pady=(0, 4))
 
+        service = self._tool_service()
         favicon = info.get("favicon")
         if favicon:
             try:
-                img_data = base64.b64decode(favicon.split(",", 1)[-1] if "," in favicon else favicon)
+                img_data = service.decode_favicon_data(favicon)
                 from PIL import Image as PILImage
                 from PIL import ImageTk
 
@@ -1264,44 +1127,24 @@ class ToolsTabMixin(object):
         text_col = ctk.CTkFrame(info_frame, fg_color="transparent")
         text_col.pack(side=ctk.LEFT, fill=ctk.X, expand=True, pady=10)
 
-        description = info.get("description", {})
-        if isinstance(description, dict):
-            desc_text = description.get("text", "")
-            extra_list = description.get("extra", [])
-            if extra_list:
-                parts = []
-                for e in extra_list:
-                    if isinstance(e, dict):
-                        parts.append(e.get("text", ""))
-                    elif isinstance(e, str):
-                        parts.append(e)
-                desc_text = "".join(parts) if parts else desc_text
-        elif isinstance(description, str):
-            desc_text = description
-        else:
-            desc_text = ""
-        desc_text = desc_text.replace("§", "").strip() or _("tool_peek_no_motd")
-
-        motd_len = 60
-        if len(desc_text) > motd_len:
-            desc_text = desc_text[:motd_len] + "..."
+        summary = service.summarize_server_info(info)
 
         ctk.CTkLabel(
             text_col,
-            text=desc_text,
+            text=summary.desc_text,
             font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"),
             text_color=COLORS["text_primary"],
             anchor=ctk.W,
         ).pack(anchor=ctk.W)
 
-        ver = info.get("version", {})
-        ver_name = ver.get("name", "?") if isinstance(ver, dict) else str(ver)
-        players = info.get("players", {}) if isinstance(info.get("players"), dict) else {}
-        online = players.get("online", 0)
-        max_p = players.get("max", 0)
-
         latency_color = "#4caf50" if latency_ms < 150 else ("#ff9800" if latency_ms < 400 else "#cd5c5c")
-        detail_text = _("tool_peek_detail", version=ver_name, online=online, max_p=max_p, latency=latency_ms)
+        detail_text = _(
+            "tool_peek_detail",
+            version=summary.version_name,
+            online=summary.online,
+            max_p=summary.max_players,
+            latency=latency_ms,
+        )
         ctk.CTkLabel(
             text_col,
             text=detail_text,
@@ -1310,26 +1153,15 @@ class ToolsTabMixin(object):
             anchor=ctk.W,
         ).pack(anchor=ctk.W, pady=(4, 0))
 
-        sample_list = players.get("sample", [])
-        if sample_list:
-            names = []
-            for s in sample_list:
-                if isinstance(s, dict):
-                    names.append(s.get("name", "?"))
-                elif isinstance(s, str):
-                    names.append(s)
-            if names:
-                sample_text = " | ".join(names[:8])
-                if len(sample_list) > 8:
-                    sample_text += f" ... +{len(sample_list) - 8}"
-                ctk.CTkLabel(
-                    text_col,
-                    text=sample_text,
-                    font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                    text_color=COLORS["text_secondary"],
-                    anchor=ctk.W,
-                    wraplength=400,
-                ).pack(anchor=ctk.W, pady=(2, 0))
+        if summary.sample_text:
+            ctk.CTkLabel(
+                text_col,
+                text=summary.sample_text,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                text_color=COLORS["text_secondary"],
+                anchor=ctk.W,
+                wraplength=400,
+            ).pack(anchor=ctk.W, pady=(2, 0))
 
     def _on_peek_server(self):
         host = self._port_host_entry.get().strip()
@@ -1341,9 +1173,12 @@ class ToolsTabMixin(object):
         if not port_str:
             port_str = "25565"
 
+        service = self._tool_service()
         try:
-            port = int(port_str)
-        except ValueError:
+            # 注意：这里**不做** 1~65535 范围校验（搬运前的行为就是如此，
+            # 与 _on_test_port 不一致，见 services/tool_service.parse_port 的说明）
+            port = service.parse_port(port_str, validate_range=False)
+        except InvalidArgument:
             self.set_status(_("tool_port_invalid_port"), "error")
             return
 
@@ -1354,49 +1189,10 @@ class ToolsTabMixin(object):
         self._clear_server_info()
 
         def _task():
-            sock = None
-            err = None
-            start = time.time()
-            info = None
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(5)
-                sock.connect((host, port))
-
-                host_bytes = host.encode("utf-8")
-                handshake = bytearray()
-                _mc_write_varint(handshake, 0x00)
-                _mc_write_varint(handshake, 767)
-                _mc_write_varint(handshake, len(host_bytes))
-                handshake.extend(host_bytes)
-                handshake.extend(struct.pack(">H", port))
-                _mc_write_varint(handshake, 1)
-
-                packet = bytearray()
-                _mc_write_varint(packet, len(handshake))
-                packet.extend(handshake)
-                sock.sendall(packet)
-                sock.sendall(b"\x01\x00")
-
-                _mc_read_varint(sock)
-                _mc_read_varint(sock)
-                length = _mc_read_varint(sock)
-                data = bytearray()
-                while len(data) < length:
-                    chunk = sock.recv(length - len(data))
-                    if not chunk:
-                        break
-                    data.extend(chunk)
-                info = json.loads(data.decode("utf-8"))
-            except Exception as e:
-                err = str(e)
-            finally:
-                if sock:
-                    try:
-                        sock.close()
-                    except Exception:
-                        pass
-            elapsed = round((time.time() - start) * 1000, 1)
+            peek = service.peek_server(host, port)
+            info = peek.info
+            err = peek.error
+            elapsed = peek.latency_ms
 
             def _update():
                 if err or info is None:
@@ -1489,10 +1285,7 @@ class ToolsTabMixin(object):
             self.set_status(_("copy_failed", error=str(e)), "error")
 
     def _parse_coord(self, entry) -> int:
-        try:
-            return int(entry.get().strip())
-        except ValueError:
-            return 0
+        return self._tool_service().parse_coordinate(entry.get())
 
     def _on_convert_coord(self, target: str):
         x = self._parse_coord(self._coord_entries["X"])
@@ -1503,14 +1296,8 @@ class ToolsTabMixin(object):
             w.destroy()
         self._coord_result_frame.pack_forget()
 
-        if target == "nether":
-            rx = x // 8
-            rz = z // 8
-            desc = _("tool_coord_result_nether", x=x, y=y, z=z, rx=rx, rz=rz)
-        else:
-            rx = x * 8
-            rz = z * 8
-            desc = _("tool_coord_result_overworld", x=x, y=y, z=z, rx=rx, rz=rz)
+        result = self._tool_service().convert_coordinates(x, y, z, target)
+        desc = result.desc
 
         self._coord_result_frame.pack(fill=ctk.X, padx=16, pady=(0, 12))
 
@@ -1522,7 +1309,7 @@ class ToolsTabMixin(object):
 
         ctk.CTkLabel(
             result_row,
-            text=f"{rx}, {y}, {rz}",
+            text=f"{result.rx}, {result.y}, {result.rz}",
             font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
             text_color=COLORS["accent"],
         ).pack(side=ctk.LEFT)
@@ -1535,7 +1322,7 @@ class ToolsTabMixin(object):
             font=ctk.CTkFont(family=FONT_FAMILY, size=12),
             fg_color=COLORS["bg_light"],
             hover_color=COLORS["card_border"],
-            command=lambda t=f"{rx}, {y}, {rz}": self._copy_result_to_clipboard(t),
+            command=lambda t=f"{result.rx}, {result.y}, {result.rz}": self._copy_result_to_clipboard(t),
         ).pack(side=ctk.LEFT, padx=(12, 0))
 
         ctk.CTkLabel(
@@ -1622,8 +1409,7 @@ class ToolsTabMixin(object):
             return
 
         algo = self._hash_algo_var.get()
-        algo_map = {"MD5": "md5", "SHA1": "sha1", "SHA256": "sha256", "SHA512": "sha512"}
-        hasher = hashlib.new(algo_map[algo])
+        service = self._tool_service()
 
         btn = self._hash_calc_btn
         btn.configure(state=ctk.DISABLED, text=_("tool_hash_calculating"))
@@ -1634,13 +1420,7 @@ class ToolsTabMixin(object):
 
         def _task():
             try:
-                with open(filepath, "rb") as f:
-                    while True:
-                        chunk = f.read(65536)
-                        if not chunk:
-                            break
-                        hasher.update(chunk)
-                result = hasher.hexdigest()
+                result = service.hash_file(filepath, algo)
 
                 def _done():
                     self._hash_result_frame.pack(fill=ctk.X, padx=16, pady=(4, 12))
@@ -1698,19 +1478,13 @@ class ToolsTabMixin(object):
 
         btn = self._clean_junk_btn
         btn.configure(state=ctk.DISABLED, text=_("tool_clean_junk_deleting"))
+        service = self._tool_service()
 
         def _task():
-            deleted = 0
-            failed = 0
-            deleted_size = 0
-            for _dir_key, fp, size in selected:
-                try:
-                    os.remove(fp)
-                    deleted += 1
-                    deleted_size += size
-                except OSError as e:
-                    logger.error(f"删除文件失败 {fp}: {e}")
-                    failed += 1
+            result = service.delete_junk_files(selected)
+            deleted = result.deleted
+            failed = result.failed
+            deleted_size = result.deleted_size
 
             def _update_ui():
                 for dir_key, fp, _size in selected:
@@ -1776,29 +1550,11 @@ class ToolsTabMixin(object):
         self._fortune_result_frame = ctk.CTkFrame(card, fg_color="transparent")
 
     def _on_check_fortune(self):
-        today = date.today().isoformat()
-        seed_str = f"fmcl_fortune_{today}"
-        seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16)
-        value = seed % 101
-
-        if value <= 20:
-            level_key = "tool_fortune_terrible"
-            emoji = "💀"
-        elif value <= 40:
-            level_key = "tool_fortune_bad"
-            emoji = "😟"
-        elif value <= 60:
-            level_key = "tool_fortune_normal"
-            emoji = "😐"
-        elif value <= 80:
-            level_key = "tool_fortune_good"
-            emoji = "😊"
-        elif value <= 95:
-            level_key = "tool_fortune_great"
-            emoji = "🌟"
-        else:
-            level_key = "tool_fortune_legendary"
-            emoji = "👑"
+        fortune = self._tool_service().daily_fortune()
+        today = fortune.today
+        value = fortune.value
+        level_key = fortune.level_key
+        emoji = fortune.emoji
 
         level_text = _(level_key)
         color_map = {
@@ -1964,6 +1720,8 @@ class ToolsTabMixin(object):
         ua = self._dl_ua_entry.get().strip()
         save_path = self._dl_save_entry.get().strip()
 
+        service = self._tool_service()
+
         if not url:
             self.set_status(_("tool_download_no_url"), "error")
             return
@@ -1978,7 +1736,7 @@ class ToolsTabMixin(object):
 
         if not os.path.isdir(save_dir):
             try:
-                os.makedirs(save_dir, exist_ok=True)
+                service.ensure_directory(save_dir)
             except OSError as e:
                 self.set_status(_("tool_download_mkdir_error", error=str(e)), "error")
                 return
@@ -2017,116 +1775,36 @@ class ToolsTabMixin(object):
 
         self._dl_cancel_flag = False
 
-        def _task():
-            import time as _time
+        def _on_progress(downloaded, total_size, speed):
+            def _update():
+                if total_size > 0:
+                    self._dl_progress_bar.set(min(downloaded / total_size, 1.0))
+                self._dl_speed_label.configure(text=_format_size(int(speed)) + "/s")
+                self._dl_status_label.configure(
+                    text=_(
+                        "tool_download_progress",
+                        current=_format_size(downloaded),
+                        total=_format_size(total_size),
+                    )
+                )
 
+            self.after(0, _update)
+
+        def _task():
             num_threads = self._get_download_threads_for_tools()
             self._dl_cancel_flag = False
 
             try:
-                resp = requests.head(url, headers={"User-Agent": ua}, timeout=15)
-                resp.raise_for_status()
+                outcome = service.download_multi(
+                    url,
+                    service.resolve_download_target(url, save_path, save_dir),
+                    user_agent=ua,
+                    threads=num_threads,
+                    cancel_check=lambda: self._dl_cancel_flag,
+                    on_progress=_on_progress,
+                )
 
-                total_size = int(resp.headers.get("Content-Length", 0))
-                if total_size == 0:
-                    resp2 = requests.get(url, headers={"User-Agent": ua}, stream=True, timeout=30)
-                    resp2.raise_for_status()
-                    chunks = []
-                    for chunk in resp2.iter_content(chunk_size=8192):
-                        if self._dl_cancel_flag:
-                            resp2.close()
-                            raise Exception("cancelled")
-                        chunks.append(chunk)
-                    content = b"".join(chunks)
-                    total_size = len(content)
-                    if not save_path or os.path.isdir(save_path):
-                        filename_from_url = url.split("/")[-1].split("?")[0]
-                        if not filename_from_url:
-                            filename_from_url = "downloaded_file"
-                        filename = os.path.join(save_dir, filename_from_url)
-                    else:
-                        filename = save_path
-                    with open(filename, "wb") as f:
-                        f.write(content)
-
-                    def _single_done():
-                        self._dl_progress_bar.set(1)
-                        self._dl_speed_label.configure(text="")
-                        self._dl_status_label.configure(
-                            text=_("tool_download_success", path=filename), text_color=COLORS["accent"]
-                        )
-                        self._dl_start_btn.configure(state=ctk.NORMAL, text=_("tool_download_start"))
-
-                    self.after(0, _single_done)
-                    return
-
-                if not save_path or os.path.isdir(save_path):
-                    filename_from_url = url.split("/")[-1].split("?")[0]
-                    if not filename_from_url:
-                        filename_from_url = "downloaded_file"
-                    filename = os.path.join(save_dir, filename_from_url)
-                else:
-                    filename = save_path
-
-                downloaded = 0
-                lock = threading.Lock()
-                start_time = _time.time()
-                part_size = total_size // num_threads
-
-                def _dl_part(start: int, end: int, idx: int):
-                    nonlocal downloaded
-                    headers = {"User-Agent": ua, "Range": f"bytes={start}-{end}"}
-                    part_file = f"{filename}.part{idx}"
-                    try:
-                        r = requests.get(url, headers=headers, stream=True, timeout=60)
-                        r.raise_for_status()
-                        with open(part_file, "wb") as pf:
-                            for chunk in r.iter_content(chunk_size=8192):
-                                if self._dl_cancel_flag:
-                                    r.close()
-                                    return
-                                if chunk:
-                                    pf.write(chunk)
-                                    with lock:
-                                        downloaded += len(chunk)
-                                        elapsed = _time.time() - start_time
-                                        if elapsed > 0:
-                                            speed = downloaded / elapsed
-
-                                            def _update():
-                                                if total_size > 0:
-                                                    self._dl_progress_bar.set(min(downloaded / total_size, 1.0))
-                                                self._dl_speed_label.configure(text=_format_size(int(speed)) + "/s")
-                                                self._dl_status_label.configure(
-                                                    text=_(
-                                                        "tool_download_progress",
-                                                        current=_format_size(downloaded),
-                                                        total=_format_size(total_size),
-                                                    )
-                                                )
-
-                                            self.after(0, _update)
-                    except Exception as e:
-                        logger.error(f"分段下载 {idx} 失败: {e}")
-                        raise
-
-                threads_list = []
-                for i in range(num_threads):
-                    start_byte = i * part_size
-                    end_byte = start_byte + part_size - 1 if i < num_threads - 1 else total_size - 1
-                    t = threading.Thread(target=_dl_part, args=(start_byte, end_byte, i))
-                    t.daemon = True
-                    threads_list.append(t)
-                    t.start()
-
-                for t in threads_list:
-                    t.join()
-
-                if self._dl_cancel_flag:
-                    for i in range(num_threads):
-                        pf = f"{filename}.part{i}"
-                        if os.path.exists(pf):
-                            os.remove(pf)
+                if outcome.status == "cancelled":
 
                     def _cancel_ui():
                         self._dl_status_label.configure(
@@ -2138,19 +1816,11 @@ class ToolsTabMixin(object):
                     self.after(0, _cancel_ui)
                     return
 
-                with open(filename, "wb") as outf:
-                    for i in range(num_threads):
-                        pf = f"{filename}.part{i}"
-                        if os.path.exists(pf):
-                            with open(pf, "rb") as inf:
-                                outf.write(inf.read())
-                            os.remove(pf)
-
                 def _done_ui():
                     self._dl_progress_bar.set(1)
                     self._dl_speed_label.configure(text="")
                     self._dl_status_label.configure(
-                        text=_("tool_download_success", path=filename), text_color=COLORS["accent"]
+                        text=_("tool_download_success", path=outcome.path), text_color=COLORS["accent"]
                     )
                     self._dl_start_btn.configure(state=ctk.NORMAL, text=_("tool_download_start"))
 

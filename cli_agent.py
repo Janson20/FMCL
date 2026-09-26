@@ -15,10 +15,18 @@ from logzero import logger
 
 from config import config
 from secure_storage import encrypt_token
-from ui.agent.providers.jingdu import JingduProvider
-from ui.agent.system_prompt import get_system_prompt
-from ui.agent.tool_registry import get_registry, get_tool_definitions
-from ui.agent.tools.system import ASK_USER_MARKER, DANGEROUS_MARKER, execute_dangerous_command
+# 阶段 1 起 Agent 的业务实现住在 services/ 层（ui.agent.* 只是兼容别名）；
+# CLI 不是界面，直接依赖服务层，避免绕一层别名。
+from services.agent.providers.jingdu import JingduProvider
+from services.agent.system_prompt import get_system_prompt
+from services.agent.tool_registry import get_registry, get_tool_definitions
+
+# 修复 D-106：ASK_USER_MARKER 定义在 tools/user.py，从来不在 tools/system.py。
+# 原写法（from ...tools.system import ASK_USER_MARKER, ...）自始就是 ImportError，
+# 导致 cli_agent.py / agent_cli.py 完全无法导入、main.py 的 -agent 模式整条不可用。
+# 这里按名字的真实归属拆成两条导入，语义不变（三个名字都仍然直接可见）。
+from services.agent.tools.system import DANGEROUS_MARKER, execute_dangerous_command
+from services.agent.tools.user import ASK_USER_MARKER
 
 
 def _print(text: str = ""):

@@ -1,151 +1,32 @@
-"""AI 提供商抽象层 - 多模型支持（净读 AI / OpenAI / Anthropic / 自定义）
+"""AI 提供商抽象层（BaseProvider / URL 归一化 / 连接测试）（转发 shim）
 
-每个 Provider 负责与特定 API 通信，封装认证、请求构建、响应解析。
-提供 chat() 非流式和 stream_chat() 流式两种调用方式。
+实现已搬到 ``services/agent/provider.py``。
+
+**本模块名直接指向实现模块**（``sys.modules[__name__] = _impl``），而不是用
+``globals().update(...)`` 复制引用。后者只能保证"读"到同一批对象，**"写"传不过去**：
+``import ui.agent.provider as m; m.FOO = fake`` 只会改到 shim 的命名空间，实现模块里的
+``FOO`` 不变 —— monkeypatch 会**静默失效**。
+
+这个坑是实测踩到的：``ui/music_source/`` 搬走后，``tests/test_music_fallback.py``
+里的 ``monkeypatch.setattr(ms, "MUSIC_SOURCES", fakes)`` 失效，测试**真去请求了
+QQ 音乐接口**。
+
+别名方式让 ``ui.agent.provider is services.agent.provider`` 成立：读、写、打补丁、``is`` 判定全部与
+搬家前一致。
+
+**同时还把实现模块的名字复制一份到本模块的 ``__dict__``**，用于兼容另一种加载
+方式：仓库里 ``tests/test_music_playlist.py`` 是按**文件路径**加载模块
+（``spec_from_file_location`` + 自己注册进 ``sys.modules``）以绕开 ``ui/__init__.py``
+的 GUI 导入，它会**保留 exec 之前的模块对象** —— 只做别名的话那个对象仍是空壳
+（实测踩到过：``mp.PlaylistSong`` AttributeError）。两种机制都很便宜，一起用最稳。
+
+阶段 3 完成后本文件可删除。
 """
 
-import json
-import urllib.error
-import urllib.request
-from abc import ABC, abstractmethod
-from typing import Callable, Dict, Generator, List, Optional
+import sys
 
-from logzero import logger
+import services.agent.provider as _impl
 
-from ui.agent.models import ModelInfo, get_default_model, get_models_by_provider
+sys.modules[__name__] = _impl
 
-
-def normalize_chat_completions_url(url: str) -> str:
-    """标准化 OpenAI 兼容 API URL，确保以 /chat/completions 结尾
-
-    兼容输入格式：
-    - https://api.openai.com/v1/chat/completions  → 原样返回
-    - https://api.openai.com/v1                   → 追加 /chat/completions
-    """
-    url = url.rstrip("/")
-    if not url.endswith("/chat/completions"):
-        url += "/chat/completions"
-    return url
-
-
-def normalize_anthropic_url(url: str) -> str:
-    """标准化 Anthropic API URL，确保以 /v1/messages 结尾
-
-    兼容输入格式：
-    - https://api.anthropic.com/v1/messages       → 原样返回
-    - https://api.anthropic.com                   → 追加 /v1/messages
-    """
-    url = url.rstrip("/")
-    if not url.endswith("/v1/messages"):
-        url += "/v1/messages"
-    return url
-
-
-class BaseProvider(ABC):
-    """AI 提供商基类"""
-
-    # 子类必须设置
-    provider_id: str = ""
-    provider_name: str = ""
-    default_api_url: str = ""
-
-    def __init__(
-        self, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None
-    ):
-        self.api_key = api_key
-        self.api_url = normalize_chat_completions_url(api_url or self.default_api_url)
-        self.timeout = timeout
-        self.extra_headers = extra_headers or {}
-
-    @property
-    def models(self) -> List[ModelInfo]:
-        """返回此提供商支持的所有模型"""
-        return get_models_by_provider(self.provider_id)
-
-    @property
-    def default_model(self) -> Optional[ModelInfo]:
-        """返回默认模型"""
-        return get_default_model(self.provider_id)
-
-    @abstractmethod
-    def chat(
-        self,
-        messages: List[Dict],
-        tools: Optional[List[Dict]] = None,
-        model: str = "",
-        max_tokens: int = 4096,
-        temperature: float = 0.7,
-    ) -> Dict:
-        """非流式聊天补全
-
-        Returns:
-            {"role": "assistant", "content": "...", "tool_calls": [...]}
-        """
-        ...
-
-    @abstractmethod
-    def stream_chat(
-        self,
-        messages: List[Dict],
-        tools: Optional[List[Dict]] = None,
-        model: str = "",
-        max_tokens: int = 4096,
-        temperature: float = 0.7,
-    ) -> Generator[Dict, None, None]:
-        """流式聊天补全
-
-        Yields:
-            事件字典，格式为 {"type": "text_delta"|"thinking_delta"|"tool_call_start"|... , ...}
-        """
-        ...
-
-    @classmethod
-    def from_config(
-        cls, api_key: str, api_url: str = "", timeout: int = 120, extra_headers: Optional[Dict[str, str]] = None
-    ):
-        return cls(api_key=api_key, api_url=api_url, timeout=timeout, extra_headers=extra_headers)
-
-    @staticmethod
-    def test_connection(
-        api_url: str, api_key: str, timeout: int = 15, custom_models: Optional[List[str]] = None
-    ) -> dict:
-        """测试 API 连接是否正常
-
-        Returns:
-            {"ok": True/False, "message": "...", "models": [...]}
-        """
-        try:
-            test_model = custom_models[0] if custom_models else "gpt-3.5-turbo"
-            req_data = json.dumps(
-                {"model": test_model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 1}
-            ).encode("utf-8")
-
-            url = normalize_chat_completions_url(api_url)
-            req = urllib.request.Request(
-                url,
-                data=req_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}",
-                    "User-Agent": "FMCL/2.0 (Minecraft Launcher; agent-connection-test)",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                models_resp = json.loads(resp.read().decode("utf-8"))
-                models = []
-                if "data" in models_resp:
-                    models = [m.get("id", "") for m in models_resp.get("data", [])]
-
-            return {"ok": True, "message": "连接成功", "models": models}
-        except urllib.error.HTTPError as e:
-            body = ""
-            try:
-                body = e.read().decode("utf-8", errors="ignore")[:300]
-            except Exception:
-                pass
-            if e.code == 401:
-                return {"ok": False, "message": "认证失败：API Key 无效", "models": []}
-            return {"ok": False, "message": f"HTTP {e.code}: {body}", "models": []}
-        except Exception as e:
-            return {"ok": False, "message": f"连接失败: {e}", "models": []}
+globals().update({k: v for k, v in vars(_impl).items() if not k.startswith("__")})

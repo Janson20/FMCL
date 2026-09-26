@@ -4,6 +4,16 @@
     - 使用 Toplevel 的 attributes("-transparentcolor") 实现背景透明
     - 背景色块(控制栏+歌词行)通过调整 fg_color 的透明度来模拟整体半透明效果
     - 所有文字始终完全不透明
+
+阶段 1 任务 1.4-A（形态 2：逻辑与窗口切分）：**零 GUI 的规则**已搬进
+``services/desktop_lyric.py`` —— 屏幕尺寸 → 窗口坐标、进度 → 当前歌词行（二分）、
+透明度边界与步长、拖动位置计算、锁定态翻转，以及状态数据类 ``LyricWindowState``。
+本文件只剩 Tk 表示层：控件创建/配置、`geometry()` / `attributes()`、事件绑定与
+窗口生命周期。判据是"能不能在不创建 Tk 窗口的前提下算出结果"。
+
+``_alpha_color`` 按同一条判据**留在本文件**：它把 ``ui/constants.py`` 的
+``COLORS["bg_dark"]`` 转成 customtkinter 认的 ``"#rrggbb"`` 串，是 Tk 的颜色表示，
+不是纯计算。详见 `services/desktop_lyric.py` 的模块 docstring。
 """
 
 import tkinter as tk
@@ -11,6 +21,18 @@ from typing import List, Optional
 
 import customtkinter as ctk
 
+from services.desktop_lyric import (
+    ALPHA_MAX,
+    ALPHA_MIN,
+    DEFAULT_ALPHA,
+    DEFAULT_WINDOW_HEIGHT,
+    DEFAULT_WINDOW_WIDTH,
+    FALLBACK_SCREEN_SIZE,
+    LyricWindowState,
+    calc_center_bottom_position,
+    find_current_line,
+    neighbor_line_texts,
+)
 from ui.constants import COLORS, FONT_FAMILY
 from ui.music_lyrics import LyricLine
 
@@ -43,11 +65,11 @@ class DesktopLyricWindow:
 
     def __init__(self, parent):
         self._parent: ctk.CTk = parent
-        self._locked: bool = False
+        # 位置/透明度/锁定/当前行索引由服务侧的状态数据类持有（阶段 1.4-A）
+        self._state = LyricWindowState(
+            width=DEFAULT_WINDOW_WIDTH, height=DEFAULT_WINDOW_HEIGHT, alpha=DEFAULT_ALPHA
+        )
         self._lyric_lines: List[LyricLine] = []
-        self._current_line_index: int = -1
-        self._alpha: float = 0.85
-        self._drag_data: dict = {"x": 0, "y": 0}
 
         self._win = self._create_window()
         self._win.withdraw()
@@ -56,12 +78,12 @@ class DesktopLyricWindow:
         win = ctk.CTkToplevel(self._parent)
         win.title("FMCL 桌面歌词")
         win.attributes("-topmost", True)
-        win.attributes("-alpha", self._alpha)
+        win.attributes("-alpha", self._state.alpha)
         win.overrideredirect(True)
 
         # 计算屏幕下方居中位置
-        x, y = self._calc_center_bottom_position(win, 600, 140)
-        win.geometry(f"600x140+{x}+{y}")
+        x, y = self._calc_center_bottom_position(win, self._state.width, self._state.height)
+        win.geometry(f"{self._state.width}x{self._state.height}+{x}+{y}")
         win.configure(fg_color=_BG_COLOR)
         win.protocol("WM_DELETE_WINDOW", self.hide_lyric)
 
@@ -163,32 +185,33 @@ class DesktopLyricWindow:
     # ─── 拖拽 ─────────────────────────────────────────
 
     def _calc_center_bottom_position(self, win, width: int, height: int) -> tuple:
-        """计算屏幕下方居中位置，避开任务栏"""
+        """计算屏幕下方居中位置，避开任务栏
+
+        计算规则已搬进 `services.desktop_lyric.calc_center_bottom_position`；
+        这里只负责"问 Tk 要屏幕尺寸"（探测失败时沿用原文的 1920x1080 兜底）。
+        """
         try:
             screen_w = win.winfo_screenwidth()
             screen_h = win.winfo_screenheight()
         except Exception:
-            screen_w, screen_h = 1920, 1080
-        x = (screen_w - width) // 2
-        # 底部留 80px 边距 (避开任务栏)
-        y = screen_h - height - 80
-        return x, max(0, y)
+            screen_w, screen_h = FALLBACK_SCREEN_SIZE
+        return calc_center_bottom_position(screen_w, screen_h, width, height)
 
     def _start_drag(self, event):
-        if self._locked:
+        if not self._state.is_draggable:
             return
         try:
-            self._drag_data["x"] = event.x_root - self._win.winfo_x()
-            self._drag_data["y"] = event.y_root - self._win.winfo_y()
+            self._state.begin_drag(
+                event.x_root, event.y_root, self._win.winfo_x(), self._win.winfo_y()
+            )
         except Exception:
             pass
 
     def _drag(self, event):
-        if self._locked:
+        if not self._state.is_draggable:
             return
         try:
-            x = event.x_root - self._drag_data["x"]
-            y = event.y_root - self._drag_data["y"]
+            x, y = self._state.drag_to(event.x_root, event.y_root)
             self._win.geometry(f"+{x}+{y}")
         except Exception:
             pass
@@ -196,22 +219,22 @@ class DesktopLyricWindow:
     # ─── 锁定 ─────────────────────────────────────────
 
     def _toggle_lock(self):
-        self._locked = not self._locked
-        self._lock_btn.configure(text="🔒" if self._locked else "🔓")
+        locked = self._state.toggle_lock()
+        self._lock_btn.configure(text="🔒" if locked else "🔓")
 
     # ─── 透明度 ───────────────────────────────────────
 
     def _increase_opacity(self):
-        self._alpha = min(1.0, self._alpha + 0.05)
+        alpha = self._state.increase_opacity()
         try:
-            self._win.attributes("-alpha", self._alpha)
+            self._win.attributes("-alpha", alpha)
         except Exception:
             pass
 
     def _decrease_opacity(self):
-        self._alpha = max(0.15, self._alpha - 0.05)
+        alpha = self._state.decrease_opacity()
         try:
-            self._win.attributes("-alpha", self._alpha)
+            self._win.attributes("-alpha", alpha)
         except Exception:
             pass
 
@@ -219,7 +242,7 @@ class DesktopLyricWindow:
 
     def set_lyric_lines(self, lines: List[LyricLine]):
         self._lyric_lines = lines
-        self._current_line_index = -1
+        self._state.reset_current_line()
         if lines:
             self._current_line_label.configure(text="设置完成，等待播放...")
         else:
@@ -240,31 +263,19 @@ class DesktopLyricWindow:
             self._next_line_label.configure(text=nxt_text)
             return
 
-        if current_idx != self._current_line_index:
-            self._current_line_index = current_idx
+        if current_idx != self._state.current_line_index:
+            self._state.current_line_index = current_idx
 
         current = self._lyric_lines[current_idx]
         self._current_line_label.configure(text=current.text)
 
-        prev_text = self._lyric_lines[current_idx - 1].text if current_idx > 0 else ""
+        prev_text, nxt_text = neighbor_line_texts(self._lyric_lines, current_idx)
         self._prev_line_label.configure(text=prev_text)
-
-        nxt_text = self._lyric_lines[current_idx + 1].text if current_idx + 1 < len(self._lyric_lines) else ""
         self._next_line_label.configure(text=nxt_text)
 
     def _find_current_line(self, elapsed_ms: int) -> int:
-        if not self._lyric_lines:
-            return -1
-        lo, hi = 0, len(self._lyric_lines) - 1
-        result = -1
-        while lo <= hi:
-            mid = (lo + hi) // 2
-            if self._lyric_lines[mid].time <= elapsed_ms:
-                result = mid
-                lo = mid + 1
-            else:
-                hi = mid - 1
-        return result
+        """二分查找当前歌词行（规则已搬进 `services.desktop_lyric.find_current_line`）。"""
+        return find_current_line(self._lyric_lines, elapsed_ms)
 
     # ─── 显示/隐藏 ────────────────────────────────────
 
@@ -298,8 +309,8 @@ class DesktopLyricWindow:
 
     @property
     def is_locked(self) -> bool:
-        return self._locked
+        return self._state.locked
 
     @property
     def opacity(self) -> float:
-        return self._alpha
+        return self._state.alpha

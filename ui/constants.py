@@ -1,4 +1,11 @@
-"""UI 常量定义 - 颜色主题、字体检测、全局配置"""
+"""UI 常量定义 - 颜色主题、字体检测、全局配置
+
+颜色主题与 User-Agent 已搬到服务层（``services/palette.py``、
+``services/user_agent.py``），这里只做再导出，保证
+``from ui.constants import COLORS, USER_AGENT`` 等既有写法继续可用，且
+``COLORS`` 与 ``services.palette.COLORS`` 是**同一个** dict 对象。
+字体检测与资源类型属于界面呈现问题，本轮不搬。
+"""
 
 import glob
 import logging
@@ -8,24 +15,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-# ─── 颜色主题 ───────────────────────────────────────────────
-COLORS = {
-    "bg_dark": "#1a1a2e",
-    "bg_medium": "#16213e",
-    "bg_light": "#0f3460",
-    "accent": "#e94560",
-    "accent_hover": "#ff6b81",
-    "success": "#2ecc71",
-    "warning": "#f39c12",
-    "error": "#e74c3c",
-    "text_primary": "#ffffff",
-    "text_secondary": "#a0a0b0",
-    "card_bg": "#1e2a4a",
-    "card_border": "#2d3a5c",
-}
-
-# 运行时颜色引用（主题引擎会直接更新此字典，所有引用自动同步）
-current_colors = COLORS
+from services.palette import COLORS, current_colors
+from services.user_agent import USER_AGENT, LazyStr, _get_fmcl_version, _get_user_agent
 
 # ─── 跨平台中文字体检测 ──────────────────────────────────────────
 
@@ -300,46 +291,7 @@ def _install_emoji_font():
         _mark_install_attempted()
 
 
-class LazyStr:
-    """惰性求值字符串 — 首次 str()/f-string/format 时才计算实际值
-
-    各模块 ``from ui.constants import FONT_FAMILY`` 拿到的是轻量对象，
-    真正的字体检测（subprocess 调用）在 CTkFont(family=FONT_FAMILY) 构建时发生。
-    """
-
-    def __init__(self, func):
-        self._func = func
-        self._value = None
-
-    def __str__(self):
-        if self._value is None:
-            self._value = self._func()
-        return self._value
-
-    def __repr__(self):
-        return str(self)
-
-
 FONT_FAMILY = LazyStr(_detect_font_family)
-
-
-def _get_fmcl_version():
-    """从 updater.py 获取 FMCL 版本号"""
-    try:
-        from updater import get_current_version
-
-        return get_current_version()
-    except Exception:
-        pass
-    return "unknown"
-
-
-def _get_user_agent() -> str:
-    """获取 HTTP User-Agent 字符串"""
-    return f"FMCL/{_get_fmcl_version()}"
-
-
-USER_AGENT = LazyStr(_get_user_agent)
 
 
 # ─── 资源类型配置 ─────────────────────────────────────────────

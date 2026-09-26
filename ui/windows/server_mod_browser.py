@@ -1,14 +1,62 @@
-"""服务器 Modrinth Mod 浏览窗口 - 浏览并安装服务端模组"""
+"""服务器 Modrinth Mod 浏览窗口 - 浏览并安装服务端模组
+
+业务逻辑已搬到 ``services/mod_browser_service.py``（阶段 1 任务 1.8-B）：
+单源搜索（Modrinth ``search_server_mods``，后端分页口径）、AI 关键词搜索的内联
+编排（扩展关键词 → 逐词搜索 → 去重 → 排序 → 单词失败只告警）、服务端模组目录
+解析、模组安装调用。本文件只剩纯界面部分（控件构建、``after`` 调度、i18n 文案、
+渲染、线程启动）；下面每个受影响的方法都退化成对服务的**薄委托**，
+**方法名与签名保持不变**，界面可见行为不变。
+
+本窗口**没有** D-93 那套请求世代守卫（阶段 1.22 只给 ``mod_browser`` 加了）——
+记录现状、疑为缺陷：这里的 ``_do_search`` / ``_do_ai_search`` 仍然在 **worker 线程**
+里直接写 ``self._total_hits`` / ``self._ai_cached_hits`` 再 ``after(0, ...)`` 渲染，
+连打两次搜索时晚返回的旧请求仍会覆盖新结果。本轮只搬家，**不顺手改**行为。
+"""
 
 import threading
-from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 from logzero import logger
 
+from app.context import current_context
+from services.browse_common import (
+    MOD_LOADER_COMPAT_MAP,
+    format_downloads,
+    page_slice,
+    total_pages as browse_total_pages,
+)
+from services.mod_browser_service import ModBrowserService, compat_loader
 from ui.constants import COLORS, FONT_FAMILY
 from ui.i18n import _
+
+
+def _get_mod_browser_service(owner: Any = None) -> ModBrowserService:
+    """惰性取得服务实例（实现见 ``services/mod_browser_service.py``）。
+
+    查找顺序："``owner.context.try_get`` → ``owner`` 上自造并缓存"。
+    服务不需要 ``AppContext``，构造期也只保存参数，因此界面在
+    ``__init__`` 之前（例如后台线程里）调用也安全。
+    """
+    ctx = getattr(owner, "context", None) or current_context()
+    if ctx is not None:
+        getter = getattr(ctx, "try_get", None)
+        if callable(getter):
+            try:
+                service = getter(ModBrowserService.name)
+            except Exception:
+                service = None
+            if service is not None:
+                return service
+    service = getattr(owner, "_mod_browser_service_fallback", None)
+    if service is None:
+        service = ModBrowserService()
+        try:
+            owner._mod_browser_service_fallback = service
+        except Exception:
+            # owner 可能是 __slots__ 对象或 None：不缓存，本次调用照常可用
+            pass
+    return service
 
 
 class ServerModBrowserWindow(ctk.CTkToplevel):
@@ -17,7 +65,8 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
     PAGE_SIZE = 10
 
     # 特殊模组加载器兼容映射：将无法被 API 识别的加载器映射为兼容等效类型
-    MOD_LOADER_COMPAT_MAP: Dict[str, str] = {"legacyfabric": "fabric", "cleanroom": "forge"}
+    # 与客户端模组窗口、服务层共用**同一份**映射表（避免两份数据漂移）
+    MOD_LOADER_COMPAT_MAP: Dict[str, str] = MOD_LOADER_COMPAT_MAP
 
     @property
     def _search_loader(self) -> Optional[str]:
@@ -26,9 +75,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         对特殊加载器进行兼容映射，因为 CurseForge 和 Modrinth API
         不识别 legacyfabric、cleanroom 等加载器类型。
         """
-        if self._mod_loader is None:
-            return None
-        return self.MOD_LOADER_COMPAT_MAP.get(self._mod_loader, self._mod_loader)
+        return compat_loader(self._mod_loader)
 
     def __init__(self, parent, version_id: str, callbacks: Dict[str, Callable]):
         super().__init__(parent)
@@ -223,7 +270,10 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
     def _on_ai_search(self):
         from ui.i18n import _
 
-        token = self.callbacks.get("get_ai_token", lambda: "")()
+        # 修正（阶段 1.19）：原键名 "get_ai_token" 核心层从未提供过，
+        # 导致 AI 关键词搜索永远走到"需要登录"分支、功能整体失效。
+        # 正确键名是 "get_jdz_token"（见 launcher/core.py: get_callbacks）。
+        token = self.callbacks.get("get_jdz_token", lambda: "")()
         if not token:
             self._set_status(_("ai_search_login_required"))
             return
@@ -239,36 +289,22 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         self._run_in_thread(self._do_ai_search, query, token)
 
     def _do_ai_search(self, query: str, token: str):
-        from modrinth import ai_expand_search_keywords, search_server_mods
-
         try:
-            keywords = ai_expand_search_keywords(query, token)
+            # 关键词扩展 → 逐词搜索 → 按 project_id 去重 → 按下载量排序 →
+            # 单词失败只告警，这五件事整体搬到服务层（``modrinth.ai_merged_search``
+            # 没有"只搜服务端模组"这条路，所以服务里重写了一遍同样的逻辑）。
+            # ``keywords`` 为空 ↔ 原文的 ``after(0, 无结果状态); return``。
+            merged, keywords = _get_mod_browser_service(self).search_server_ai(
+                query, token, self._game_version, self._search_loader
+            )
             if not keywords:
                 self.after(0, lambda: self._set_status(_("mod_browser_no_results")))
                 return
 
-            seen_ids = set()
-            merged = []
-
-            for kw in keywords:
-                try:
-                    result = search_server_mods(
-                        query=kw, game_version=self._game_version, mod_loader=self._search_loader, offset=0, limit=30
-                    )
-                    hits = result.get("hits", [])
-                    for hit in hits:
-                        pid = hit.get("project_id", "")
-                        if pid and pid not in seen_ids:
-                            seen_ids.add(pid)
-                            merged.append(hit)
-                except Exception as e:
-                    logger.warning(f"AI搜索关键词 '{kw}' 失败: {e}")
-
-            merged.sort(key=lambda h: h.get("downloads", 0), reverse=True)
             self._ai_cached_hits = merged
             self._total_hits = len(merged)
             self._current_offset = 0
-            page = merged[: self.PAGE_SIZE]
+            page = page_slice(merged, 0, self.PAGE_SIZE)
             self.after(0, self._render_results, page)
             self.after(0, self._update_pagination)
             self.after(
@@ -279,18 +315,18 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
             self.after(0, lambda err=str(e): self._set_status(_("mod_browser_search_failed_status", error=err)))
 
     def _do_search(self):
-        from modrinth import search_server_mods
-
         try:
-            result = search_server_mods(
-                query=self._current_query,
-                game_version=self._game_version,
-                mod_loader=self._search_loader,
-                offset=self._current_offset,
-                limit=self.PAGE_SIZE,
+            # 单源（Modrinth）、**后端分页**口径（offset=当前偏移、limit=一页）、
+            # 结果归一化都在服务层；渲染与状态栏留在本方法里（下文一字未改）。
+            outcome = _get_mod_browser_service(self).search_server_page(
+                self._current_query,
+                self._game_version,
+                self._search_loader,
+                self._current_offset,
+                self.PAGE_SIZE,
             )
-            hits = result.get("hits", [])
-            self._total_hits = result.get("total_hits", 0)
+            hits = outcome.hits
+            self._total_hits = outcome.total_hits
             self.after(0, self._render_results, hits)
             self.after(0, self._update_pagination)
             if self._current_query:
@@ -408,7 +444,10 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
     def _update_pagination(self):
         if not self.winfo_exists():
             return
-        total_pages = max(1, (self._total_hits + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        # 这里用**后端报的总数**算页数是正确的：本窗口每次请求都带
+        # offset/limit 从后端取一页（不是 mod_browser 那种"本地缓存 300 条"的口径），
+        # 因此 D-103 的"本地条目数"口径**不适用于本窗口**。
+        total_pages = browse_total_pages(self._total_hits, self.PAGE_SIZE)
         current_page = self._current_offset // self.PAGE_SIZE + 1
         self._page_label.configure(text=f"{current_page} / {total_pages}")
         has_prev = self._current_offset > 0
@@ -422,7 +461,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         if self._current_offset >= self.PAGE_SIZE:
             self._current_offset -= self.PAGE_SIZE
             if self._ai_cached_hits is not None:
-                self._render_results(self._ai_cached_hits[self._current_offset : self._current_offset + self.PAGE_SIZE])
+                self._render_results(page_slice(self._ai_cached_hits, self._current_offset, self.PAGE_SIZE))
                 self._update_pagination()
             else:
                 self._set_status(_("mod_browser_searching"))
@@ -432,7 +471,7 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         if self._current_offset + self.PAGE_SIZE < self._total_hits:
             self._current_offset += self.PAGE_SIZE
             if self._ai_cached_hits is not None:
-                self._render_results(self._ai_cached_hits[self._current_offset : self._current_offset + self.PAGE_SIZE])
+                self._render_results(page_slice(self._ai_cached_hits, self._current_offset, self.PAGE_SIZE))
                 self._update_pagination()
             else:
                 self._set_status(_("mod_browser_searching"))
@@ -443,8 +482,6 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
         self._run_in_thread(lambda: self._install_mod(project_id, title))
 
     def _install_mod(self, project_id: str, title: str):
-        from modrinth import install_mod_with_deps
-
         try:
             if not self._game_version or not self._search_loader:
                 self.after(0, lambda: self._set_status(_("mod_browser_unknown_loader")))
@@ -452,11 +489,12 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
 
             mods_dir = self._get_mods_dir()
 
-            success, result, installed_names = install_mod_with_deps(
+            # 服务端窗口只有一条安装路径（没有 source 参数、没有 curseforge 分支）。
+            success, result, installed_names = _get_mod_browser_service(self).server_install_mod(
                 project_id,
-                game_version=self._game_version,
-                mod_loader=self._search_loader,
-                mods_dir=mods_dir,
+                self._game_version,
+                self._search_loader,
+                mods_dir,
                 status_callback=lambda msg: self.after(0, lambda: self._set_status(msg)),
             )
 
@@ -479,25 +517,13 @@ class ServerModBrowserWindow(ctk.CTkToplevel):
             logger.error(f"安装服务端模组失败: {e}")
 
     def _get_mods_dir(self) -> str:
-        server_dir = Path(".")
-        if "get_server_dir" in self.callbacks:
-            server_dir = Path(self.callbacks["get_server_dir"]())
-
-        v = self.version_id.lower()
-        if any(loader in v for loader in ("forge", "fabric", "neoforge")):
-            mods_dir = server_dir / self.version_id / "mods"
-        else:
-            mods_dir = server_dir / "mods"
-        mods_dir.mkdir(parents=True, exist_ok=True)
-        return str(mods_dir)
+        """服务端模组目录（薄委托：services/mod_browser_service.py，**仍会建目录**）"""
+        return _get_mod_browser_service(self).server_mods_dir(self.callbacks, self.version_id)
 
     @staticmethod
     def _format_downloads(count: int) -> str:
-        if count >= 1_000_000:
-            return f"{count / 1_000_000:.1f}M"
-        elif count >= 1_000:
-            return f"{count / 1_000:.1f}K"
-        return str(count)
+        """下载量格式化（实现逐字搬到 :func:`services.browse_common.format_downloads`）"""
+        return format_downloads(count)
 
     def _set_status(self, text: str):
         try:

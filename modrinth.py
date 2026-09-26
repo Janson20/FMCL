@@ -1958,7 +1958,9 @@ def ai_expand_search_keywords(query: str, token: str) -> List[str]:
     Returns:
         优化后的英文关键词列表，失败时返回仅含原始 query 的列表
     """
-    from ui.agent.providers.jingdu import JingduProvider
+    # 任务 1.14：provider 已搬进 services，这里不再依赖 ui 层
+    # （这处改写同时消掉了 scripts/check_services_purity.py 里最后一条已登记例外）
+    from services.agent.providers.jingdu import JingduProvider
 
     if not query or not query.strip():
         return [query]

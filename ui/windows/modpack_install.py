@@ -1,4 +1,18 @@
-"""整合包安装窗口 - 支持 Modrinth / MultiMC / CurseForge / HMCL / MCBBS / 通用压缩包"""
+"""整合包安装窗口 - 支持 Modrinth / MultiMC / CurseForge / HMCL / MCBBS / 通用压缩包
+
+业务逻辑已搬到 ``services/modpack_service.py``（阶段 1 任务 1.8-B）：六种格式的
+探测与元数据解析（``_load_mrpack_info`` 及其六个 ``_load_info_*`` 分支）、
+"统一安装入口 → 旧格式分发"的调用编排、``current/max`` 的进度百分比口径。
+本文件只剩纯界面部分（控件构建、``filedialog`` / ``messagebox`` / 通知、
+``_mp_progress`` 轮询与 ``after`` 调度、``CTkBooleanVar``、i18n 文案、
+``_trigger_ach``）；下面每个受影响的方法都退化成对服务的**薄委托**，
+**方法名与签名保持不变**，界面可见行为不变。
+
+D-95 的既有两个守卫原样保留：没有给 ``launcher.on_progress`` 赋值、
+没有 ``_orig_on_progress`` 字段；``_poll_progress`` 里的
+``hasattr(launcher_inst, "_mp_progress")`` 一字未改
+（``tests/test_ui_cross_object_writes.py`` 钉着这三条）。
+"""
 
 import os
 import threading
@@ -7,9 +21,39 @@ from typing import Any, Callable, Dict, List, Optional
 
 import customtkinter as ctk
 
+from app.context import current_context
+from services.modpack_service import ModpackService, progress_percent
 from ui.constants import COLORS, FONT_FAMILY
 from ui.dialogs import show_notification
 from ui.i18n import _
+
+
+def _get_modpack_service(owner: Any = None) -> ModpackService:
+    """惰性取得服务实例（实现见 ``services/modpack_service.py``）。
+
+    查找顺序："``owner.context.try_get`` → ``owner`` 上自造并缓存"。
+    服务不需要 ``AppContext``，构造期也只保存参数，因此界面在
+    ``__init__`` 之前（例如后台线程里）调用也安全。
+    """
+    ctx = getattr(owner, "context", None) or current_context()
+    if ctx is not None:
+        getter = getattr(ctx, "try_get", None)
+        if callable(getter):
+            try:
+                service = getter(ModpackService.name)
+            except Exception:
+                service = None
+            if service is not None:
+                return service
+    service = getattr(owner, "_modpack_service_fallback", None)
+    if service is None:
+        service = ModpackService()
+        try:
+            owner._modpack_service_fallback = service
+        except Exception:
+            # owner 可能是 __slots__ 对象或 None：不缓存，本次调用照常可用
+            pass
+    return service
 
 
 def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
@@ -55,10 +99,13 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         y = py + (ph - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
 
-        # 保存原始 on_progress 用于安装时替换
+        # 阶段 1.22（D-95）：这里原本保存了一份 `launcher.on_progress` 并在安装结束后
+        # "还原"它 —— 但**整个安装流程从未替换过它**，所以那段保存/还原没有任何作用；
+        # 反而有副作用：若安装期间别人改了 `on_progress`，finally 会把它写回旧值
+        # （`self._orig_on_progress` 为 None 时直接写成 None，等于把回调抹掉）。
+        # 因此删掉这段跨对象写入；进度改由下面的轮询 `launcher._mp_progress` 呈现。
+        # 注意：`modpack_server.py:58` 也有一个同样从未被使用的 `_orig_on_progress` 字段。
         self._launcher_instance: Optional[Any] = None
-        self._orig_on_progress: Optional[Callable] = None
-        self.on_progress_original: Optional[Callable] = None
 
         self._build_ui()
 
@@ -262,36 +309,18 @@ class ModpackInstallWindow(ctk.CTkToplevel):
         self._run_in_thread(self._load_mrpack_info)
 
     def _load_mrpack_info(self):
-        """读取整合包信息（后台线程）- 自动检测所有支持的格式"""
-        from logzero import logger as _logger
+        """读取整合包信息（后台线程）- 自动检测所有支持的格式（薄委托：services/modpack_service.py）
 
-        from launcher.modpack_types import ModpackType, detect_modpack_archive
-
+        "探测格式 → 选六个解析分支之一 → 打 ``format`` 标记"整体在服务层；
+        本方法只做"读自己的字段、写自己的字段、把结果或错误丢回主线程"。
+        检测日志 ``[Modpack Install] 检测格式: ...`` 跟着搬进服务（logzero 不是 GUI）。
+        """
         try:
             path = self._mrpack_path
             if not path:
                 return
 
-            # 统一检测
-            detection = detect_modpack_archive(path)
-            _logger.info(f"[Modpack Install] 检测格式: {detection.format_name}")
-
-            # 根据格式读取信息
-            info_loaders = {
-                ModpackType.MODRINTH: self._load_info_mrpack,
-                ModpackType.MULTIMC: self._load_info_multimc,
-                ModpackType.CURSEFORGE: self._load_info_curseforge,
-                ModpackType.HMCL: self._load_info_hmcl,
-                ModpackType.MCBBS: self._load_info_mcbbs,
-                ModpackType.LAUNCHER_PACK: self._load_info_compress,
-                ModpackType.GENERIC: self._load_info_compress,
-            }
-
-            loader = info_loaders.get(detection.pack_type)
-            if loader is None:
-                raise ValueError(f"不支持的整合包格式: {detection.format_name}")
-
-            info = loader(path)
+            info = _get_modpack_service(self).load_pack_info(self.callbacks, path)
             self._mrpack_info = info
             self.after(0, lambda info=info: self._show_mrpack_info(info))
 
@@ -300,34 +329,28 @@ class ModpackInstallWindow(ctk.CTkToplevel):
             self.after(0, lambda msg=err_msg: self._show_error(msg))
 
     def _load_info_mrpack(self, path: str) -> Dict[str, Any]:
-        info = self.callbacks["get_mrpack_information"](path)
-        info["format"] = "mrpack"
-        return info
+        """Modrinth ``.mrpack`` 元数据（薄委托：services/modpack_service.py）"""
+        return _get_modpack_service(self).load_info_mrpack(self.callbacks, path)
 
     def _load_info_multimc(self, path: str) -> Dict[str, Any]:
-        info = self.callbacks["get_multimc_pack_info"](path)
-        info["format"] = "multimc"
-        return info
+        """MultiMC 包元数据（薄委托：services/modpack_service.py）"""
+        return _get_modpack_service(self).load_info_multimc(self.callbacks, path)
 
     def _load_info_curseforge(self, path: str) -> Dict[str, Any]:
-        info = self.callbacks["get_cf_pack_info"](path)
-        info["format"] = "curseforge"
-        return info
+        """CurseForge 包元数据（薄委托：services/modpack_service.py）"""
+        return _get_modpack_service(self).load_info_curseforge(self.callbacks, path)
 
     def _load_info_hmcl(self, path: str) -> Dict[str, Any]:
-        info = self.callbacks["get_hmcl_pack_info"](path)
-        info["format"] = "hmcl"
-        return info
+        """HMCL 包元数据（薄委托：services/modpack_service.py）"""
+        return _get_modpack_service(self).load_info_hmcl(self.callbacks, path)
 
     def _load_info_mcbbs(self, path: str) -> Dict[str, Any]:
-        info = self.callbacks["get_mcbbs_pack_info"](path)
-        info["format"] = "mcbbs"
-        return info
+        """MCBBS 包元数据（薄委托：services/modpack_service.py）"""
+        return _get_modpack_service(self).load_info_mcbbs(self.callbacks, path)
 
     def _load_info_compress(self, path: str) -> Dict[str, Any]:
-        info = self.callbacks["get_compress_pack_info"](path)
-        info["format"] = info.get("format", "compress")
-        return info
+        """通用压缩包元数据（薄委托：services/modpack_service.py）"""
+        return _get_modpack_service(self).load_info_compress(self.callbacks, path)
 
     def _clear_optional_frame(self):
         """清空可选文件区域的所有子控件"""
@@ -514,7 +537,6 @@ class ModpackInstallWindow(ctk.CTkToplevel):
             launcher = getattr(self.callbacks.get("install_mrpack"), "__self__", None)
         if launcher:
             self._launcher_instance = launcher
-            self._orig_on_progress = getattr(launcher, "on_progress", None)
 
         self._polling = True
 
@@ -533,8 +555,9 @@ class ModpackInstallWindow(ctk.CTkToplevel):
                     elif phase == "parallel":
                         mp_data = mp.get("mrpack", {})
                         mc_data = mp.get("vanilla", {})
-                        mp_pct = (mp_data.get("current", 0) / max(mp_data.get("max", 1), 1)) * 100
-                        mc_pct = (mc_data.get("current", 0) / max(mc_data.get("max", 1), 1)) * 100
+                        # current/max 的百分比口径与服务端窗口共用同一份实现
+                        mp_pct = progress_percent(mp_data)
+                        mc_pct = progress_percent(mc_data)
                         self._mp_progress_label.configure(
                             text=_("mp_prog_mrpack_label", pct=f"{mp_pct:.0f}", label=mp_data.get("label", ""))
                         )
@@ -559,32 +582,30 @@ class ModpackInstallWindow(ctk.CTkToplevel):
 
         self.after(0, _poll_progress)
 
-        # 使用统一安装入口
+        # 使用统一安装入口（"统一入口 → 旧格式分发"的判定与两次调用都在服务层）
         try:
-            if "install_modpack" in self.callbacks:
-                # 新版统一入口
-                success, result = self.callbacks["install_modpack"](
-                    self._mrpack_path, optional_file_ids=optional_files if optional_files else None
-                )
-            else:
-                # 回退：旧版格式分发
-                pack_format = self._mrpack_info.get("format", "mrpack") if self._mrpack_info else "mrpack"
-                if pack_format == "multimc" and "install_multimc_pack" in self.callbacks:
-                    success, result = self.callbacks["install_multimc_pack"](
-                        self._mrpack_path, optional_files=optional_files
-                    )
-                else:
-                    success, result = self.callbacks["install_mrpack"](self._mrpack_path, optional_files=optional_files)
+            # ``pack_format`` 在原文里只在"没有统一入口"的分支内取值；这里提前算好
+            # 传进去 —— 它是一次纯读取（读自己的 ``_mrpack_info``），无副作用也不会抛，
+            # 因此对可达输入完全等价。
+            pack_format = self._mrpack_info.get("format", "mrpack") if self._mrpack_info else "mrpack"
+            success, result = _get_modpack_service(self).call_install_entry(
+                self.callbacks, self._mrpack_path, optional_files, pack_format
+            )
             self.after(0, lambda s=success, r=result: self._on_install_done(s, r))
         except Exception as e:
             err_msg = str(e)
             self.after(0, lambda msg=err_msg: self._on_install_done(False, msg))
         finally:
             self._polling = False
-            if launcher and self._orig_on_progress is not None:
-                launcher.on_progress = self._orig_on_progress
-            elif launcher:
-                launcher.on_progress = None
+            # 阶段 1.22（D-95）：这里原本"还原 launcher.on_progress"。那段代码是
+            # 死逻辑 + 有害副作用（从未替换过它，却会在别人的回调变更后把它写回旧值
+            # 甚至 None）。进度呈现靠轮询 `launcher._mp_progress`，不需要碰这个回调。
+            #
+            # 仍未解决的部分（已登记在 07-known-defects.md D-95）：客户端安装窗口与
+            # 服务端安装窗口**都会**轮询同一个 `launcher._mp_progress` 字典，
+            # 两者同时开着就会互相显示对方的进度。彻底修法需要在 `launcher/mrpack.py`
+            # 里给进度字典加一个"本次安装"的会话标识、由调用方带上再比对；
+            # 那属于 1.17 改接线（或阶段 2 用 TaskRunner 替掉这套临时进度字典）的范围。
 
     def _on_install_done(self, success: bool, result: str):
         """安装完成"""

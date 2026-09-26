@@ -175,10 +175,24 @@ class AddAccountDialog(ctk.CTkToplevel):
 
 
 class AccountManagerWindow(ctk.CTkToplevel):
-    def __init__(self, parent, account_system, on_account_changed: Optional[Callable[[], None]] = None):
+    def __init__(
+        self,
+        parent,
+        account_system,
+        on_account_changed: Optional[Callable[[], None]] = None,
+        on_offline_account_added: Optional[Callable[[str], None]] = None,
+    ):
         super().__init__(fg_color=COLORS["bg_dark"])
         self._account_system = account_system
         self._on_account_changed = on_account_changed
+        # 阶段 1.23（D-110）：成就 "personalize_rename（换名字 / 修改默认角色名）"
+        # 在 "f158841 refactor(account,ui): 移除手动角色名输入，迁移到账号系统" 之后
+        # 失去了唯一的触发路径 —— 那次重构删掉了设置页的手动角色名输入框
+        # （i18n 键 player_name / player_name_placeholder 从此零引用，
+        #   set_player_name 回调也再没人调用），而成就触发点没有跟着搬过来，
+        # 于是这项成就**永远无法解锁**。现在把触发点接到账号系统里真正的
+        # "给角色起名"动作上：新建离线账号。
+        self._on_offline_account_added = on_offline_account_added
 
         self.title(_("account_manager_title"))
         self.geometry("580x650")
@@ -464,6 +478,12 @@ class AccountManagerWindow(ctk.CTkToplevel):
             logger_info.info(f"{account_type} \u767b\u5f55\u6210\u529f: {account.name}")
             if self._on_account_changed:
                 self._on_account_changed()
+            # 阶段 1.23（D-110）：新建离线账号 == 给角色起名（见 __init__ 的说明）
+            if account_type == "offline" and self._on_offline_account_added:
+                try:
+                    self._on_offline_account_added(account.name)
+                except Exception as e:  # 成就失败绝不影响账号创建
+                    logger.error(f"离线账号成就触发失败: {e}")
         else:
             logger_info = __import__("logzero", fromlist=["logger"]).logger
             logger_info.error(f"{account_type} \u767b\u5f55\u5931\u8d25")
