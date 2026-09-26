@@ -215,7 +215,9 @@ class PluginLoader:
         instance.plugin_dir = manifest.install_path
         instance.data_dir = data_dir
         instance.data_dir.mkdir(parents=True, exist_ok=True)
-        instance.config = dict(config) if config else instance.get_default_config()
+        # 注意是 `is not None`：空字典 {} 是"用户把配置清空了"的合法状态，
+        # 不能当成"没有配置"而回退到默认值（那会把用户刚清掉的设置又填回来）
+        instance.config = dict(config) if config is not None else instance.get_default_config()
         instance._manager = manager
         instance._perm_state = perm_state
 

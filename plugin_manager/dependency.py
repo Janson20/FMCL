@@ -34,7 +34,9 @@ def _parse_version(version: str) -> Tuple[int, int, int, Tuple[str, ...]]:
     """
     # 分离 pre-release
     core, _, pre = version.partition("-")
-    # 分离 build metadata
+    # 分离 build metadata（SemVer §10：构建元数据不参与优先级比较，必须先剥掉 ——
+    # 否则 "1.2.3+build.5" 的 "+build.5" 会留在核心段里让 int() 抛 ValueError）
+    core = core.split("+", 1)[0]
     pre = pre.split("+")[0]
 
     core_parts = core.split(".")
@@ -82,14 +84,18 @@ def _compare_semver(v1: str, v2: str) -> int:
     # 两个都有 pre-release
     max_len = max(len(a_pre), len(b_pre))
     for i in range(max_len):
-        part_a = a_pre[i] if i < len(a_pre) else ""
-        part_b = b_pre[i] if i < len(b_pre) else ""
+        if i >= len(a_pre) or i >= len(b_pre):
+            # SemVer §11.4.4：前面的字段都相同、只有字段数不同时，**字段少的小**
+            return -1 if len(a_pre) < len(b_pre) else 1
+
+        part_a = a_pre[i]
+        part_b = b_pre[i]
 
         # 尝试数字比较
         if part_a.isdigit() and part_b.isdigit():
             diff = int(part_a) - int(part_b)
             if diff != 0:
-                return diff
+                return -1 if diff < 0 else 1
         elif part_a.isdigit():
             return -1  # 数字优先
         elif part_b.isdigit():
@@ -138,12 +144,16 @@ def _check_constraint(constraints: List[VersionConstraint], version: str) -> boo
 
 
 def parse_dependencies(raw_deps: Dict[str, str]) -> List[PluginDependency]:
-    """解析原始依赖字典为 PluginDependency 列表"""
+    """解析原始依赖字典为 PluginDependency 列表
+
+    约束为空串（如 ``{"com.a": ""}``）表示"任意版本"，**不是**"没有这条依赖"：
+    条目必须保留，否则 `check_version_compatibility` 会漏报"缺少依赖"、
+    `check_conflicts` 会漏报"与已装插件冲突"（两条都是静默漏报）。
+    """
     result = []
     for plugin_id, constraint_str in raw_deps.items():
         constraints = _parse_constraint(constraint_str)
-        if constraints:
-            result.append(PluginDependency(plugin_id=plugin_id, constraints=constraints))
+        result.append(PluginDependency(plugin_id=plugin_id, constraints=constraints))
     return result
 
 

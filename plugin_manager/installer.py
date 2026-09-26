@@ -51,21 +51,21 @@ class PluginInstaller:
         if not fmpl_file.suffix.lower() == ".fmpl":
             return False, f"文件不是 .fmpl 格式: {fmpl_path}"
 
-        # 安全检查: plugin_id 必须合法
-        safe_plugin_id = self._sanitize_id(plugin_id)
-        if safe_plugin_id != plugin_id:
+        # 安全检查: plugin_id 必须是单个安全的路径分量（ID 来自包里的 plugin.json /
+        # 市场索引，都是不可信输入；`installed/<id>` 绝不能指到安装目录之外）
+        if not self._is_safe_id(plugin_id):
             return False, f"插件 ID 包含不安全字符: {plugin_id}"
 
         # 目标路径
-        target_dir = self._installed_dir / safe_plugin_id
+        target_dir = self._installed_dir / plugin_id
 
-        # 1. 如果已存在，先卸载旧版
-        if target_dir.exists():
-            logger.info(f"覆盖安装插件: {safe_plugin_id}")
-            shutil.rmtree(target_dir, ignore_errors=True)
-
-        # 2. 解压到临时目录
-        extract_temp = self._temp_dir / f"_extract_{safe_plugin_id}"
+        # 1. 解压到临时目录
+        #    注意顺序：**先解压校验，最后才替换已装版本**。
+        #    原来在这一步就把 `installed/<id>` 整个 rmtree 掉了（"如果已存在，先卸载旧版"），
+        #    于是"压缩包坏了 / 缺 plugin.json / 入口模块不存在 / ID 不一致"这四种
+        #    失败都会**先删掉用户正在用的版本**再返回失败，而这条路径（与
+        #    `PluginManager.update_plugin` 不同）没有任何备份与回滚。
+        extract_temp = self._temp_dir / f"_extract_{plugin_id}"
         if extract_temp.exists():
             shutil.rmtree(extract_temp, ignore_errors=True)
 
@@ -96,15 +96,20 @@ class PluginInstaller:
             if not entry_file.exists():
                 return False, f"入口模块 {manifest.entry}.py 不存在"
 
-            # 6. 移动到正式安装目录
+            # 6. 移动到正式安装目录（覆盖安装到这一步才删除旧版）
             if target_dir.exists():
+                logger.info(f"覆盖安装插件: {plugin_id}")
                 shutil.rmtree(target_dir, ignore_errors=True)
+            if target_dir.exists():
+                # 删不掉（被占用/权限）时不能继续 move：`shutil.move` 会把它塞进旧目录里
+                # 然后我们还会报"安装成功"
+                return False, f"无法覆盖已存在的插件目录（可能被占用）: {target_dir}"
             shutil.move(str(extract_temp), str(target_dir))
 
             # 7. 保存插件指纹（用于加载时完整性校验）
             from plugin_manager.loader import save_plugin_fingerprint
 
-            save_plugin_fingerprint(self._installed_dir, safe_plugin_id, target_dir)
+            save_plugin_fingerprint(self._installed_dir, plugin_id, target_dir)
 
             logger.info(f"插件安装成功: {plugin_id} v{manifest.version}")
             return True, ""
@@ -113,20 +118,29 @@ class PluginInstaller:
             return False, "压缩包格式无效"
         except Exception as e:
             logger.error(f"安装插件异常 ({plugin_id}): {e}")
-            # 清理临时目录
+            return False, f"安装失败: {e}"
+        finally:
+            # 无论成功失败都不留临时解压目录（成功时它已经被 move 走了）。
+            # 原来只有"意外异常"那条分支清理，缺 plugin.json / ID 不一致 /
+            # 缺入口 / Zip Slip 这四条 return 都会把半拉子目录留在 temp/ 里。
             if extract_temp.exists():
                 shutil.rmtree(extract_temp, ignore_errors=True)
-            return False, f"安装失败: {e}"
 
     def uninstall(self, plugin_id: str) -> Tuple[bool, str]:
         """卸载插件（完全删除 installed/ 中的目录）"""
-        safe_plugin_id = self._sanitize_id(plugin_id)
-        target_dir = self._installed_dir / safe_plugin_id
+        if not self._is_safe_id(plugin_id):
+            return False, f"插件 ID 包含不安全字符: {plugin_id}"
+        target_dir = self._installed_dir / plugin_id
         if not target_dir.exists():
             return False, f"插件目录不存在: {target_dir}"
 
         try:
             shutil.rmtree(target_dir, ignore_errors=True)
+            if target_dir.exists():
+                # `ignore_errors=True` 会把"文件被占用 / 权限不足"全部吞掉，
+                # 不能因为没抛异常就报成功：报成功会让管理器把插件从内存状态里清掉、
+                # 界面显示"已卸载"，而磁盘上目录和文件都还在（重启后又被 scan() 发现）
+                return False, f"卸载失败（目录仍存在，可能被占用）: {target_dir}"
             logger.info(f"插件已卸载: {plugin_id}")
             return True, ""
         except Exception as e:
@@ -135,9 +149,10 @@ class PluginInstaller:
 
     def disable(self, plugin_id: str) -> Tuple[bool, str]:
         """禁用插件（移动到 disabled/ 目录）"""
-        safe_plugin_id = self._sanitize_id(plugin_id)
-        src = self._installed_dir / safe_plugin_id
-        dst = self._disabled_dir / safe_plugin_id
+        if not self._is_safe_id(plugin_id):
+            return False, f"插件 ID 包含不安全字符: {plugin_id}"
+        src = self._installed_dir / plugin_id
+        dst = self._disabled_dir / plugin_id
         if not src.exists():
             return False, f"插件目录不存在: {src}"
 
@@ -153,9 +168,10 @@ class PluginInstaller:
 
     def enable(self, plugin_id: str) -> Tuple[bool, str]:
         """启用插件（从 disabled/ 移回 installed/）"""
-        safe_plugin_id = self._sanitize_id(plugin_id)
-        src = self._disabled_dir / safe_plugin_id
-        dst = self._installed_dir / safe_plugin_id
+        if not self._is_safe_id(plugin_id):
+            return False, f"插件 ID 包含不安全字符: {plugin_id}"
+        src = self._disabled_dir / plugin_id
+        dst = self._installed_dir / plugin_id
         if not src.exists():
             return False, f"已禁用的插件目录不存在: {src}"
 
@@ -175,6 +191,8 @@ class PluginInstaller:
         Returns:
             (backup_path 或 None, 错误信息)
         """
+        if not self._is_safe_id(plugin_id):
+            return None, f"插件 ID 包含不安全字符: {plugin_id}"
         src = self._installed_dir / plugin_id
         if not src.exists():
             return None, f"插件不存在: {plugin_id}"
@@ -196,6 +214,8 @@ class PluginInstaller:
 
         删除当前 installed/ 中的版本，从备份恢复。
         """
+        if not self._is_safe_id(plugin_id):
+            return False, f"插件 ID 包含不安全字符: {plugin_id}"
         backup_dir = self._temp_dir / f"_backup_{plugin_id}"
         if not backup_dir.exists():
             return False, f"备份不存在: {backup_dir}"
@@ -216,6 +236,11 @@ class PluginInstaller:
 
     def cleanup_backup(self, plugin_id: str):
         """清理备份目录（更新成功后调用）"""
+        if not self._is_safe_id(plugin_id):
+            # 含 "/" 或 ".." 的 ID 会让 `temp/"_backup_" + id` 归一化到 temp 之外
+            # （实测 `cleanup_backup("a/../..")` 会 rmtree 掉整个 plugins/ 根目录）
+            logger.error(f"插件 ID 包含不安全字符，拒绝清理备份: {plugin_id!r}")
+            return
         backup_dir = self._temp_dir / f"_backup_{plugin_id}"
         if backup_dir.exists():
             shutil.rmtree(backup_dir, ignore_errors=True)
@@ -226,3 +251,15 @@ class PluginInstaller:
 
         # 只允许字母、数字、点、连字符、下划线
         return re.sub(r"[^a-zA-Z0-9._\-]", "_", plugin_id)
+
+    def _is_safe_id(self, plugin_id: str) -> bool:
+        """ID 必须是**单个**安全的路径分量（无分隔符、不是 "." / ".."、字符集受控）。
+
+        注意 `_sanitize_id(pid) != pid` 这个判据**挡不住** "." 与 ".."（点号是允许字符），
+        而 `installed/".."` 就是插件根目录本身：一次"覆盖安装"能把整个 plugins/
+        （含 configs/ data/ 与所有已装插件）删掉。
+        """
+        if not plugin_id or self._sanitize_id(plugin_id) != plugin_id:
+            return False
+        parts = Path(plugin_id).parts
+        return len(parts) == 1 and parts[0] not in (".", "..")

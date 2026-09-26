@@ -147,6 +147,11 @@ class PluginPermissionState:
         """从持久化格式恢复"""
         state = cls(plugin_id=plugin_id)
         for key, val in data.items():
+            if not isinstance(val, dict):
+                # 持久化文件被改坏时只跳过这一条 —— 原来会在这里抛 AttributeError，
+                # 而调用方（`PluginManager._load_perm_state`）整段 try/except 一吞，
+                # 这个插件的**全部**授权状态就都恢复不了（静默回到"全未授权"）
+                continue
             try:
                 perm = PluginPermission(key)
                 g = state.grants.get(perm)

@@ -105,9 +105,10 @@ class PluginManifest:
         if not all(c.isalnum() or c in "_-." for c in self.id):
             errors.append(f"插件 ID '{self.id}' 包含非法字符")
 
-        # 检查 SemVer 格式
+        # 检查 SemVer 格式（构建元数据 "+xxx" 不参与核心段判断，
+        # schema 的 pattern 允许它，这里不能把它判成"第三个数字不是数字"）
         parts = self.version.split("-", 1)
-        ver_core = parts[0]
+        ver_core = parts[0].split("+", 1)[0]
         ver_nums = ver_core.split(".")
         if len(ver_nums) != 3 or not all(n.isdigit() for n in ver_nums):
             errors.append(f"插件版本 '{self.version}' 不符合 SemVer 规范")
@@ -176,6 +177,10 @@ class PluginManifest:
 
     def get_description(self, lang: str = "zh_CN") -> str:
         """获取指定语言的描述，降级到 zh_CN 或 en_US"""
+        if isinstance(self.description, str):
+            # 作者把 description 写成纯字符串（schema 里根本没定义这个字段，
+            # 所以没有任何提示要求写成 {lang: text}）—— 原样返回，不能抛 AttributeError
+            return self.description
         if lang in self.description:
             return self.description[lang]
         for fallback in ("zh_CN", "en_US"):

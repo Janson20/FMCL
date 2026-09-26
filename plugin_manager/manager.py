@@ -13,7 +13,7 @@
 import json
 import threading
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from logzero import logger
 
@@ -186,8 +186,16 @@ class PluginManager:
 
             manifest = self._manifests[plugin_id]
 
-            # 检查版本兼容性
-            ok, msg = self._check_fmcl_version(manifest)
+            # 检查版本兼容性。清单里的版本号写坏了（例如缺 min_fmcl_version → 空串）
+            # **不能**把异常抛给调用方：load_plugin 的契约是返回 (ok, msg)，
+            # 而调用方（界面/服务）只会展示这条 msg。
+            try:
+                ok, msg = self._check_fmcl_version(manifest)
+            except Exception as e:  # noqa: BLE001 - 版本号无法解析 → 按"清单不合法"处理
+                msg = f"清单版本号无法解析: {e}"
+                self._states[plugin_id] = PluginState.INIT_ERROR
+                self._error_reasons[plugin_id] = msg
+                return False, msg
             if not ok:
                 self._states[plugin_id] = PluginState.INCOMPATIBLE
                 self._error_reasons[plugin_id] = msg
@@ -247,15 +255,24 @@ class PluginManager:
             if instance is None:
                 return False, "插件实例不存在"
 
-            # 检查未授权的权限
+            # 检查未授权的权限 —— **只看清单里声明过的**。
+            # 权限状态会给"全部权限"都建条目（没声明的也是 granted=False），
+            # 而三条高风险权限（network.socket / core.launch_hook / core.process）
+            # 默认全未授权：原来只要权限状态一存在，任何插件都会被这三条挡住。
+            # 最直接的后果在 `scan()` 的"恢复上次启用"分支 —— 它先调
+            # `grant_manifest_permissions`（这一步就会建出状态）再 enable，
+            # 必然失败 → **重启启动器后没有任何插件会被恢复启用**（只写一条 warning）。
             perm_state = self._perm_states.get(plugin_id)
-            if perm_state:
-                ungranted = perm_state.get_ungranted_permissions()
-                if ungranted:
-                    high_risk_ungranted = [p for p in ungranted if get_permission_risk(p) == PermissionRiskLevel.HIGH]
-                    # 只有高风险才阻止启用（低中风险可以在运行时处理）
-                    if high_risk_ungranted:
-                        return False, f"存在未授权的高风险权限: {[p.value for p in high_risk_ungranted]}"
+            declared = self._declared_permissions(plugin_id)
+            if perm_state and declared:
+                high_risk_ungranted = [
+                    p
+                    for p in perm_state.get_ungranted_permissions()
+                    if p in declared and get_permission_risk(p) == PermissionRiskLevel.HIGH
+                ]
+                # 只有"声明过且未获批准"的高风险权限才阻止启用（低中风险可以在运行时处理）
+                if high_risk_ungranted:
+                    return False, f"存在未授权的高风险权限: {[p.value for p in high_risk_ungranted]}"
 
             # 调用 on_enable
             try:
@@ -559,6 +576,21 @@ class PluginManager:
         if ps is None:
             return "denied"
         return ps.check_or_request(permission)
+
+    def _declared_permissions(self, plugin_id: str) -> Set[PluginPermission]:
+        """清单里声明过的权限集合（未知权限名忽略）。
+
+        `enable_plugin` 的权限闸门与 `grant_manifest_permissions` 都以"清单声明"
+        为准：插件没声明的权限不该影响它能不能启用。
+        """
+        manifest = self._manifests.get(plugin_id)
+        declared: Set[PluginPermission] = set()
+        for p_str in manifest.permissions if manifest else []:
+            try:
+                declared.add(PluginPermission(p_str))
+            except ValueError:
+                continue
+        return declared
 
     def request_permission(self, plugin_id: str, permission: PluginPermission) -> bool:
         """请求权限（检查 + 必要时通过回调弹窗确认）

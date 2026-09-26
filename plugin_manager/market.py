@@ -71,6 +71,7 @@ class PluginMarket:
                     data = json.loads(raw)
                     plugins = data.get("plugins", [])
                     self._plugin_list = plugins
+                    self._index_data = data
                     return plugins, ""
                 except Exception as e:
                     logger.warning(f"读取缓存索引失败，将重新获取: {e}")
@@ -105,6 +106,10 @@ class PluginMarket:
 
             plugins = data.get("plugins", [])
             self._plugin_list = plugins
+            # 整份索引也要留着：`get_available_tags()` 读的是它的 "categories"，
+            # 而这里原来只更新了 `_plugin_list` → 标签筛选栏永远是空的
+            # （界面看到空字典就 pack_forget 整条隐藏，"按标签筛选"对用户不可见）
+            self._index_data = data
             logger.info(f"插件索引更新: {len(plugins)} 个插件")
             return plugins, ""
 
@@ -292,7 +297,16 @@ class PluginMarket:
             installed_ver = installed_versions[pid]
             market_ver = p.get("version", "0.0.0")
 
-            cmp = resolver.compare_versions(market_ver, installed_ver)
+            try:
+                cmp = resolver.compare_versions(market_ver, installed_ver)
+            except Exception as e:  # noqa: BLE001 - 单个插件的版本号读不出来只跳过它
+                # 版本号为空串/垃圾串（清单缺 version 字段就会是空串）时
+                # `compare_versions` 抛 ValueError。原来这个异常会穿出整个循环，
+                # 于是**一个坏插件就让"检查更新"整份结果都拿不到** ——
+                # 调用方在 worker 线程里跑且没有 try/except，线程直接消失、
+                # 界面既不报错也不显示更新摘要。
+                logger.warning(f"跳过版本比较失败的插件 {pid}（市场 {market_ver!r} / 本地 {installed_ver!r}）: {e}")
+                continue
 
             has_update = cmp > 0
             is_newer = cmp < 0
