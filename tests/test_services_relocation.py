@@ -30,6 +30,8 @@ from pathlib import Path
 
 import pytest
 
+import _baseline
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: (旧模块名, 新模块名, 旧文件相对路径或 None, 新文件相对路径)
@@ -164,10 +166,8 @@ def test_implementation_kept_the_original_line_count(old_mod, new_mod, old_path,
     """
     git_src = GIT_SOURCE.get(new_path)
     assert git_src, f"GIT_SOURCE 里没有登记 {new_path} 的原文路径"
-    original = subprocess.run(
-        ["git", "show", f"HEAD:{git_src}"], capture_output=True, cwd=str(REPO_ROOT)
-    ).stdout.decode("utf-8")
-    assert original.strip(), f"git 里找不到 {git_src} 的原文"
+    original = _baseline.git_show(git_src)
+    assert original.strip(), f"基线提交里找不到 {git_src} 的原文"
 
     moved = (REPO_ROOT / new_path).read_text(encoding="utf-8")
     original_lines = [ln.strip() for ln in original.splitlines() if ln.strip()]
@@ -331,6 +331,39 @@ def _load_relocate_script():
     return mod
 
 
+def test_pristine_baseline_pin_is_valid():
+    """**基线提交本身**必须是可用的 —— 这是"闸门自己也要被测试"的具体一条。
+
+    本文件与 `scripts/relocate_module.py` 里所有"与原文一致"的比对都依赖
+    ``PRISTINE_COMMIT``。阶段 1 收尾时踩过的坑：那批断言原本用 ``git show HEAD:``
+    取"搬家前原文"，搬家提交一进历史，``HEAD`` 就变成搬家**之后**的代码 ——
+    轻则 22 个用例整片报红，重则两边都是重构后的代码、比对**假绿**。
+
+    所以这里把"基线钉在哪"变成一条会红的断言：
+    提交必须可达、必须**不是**当前 HEAD、必须确实处于重构前形态，
+    并且本文件的副本与闸门里的权威值一致。
+    """
+    relocate = _load_relocate_script()
+
+    assert _baseline.PRISTINE_COMMIT == relocate.BASELINE_COMMIT, (
+        "基线提交两处不一致 —— tests/_baseline.py 与 scripts/relocate_module.py "
+        "必须钉在同一个提交上，否则测试与闸门会各比各的"
+    )
+    assert _baseline.git_has(f"{_baseline.PRISTINE_COMMIT}^{{commit}}"), (
+        f"基线提交 {_baseline.PRISTINE_COMMIT} 取不到（历史被重写？浅克隆？）"
+    )
+    assert _baseline.git_rev_parse("HEAD") != _baseline.PRISTINE_COMMIT, (
+        "当前 HEAD 就是基线提交 —— 此时「原文」与「现状」是同一棵树，比对照样相等，"
+        "所有比对都会假绿"
+    )
+    for path, should_exist in _baseline.PRISTINE_PROBES:
+        exists = _baseline.git_has(f"{_baseline.PRISTINE_COMMIT}:{path}")
+        assert exists == should_exist, (
+            f"基线提交里 {path} {'存在' if exists else '不存在'}，"
+            f"但重构前应当{'存在' if should_exist else '不存在'} —— 基线钉错提交了？"
+        )
+
+
 def _old_to_new_paths(relocate) -> dict[str, str]:
     """用工具自己的 `_module_units()` 建「新文件相对路径 → 旧文件相对路径」映射。
 
@@ -370,10 +403,8 @@ def test_registered_line_deltas_match_reality():
         old_path = old_to_new.get(new_path)
         assert old_path, f"{new_path}: 它不是任何一次搬家的目标文件（登记的键写错了？）"
 
-        original = subprocess.run(
-            ["git", "show", f"HEAD:{old_path}"], capture_output=True, cwd=str(REPO_ROOT)
-        ).stdout.decode("utf-8")
-        assert original.strip(), f"git 里找不到 {old_path} 的原文"
+        original = _baseline.git_show(old_path)
+        assert original.strip(), f"基线提交里找不到 {old_path} 的原文"
 
         moved = io.open(REPO_ROOT / new_path, encoding="utf-8").read()
         orig_lines = original.splitlines()

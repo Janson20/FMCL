@@ -32,6 +32,10 @@
 **完全一致**。另外每条例外都必须**被命中**，命中 0 次要报错 —— 防止这张表
 腐化成"哪里红了往哪里加"的垃圾场。
 
+**基线不是 `HEAD`**（`BASELINE_COMMIT`）：搬家提交进历史之后，`HEAD` 就是搬家
+**之后**的代码，"用 HEAD 取原文"会变成拿重构后的代码跟自己对比较 —— 轻则整片
+报红，重则假绿。详见 `BASELINE_COMMIT` 上方的说明。
+
 退出码：0 = 通过；1 = 有失败；2 = 用法错误。
 """
 
@@ -50,6 +54,59 @@ from typing import Dict, List, Sequence, Tuple
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+#: 「git 原文」的**唯一来源**：重构前最后一个提交（v2.12.6 的发布提交 `640f7eb`）。
+#:
+#: ## 为什么不能写 ``HEAD``（阶段 1 收尾时真的踩了这个坑）
+#:
+#: 本工具的核心判据是"新文件必须与 git 原文一致"。搬家还在工作区里时，
+#: ``HEAD`` 恰好就是搬家**前**的形态，于是"用 HEAD 取原文"看起来没问题。
+#: 但搬家一旦提交进历史，``HEAD`` 就变成搬家**之后**的代码：
+#:
+#: - 旧路径往往只剩一个转发 shim（几十行），于是"行数与原文一致"整片报红；
+#: - 更坏的情况是**假绿** —— 拿重构后的代码与重构后的代码比，两边当然一样，
+#:   真实的删改被安静地放过去；
+#: - 形状 1 的验证依赖"旧路径原文"来反推"没丢东西"，基线错了就等于没验。
+#:
+#: 因此基线**钉死在一个提交上**，与 `git log` / 当前分支状态完全无关，可重复执行。
+#: 要换基线（例如以后基于新版本重新核对）必须显式改这里，并由
+#: `check_baseline()` 挡住"钉错提交"。
+BASELINE_COMMIT = "640f7eb90595a996f88901eea4a5302e7f9c48c9"
+
+#: 基线自检探针：(提交里的路径, 该路径**是否应该存在**)。
+#: 判据选的是可证伪的硬事实 —— 重构前 `services/` 包根本不存在，而旧的大文件还在原位。
+#: 谁把基线指到了重构后的提交上，这里立刻报错，而不是产出一堆看不懂的比对失败。
+BASELINE_PRISTINE_PROBES: Tuple[Tuple[str, bool], ...] = (
+    ("services/__init__.py", False),
+    ("ui/app_music.py", True),
+    ("achievement_defs.py", True),
+    ("ui/agent/providers/anthropic.py", True),
+)
+
+
+def _git_has(spec: str) -> bool:
+    """``git cat-file -e <spec>`` 是否成功（spec 形如 ``<提交>:<路径>``）。"""
+    return subprocess.run(
+        ["git", "cat-file", "-e", spec], capture_output=True, cwd=str(REPO_ROOT)
+    ).returncode == 0
+
+
+def check_baseline() -> Tuple[bool, str]:
+    """自检 ``BASELINE_COMMIT`` 本身可用：提交可达，且确实处于**重构前**形态。
+
+    返回 ``(是否通过, 说明)``。这是"闸门自己也要被测试"的一个具体落实：
+    比对用的基线一旦失效，整套判据就全是空话。
+    """
+    if not _git_has(f"{BASELINE_COMMIT}^{{commit}}"):
+        return False, f"提交 {BASELINE_COMMIT} 在本地仓库里取不到（历史被重写？仓库不完整？）"
+    bad = []
+    for path, should_exist in BASELINE_PRISTINE_PROBES:
+        exists = _git_has(f"{BASELINE_COMMIT}:{path}")
+        if exists != should_exist:
+            bad.append(f"{path} {'存在' if exists else '不存在'}（期望{'存在' if should_exist else '不存在'}）")
+    if bad:
+        return False, f"该提交不是重构前形态：{'；'.join(bad)}"
+    return True, ""
 
 
 @dataclass
@@ -267,7 +324,10 @@ def _module_units(m: Move) -> List[Tuple[Path, Path, str, str]]:
 
 
 def git_original(path: str) -> str:
-    out = subprocess.run(["git", "show", f"HEAD:{path}"], capture_output=True, cwd=str(REPO_ROOT))
+    """取 ``path`` 在**基线提交**（不是 HEAD）里的原文，见 ``BASELINE_COMMIT``。"""
+    out = subprocess.run(
+        ["git", "show", f"{BASELINE_COMMIT}:{path}"], capture_output=True, cwd=str(REPO_ROOT)
+    )
     return out.stdout.decode("utf-8")
 
 
@@ -523,6 +583,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     rep = Reporter()
+
+    # 基线自检必须**先做**：基线坏了，后面每一条"与原文一致"的结论都不成立，
+    # 而它产生的是一整片看不懂的比对失败 —— 那会把人引向错误的排查方向。
+    if args.check or args.apply or args.apply_all or args.regen_shims:
+        ok, detail = check_baseline()
+        if not ok:
+            print(f"\n[FAIL] 原文基线不可用：{detail}", file=sys.stderr)
+            print(f"       基线提交 = {BASELINE_COMMIT}", file=sys.stderr)
+            print("       基线不可用时，本工具的任何比对结论都不成立，直接判失败。", file=sys.stderr)
+            return 1
+        print(f"\n原文基线：{BASELINE_COMMIT[:7]} —— 「git 原文」一律取自这个**重构前**的提交，"
+              "与当前 HEAD 无关")
 
     if args.regen_shims:
         for m in MOVES:

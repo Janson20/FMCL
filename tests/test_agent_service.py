@@ -36,6 +36,8 @@ from pathlib import Path
 
 import pytest
 
+import _baseline
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 import services.agent_service as SVC  # noqa: E402
@@ -369,10 +371,8 @@ def test_moved_submodules_kept_the_original_line_count(pkg, subs):
     """
     new_pkg = pkg.replace("ui.agent", "services.agent")
     for sub, old_rel in subs:
-        original = subprocess.run(
-            ["git", "show", f"HEAD:{old_rel}"], capture_output=True, cwd=str(REPO_ROOT)
-        ).stdout.decode("utf-8")
-        assert original.strip(), f"git 里找不到 {old_rel} 的原文"
+        original = _baseline.git_show(old_rel)
+        assert original.strip(), f"基线提交里找不到 {old_rel} 的原文"
         new_rel = old_rel.replace("ui/agent/", "services/agent/")
         moved = (REPO_ROOT / new_rel).read_text(encoding="utf-8")
         delta, why = REGISTERED_LINE_DELTAS.get(new_rel, (0, ""))
@@ -391,9 +391,7 @@ def test_registered_line_deltas_are_still_needed():
     for new_rel, (delta, why) in sorted(REGISTERED_LINE_DELTAS.items()):
         assert why.strip(), f"{new_rel}: 登记项没有理由"
         old_rel = new_rel.replace("services/agent/", "ui/agent/")
-        original = subprocess.run(
-            ["git", "show", f"HEAD:{old_rel}"], capture_output=True, cwd=str(REPO_ROOT)
-        ).stdout.decode("utf-8")
+        original = _baseline.git_show(old_rel)
         moved = (REPO_ROOT / new_rel).read_text(encoding="utf-8")
         real = len(moved.splitlines()) - len(original.splitlines())
         assert real == delta, (
@@ -467,9 +465,8 @@ def test_known_violations_is_now_empty_and_modrinth_talks_to_services():
 
 
 def _git_text(path: str) -> str:
-    return subprocess.run(["git", "show", f"HEAD:{path}"], capture_output=True, cwd=str(REPO_ROOT)).stdout.decode(
-        "utf-8"
-    )
+    """取**重构前基线提交**里的原文（不是 ``HEAD`` —— 理由见 `tests/_baseline.py`）。"""
+    return _baseline.git_show(path)
 
 
 def _func_node(src: str, class_name, func_name):
