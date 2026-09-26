@@ -43,8 +43,14 @@ BAD = FIXTURES / "bad"
 #: 负例文件 → 它**只**应该让哪些规则变红。
 #: 精确比对（而不是"包含"）是刻意的：fixture 之间互相污染过就说明判据有交叉，
 #: 那种闸门在真项目里会给出误导性的原因。
+#:
+#: **两处刻意的交叉**（不是判据写漏了，是数据本身同时犯了两条）：
+#: `qml/R1_gradient.qml` 的 `GradientStop` 里写死了两个十六进制颜色 —— 渐变（R1）
+#: 与硬编码颜色（R8）都该报，改数据来"消灾"反而会掩盖真实的交叉；
+#: 反向的边界则收在 R8 里：`qml/R6_transparent.qml` 的 `"#00000000"` 是 **alpha 为 0**
+#: 的写法，R8 按判据**故意不判**（全透明归 R6），所以那个 fixture 仍然只报 R6。
 EXPECTED_BAD: Dict[str, FrozenSet[str]] = {
-    "qml/R1_gradient.qml": frozenset({"R1"}),
+    "qml/R1_gradient.qml": frozenset({"R1", "R8"}),
     "qml/R1_acrylic.qml": frozenset({"R1"}),
     "qml/R2_emoji.qml": frozenset({"R2"}),
     "app/bridges/bad_emoji.py": frozenset({"R2"}),
@@ -54,6 +60,7 @@ EXPECTED_BAD: Dict[str, FrozenSet[str]] = {
     "qml/pages/Home/R5_bad_component.qml": frozenset({"R5"}),
     "qml/overlays/R6_transparent.qml": frozenset({"R6"}),
     "app/bridges/bad_thread.py": frozenset({"R7"}),
+    "qml/R8_hardcoded_color.qml": frozenset({"R8"}),
 }
 
 
@@ -183,12 +190,12 @@ def test_every_bad_fixture_turns_exactly_its_own_rule_red():
     assert problems == [], "\n".join(problems)
 
 
-def test_all_seven_rules_have_a_negative_fixture():
-    """7 条规则每条至少 1 个负例 —— "能变红"的证明不能有缺口。"""
+def test_all_eight_rules_have_a_negative_fixture():
+    """8 条规则每条至少 1 个负例 —— "能变红"的证明不能有缺口。"""
     covered: Set[str] = set()
     for rules in EXPECTED_BAD.values():
         covered |= set(rules)
-    assert covered == {"R1", "R2", "R3", "R4", "R5", "R6", "R7"}
+    assert covered == {"R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"}
     gate = _load_gate()
     report = gate.run_gate(BAD)
     fired = {v.rule for v in report.violations}
@@ -207,6 +214,38 @@ def test_r2_catches_escaped_emoji_in_python_sources():
     assert any("转义" in v.detail for v in in_bridge), "转义写法的 emoji 漏判了"
 
 
+def test_r2_covers_the_symbols_this_project_uses_as_icons():
+    """R2 必须覆盖"本项目当图标用的文本符号"与**补齐的 SMP 区块**。
+
+    ## 为什么单独钉这一条
+
+    任务 2.10 的 emoji 清单实测发现 R2 有三处盲区，其中两处**正好是任务书点名的图标**：
+
+    * `Emoji_Presentation=No` 的文本符号 —— `⏹`（旧界面的"强杀游戏"）与 `⚙`（"资源管理"
+      入口）**都不在**任何 emoji 区间里，闸门完全看不见；
+    * SMP 漏了 4 个块，其中 `1F7E0–1F7EB` 是**真 emoji**（🟡🟢 就落在里面）。
+
+    这条测试直接对判据函数下手（不依赖 fixture），把"看不见"变成"看得见"：
+    修好之前它会红，修好之后它保护这个修复不被回退。
+    """
+    gate = _load_gate()
+    must_flag = {
+        0x23F9: "⏹ 强杀",
+        0x2699: "⚙ 资源管理",
+        0x1F7E1: "🟡 彩色圆点（SMP 补块）",
+        0x1F7E2: "🟢 彩色圆点（SMP 补块）",
+        0x1F650: "SMP 装饰符号块起点",
+        0x1FA00: "SMP 象棋符号块起点",
+    }
+    missed = [label for cp, label in must_flag.items() if not gate._emoji_desc(cp)]
+    assert missed == [], f"这些码点仍然看不见: {missed}"
+
+    # 反向：真·文字符号不许被误报（否则闸门会被绕过）
+    must_pass = {0x2713: "✓ 勾", 0x2605: "★ 星", 0x2665: "♥ 心", 0x2192: "→ 箭头"}
+    noise = [label for cp, label in must_pass.items() if gate._emoji_desc(cp)]
+    assert noise == [], f"这些是纯文字符号，不该报: {noise}"
+
+
 def test_r7_negative_covers_the_three_required_shapes():
     """R7 要求"至少覆盖"的三种写法都要真的被负例覆盖到（否则是空断言）。"""
     gate = _load_gate()
@@ -216,6 +255,97 @@ def test_r7_negative_covers_the_three_required_shapes():
     assert "rootObjects" in details, "缺 rootObjects 负例"
     assert "直接写 QML 可见属性 self.count" in details, "缺 worker 直接写属性的负例"
     assert len(report.violations) == 4, [v.render() for v in report.violations]
+
+
+# ─── 2b. R8（任务 2.8 新增）：颜色字面量 ───────────────────────
+
+
+def test_r8_catches_the_four_color_literal_forms():
+    """R8 的四种写法都要真的报出来：`#rrggbb` / `#rgb` / `#aarrggbb` / `Qt.rgba(...)`。"""
+    gate = _load_gate()
+    report = gate.run_gate(BAD, only=["R8"])
+    mine = [v for v in report.violations if v.path == "qml/R8_hardcoded_color.qml"]
+    details = " ".join(v.detail for v in mine)
+    assert "#1a1a2e" in details, "缺 6 位写法"
+    assert "#fff" in details, "缺 3 位写法"
+    assert "#aabbccdd" in details, "缺 8 位（带 alpha）写法"
+    assert "Qt.rgba(" in details, "缺 Qt.rgba 写法"
+    assert len(mine) == 4, [v.render() for v in mine]
+    assert [v.line for v in mine] == sorted(v.line for v in mine)
+
+
+def test_r8_allows_theme_bindings_transparent_and_comments():
+    """放行边界：`Theme.*`、alpha 为 0、以及注释里的颜色值，一个都不许报。"""
+    gate = _load_gate()
+    fixture = (BAD / "qml" / "R8_hardcoded_color.qml").read_text(encoding="utf-8")
+    assert "Theme.textPrimary" in fixture, "放行清单里缺少 Theme.* 的用例"
+    assert '"#00000000"' in fixture, "放行清单里缺少 alpha 为 0 的用例"
+    assert "#1a1a2e" in fixture.split("import QtQuick")[0], "放行清单里缺少「注释里的颜色值」用例"
+
+    report = gate.run_gate(BAD, only=["R8"])
+    reported = [v.render() for v in report.violations if v.path == "qml/R8_hardcoded_color.qml"]
+    assert len(reported) == 4, f"放行的写法被误报了: {reported}"
+    # 正例整体也必须干净（正例里 FmCard.qml 就是用 Theme.cardBg 写的）
+    assert gate.run_gate(GOOD, only=["R8"]).violations == []
+
+
+def test_r8_ignores_svg_assets(tmp_path):
+    """`.svg` **不在** R8 的扫描范围：图标资源天生带 `fill="#ffffff"`。"""
+    base = _copy_fixture("good", tmp_path)
+    assets = base / "qml" / "assets" / "icons"
+    assets.mkdir(parents=True)
+    (assets / "play.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg">\n'
+        '  <rect width="24" height="24" fill="#1a1a2e" stroke="#ffffff"/>\n'
+        "</svg>\n",
+        encoding="utf-8",
+    )
+    gate = _load_gate()
+    report = gate.run_gate(base, only=["R8"])
+    assert report.violations == [], [v.render() for v in report.violations]
+    # 反证：同一份颜色写在 .qml 里必须报（否则上面那句"干净"毫无意义）
+    (base / "qml" / "SvgLike.qml").write_text(
+        'import QtQuick\nRectangle {\n    color: "#1a1a2e"\n}\n', encoding="utf-8"
+    )
+    after = gate.run_gate(base, only=["R8"])
+    assert [v.path for v in after.violations] == ["qml/SvgLike.qml"], [v.render() for v in after.violations]
+
+
+def test_r8_boundary_pinned_by_mutation(tmp_path):
+    """把正例里的一处 `Theme.*` 换成颜色字面量 → 必须立刻变红。"""
+    base = _copy_fixture("good", tmp_path)
+    gate = _load_gate()
+    assert gate.run_gate(base, only=["R8"]).violations == []
+
+    card = base / "qml" / "components" / "FmCard.qml"
+    text = card.read_text(encoding="utf-8")
+    mutated = text.replace("color: Theme.cardBg", 'color: "#1e2a4a"')
+    assert mutated != text, "变异锚点没命中，测试本身失效了"
+    card.write_text(mutated, encoding="utf-8")
+
+    report = gate.run_gate(base, only=["R8"])
+    assert [v.path for v in report.violations] == ["qml/components/FmCard.qml"], [v.render() for v in report.violations]
+    assert "R-15" in report.violations[0].detail, "违规原因里要写清依据（D-102 / R-15）"
+
+
+def test_r8_registered_exception_marks_and_expires():
+    """R8 也吃同一套例外机制：命中打 `[REGISTERED]`、没命中报过期。"""
+    gate = _load_gate()
+    report = gate.run_gate(BAD, only=["R8"])
+    keys = sorted(v.key for v in report.violations if v.path == "qml/R8_hardcoded_color.qml")
+    assert len(keys) == 4, keys
+
+    with _patched_registry({key: ("夹具：负例数据，不修", "2.8") for key in keys}):
+        partial = gate.run_gate(BAD, only=["R8"])
+        assert partial.registered_count == 4
+        assert all(k not in keys for k in (v.key for v in partial.violations)), "登记过的还在报"
+        assert not partial.ok, "R1_gradient 的两处仍未登记，整体仍应失败"
+        code, out = _run(["--base", str(BAD), "--rule", "R8"])
+        assert code == 1 and "[REGISTERED]" in out
+
+    with _patched_registry({"qml/R8_hardcoded_color.qml:99999:R8": ("故意指向不存在的行号", "2.8")}):
+        expired = gate.run_gate(BAD, only=["R8"])
+        assert [key for key, _, _ in expired.expired] == ["qml/R8_hardcoded_color.qml:99999:R8"]
 
 
 # ─── 3. 正例：不许误报（并证明正例不是空文件） ─────────────────
@@ -376,7 +506,7 @@ def test_json_output_agrees_with_exit_code():
     for base, expected_ok in ((GOOD, True), (BAD, False)):
         code, out = _run(["--base", str(base), "--json"])
         payload = json.loads(out)
-        assert [r["id"] for r in payload["rules"]] == ["R1", "R2", "R3", "R4", "R5", "R6", "R7"]
+        assert [r["id"] for r in payload["rules"]] == ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]
         assert payload["summary"]["ok"] is expected_ok
         assert (code == 0) is expected_ok
         for result in payload["rules"]:

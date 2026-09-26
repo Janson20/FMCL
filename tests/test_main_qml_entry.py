@@ -231,6 +231,55 @@ def test_no_qml_errors_during_load(assembled):
     assert fatal == [], f"加载根组件时出现 QML 错误: {fatal}"
 
 
+def test_runtime_icon_url_is_callable_from_qml(assembled):
+    """`Runtime.iconUrl()`（阶段 2 任务 2.10）必须真的能被 QML 调到，且结果是能加载的图标。
+
+    为什么要在**装配好的引擎**上测：图标路径只能由 Python 侧拼（开发态与打包态不同），
+    而"槽存不存在 / 名字对不对 / 上下文属性接上没有"这三件事都只有真跑一次才知道。
+
+    为什么断言到像素尺寸：QML `Image.source` 收到裸路径（`D:/…/check.svg`）会当成
+    **相对当前 QML 文件的相对路径**去解析，结果是 `Image.Error` + `implicitWidth == 0`
+    **且不报错**。只断言"返回非空字符串"就是空断言。
+    """
+    from PySide6.QtCore import QUrl
+    from PySide6.QtQml import QQmlComponent
+    # 必须先 import QtQuick：否则 create() 只返回 QWindow 壳（没有 contentItem），实测踩过。
+    from PySide6.QtQuick import QQuickWindow  # noqa: F401
+
+    src = (
+        b"import QtQuick\n"
+        b"import QtQuick.Window\n"
+        b"Window {\n"
+        b"    width: 10; height: 10; visible: false\n"
+        b'    Image { objectName: "iconProbe"; source: Runtime.iconUrl("check")\n'
+        b"            sourceSize.width: 24; sourceSize.height: 24 }\n"
+        b"}\n"
+    )
+    component = QQmlComponent(assembled.engine)
+    component.setData(src, QUrl.fromLocalFile(str(REPO_ROOT / "qml" / "_probe_icon.qml")))
+    assert component.isReady(), f"探针 QML 不 ready: {[e.toString() for e in component.errors()[:3]]}"
+    window = component.create()
+    assert window is not None, "探针 QML 创建失败"
+
+    # 不用 window.findChild：实测它找不到 Repeater/内联子项里的 QQuickItem，从 contentItem 往下走
+    found = []
+
+    def walk(item):
+        for child in item.childItems():
+            if child.objectName() == "iconProbe":
+                found.append(child)
+            walk(child)
+
+    walk(window.contentItem())
+    assert found, "QML 里没有建出 iconProbe 这个 Image"
+    image = found[0]
+    assert image.property("implicitWidth") == 24, (
+        f"Runtime.iconUrl(\"check\") 的结果加载不出来（implicitWidth="
+        f"{image.property('implicitWidth')}）—— 返回的必须是可以直接用的 file URL"
+    )
+    window.deleteLater()
+
+
 def test_duplicate_bridges_are_kept_alive(assembled):
     """桥对象必须留强引用。
 

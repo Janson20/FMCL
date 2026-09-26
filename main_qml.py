@@ -3,7 +3,8 @@
 ## 它做什么、不做什么
 
 **做**：QML 引擎、QML 导入路径、桥接对象注册、`AppContext` 装配、单实例、
-致命错误兜底窗口、CLI 模式透传。
+致命错误兜底窗口、CLI 模式透传、把 `Theme.fontFamily` 应用到应用级字体（任务 2.10，
+见 `apply_theme_font()`）。
 
 **不做**（留给后面的任务）：
 
@@ -139,11 +140,41 @@ def register_bridges(engine: Any, context: Any) -> Dict[str, List[str]]:
 
     返回 ``{"registered": [...], "missing": [...]}`` —— **缺哪个桥不影响启动**，
     缺失项会记 warning 并出现在返回值里，供测试与诊断使用。
+
+    ## 为什么单例桥用"模块登记 + 上下文属性"，而不是 `qmlRegisterSingletonInstance`
+
+    阶段 2 任务 2.8 报告的说法是"任何 `qmlRegister*` 之后同进程再编 `QtQuick.Controls`
+    必现 `Cannot assign object to list property "data"`"。**我独立复核后把这个说法收窄了**
+    （证据：`poc/_verify_register_hazard.py`、`_verify_register_signature.py`、
+    `_verify_register_forms.py`、`_verify_register_subclass.py`，每个变体独立子进程）：
+
+    | 调用 | 实测结果 |
+    |------|----------|
+    | 什么都不注册 | 最小 QML（Window + StackView）**可编译** |
+    | `qmlRegisterType(...)` | **可编译** —— 所以"任何 `qmlRegister*` 都有害"**不成立** |
+    | `qmlRegisterModule(...)` | 可编译 |
+    | `setContextProperty(...)` | 可编译，且 QML 真能取到对象（实测读到 `probe-ok`） |
+    | `qmlRegisterSingletonInstance(...)` / `qmlRegisterSingletonType(...)` | **只试出"抛错"这一种结果** —— 按 `PySide6/QtQml.pyi` 的签名 `(type_obj, uri, major, minor, qml_name, callback)` 传满 6 个参数（名字用 bytes、末参分别试过实例/`lambda: 实例`/`lambda eng, api: 实例`）都得到 `ValueError: wrong argument values`。**本次没能找到可用的调用形式。** |
+
+    所以准确的结论是："**单例注册的可用调用形式在 PySide6 6.7.3 上没找到**"，而不是
+    "注册函数有平台级缺陷"。既然目标是"QML 侧写法不变"，那就用实测可用的那两步：
+
+    1. `qmlRegisterModule("FMCL", 1, 0)` —— 让 QML 里的 `import FMCL 1.0` 有东西可导入；
+    2. `setContextProperty(name, obj)` —— `Theme.bgDark` / `Tr.map[…]` 的写法**一个字都不用改**。
+
+    后续若有人要让 `Theme` / `Tr` 变成真正的 QML 单例类型，先把上面四种 6 参形式再试一遍
+    （四个探针都是现成的），别照抄网上 5 参的写法 —— 那在 6.7.3 上一定抛 TypeError。
     """
-    from PySide6.QtQml import qmlRegisterSingletonInstance
+    from PySide6.QtQml import qmlRegisterModule
 
     registered: List[str] = []
     missing: List[str] = []
+
+    # 先把模块名登记上：QML 侧 `import FMCL 1.0` 才有东西可导入（实测无副作用）。
+    try:
+        qmlRegisterModule(QML_MODULE_URI, QML_MODULE_VERSION_MAJOR, 0)
+    except Exception as e:  # noqa: BLE001 - 模块登记失败只影响 `import FMCL 1.0` 这句
+        logger.warning("登记 QML 模块 %s 失败: %s", QML_MODULE_URI, e)
 
     for name, module_name, class_name in SINGLETON_BRIDGES + CONTEXT_BRIDGES:
         try:
@@ -161,11 +192,18 @@ def register_bridges(engine: Any, context: Any) -> Dict[str, List[str]]:
             except Exception as e:  # noqa: BLE001
                 logger.warning("桥接对象 %s 的 bind(context) 失败: %s", name, e)
 
+        # 约定：桥若需要 QML 引擎（`Theme` 要写 FluTheme），**显式注入**。
+        # 不让它自己去 `gc` 里猜 —— 那会被"装配前创建过引擎的代码"（测试探针之类）
+        # 带偏，把 FluTheme 注到错的引擎上，症状是根组件起不来且报错与主题毫不相干。
+        use_engine = getattr(obj, "use_engine", None)
+        if callable(use_engine):
+            try:
+                use_engine(engine)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("桥接对象 %s 的 use_engine(engine) 失败: %s", name, e)
+
         try:
-            if (name, module_name, class_name) in SINGLETON_BRIDGES:
-                qmlRegisterSingletonInstance(QML_MODULE_URI, QML_MODULE_VERSION_MAJOR, 0, name, obj)
-            else:
-                engine.rootContext().setContextProperty(name, obj)
+            engine.rootContext().setContextProperty(name, obj)
         except Exception as e:  # noqa: BLE001
             logger.error("注册 %s 失败: %s", name, e)
             missing.append(name)
@@ -178,6 +216,50 @@ def register_bridges(engine: Any, context: Any) -> Dict[str, List[str]]:
         registered.append(name)
 
     return {"registered": registered, "missing": missing}
+
+
+# ─── 应用级字体（任务 2.10） ───────────────────────────────────
+
+
+def apply_theme_font(engine: Any) -> bool:
+    """把 `Theme.fontFamily` 设成**应用级字体**（阶段 2 任务 2.10）。
+
+    为什么在入口做而不是在桥里：`QGuiApplication.setFont()` 改的是进程级默认字体，
+    属于"装配"而不是"主题状态"，而且必须在 `engine.load()` **之前**设好 ——
+    否则先建出来的控件拿到的还是旧字体（QML 里没写 `font.family` 的控件全都受影响）。
+
+    `Theme` 桥缺席（模块还没落地 / 注册失败）时**静默跳过**：字体只是观感，
+    不该把启动挡住 —— 返回 False 只是给测试与诊断一个确定信号，不影响主流程。
+    `Theme.fontFamily` 本身是 `LazyStr`，首次读它才会跑字体检测。
+
+    Returns:
+        是否真的把应用级字体设上了。
+    """
+    theme = getattr(engine, "_fmcl_bridges", {}).get("Theme")
+    if theme is None:
+        logger.debug("Theme 桥不在，跳过应用级字体设置")
+        return False
+    try:
+        from PySide6.QtGui import QFont, QGuiApplication
+
+        app = QGuiApplication.instance()
+        if app is None:
+            return False
+        family = str(theme.property("fontFamily") or "")
+        if not family:
+            logger.warning("Theme.fontFamily 是空的，保持系统默认字体")
+            return False
+        # Linux 上 FONT_FAMILY 可能是 "Noto Color Emoji, Noto Sans CJK SC" 这样的**组合链**
+        # （services/font_service.py 的原样行为），交给 setFamilies 处理：
+        # 整串当一个 family 名是匹配不上的，会静默掉回系统默认字体。
+        font = QFont()
+        font.setFamilies([part.strip() for part in family.split(",") if part.strip()] or [family])
+        app.setFont(font)
+        logger.info("应用级字体已设为 %s", family)
+        return True
+    except Exception as e:  # noqa: BLE001 - 字体失败绝不能挡住启动
+        logger.warning("设置应用级字体失败（保持系统默认字体）: %s", e)
+        return False
 
 
 # ─── AppContext 装配 ───────────────────────────────────────────
@@ -339,6 +421,9 @@ def assemble(
 
     result = register_bridges(engine, context)
     logger.info("桥接注册完成：%s；缺失 %s", result["registered"], result["missing"])
+
+    # 任务 2.10：中文字体注入（必须在 engine.load() 之前；桥缺席时静默跳过）。
+    apply_theme_font(engine)
 
     # 把注册结果告诉 Runtime 桥：QML 侧据此给出"缺哪些桥"的人话提示，
     # 也让"接线到底通没通"变成可断言的（见 tests/test_main_qml_entry.py）。

@@ -9,7 +9,9 @@ Python/Qt 版本、以及"桥接注册结果"都属于这一类；页面拿它�
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -17,6 +19,11 @@ from typing import Any, Dict, List, Optional
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 APP_NAME = "FMCL"
+
+logger = logging.getLogger(__name__)
+
+#: 图标名（不含扩展名）：小写字母/数字，用连字符分段（见 qml/assets/icons/README.md）
+_ICON_NAME_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 
 
 def _app_version() -> str:
@@ -87,6 +94,34 @@ class RuntimeBridge(QObject):
     @Property(bool, constant=True)
     def fluentModuleAvailable(self) -> bool:  # noqa: N802
         return (Path(self.fluentModulePath) / "FluentUI").is_dir()
+
+    # ─── 图标资源（阶段 2 任务 2.10：界面禁止 emoji，一律用 qml/assets/icons/*.svg） ──
+
+    @Slot(str, result=str)
+    def iconUrl(self, name: str) -> str:  # noqa: N802 - QML 槽名
+        """图标名（`"check"` 或 `"check.svg"`）→ 可供 `Image.source` 直接用的 file URL。
+
+        图标不存在时返回空串并打一条 warning（`Image` 拿到空串只是不画，不会崩）——
+        QML 侧的约定是 `Image { source: Runtime.iconUrl("check") }`，
+        而不是自己拼路径（拼路径在打包态会错）。
+        命名规则见 `qml/assets/icons/README.md`：小写加连字符，不带目录与扩展名也行。
+        """
+        # 先剥掉可选的 `.svg` 后缀，再**整名**匹配命名规则：
+        # 不能先取 `Path(name).stem` —— `"nested/check"` 会被它悄悄变成 `check`，
+        # 目录分隔符就被无声吞掉了（实测踩过，见 tests/test_icon_set.py 的负例）。
+        raw = str(name).strip()
+        if raw.endswith(".svg"):
+            raw = raw[:-4]
+        if not _ICON_NAME_RE.match(raw):
+            logger.warning("图标名不合法：%r（只允许小写字母、数字与连字符，可带 .svg 后缀）", name)
+            return ""
+        path = Path(self.qmlSourcePath) / "assets" / "icons" / f"{raw}.svg"
+        if not path.is_file():
+            logger.warning("图标不存在：%s", path)
+            return ""
+        from PySide6.QtCore import QUrl
+
+        return QUrl.fromLocalFile(str(path)).toString()
 
     # ─── 桥接状态（装配期写入，QML 据此给出人话提示） ──────────
 

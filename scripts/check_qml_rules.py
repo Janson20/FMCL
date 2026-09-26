@@ -16,7 +16,10 @@
 `--base` 默认是仓库根，目录结构假定与仓库一致（`qml/`、`app/bridges/`）；
 `poc/qml_rules_fixtures/` 下的正负例就是靠它被同一套判据检查的 —— 闸门自己也要被测试。
 
-## 七条规则的判据（写清楚，免得阶段 3 靠猜）
+## 八条规则的判据（写清楚，免得阶段 3 靠猜）
+
+> R1~R7 是任务 2.7 冻结的七条（`docs/refactor/11-phase2-contract.md` 第七节）；
+> **R8 是任务 2.8 新增的第八条**（判据与边界同样写在这里，契约第七节的表要按本文件同步）。
 
 **R1 禁渐变**：`.qml`/`.js` 里出现渐变类型（`Gradient` / `LinearGradient` /
 `RadialGradient` / `ConicalGradient` / `GradientStop`）、`gradient:` 属性，或亚克力/Mica
@@ -67,6 +70,16 @@
   **按名字解析，解析不到就不判** —— 宁可漏判也不把普通函数误判成 worker。
   写普通 Python 属性（`self._cache = {}`）与 `emit()` 信号是允许的。
 
+**R8 禁颜色字面量**：`qml/**` 下的 `.qml` 与 `.js`（**不含 `.svg`**：图标资源天生带
+`fill="#ffffff"`，扫了会满屏误报）里出现颜色字面量即违规：`#rgb` / `#rgba` /
+`#rrggbb` / `#aarrggbb`（大小写不敏感），或 `Qt.rgba(...)` 字面量。
+依据：缺陷 **D-102**「大量主题外的硬编码颜色，主题切换后不跟随」与风险 **R-15**
+「禁止手工登记颜色」—— 颜色只能来自 `Theme.*`（2.8 的桥）或设计令牌。
+判据写在 `no_comments` 视图上，所以**注释里写颜色不算**（注释正是该说明颜色的地方）；
+`color: Theme.bgDark` 这类绑定本来就不匹配任何颜色字面量。
+两条**刻意留出的口子**：alpha 为 0 的写法（`#0000` / `#00rrggbb` / `Qt.rgba(0, 0, 0, 0)`）
+交给 R6 与布局，不重复报；`.svg` 不在扫描范围。
+
 ## 已知边界（哪边会漏判、哪边会误报）
 
 每条规则都刻意做窄 —— 宽而误报的闸门会被绕过。下面这些写法**现在抓不到**
@@ -100,6 +113,13 @@
   类体声明的 `Q_PROPERTY` / `@Property` / `name = Property(...)` / `Signal()` ——
   **基类**里声明的属性抓不到。`self._cache = {}` 这类普通 Python 属性**故意不判**：
   那是桥里最常见的合法写法，判了会让整条规则变成噪声。
+- **R8**：只认 `#hex` 与 `Qt.rgba(...)` 两种写法。**命名色**（`color: "white"` /
+  `"red"` / `"steelblue"`）、`Qt.hsla(...)`、`Qt.lighter("#fff")` 的硬编码变体
+  **抓不到**（不做命名色表：名单长了会误伤"字符串恰好叫 white"的地方，
+  要补得先定"哪些名字算颜色"）。会**误报**：字符串里恰好长成 `#1234` / `#123456`
+  的**非颜色**内容（URL 片段、编号）—— 登记例外兜住。alpha 为 0 的写法
+  （`#0000` / `#00000000` / `Qt.rgba(0, 0, 0, 0)`）**故意不判**：那是 R6 的领地，
+  重复报只会让两条规则的负例互相污染。`.svg` 不在扫描范围（图标天生带十六进制颜色）。
 
 ## 已登记例外（`REGISTERED_EXCEPTIONS`）
 
@@ -135,7 +155,7 @@ OVERLAYS_DIR = "qml/overlays"
 
 SKIP_DIRS = {"__pycache__", ".venv", ".git", "build", "dist", "node_modules"}
 
-RULE_IDS: Tuple[str, ...] = ("R1", "R2", "R3", "R4", "R5", "R6", "R7")
+RULE_IDS: Tuple[str, ...] = ("R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8")
 
 RULE_LABELS: Dict[str, str] = {
     "R1": "禁渐变 / 禁亚克力与 Mica 材质",
@@ -145,6 +165,7 @@ RULE_LABELS: Dict[str, str] = {
     "R5": "页面不得越界 import / 不得用白名单外的自研组件",
     "R6": "悬浮窗禁 color: transparent / #00000000",
     "R7": "桥的线程红线（worker 不得直接改 QObject / 碰引擎）",
+    "R8": "禁颜色字面量（颜色只能来自 Theme.* / 设计令牌）",
 }
 
 # ─── R2 用到的 emoji 码点表 ────────────────────────────────────
@@ -196,10 +217,35 @@ _EMOJI_SMP_RANGES: Tuple[Tuple[int, int], ...] = (
     (0x1F200, 0x1F2FF),  # 带圈表意文字补充
     (0x1F300, 0x1F5FF),  # 杂项符号与图形
     (0x1F600, 0x1F64F),  # 表情
+    (0x1F650, 0x1F67F),  # 装饰符号（任务 2.10 补：原先漏了这一整块）
     (0x1F680, 0x1F6FF),  # 交通与地图符号
+    (0x1F700, 0x1F7FF),  # 炼金术符号 —— **含 1F7E0–1F7EB 的彩色圆点**（🟡🟢 就在里面）
+    (0x1F800, 0x1F8FF),  # 补充箭头-C
     (0x1F900, 0x1F9FF),  # 补充符号与图形
+    (0x1FA00, 0x1FA6F),  # 象棋符号（任务 2.10 补）
     (0x1FA70, 0x1FAFF),  # 符号与图形扩展 A
 )
+
+#: **本项目实际用作界面图标**的 `Emoji_Presentation=No` 文本符号。
+#:
+#: 为什么单独列一张表而不是把整段 `Emoji=Yes` 都收进来：那些符号里绝大多数是
+#: **真·文字符号**（数学、箭头、标点、`✓ ★ ♥` 等），全收会造成大量误报，闸门就会被绕过。
+#: 但下面这些在 FMCL 里**就是当图标用的**（`07-known-defects.md` 的 D-07），
+#: 换 UI 时必须一起换掉 —— 任务 2.10 的清单实测：这批符号原来的判据完全看不见。
+_EMOJI_AS_ICON_SINGLES: Dict[int, str] = {
+    0x23F9: "⏹ 停止方块（旧界面的「强杀游戏」按钮）",
+    0x23F3: "⏳ 沙漏（下载等待）",
+    0x2699: "⚙ 齿轮（旧界面的「资源管理」入口）",
+    0x26A0: "⚠ 警告（状态栏）",
+    0x2139: "ℹ 信息",
+    0x25B6: "▶ 播放三角",
+    0x270F: "✏ 铅笔（编辑）",
+    0x2795: "➕ 加号（新增）",
+    0x2796: "➖ 减号（移除）",
+    0x2B50: "⭐ 星（收藏/评分）",
+    0x1F512: "🔒 锁定（桌面歌词锁定态）",
+    0x1F513: "🔓 解锁",
+}
 
 #: 单独成罪的码点：变体选择符-16（把 BMP 文本符号强变成 emoji 呈现）与组合键帽。
 _EMOJI_SINGLE: Dict[int, str] = {
@@ -240,7 +286,7 @@ _ESCAPE_RE = re.compile(r"\\u\{([0-9a-fA-F]{1,6})\}|\\u([0-9a-fA-F]{4})|\\x([0-9
 REGISTERED_EXCEPTIONS: Dict[str, Tuple[str, str]] = {}
 
 #: 登记键的合法形状：`路径:行:规则号`
-_REGISTRY_KEY_RE = re.compile(r"^[^:]+:\d+:(R[1-7])$")
+_REGISTRY_KEY_RE = re.compile(r"^[^:]+:\d+:(R[1-8])$")
 
 
 # ─── 源码扫描：注释与字符串字面量分开 ──────────────────────────
@@ -579,6 +625,9 @@ def _emoji_desc(cp: int) -> str:
     """命中 emoji 判定则返回人话描述，否则返回空串。"""
     if cp in _EMOJI_SINGLE:
         return _EMOJI_SINGLE[cp]
+    # 本项目当图标用的文本符号（`Emoji_Presentation=No`，区间判据看不见它们）
+    if cp in _EMOJI_AS_ICON_SINGLES:
+        return _EMOJI_AS_ICON_SINGLES[cp]
     for lo, hi in _EMOJI_BMP_RANGES + _EMOJI_SMP_RANGES:
         if lo <= cp <= hi:
             return unicodedata.name(chr(cp), f"U+{cp:04X}")
@@ -1197,6 +1246,80 @@ def check_r7(project: ProjectInfo) -> Checked:
     return out, files, ""
 
 
+# ─── R8 禁颜色字面量（缺陷 D-102 / 风险 R-15） ─────────────────
+
+#: R8 只扫这两种后缀。`.svg` **故意不扫**：图标资源天生带 `fill="#ffffff"`。
+R8_SUFFIXES: Tuple[str, ...] = (".qml", ".js")
+
+#: 颜色字面量：`#rgb` / `#rgba` / `#rrggbb` / `#aarrggbb`（大小写不敏感）。
+#: 长的写在前面（正则交替按左到右匹配），末尾用 `(?![0-9a-fA-F])` 防止把 8 位切成 6 位；
+#: 前面用 `(?<![\w#])` 防止匹配到 `abc#123456` 这种粘在标识符/URL 上的片段。
+COLOR_LITERAL_RE = re.compile(
+    r"(?<![\w#])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?![0-9a-fA-F])"
+)
+
+#: `Qt.rgba(...)`（允许点号两侧有空格；大小写不敏感，Qt/Qt 的别名 qml 也一样）。
+RGBA_LITERAL_RE = re.compile(r"(?<![\w.])[Qq]t\s*\.\s*rgba\s*\(([^()]*)\)")
+
+
+def _r8_is_transparent_hex(literal: str) -> bool:
+    """是全透明的十六进制写法吗（`#0000` / `#00rrggbb`）。
+
+    全透明**不是**"选了一个颜色"，而是布局手段 —— 这类写法归 R6（且只在
+    `qml/overlays/**` 下判），R8 不重复报，免得两条规则的负例互相污染。
+    """
+    body = literal.lstrip("#").lower()
+    if len(body) == 4:
+        return body == "0000"
+    if len(body) == 8:
+        return body.startswith("00")
+    return False
+
+
+def _r8_is_transparent_rgba(args: str) -> bool:
+    """`Qt.rgba(r, g, b, a)` 的 a 是不是 0（是则与 `transparent` 等价，归 R6）。"""
+    parts = [part.strip() for part in args.split(",")]
+    if len(parts) != 4:
+        return False
+    try:
+        return float(parts[3]) == 0.0
+    except ValueError:
+        return False
+
+
+def check_r8(project: ProjectInfo) -> Checked:
+    """R8：`.qml` / `.js` 里不得出现颜色字面量（颜色只能来自 `Theme.*` 或设计令牌）。
+
+    判据写在 `no_comments` 视图上：**注释里的颜色值不算**（注释正是该写清
+    "这个色原来是 #1a1a2e" 的地方），字符串里的算 —— QML 的颜色字面量本来就写在字符串里。
+    """
+    out: List[Violation] = []
+    files: List[str] = []
+    for ctx in project.qml_ctx:
+        if not ctx.rel.endswith(R8_SUFFIXES):
+            continue
+        files.append(ctx.rel)
+        text = ctx.without_comments
+        for m in COLOR_LITERAL_RE.finditer(text):
+            literal = m.group(0)
+            if _r8_is_transparent_hex(literal):
+                continue
+            out.append(_violation(
+                "R8", ctx, m.start(),
+                f"出现硬编码颜色 {literal} —— 颜色必须来自 Theme.*（或 Theme.fontSize* 之类的设计"
+                "令牌），否则切主题时这里不跟随（缺陷 D-102 / 风险 R-15）；"
+                "确实需要固定色请在 REGISTERED_EXCEPTIONS 登记并写明任务号",
+            ))
+        for m in RGBA_LITERAL_RE.finditer(text):
+            if _r8_is_transparent_rgba(m.group(1)):
+                continue
+            out.append(_violation(
+                "R8", ctx, m.start(),
+                f"出现硬编码颜色 {source_excerpt(m.group(0))} —— 同上，请改用 Theme.* 里的同名键",
+            ))
+    return out, files, ""
+
+
 #: 规则号 → 检查函数
 CHECKERS: Dict[str, Callable[[ProjectInfo], Checked]] = {
     "R1": check_r1,
@@ -1206,6 +1329,7 @@ CHECKERS: Dict[str, Callable[[ProjectInfo], Checked]] = {
     "R5": check_r5,
     "R6": check_r6,
     "R7": check_r7,
+    "R8": check_r8,
 }
 
 
