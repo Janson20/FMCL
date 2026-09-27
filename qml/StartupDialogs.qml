@@ -15,8 +15,8 @@
 // 3.26（关于 / 链接 / 协议）；这里显示的是语言文件里那段正式声明（与旧弹窗的正文一致）。
 
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
+import "components"
 
 Item {
     id: root
@@ -98,7 +98,7 @@ Item {
                     wrapMode: Text.WordWrap
                 }
 
-                ScrollView {
+                FmScrollView {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
@@ -135,20 +135,20 @@ Item {
                     }
                 }
 
-                CheckBox {
+                // 返工 C 组：勾选框换成 FmCheckBox（闸门 R9）。语义上本来就该是复选框 ——
+                // 这两个勾选**跟"同意并继续"一起生效**，而 FmSwitch 的定位是"立即生效"。
+                FmCheckBox {
                     id: termsChecked
                     objectName: "termsCheckBox"
                     Layout.fillWidth: true
                     text: root.t("terms_agree")
-                    font.pixelSize: Theme?.fontSizeBase ?? 12
                 }
 
-                CheckBox {
+                FmCheckBox {
                     id: privacyChecked
                     objectName: "privacyCheckBox"
                     Layout.fillWidth: true
                     text: root.t("ai_privacy_agreement")
-                    font.pixelSize: Theme?.fontSizeBase ?? 12
                 }
 
                 RowLayout {
@@ -156,7 +156,7 @@ Item {
                     spacing: Theme?.spacingSm ?? 10
                     Item { Layout.fillWidth: true }
 
-                    Button {
+                    FmButton {
                         objectName: "agreeButton"
                         // 勾选前禁用 —— 这是合规语义，不是样式选择
                         enabled: termsChecked.checked && privacyChecked.checked
@@ -201,7 +201,7 @@ Item {
                     font.bold: true
                 }
 
-                ScrollView {
+                FmScrollView {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
@@ -221,7 +221,7 @@ Item {
                     Layout.fillWidth: true
                     Item { Layout.fillWidth: true }
 
-                    Button {
+                    FmButton {
                         objectName: "noticeCloseButton"
                         text: root.t("confirm")
                         onClicked: {

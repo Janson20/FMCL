@@ -28,6 +28,12 @@ Item {
 
     signal edited(string value)
 
+    //: 选中全部文本（与 `FmTextField` 同一个转发理由：根节点是 `Item`，
+    //: 原生 `TextArea.selectAll()` 在包装器上不存在）
+    function selectAll() {
+        input.selectAll()
+    }
+
     implicitWidth: 320
     implicitHeight: layout.implicitHeight
 

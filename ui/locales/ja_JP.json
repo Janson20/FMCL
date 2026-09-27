@@ -731,6 +731,11 @@
   "startup_failed_title": "ランチャーの初期化に失敗しました",
 
   "dev_gallery_hint_toolbutton": "アイコンのみのボタン：アプリバーや行末の正方形ヒット領域（通常 / 選択 / バッジ / 無効）",
+  "dev_gallery_hint_page": "ページ骨組み：ヘッダーと三態（読み込み中 / 空 / エラー）を一つの部品に",
+  "dev_gallery_hint_checkbox": "チェックボックス：確定と一緒に効く項目（通常 / チェック済み / 部分選択 / 無効）",
+  "dev_gallery_hint_spinbox": "数値ステッパー：正確な値 + 増減ボタン（編集可 / 無効）",
+  "dev_gallery_hint_scrollview": "スクロール領域：内容が見える範囲より高いときに使う（バーはテーマ追従）",
+  "dev_gallery_hint_scrollbar": "スクロールバー：自前でスクロールする一覧に貼る（ListView の ScrollBar.vertical）",
 
   "nav_group_game": "ゲーム",
   "nav_group_resources": "リソースとマルチプレイ",

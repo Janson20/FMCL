@@ -322,9 +322,10 @@ uv run python scripts/check_i18n.py
 # 模块搬家的完整性（主体逐节点一致 / 行数一致 / 旧路径别名同一对象）
 uv run python scripts/relocate_module.py --check
 
-# QML 规则闸门（阶段 2 新增，R1~R8）：禁渐变与亚克力材质、禁 emoji、禁硬编码中文、
+# QML 规则闸门（阶段 2 新增，R1~R9）：禁渐变与亚克力材质、禁 emoji、禁硬编码中文、
 # 绑定必须走 Tr.map、页面不得越界 import、悬浮窗不得用 color: "transparent"、
-# 桥的线程红线、QML 里不得出现颜色字面量（颜色只能来自 Theme.*）
+# 桥的线程红线、QML 里不得出现颜色字面量（颜色只能来自 Theme.*）、
+# 界面里不得出现 Qt 原生视觉控件（一律用 qml/components 里的 Fm*）
 uv run python scripts/check_qml_rules.py
 ```
 
@@ -344,11 +345,30 @@ make clean            # 清理构建文件
 uv run pytest -q
 ```
 
-### QML 组件库（阶段 2 任务 2.16 / 2.17）
+### QML 组件库（阶段 2 任务 2.16 / 2.17；返工 B/C 组各补过件）
 
 阶段 2 之后的界面**一律用 `qml/components/` 里的通用件拼**，页面里不再出现"一次性控件"
-（`03` 的 3.0 SOP 第 3 条）。清单与用法在 **[qml/components/COMPONENTS.md](qml/components/COMPONENTS.md)**，
+（`03` 的 3.0 SOP 第 3 条），也**不再出现 Qt 原生控件**（闸门 **R9**，返工 C 组新增）。
+清单与用法在 **[qml/components/COMPONENTS.md](qml/components/COMPONENTS.md)**（26 个件），
 它同时是闸门 R5 的白名单数据源（页面用了白名单外的自研件即违规）。
+
+**每个页面的根节点都是 `FmPage`**（返工 C 组新增）：它承担路由帧五件套、页头与内容区三态
+（`contentState` = ready / loading / empty / error），12 个内置领域页因此各自只剩 22 行。
+一个页面现在长这样：
+
+```qml
+import "../../components"
+
+FmPage {
+    objectName: "versionsPage"          // 冒烟测试与探针按它找页面，不能改
+    contentState: versionsModel.state   // ready 时显示页面内容，其余显示三态块
+    emptyText: Tr?.map["versions_none"] ?? "versions_none"
+    retryText: Tr?.map["refresh"] ?? "refresh"
+    onRetried: versionsModel.reload()
+
+    FmTable { anchors.fill: parent; columns: page.cols; rows: page.rows }
+}
+```
 
 ```qml
 import QtQuick
@@ -373,7 +393,7 @@ Item {
 }
 ```
 
-**三条纪律**（都由 `scripts/check_qml_rules.py` 静态拦，别只靠自觉）：
+**四条纪律**（都由 `scripts/check_qml_rules.py` 静态拦，别只靠自觉）：
 
 1. **颜色**：只来自 `Theme.*` 的 12 个语义色键、15 个派生令牌与设计令牌
    （`bgDark/bgMedium/bgLight/accent/accentHover/success/warning/error/textPrimary/textSecondary/cardBg/cardBorder`
@@ -390,6 +410,14 @@ Item {
    语言切换时函数返回值不会重算（契约第六节决策 1，闸门 **R4**）；字符串里写死中文是 **R3**。
 3. **图标**：一律 `FmIcon { name: "check"; color: Theme.accent }`，名字取自 `qml/assets/icons/*.svg`
    （小写 + 连字符、语义命名，见该目录的 [README](qml/assets/icons/README.md)）。**界面禁用 emoji**（**R2**）。
+4. **控件**：从 `COMPONENTS.md` 第二节里挑，**不许直接用 Qt 原生控件**（**R9**，返工 C 组新增）。
+   理由是实测出来的：本项目跑的是 QtQuick Controls 的 **Basic** 样式
+   （`main_qml.py: create_application()` 设的 `QT_QUICK_CONTROLS_STYLE`），原生控件的底色与
+   文字色来自**系统调色板** —— 锁深色的界面里必然是浅色的外来件，而且不跟随 `Theme.*`。
+   三条边界：**同名包装器**放行（`FmSwitch.qml` 的根节点本来就是 `Switch`，白名单在闸门的
+   `NATIVE_CONTROL_WRAPPERS` 里）；**附着属性的名字**不算（`ScrollBar.vertical:` 来自 Qt，
+   换的是值那个实例）；**零依赖兜底窗** `qml/FatalError.qml` 豁免（它连 `Theme`/`Tr` 都没有，
+   由测试钉住"确实不读任何上下文属性"）。FluentUI 自己的控件还没拦，登记为候选 R10。
 
 **新增一个组件**：加 `qml/components/FmXxx.qml`（文件头写清"什么时候用它 / 什么时候不要用"、
 根节点给稳定的 `objectName`）→ 在 `COMPONENTS.md` 的白名单表里登记一行 → 跑
@@ -465,6 +493,38 @@ uv run python tests/qml_startup_probe.py          # 直接看 JSON 观察结果
 uv run python -m pytest tests/test_shell_qml.py -q
 uv run python tests/qml_shell_probe.py            # 直接看 JSON 观察结果
 ```
+
+### 页面骨架与原生控件清零（返工 C 组）
+
+页面那一层做了两件事：**把 12 份重复收敛成一份**、**把 Qt 原生控件清零**。
+
+- 12 个内置领域页原来是同一份 145 行代码各抄一遍（只有 `objectName` 与领域名不同，
+  合计 1740 行）。现在每页 22 行，页头、路由帧与三态渲染都在 `qml/components/FmPage.qml` 里
+  （合计 264 行）；重复度实测见 `poc/_gen_placeholder_pages.py`（归一化领域名/节号/objectName
+  后比 SHA256，12 个文件全等）。
+- 页面里的开发噪声（那行 `route: … params: …`）删掉了。深链与跳转的取证方式随之改成读页面的
+  `routeId` / `routeParams` 属性（`tests/qml_shell_probe.py` 的 `page_frame()`）——
+  断言的东西没变：参数必须真的落到页面上。
+- 原生控件清零后新增闸门 **R9**：`qml/**` 里出现 Qt 原生控件（`Button` / `TextField` /
+  `ScrollBar` / `CheckBox` / `SpinBox` / `ScrollView` …）即违规。为此补了五个自研件：
+  `FmPage`、`FmScrollView`、`FmScrollBar`、`FmSpinBox`、`FmCheckBox`。
+  一并换掉的还有 `LogView` 的工具栏与滚动条、`StartupDialogs` 的勾选框与滚动区、
+  `TextInputDialog` 的输入框、`ProgressDialog` 的进度件。
+
+```bash
+# 闸门（R9 会拦住原生控件漏进界面；负例与变异证明在 tests/test_qml_rules_gate.py）
+uv run python scripts/check_qml_rules.py
+# 12 个占位页的重复度实测（归一化后比 SHA256）
+uv run python poc/_gen_placeholder_pages.py
+```
+
+> **`FmIcon` 的一个坑（返工 C 组实测并修好）**：`Image.source` **不能**读一个"自身也依赖
+> `name` 的派生属性"（原来是 `name.length > 0 ? providerUrl : ""`）—— 名字从空变成非空时，
+> Qt 会先拿**上一次的缓存值**求值一次，于是每次新建页面都刷一对
+> 「图标名不合法：`'?color=…'`」+「`QQuickImage: Failed to get image from provider`」。
+> URL 直接拼在 `source:` 表达式上就没有这条多余请求；最小复现见
+> `poc/_probe_fmicon_empty_request.py`，回归用例见
+> `tests/test_icon_provider.py::test_icon_name_becoming_non_empty_never_requests_an_empty_name`。
 
 ### 构建
 

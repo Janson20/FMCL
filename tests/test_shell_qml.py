@@ -251,7 +251,9 @@ def test_clicking_a_nav_item_switches_the_page() -> None:
     assert row["route"] == "versions", "点击导航项没有触发 Nav.push"
     assert row["page"] == "versionsPage", "PageStack 上的页面没换"
     assert row["depth"] == 2, "一级导航是压栈（首页仍在栈里）"
-    assert "route: versions" in row["routeInfo"], "页面拿到的应该是 push 时冻结的那一帧"
+    # 返工 C 组把页面里那行 `route: … params: …` 的开发噪声删了，证据改成读页面自己的
+    # 属性（FmPage 的 routeId / routeParams）—— 断言的东西没变：页面拿到的是 push 那一刻冻结的帧
+    assert row["frame"]["routeId"] == "versions", f"页面拿到的帧不对：{row['frame']}"
 
 
 def test_walking_all_domains_by_clicking_switches_every_page() -> None:
@@ -262,23 +264,23 @@ def test_walking_all_domains_by_clicking_switches_every_page() -> None:
     for row in walk:
         assert row["route"] == row["domain"], f"{row['domain']} 切页后 currentRoute 不对"
         assert row["page"] == f"{row['domain']}Page", f"{row['domain']} 的页面没换"
-        assert f"route: {row['domain']}" in row["routeInfo"]
+        assert row["frame"]["routeId"] == row["domain"], f"{row['domain']} 拿到的帧不对"
 
 
 def test_page_three_states_are_reachable() -> None:
-    """三态都能点到，且每态都换成了对应的图标。
+    """三态都能点到，且每态都渲染出**对应的那个状态件**、图标与文案。
 
-    图标 URL 有**两种合法形态**（返工 A 组 D-141 之后默认走第一种）：
-    `image://fmcl-icon/<名>?color=%23RRGGBB`（上色 provider 已注册）或
-    `file:///…/icons/<名>.svg`（provider 缺席时的退化形态）。所以判据是
-    "URL 里带着那个图标名"，而不是"必须是哪一种 URL"。
+    返工 C 组把三态区换成了自研的 FmLoadingState / FmEmptyState / FmErrorState
+    （12 个占位页不再各抄一遍三态渲染），所以判据从"页面上那个 Image 的 source"
+    换成"状态件自己的图标名" —— 仍然是**渲染出来的东西**，不是页面的入参。
     """
     icons = {"loading": "loading", "empty": "folder-open", "error": "error"}
     states = {entry["expected"]: entry for entry in probe()["threeStates"]}
     assert set(states) == set(icons), "三态都要能点到"
     for expected, entry in states.items():
-        assert entry["state"] == expected
-        assert icons[expected] in entry["icon"], f"{expected} 的图标不对：{entry['icon']}"
+        assert entry["state"] == expected, f"点完按钮后 contentState 不对：{entry}"
+        assert entry["shown"] == expected, f"{expected} 显示的不是对应的状态件：{entry['shown']}"
+        assert entry["icon"] == icons[expected], f"{expected} 的图标不对：{entry['icon']}"
         assert entry["label"].strip(), f"{expected} 没有文案"
 
 
@@ -350,7 +352,12 @@ def test_deep_link_switches_the_page_and_passes_params() -> None:
     assert link["returned"] is True
     assert link["page"] == "versionsPage"
     assert link["params"] == {"version": "1.21.4"}
-    assert "1.21.4" in link["routeInfo"], "参数必须真的传到页面上"
+    # 证据从"页面上那行 route: … params: …"改成页面自己的属性（返工 C 组删了那行噪声）。
+    # 深链的目标是二级路由 `versions/detail`，页面还是 VersionsPage —— 帧里的 routeId
+    # 记的就是这个二级路由 id（正是"页面拿到的是哪一帧"的判据）。
+    assert link["frame"]["routeId"] == "versions/detail", f"页面拿到的帧不对：{link['frame']}"
+    assert link["frame"]["params"].get("version") == "1.21.4", \
+        f"参数必须真的传到页面上：{link['frame']['params']}"
 
 
 def test_plugin_page_loads_without_qml_errors() -> None:

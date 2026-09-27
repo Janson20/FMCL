@@ -164,21 +164,28 @@ def test_every_page_has_route_object_and_three_states(smoke_json: Dict[str, Any]
         assert [entry["state"] for entry in states] == list(STATES), (
             f"{route} 的三态没跑全：{states}"
         )
+        expected_icons = {"loading": "loading", "empty": "folder-open", "error": "error"}
         for entry in states:
             assert entry["got"] == entry["state"], f"{route} 的 {entry['state']} 没生效"
             assert entry["label"].strip(), f"{route} 的 {entry['state']} 没有文案"
-            # 图标 URL 有**两种合法形态**（界面返工 A 组 D-141 之后默认走第一种）：
-            #   * `image://fmcl-icon/<名>?color=%23RRGGBB` —— 上色 provider 已注册（生产路径）；
-            #   * `file:///…/icons/<名>.svg` —— provider 缺席时的退化形态（能看见但是黑的）。
-            # 判据是"拿到了可用图标"，而不是"必须是哪一种"；颜色必须是 `#rrggbb` 那种十六进制，
-            # 防止退回"默认黑"（那正是 D-141：93 个 SVG 全是 currentColor，QtSvg 渲成不透明黑）。
-            url = entry["icon"]
-            assert url.startswith(("image://fmcl-icon/", "file:")), (
-                f"{route} 的 {entry['state']} 图标 URL 形态不对: {url!r}"
+            # 返工 C 组之后，三态由页面骨架 `FmPage` 统一渲染（`FmLoadingState` /
+            # `FmEmptyState` / `FmErrorState`），所以证据是"**哪个状态件在屏上**" +
+            # "它的图标名与标题文案"，而不是原来那个页面内 `Image` 的 source URL。
+            # 判据仍然是**渲染结果**（不是页面的入参），并且逐态对上图标名。
+            assert entry["shown"] == entry["state"], (
+                f"{route} 的 {entry['state']} 显示的不是对应的状态件：{entry['shown']!r}"
             )
-            if url.startswith("image://fmcl-icon/"):
-                assert "color=%23" in url, f"{route} 的 {entry['state']} 图标没带上色参数: {url!r}"
-                assert "color=%23000000" not in url, f"{route} 的 {entry['state']} 图标又退回默认黑了"
+            assert entry["icon"] == expected_icons[entry["state"]], (
+                f"{route} 的 {entry['state']} 图标不对：{entry['icon']!r}"
+            )
+        # 页头图标仍要"经 provider 上色"（D-141 的端到端证据，随 C 组的 FmIcon 页头继续保留）
+        assert row["pageIconName"], f"{route} 的页头图标没有名字"
+        icon_source = row["pageIconSource"]
+        assert icon_source.startswith("image://fmcl-icon/"), (
+            f"{route} 的页头图标没走 provider：{icon_source!r}"
+        )
+        assert "color=%23" in icon_source, f"{route} 的页头图标没带上色参数：{icon_source!r}"
+        assert "color=%23000000" not in icon_source, f"{route} 的页头图标又退回默认黑了：{icon_source!r}"
 
 
 # ─── 3. 截图 ────────────────────────────────────────────────────

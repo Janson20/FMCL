@@ -731,6 +731,11 @@
   "startup_failed_title": "启动器初始化失败",
 
   "dev_gallery_hint_toolbutton": "纯图标按钮：顶栏与行尾的方形命中区（常态 / 选中 / 角标 / 禁用四态）",
+  "dev_gallery_hint_page": "页面骨架：页头 + 三态区（加载中 / 空数据 / 出错）都在这一个件里",
+  "dev_gallery_hint_checkbox": "复选框：跟确定一起生效的勾选项（常态 / 已勾 / 半选 / 禁用）",
+  "dev_gallery_hint_spinbox": "数值步进：精确取值 + 按钮微调（可编辑 / 禁用）",
+  "dev_gallery_hint_scrollview": "整块滚动容器：内容比可视区高时用它，滚动条跟着主题走",
+  "dev_gallery_hint_scrollbar": "滚动条：贴在自己会滚的列表上（ListView 的 ScrollBar.vertical）",
 
   "nav_group_game": "游戏",
   "nav_group_resources": "资源与联机",

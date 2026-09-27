@@ -88,40 +88,28 @@ Item {
                 wrapMode: Text.WordWrap
             }
 
-            // 确定进度 -> 进度条；不确定 -> 转圈（旧实现切 indeterminate 模式）
-            ProgressBar {
+            // 确定进度 -> 进度条；不确定 -> 转圈（旧实现切 indeterminate 模式）。
+            // 返工 C 组：两个都换成自研件（闸门 R9 禁原生控件）。`objectName` 与 `value`
+            // 保持原样 —— `tests/test_dialogs_qml.py` 按这两个东西断言进度回填。
+            FmProgressBar {
                 id: bar
                 objectName: "progressBar"
                 width: parent.width
-                height: 8
+                barHeight: 8
+                // 百分比由对话框自己的文案区负责，这里只要那条
+                showPercent: false
                 visible: dialog.determinate
-                from: 0.0
-                to: 1.0
                 value: dialog.fraction
-
-                background: Rectangle {
-                    radius: height / 2
-                    color: Theme?.bgMedium ?? "transparent"
-                }
-
-                contentItem: Item {
-                    Rectangle {
-                        width: bar.visualPosition * parent.width
-                        height: parent.height
-                        radius: height / 2
-                        color: Theme?.accent ?? "transparent"
-                    }
-                }
             }
 
-            BusyIndicator {
+            FmProgressRing {
                 id: busy
                 objectName: "progressBusy"
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: !dialog.determinate
-                running: visible
-                implicitWidth: (Theme?.iconSize ?? 0) * 2
-                implicitHeight: (Theme?.iconSize ?? 0) * 2
+                indeterminate: true
+                width: (Theme?.iconSize ?? 0) * 2
+                height: width
             }
 
             Text {

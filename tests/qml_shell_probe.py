@@ -20,7 +20,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
@@ -181,9 +181,82 @@ def page_name() -> str:
 
 
 def page_text(object_name: str) -> str:
+    """当前页里某个 Text 的 `text`（**只用于页面上真的还有这个 Text 的地方**）。
+
+    返工 C 组把页面里的 `pageRouteInfo`（`route: … params: …`）删掉了 ——
+    那一帧的证据改成 `page_frame()` 读页面属性；这个函数留着给别的文本用
+    （例如面包屑、状态条这类仍然是 Text 的地方）。
+    """
     page = current_page()
     child = page.findChild(QQuickItem, object_name) if page is not None else None
     return str(child.property("text")) if child is not None else ""
+
+
+def jsonable(value: Any) -> Any:
+    """把 QML 的 `var` 属性转成能进 JSON 的普通 Python 类型。
+
+    坑：`var` 属性在 PySide6 里**不一定**是 dict —— 实测 `page.routeParams`
+    读回来是 `QJSValue`（要实现 `toVariant()` 才拿得到真身），所以这里显式转一道，
+    否则报告里会出现 `<PySide6.QtQml.QJSValue object at 0x…>` 这种没用的字符串。
+    """
+    if value is None:
+        return None
+    if hasattr(value, "toVariant"):
+        return jsonable(value.toVariant())
+    if isinstance(value, dict):
+        return {str(key): jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [jsonable(item) for item in value]
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def page_frame() -> Dict[str, Any]:
+    """当前页拿到的**那一帧**（路由 id 与参数）。
+
+    返工 C 组之前，页面把这一帧渲染成一行 `route: … params: …` 的文本（给开发看的噪声），
+    探针读那个 Text 的 `text`；C 组把那行删了，证据改成读页面自己的属性 ——
+    断言的还是同一件事：深链与跳转的参数必须真的落到页面上（页面骨架 FmPage 声明了
+    `routeId` / `routeParams`，PageStack 才会把帧设进来）。
+    """
+    page = current_page()
+    if page is None:
+        return {"routeId": "", "params": {}}
+    return {
+        "routeId": str(page.property("routeId") or ""),
+        "params": jsonable(page.property("routeParams")),
+    }
+
+
+#: 三态 → （状态件根对象名, 标题对象名, 图标对象名）。
+#: 返工 C 组把三态区换成了自研的 FmLoadingState / FmEmptyState / FmErrorState，
+#: 所以"渲染出来的文案与图标"要从状态件里读（判据仍是**渲染结果**，不是页面的入参）。
+STATE_PARTS: Dict[str, Tuple[str, str, str]] = {
+    "loading": ("fmLoadingState", "fmLoadingStateTitle", "fmLoadingStateIcon"),
+    "empty": ("fmEmptyState", "fmEmptyStateTitle", "fmEmptyStateIcon"),
+    "error": ("fmErrorState", "fmErrorStateTitle", "fmErrorStateIcon"),
+}
+
+
+def state_readout() -> Dict[str, str]:
+    """当前页三态区的渲染结果：页面的 `contentState` + 真的显示出来的那个状态件。"""
+    page = current_page()
+    out = {"state": "", "shown": "", "label": "", "icon": ""}
+    if page is None:
+        return out
+    out["state"] = str(page.property("contentState") or "")
+    for key, (root_name, title_name, icon_name) in STATE_PARTS.items():
+        node = page.findChild(QQuickItem, root_name)
+        if node is None or not node.isVisible():
+            continue
+        title = node.findChild(QQuickItem, title_name)
+        icon = node.findChild(QQuickItem, icon_name)
+        out["shown"] = key
+        out["label"] = str(title.property("text")) if title is not None else ""
+        out["icon"] = str(icon.property("name")) if icon is not None else ""
+        break
+    return out
 
 
 def status_text() -> str:
@@ -203,7 +276,7 @@ def walk() -> List[Dict[str, Any]]:
             "route": NAV.currentRoute,
             "page": page_name(),
             "depth": item("pageStack").property("depth"),
-            "routeInfo": page_text("pageRouteInfo"),
+            "frame": page_frame(),
         })
     return rows
 
@@ -276,21 +349,22 @@ def main() -> int:
     # 1) 点一遍 12 个一级导航项
     report["walk"] = walk()
 
-    # 2) 三态演示（点页面里的三个按钮）
+    # 2) 三态演示（点页面里的三个按钮 → 读**渲染出来的**状态件）
     NAV.reset()
     click(nav_delegates().get("navItem_tools"))
     settle()
     states = []
     page = current_page()
-    icon = page.findChild(QQuickItem, "pageStateIcon")
     for button_name, expected in (("demoEmptyButton", "empty"), ("demoErrorButton", "error"),
                                   ("demoLoadingButton", "loading")):
         click(page.findChild(QQuickItem, button_name))
+        readout = state_readout()
         states.append({
             "expected": expected,
-            "state": str(page.property("demoState")),
-            "icon": str(icon.property("source")),
-            "label": str(page.findChild(QQuickItem, "pageStateText").property("text")),
+            "state": readout["state"],
+            "shown": readout["shown"],
+            "icon": readout["icon"],
+            "label": readout["label"],
         })
     report["threeStates"] = states
 
@@ -338,7 +412,7 @@ def main() -> int:
         "returned": opened,
         "page": page_name(),
         "params": NAV.currentParams,
-        "routeInfo": page_text("pageRouteInfo"),
+        "frame": page_frame(),
     }
 
     NAV.reset()

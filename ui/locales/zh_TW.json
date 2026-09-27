@@ -731,6 +731,11 @@
   "startup_failed_title": "啟動器初始化失敗",
 
   "dev_gallery_hint_toolbutton": "純圖示按鈕：頂欄與行尾的方形命中區（常態 / 選中 / 角標 / 停用四態）",
+  "dev_gallery_hint_page": "頁面骨架：頁首 + 三態區（載入中 / 空資料 / 出錯）都在這一個件裡",
+  "dev_gallery_hint_checkbox": "核取方塊：跟確定一起生效的勾選項（常態 / 已勾 / 半選 / 停用）",
+  "dev_gallery_hint_spinbox": "數值步進：精確取值 + 按鈕微調（可編輯 / 停用）",
+  "dev_gallery_hint_scrollview": "整塊捲動容器：內容比可視區高時用它，捲軸跟著主題走",
+  "dev_gallery_hint_scrollbar": "捲軸：貼在自己會捲的清單上（ListView 的 ScrollBar.vertical）",
 
   "nav_group_game": "遊戲",
   "nav_group_resources": "資源與連線",

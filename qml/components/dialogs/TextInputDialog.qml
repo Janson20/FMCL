@@ -132,24 +132,16 @@ Item {
                 wrapMode: Text.WordWrap
             }
 
-            TextField {
+            // 返工 C 组：原生 TextField 换成 FmTextField（闸门 R9）。密码态用它自己的
+            // `password` 属性表达（内部就是 TextInput.Password），页面上不再直接引用
+            // QtQuick.Controls 的枚举；`id` 与 `objectName` 保持不变（本文件别处与
+            // `tests/test_dialogs_qml.py` 都按 `inputField` / `field.text` 取值）。
+            FmTextField {
                 id: field
                 objectName: "inputField"
                 width: parent.width
-                height: 34
-                color: Theme?.textPrimary ?? "transparent"
-                font.pixelSize: Theme?.fontSizeBase ?? 12
-                selectByMouse: true
-                // 密码掩码：TextInput.Password（Qt 用圆点显示，明文不落进界面）
-                echoMode: dialog.isPassword ? TextInput.Password : TextInput.Normal
+                password: dialog.isPassword
                 onAccepted: dialog.accept()
-
-                background: Rectangle {
-                    radius: Theme?.radiusMd ?? 0
-                    color: Theme?.bgMedium ?? "transparent"
-                    border.width: 1
-                    border.color: field.activeFocus ? Theme?.accent ?? "transparent" : Theme?.cardBorder ?? "transparent"
-                }
             }
 
             Item {

@@ -544,3 +544,133 @@ def test_qml_renders_exact_colors_in_a_real_window(tmp_path, platform):
         f"{resolved}: 抓到 {result['nearBlack']} 个近黑像素 —— `currentColor` 没被替换"
         "（QtSvg 的默认行为就是黑），provider 没生效或者没注册"
     )
+
+
+# ─── FmIcon 的名字"从空变成非空"时不许发空名字请求（返工 C 组的回归） ──
+
+#: 子进程探针：`FmIcon` 的名字先空、再由 QML 设成 `check`，看提供者会不会先收到一次
+#: `image://fmcl-icon/?color=…`（名字为空）的请求。
+#:
+#: 为什么必须是子进程：与上面那条同一个原因（`QGuiApplication` + 引擎留在 pytest 进程里）。
+#: 判据用的是**用户看得见的症状**（提供者的"图标名不合法"警告 + QML 的
+#: "Failed to get image from provider"），不是"某个内部属性等于什么"。
+DYNAMIC_NAME_PROBE = r'''
+import json
+import logging
+import os
+import sys
+
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
+repo_root = sys.argv[1]
+sys.path.insert(0, repo_root)
+
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtQml import QQmlApplicationEngine
+
+from app.bridges.icon_provider import install
+
+QML = """
+import QtQuick
+import QtQuick.Window
+import "components"
+
+Window {
+    id: win
+    width: 64
+    height: 64
+    visible: true
+
+    property string iconName: ""
+
+    FmIcon {
+        objectName: "dynamicIcon"
+        name: win.iconName
+        color: "#e94560"
+    }
+
+    Timer {
+        interval: 120
+        running: true
+        onTriggered: win.iconName = "check"
+    }
+}
+"""
+
+records = []
+
+
+class Collector(logging.Handler):
+    """收集提供者的日志（"图标名不合法"就是从这里出来的）。"""
+
+    def emit(self, record):
+        records.append(record.getMessage())
+
+
+logging.getLogger("app.bridges.icon_provider").addHandler(Collector())
+logging.getLogger("app.bridges.icon_provider").setLevel(logging.DEBUG)
+
+app = QGuiApplication(sys.argv[:1])
+qml_messages = []
+engine = QQmlApplicationEngine()
+engine.warnings.connect(lambda errs: qml_messages.extend(str(e.toString()) for e in errs))
+provider = install(engine, os.path.join(repo_root, "qml", "assets", "icons"))
+
+# 基准 URL 落在 `qml/` 下，`import "components"` 才解析得到 FmIcon
+engine.loadData(QML.encode("utf-8"),
+                QUrl.fromLocalFile(os.path.join(repo_root, "qml", "dynamic_icon_probe.qml")))
+roots = engine.rootObjects()
+if not roots:
+    print("PROBE_ERROR=" + json.dumps({"why": "root not created"}))
+    raise SystemExit(2)
+window = roots[0]
+# 必须**真的等**够 120ms 的定时器：`processEvents()` 空转一圈只要几微秒，
+# 循环 120 次也跨不过定时器的间隔（第一版就是这么红的：iconName 还是空串）
+from PySide6.QtTest import QTest
+QTest.qWait(400)
+for _ in range(5):
+    app.processEvents()
+
+print("PROBE_RESULT=" + json.dumps({
+    "requests": provider.requests,
+    "warnings": records,
+    "qmlMessages": qml_messages,
+    "iconName": str(window.property("iconName")),
+}))
+'''
+
+
+def run_dynamic_name_probe(tmp_path: Path) -> dict:
+    script = tmp_path / "dynamic_name_probe.py"
+    script.write_text(DYNAMIC_NAME_PROBE, encoding="utf-8", newline="\n")
+    done = subprocess.run(
+        [sys.executable, "-X", "utf8", str(script), str(REPO_ROOT)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=str(REPO_ROOT),
+    )
+    stdout = done.stdout or ""
+    errors = [ln for ln in stdout.splitlines() if ln.startswith("PROBE_ERROR=")]
+    assert not errors, f"探针起不来：{errors} / stderr={done.stderr[-500:]!r}"
+    lines = [ln for ln in stdout.splitlines() if ln.startswith("PROBE_RESULT=")]
+    assert lines, f"探针没输出结果（退出码 {done.returncode}）：{stdout[-800:]!r}"
+    return json.loads(lines[0].split("=", 1)[1])
+
+
+def test_icon_name_becoming_non_empty_never_requests_an_empty_name(tmp_path):
+    """`FmIcon.name` 从空变成非空时，**不许**多发一条空名字的取图请求。
+
+    这是返工 C 组实测到的缺陷（页面骨架 `FmPage` 是第一个"名字会变"的用法：路由帧在
+    页面创建之后才设进来）：修复前每次新建页面都会刷一对
+    「图标名不合法：'?color=…'」+「QQuickImage: Failed to get image from provider」。
+
+    根因与修复写在 `qml/components/FmIcon.qml` 的 `source:` 注释里（把 URL 直接拼在
+    `source:` 表达式上，而不是读一个**自身也依赖 `name` 的派生属性**）。
+    本用例钉的是症状，不是实现。
+    """
+    result = run_dynamic_name_probe(tmp_path)
+    assert result["iconName"] == "check", "探针里的名字没被改成 check，用例本身失效了"
+    assert result["requests"] >= 1, "名字变成 check 之后应当向 provider 要过图"
+    empty = [item for item in result["warnings"] if "图标名不合法" in item]
+    assert empty == [], f"提供者收到了空名字请求：{empty}"
+    failed = [item for item in result["qmlMessages"] if "Failed to get image from provider" in item]
+    assert failed == [], f"QML 侧报了取图失败：{failed}"

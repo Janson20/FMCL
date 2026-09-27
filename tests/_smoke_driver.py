@@ -37,7 +37,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # 平台：offscreen（无头跑）+ Basic 样式（与 tests/qml_shell_probe.py 一致；
 # FluentUI 的控件由 QML 侧自己 import，不受这个环境变量影响）。
@@ -63,8 +63,17 @@ import main_qml  # noqa: E402
 MARKER = "SMOKE_JSON:"
 #: 每个状态切过去之后等多久（毫秒）。够绑定求值 + 渲染一帧，又不至于把总时长拖长。
 SETTLE_MS = 60
-#: 三态的名字（占位页的 `demoState` 语义，见 qml/pages/*/）
+#: 三态的名字（页面骨架 `FmPage` 的 `contentState` 取值，见 qml/components/FmPage.qml）
 STATES = ("loading", "empty", "error")
+
+#: 三态 → （状态件根对象名, 标题对象名, 图标对象名）。
+#: 返工 C 组把三态区换成自研的 FmLoadingState / FmEmptyState / FmErrorState 之后，
+#: "渲染出来的文案与图标"要从状态件里读（判据仍是渲染结果，不是页面的入参）。
+STATE_PARTS: Dict[str, Tuple[str, str, str]] = {
+    "loading": ("fmLoadingState", "fmLoadingStateTitle", "fmLoadingStateIcon"),
+    "empty": ("fmEmptyState", "fmEmptyStateTitle", "fmEmptyStateIcon"),
+    "error": ("fmErrorState", "fmErrorStateTitle", "fmErrorStateIcon"),
+}
 
 
 class Recorder:
@@ -198,6 +207,25 @@ def prop_str(obj: Any, name: str) -> str:
     if hasattr(value, "toString"):
         return str(value.toString())
     return str(value)
+
+
+def state_parts(page: Any, state: str) -> Dict[str, str]:
+    """读出**渲染出来的**那个状态件：哪个件在、它的标题文案与图标名。
+
+    返工 C 组之前，三态是每个页面各抄一份的 `Image` + `Text`
+    （探针按 `pageStateIcon.source` / `pageStateText.text` 取证）；现在三态渲染只有一份
+    实现（`FmPage` 按 `contentState` 挑 `FmLoadingState` / `FmEmptyState` / `FmErrorState`），
+    所以证据改成读状态件自己的标题与图标 —— 仍然是渲染结果，不是页面的入参。
+    """
+    out = {"shown": "", "label": "", "icon": ""}
+    root_name, title_name, icon_name = STATE_PARTS[state]
+    node = item(page, root_name)
+    if node is None or not node.isVisible():
+        return out
+    out["shown"] = state
+    out["label"] = prop_str(item(node, title_name), "text")
+    out["icon"] = prop_str(item(node, icon_name), "name")
+    return out
 
 
 def click(window: Any, target: Any) -> bool:
@@ -386,6 +414,11 @@ def phase_pages(smoke: Smoke, built: Any) -> None:
         row["foundByName"] = bool(matches) and bool(same_frame)
         row["routeIdOnPage"] = str(page.property("routeId")) if page is not None else ""
         row["pageVisible"] = bool(page.property("visible")) if page is not None else False
+        # 页头图标的取图 URL：返工 C 组之后页头是 `FmIcon`（原来的页面内 `Image`），
+        # D-141 的"图标不能退回默认黑"这条证据从这里继续取（`fmIconImage` 是 FmIcon 内部的 Image）
+        page_icon = item(page, "pageIcon") if page is not None else None
+        row["pageIconName"] = prop_str(page_icon, "name")
+        row["pageIconSource"] = prop_str(item(page_icon, "fmIconImage"), "source")
         # 为什么不直接断言 `findChild(...) is page`：过渡刚结束时，栈里可能还留着
         # 上一帧的同名页面对象（12 个领域里 home 会被压两次），`findChild` 返回的
         # 不一定是前台那个 —— 所以身份用 `routeId` 判，而不是用对象地址。
@@ -400,26 +433,30 @@ def phase_pages(smoke: Smoke, built: Any) -> None:
         row["stackError"] = str(stack.property("lastError")) if stack is not None else ""
         smoke.check(f"page.{route}.stackError", row["stackError"] == "", row["stackError"])
 
-        # ③ 三态（加载中 / 空数据 / 出错）：占位页用 `demoState`，阶段 3 的真实页换名字
+        # ③ 三态（加载中 / 空数据 / 出错）：页面骨架 FmPage 的 `contentState`
+        #    （返工 C 组之前每页自己抄一份 `demoState` 渲染，现在三态渲染只有一份实现）
         states: List[Dict[str, Any]] = []
-        has_state = page is not None and page.property("demoState") is not None
-        row["stateProperty"] = "demoState" if has_state else ""
+        has_state = page is not None and page.property("contentState") is not None
+        row["stateProperty"] = "contentState" if has_state else ""
         if has_state:
             for state in STATES:
-                page.setProperty("demoState", state)
+                page.setProperty("contentState", state)
                 QTest.qWait(SETTLE_MS)
-                icon = item(page, "pageStateIcon")
-                label = item(page, "pageStateText")
+                shown = state_parts(page, state)
                 states.append({
                     "state": state,
-                    "got": str(page.property("demoState")),
-                    "icon": prop_str(icon, "source"),
-                    "label": prop_str(label, "text"),
+                    "got": str(page.property("contentState")),
+                    "shown": shown["shown"],
+                    "icon": shown["icon"],
+                    "label": shown["label"],
                 })
             icons = {entry["icon"] for entry in states}
             labels_ok = all(entry["label"].strip() for entry in states)
             smoke.check(f"page.{route}.states", all(entry["got"] == entry["state"] for entry in states),
                         f"{[(e['state'], e['got']) for e in states]}")
+            smoke.check(f"page.{route}.stateShown",
+                        all(entry["shown"] == entry["state"] for entry in states),
+                        f"状态件没跟着 contentState 换：{[(e['state'], e['shown']) for e in states]}")
             smoke.check(f"page.{route}.stateIcons", len(icons) == len(STATES),
                         f"三态图标应各不相同，实际 {sorted(icons)}")
             smoke.check(f"page.{route}.stateLabels", labels_ok,
@@ -429,7 +466,7 @@ def phase_pages(smoke: Smoke, built: Any) -> None:
             smoke.check(f"page.{route}.stateButtons", all(b is not None for b in buttons),
                         f"{[b is not None for b in buttons]}")
         else:
-            smoke.check(f"page.{route}.states", True, "页面没有 demoState（阶段 3 的真实页），本次跳过")
+            smoke.check(f"page.{route}.states", True, "页面没有 contentState（阶段 3 的真实页），本次跳过")
         row["states"] = states
 
         # ④ 截图（真实文件大小由父进程断言非空）
@@ -457,10 +494,10 @@ def phase_pages(smoke: Smoke, built: Any) -> None:
         for state in ("empty", "error", "loading"):
             button = item(page, f"demo{state.capitalize()}Button")
             if click(root, button):
-                clicked.append(str(page.property("demoState")))
+                clicked.append(str(page.property("contentState")))
         smoke.payload["clickStates"] = clicked
         smoke.check("pages.clickStates", clicked == ["empty", "error", "loading"],
-                    f"点按钮后 demoState = {clicked}")
+                    f"点按钮后 contentState = {clicked}")
 
 
 def phase_theme_language(smoke: Smoke, built: Any) -> None:

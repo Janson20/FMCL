@@ -731,6 +731,11 @@
   "startup_failed_title": "Launcher initialization failed",
 
   "dev_gallery_hint_toolbutton": "Icon-only button: square hit area for the app bar and list trailing actions (normal / selected / badge / disabled)",
+  "dev_gallery_hint_page": "Page scaffold: header plus the three states (loading / empty / error) in one component",
+  "dev_gallery_hint_checkbox": "Check box: options that take effect together with confirm (normal / checked / partial / disabled)",
+  "dev_gallery_hint_spinbox": "Numeric stepper: exact value plus step buttons (editable / disabled)",
+  "dev_gallery_hint_scrollview": "Scroll container: use it when the content is taller than the viewport; the bar follows the theme",
+  "dev_gallery_hint_scrollbar": "Scroll bar: attach it to a scrolling list (ScrollBar.vertical of a ListView)",
 
   "nav_group_game": "Game",
   "nav_group_resources": "Resources & Online",

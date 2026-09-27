@@ -16,10 +16,11 @@
 `--base` 默认是仓库根，目录结构假定与仓库一致（`qml/`、`app/bridges/`）；
 `poc/qml_rules_fixtures/` 下的正负例就是靠它被同一套判据检查的 —— 闸门自己也要被测试。
 
-## 八条规则的判据（写清楚，免得阶段 3 靠猜）
+## 九条规则的判据（写清楚，免得阶段 3 靠猜）
 
 > R1~R7 是任务 2.7 冻结的七条（`docs/refactor/11-phase2-contract.md` 第七节）；
-> **R8 是任务 2.8 新增的第八条**（判据与边界同样写在这里，契约第七节的表要按本文件同步）。
+> **R8 是任务 2.8 新增的第八条**；**R9 是界面返工 C 组新增的第九条**（"界面只用自研
+> `Fm*`"这条决定的闸门化）。三条的判据与边界都写在下面，契约第七节的表要按本文件同步。
 
 **R1 禁渐变**：`.qml`/`.js` 里出现渐变类型（`Gradient` / `LinearGradient` /
 `RadialGradient` / `ConicalGradient` / `GradientStop`）、`gradient:` 属性，或亚克力/Mica
@@ -80,6 +81,44 @@
 两条**刻意留出的口子**：alpha 为 0 的写法（`#0000` / `#00rrggbb` / `Qt.rgba(0, 0, 0, 0)`）
 交给 R6 与布局，不重复报；`.svg` 不在扫描范围。
 
+**R9 禁原生视觉控件**（任务 2.8 之后的第九条；界面返工 C 组新增，判据与边界同样写在这里）：
+`qml/**` 下的 `.qml` 里**声明**了 QtQuick.Controls 的原生控件即违规 —— 判据是
+"类型名后面跟一个对象体"（正则见 `NATIVE_DECL_RE`：类型名前面不能是标识符字符或点号），
+类型取自 `NATIVE_CONTROL_TYPES`
+（有自己皮肤的那批：按钮 / 勾选 / 输入 / 选择 / 进度 / 滚动 / 菜单 / 弹层 / 表格…）。
+依据：本项目的 Qt Quick Controls 样式是 **Basic**（`main_qml.py: create_application()`
+设的 `QT_QUICK_CONTROLS_STYLE`），这些控件的底色/文字色来自**系统调色板**，锁深色的
+界面里必然是浅色的外来件，而且完全不跟随 `Theme.*`（与 D-102 同一类问题）；
+统一改用 `qml/components/` 下的 `Fm*`（`COMPONENTS.md` 是白名单，R5 守着它）。
+两条**刻意留出的宽松处**，都不是漏判而是判据边界：
+
+  * **同名包装器**：`NATIVE_CONTROL_WRAPPERS` 里登记的文件允许出现它包装的原生类型
+    （`FmSwitch.qml` 里的 `Switch`、`FmComboBox.qml` 里的 `ComboBox` + `ItemDelegate`
+    + `Popup`）—— 自研件的实现**本来**就得用原生控件，否则就是重写 Qt。这张表是
+    **显式**的：新增一个包装器必须同时加一行，加这一行的人要对着"它到底包了哪些部件"
+    说明白。
+  * **附着属性的名字**：`ScrollBar.vertical: FmScrollBar {}` 里的 `ScrollBar.vertical`
+    来自 Qt（名字改不了），换的是"值"这个实例 —— 判据要的是 `类型 {`，
+    所以附着属性的**名字**不判。同理 `StackView.Immediate`、`Qt.AlignLeft` 不判。
+
+三条**刻意留出的口子**（哪边会漏判）：
+
+  * 纯容器与视图宿主不判：`StackView`（`shell/PageStack.qml` 的页面栈）、
+    `Flickable` / `ListView`（QtQuick 的，本来就没有皮肤）、`Window` /
+    `ApplicationWindow`（窗口不是控件）；
+  * **FluentUI 的控件**（`FluFilledButton` / `FluTextBox` …）**不在 R9 的名单里** ——
+    它们的观感来自 `FluTheme` 的 17 个键，与我们的 12 键 + 15 个派生令牌是两套来源，
+    混用会出现"同一个界面两种灰"（这正是 `FmToolButton.qml` 头部记下的顾虑）。
+    R9 这一版只拦 Qt 原生控件；把 FluentUI 控件也拦下来要另起一条（名单长、
+    且要与 `FluWindow` / `FluAppBar` / `FluTheme` 这些**壳层必需**的类型划清界限），
+    已登记为阶段 3 的候选 R10，见 `qml/components/COMPONENTS.md` 第五.4 节；
+  * `.js` 文件不判（那里没有控件声明）。
+
+`NATIVE_CONTROL_EXEMPT` 是**零依赖兜底窗**的豁免（`qml/FatalError.qml`）：它在
+"任何桥都可能坏掉"的前提下必须零依赖（连 `Theme` / `Tr` 都没有），只能用原生控件。
+豁免要**付费**：`tests/test_qml_rules_gate.py` 里钉住这些文件**确实**不引用任何
+上下文属性 —— 哪天真去引用了，那条测试先红，豁免就该取消。
+
 ## 已知边界（哪边会漏判、哪边会误报）
 
 每条规则都刻意做窄 —— 宽而误报的闸门会被绕过。下面这些写法**现在抓不到**
@@ -120,6 +159,13 @@
   的**非颜色**内容（URL 片段、编号）—— 登记例外兜住。alpha 为 0 的写法
   （`#0000` / `#00000000` / `Qt.rgba(0, 0, 0, 0)`）**故意不判**：那是 R6 的领地，
   重复报只会让两条规则的负例互相污染。`.svg` 不在扫描范围（图标天生带十六进制颜色）。
+- **R9**：判据只认"声明"（`类型 {`），所以三件事抓不到：附着属性的名字
+  （`ScrollBar.vertical:` / `StackView.Immediate`）、FluentUI 自己的控件
+  （`FluFilledButton` 这类，见上文"刻意留出的口子"）、`.js` 文件。
+  会**误报**：调用方自定义了一个与原生控件**同名**的属性并在对象体里给它赋值
+  （`Button { ... }` 这种写法在 QML 里本来就只能是原生控件，所以实际不构成问题）；
+  反过来若某天把原生控件改名导出（`import QtQuick.Controls as C`），判据看不见
+  —— 这种写法在本仓库从未出现过，真出现时按"闸门先抓明显的、评审盯特例"的既有分工处理。
 
 ## 已登记例外（`REGISTERED_EXCEPTIONS`）
 
@@ -155,7 +201,7 @@ OVERLAYS_DIR = "qml/overlays"
 
 SKIP_DIRS = {"__pycache__", ".venv", ".git", "build", "dist", "node_modules"}
 
-RULE_IDS: Tuple[str, ...] = ("R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8")
+RULE_IDS: Tuple[str, ...] = ("R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9")
 
 RULE_LABELS: Dict[str, str] = {
     "R1": "禁渐变 / 禁亚克力与 Mica 材质",
@@ -166,6 +212,7 @@ RULE_LABELS: Dict[str, str] = {
     "R6": "悬浮窗禁 color: transparent / #00000000",
     "R7": "桥的线程红线（worker 不得直接改 QObject / 碰引擎）",
     "R8": "禁颜色字面量（颜色只能来自 Theme.* / 设计令牌）",
+    "R9": "禁原生视觉控件（一律用 qml/components 里的 Fm*）",
 }
 
 # ─── R2 用到的 emoji 码点表 ────────────────────────────────────
@@ -286,7 +333,7 @@ _ESCAPE_RE = re.compile(r"\\u\{([0-9a-fA-F]{1,6})\}|\\u([0-9a-fA-F]{4})|\\x([0-9
 REGISTERED_EXCEPTIONS: Dict[str, Tuple[str, str]] = {}
 
 #: 登记键的合法形状：`路径:行:规则号`
-_REGISTRY_KEY_RE = re.compile(r"^[^:]+:\d+:(R[1-8])$")
+_REGISTRY_KEY_RE = re.compile(r"^[^:]+:\d+:(R[1-9])$")
 
 
 # ─── 源码扫描：注释与字符串字面量分开 ──────────────────────────
@@ -1320,6 +1367,171 @@ def check_r8(project: ProjectInfo) -> Checked:
     return out, files, ""
 
 
+# ─── R9 禁原生视觉控件（界面返工 C 组新增） ────────────────────
+
+#: 有"自己的皮肤"的 QtQuick.Controls 控件 —— 它们的底色/文字色来自系统调色板，
+#: 锁深色的界面里必然是浅色的外来件（判据与边界见文件头 R9 那一段）。
+#:
+#: 名单刻意**收窄**到"有皮肤的控件"：纯容器（`Pane` / `Frame` / `GroupBox` /
+#: `SplitView`）与视图宿主（`StackView`）不在这里 —— 它们本身不画东西，
+#: 拦下来只会逼着人给它们套一层没有意义的包装器。
+NATIVE_CONTROL_TYPES: Tuple[str, ...] = (
+    # 按钮族
+    "Button", "RoundButton", "ToolButton", "DelayButton",
+    # 勾选 / 开关族
+    "CheckBox", "RadioButton", "Switch",
+    # 输入族
+    "TextField", "TextArea", "Label", "Tumbler",
+    # 选择族
+    "ComboBox", "SpinBox", "DoubleSpinBox", "Slider", "RangeSlider", "Dial",
+    # 进度族
+    "ProgressBar", "BusyIndicator",
+    # 滚动族
+    "ScrollBar", "ScrollView", "ScrollIndicator",
+    # 委托族
+    "ItemDelegate", "CheckDelegate", "RadioDelegate", "SwitchDelegate", "SwipeDelegate",
+    # 菜单 / 工具条族
+    "Menu", "MenuItem", "MenuSeparator", "MenuBar", "MenuBarItem",
+    "TabBar", "TabButton", "ToolBar", "ToolSeparator",
+    # 弹层族
+    "Dialog", "DialogButtonBox", "Popup", "Drawer", "ToolTip",
+    # 表格 / 视图族
+    "TableView", "TreeView", "HorizontalHeaderView", "VerticalHeaderView",
+    # 页面指示器
+    "PageIndicator",
+)
+
+#: 原生控件 → 自研替身（报错文案里直接说"换成哪个"，省得人去翻文档）。
+#: 没有替身的类型**故意不编**：那种情况正确的做法是先往组件库补一个件（COMPONENTS.md 第四节）。
+NATIVE_WRAPPER_HINT: Dict[str, str] = {
+    "Button": "FmButton",
+    "RoundButton": "FmButton",
+    "ToolButton": "FmToolButton",
+    "DelayButton": "FmButton",
+    "CheckBox": "FmCheckBox",
+    "RadioButton": "FmRadio",
+    "Switch": "FmSwitch",
+    "TextField": "FmTextField（搜索框用 FmSearchField）",
+    "TextArea": "FmTextArea",
+    "Label": "Text + Theme 的字号/颜色令牌",
+    "Tumbler": "FmComboBox",
+    "ComboBox": "FmComboBox",
+    "SpinBox": "FmSpinBox",
+    "DoubleSpinBox": "FmSpinBox",
+    "Slider": "FmSlider",
+    "RangeSlider": "FmSlider",
+    "Dial": "FmSlider",
+    "ProgressBar": "FmProgressBar",
+    "BusyIndicator": "FmProgressRing",
+    "ScrollBar": "FmScrollBar",
+    "ScrollView": "FmScrollView",
+    "ScrollIndicator": "FmScrollBar",
+    "ItemDelegate": "FmListItem（表格行用 FmTable）",
+    "CheckDelegate": "FmCheckBox + FmListItem",
+    "RadioDelegate": "FmRadio + FmListItem",
+    "SwitchDelegate": "FmSwitch + FmListItem",
+    "SwipeDelegate": "FmListItem",
+    "Menu": "FmButton + FmToolButton（本项目的菜单一律走对话框/弹层组件）",
+    "MenuItem": "FmListItem",
+    "MenuSeparator": "Theme.divider 画一条 1px 线",
+    "MenuBar": "FmButton",
+    "MenuBarItem": "FmButton",
+    "TabBar": "FmButton（页签用按钮组表达）",
+    "TabButton": "FmButton",
+    "ToolBar": "Rectangle + Theme.barBg（与 shell/AppBar.qml 同一套写法）",
+    "ToolSeparator": "Theme.divider 画一条 1px 线",
+    "Dialog": "components/dialogs/ 下的对话框组件（由 DialogHost 调度）",
+    "DialogButtonBox": "FmButton",
+    "Popup": "components/dialogs/ 下的对话框组件",
+    "Drawer": "shell/Navigation.qml（侧栏是壳层的一部分，不是页面的弹层）",
+    "ToolTip": "FmToolTip 还没有（登记在 COMPONENTS.md 第五.4 节的待办）",
+    "TableView": "FmTable",
+    "TreeView": "FmTable",
+    "HorizontalHeaderView": "FmTable",
+    "VerticalHeaderView": "FmTable",
+    "PageIndicator": "FmPagination",
+}
+
+#: 文件 → 允许它出现的原生控件类型（**同名包装器**规则）。
+#:
+#: 自研件包一层原生控件本来就是这套组件的做法（`FmSwitch` 的根节点就是 `Switch`），
+#: 所以"这个文件里出现了原生控件"本身不违规；违规的是**别的地方**出现。
+#: `FmComboBox` 另外包了 `ItemDelegate`（下拉项）与 `Popup`（下拉面板）——
+#: 这两个是它的**部件**，不是它包的类型，所以在这里显式写出来。
+NATIVE_CONTROL_WRAPPERS: Dict[str, Tuple[str, ...]] = {
+    "qml/components/FmCheckBox.qml": ("CheckBox",),
+    "qml/components/FmComboBox.qml": ("ComboBox", "ItemDelegate", "Popup"),
+    "qml/components/FmRadio.qml": ("RadioButton",),
+    "qml/components/FmScrollBar.qml": ("ScrollBar",),
+    "qml/components/FmScrollView.qml": ("ScrollView",),
+    "qml/components/FmSearchField.qml": ("TextField",),
+    "qml/components/FmSlider.qml": ("Slider",),
+    "qml/components/FmSpinBox.qml": ("SpinBox",),
+    "qml/components/FmSwitch.qml": ("Switch",),
+    "qml/components/FmTextArea.qml": ("TextArea",),
+    "qml/components/FmTextField.qml": ("TextField",),
+}
+
+#: 零依赖兜底窗：这些文件在"任何桥都可能坏掉"的前提下必须不读任何上下文属性，
+#: 所以只能用 Qt 原生控件。豁免**要付费** —— `tests/test_qml_rules_gate.py` 里
+#: 钉住它们确实不引用 Theme/Tr/Runtime/Nav/Shell/Dialogs。
+NATIVE_CONTROL_EXEMPT: Dict[str, str] = {
+    "qml/FatalError.qml": (
+        "启动期致命错误的兜底窗（main_qml.py: show_fatal_error 用**另一个引擎**加载它，"
+        "只注入 fatalTitle/fatalMessage）—— 它连 Theme/Tr 都没有，只能用 Qt 原生控件"
+    ),
+}
+
+
+def _native_decl_re() -> "re.Pattern[str]":
+    """原生控件的声明判据：`类型 {`（类型名前面不能是标识符字符或点号）。
+
+    长的名字排在前面（`RoundButton` 先于 `Button` 试），避免交替把长名字切短；
+    `(?<![\\w.])` 另外挡住 `FluFilledButton {` / `Foo.Button {` 这类误伤。
+    """
+    names = "|".join(sorted(NATIVE_CONTROL_TYPES, key=len, reverse=True))
+    return re.compile(r"(?<![\w.])(?P<type>" + names + r")\s*\{")
+
+
+NATIVE_DECL_RE = _native_decl_re()
+
+
+def check_r9(project: ProjectInfo) -> Checked:
+    """R9：`qml/**` 里声明了 QtQuick.Controls 的原生视觉控件。
+
+    判据写在 `ctx.code`（注释与字符串字面量都抹掉的视图）上：`Button { }` 出现在
+    注释里是说明，出现在字符串里是数据，只有真的写进对象体才是界面。
+    """
+    out: List[Violation] = []
+    files: List[str] = []
+    exempt_hits: List[str] = []
+    for ctx in project.qml_ctx:
+        if ctx.kind != "qml" or ctx.scanned is None:
+            continue
+        if ctx.rel in NATIVE_CONTROL_EXEMPT:
+            exempt_hits.append(ctx.rel)
+            continue
+        files.append(ctx.rel)
+        allowed = set(NATIVE_CONTROL_WRAPPERS.get(ctx.rel, ()))
+        for m in NATIVE_DECL_RE.finditer(ctx.code):
+            type_name = m.group("type")
+            if type_name in allowed:
+                continue
+            hint = NATIVE_WRAPPER_HINT.get(type_name, "")
+            suggestion = f"换成自研件 {hint}" if hint else "先往组件库补一个自研件（COMPONENTS.md 第四节）"
+            out.append(_violation(
+                "R9", ctx, m.start(),
+                f"界面里出现原生控件 {type_name} —— 请{suggestion}：本项目跑的是 QtQuick Controls 的 "
+                "Basic 样式，原生控件的颜色来自系统调色板，在锁定深色的界面里必然是浅色的外来件，"
+                "而且不跟随 Theme.*（与 D-102 同一类问题）",
+            ))
+    note = ""
+    if exempt_hits:
+        note = ("豁免的零依赖兜底窗：" + "、".join(sorted(exempt_hits))
+                + "（理由见 NATIVE_CONTROL_EXEMPT；豁免由 tests/test_qml_rules_gate.py 钉住）")
+    return out, files, note
+
+
 #: 规则号 → 检查函数
 CHECKERS: Dict[str, Callable[[ProjectInfo], Checked]] = {
     "R1": check_r1,
@@ -1330,6 +1542,7 @@ CHECKERS: Dict[str, Callable[[ProjectInfo], Checked]] = {
     "R6": check_r6,
     "R7": check_r7,
     "R8": check_r8,
+    "R9": check_r9,
 }
 
 

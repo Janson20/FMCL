@@ -18,7 +18,6 @@
 // 阶段 3 把真实页面接上之后可以整体删掉。
 
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import "../../components"
 
@@ -96,35 +95,42 @@ Item {
             Layout.fillWidth: true
             spacing: Theme?.spacingSm ?? 0
 
-            Button {
+            // 返工 C 组：这一排按钮与上限输入框都换成自研件（闸门 R9 禁原生控件）——
+            // 原生 Button / SpinBox 在 Basic 样式下是浅色的，锁深色的界面里必然突兀。
+            FmButton {
                 objectName: "generate100Button"
+                primary: false
                 text: "100"
                 onClicked: page.generate(100)
             }
 
-            Button {
+            FmButton {
                 objectName: "generate1000Button"
+                primary: false
                 text: "1000"
                 onClicked: page.generate(1000)
             }
 
-            Button {
+            FmButton {
                 objectName: "generate5000Button"
+                primary: false
                 text: "5000"
                 onClicked: page.generate(5000)
             }
 
-            Button {
+            FmButton {
                 objectName: "reloadRealLogButton"
-                // 键 `crash_game_log` 的语义是"游戏日志"，这里借用它的"日志"含义；
-                // 本任务不允许改 ui/locales/*.json，真正贴切的键留待阶段 3 补。
+                primary: false
+                // 键 `refresh` 是既有键；本任务不允许改 ui/locales/*.json，
+                // 真正贴切的键留待阶段 3 补。
                 text: (typeof Tr !== "undefined" && Tr)
                       ? (Tr.map["refresh"] ?? "refresh") : "refresh"
                 onClicked: page.reloadRequested()
             }
 
-            Button {
+            FmButton {
                 objectName: "clearDemoButton"
+                primary: false
                 text: (typeof Tr !== "undefined" && Tr)
                       ? (Tr.map["clear_log"] ?? "clear_log") : "clear_log"
                 onClicked: logPanel.clear()
@@ -139,7 +145,7 @@ Item {
                 font.pixelSize: Theme?.fontSizeSmall ?? 11
             }
 
-            SpinBox {
+            FmSpinBox {
                 id: maxLinesBox
                 objectName: "maxLinesBox"
                 from: 10

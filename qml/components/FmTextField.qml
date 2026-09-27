@@ -32,6 +32,14 @@ Item {
     signal accepted()
     signal edited(string value)
 
+    //: 选中全部文本（对话框打开时把已有值选中，用户可以直接覆盖重输）。
+    //: 根节点是 `Item` —— 原生 `TextField.selectAll()` 在包装器上不存在，
+    //: 所以这里显式转发（`TextInputDialog` 就这么用：`field.selectAll()`，
+    //: 少这一个转发就是一条 `TypeError: Property 'selectAll' … is not a function`）。
+    function selectAll() {
+        input.selectAll()
+    }
+
     implicitWidth: 240
     implicitHeight: layout.implicitHeight
 

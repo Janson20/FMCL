@@ -49,6 +49,9 @@ Item {
     property int demoRetries: 0
     property real demoFraction: 0.15
     property int toolButtonClicks: 0
+    //: 返工 C 组新增的两件（FmCheckBox 的勾选态、FmSpinBox 的当前值）
+    property bool demoAgreed: false
+    property int demoThreads: 8
 
     //: 进度条的自动演示（每 100ms 加 5%，到 1 回到 0）：让"活的进度条"不需要人动手
     Timer {
@@ -59,12 +62,13 @@ Item {
         onTriggered: page.demoFraction = page.demoFraction >= 0.95 ? 0.05 : page.demoFraction + 0.05
     }
 
-    ScrollView {
+    FmScrollView {
         id: scroller
         objectName: "galleryScroll"
         anchors.fill: parent
+        // 内容宽度一律跟随可用宽度（FmScrollView 默认就不出横向滚动条）；
+        // 纵向滚动条按需出现，样式由 FmScrollView 用令牌统一画（闸门 R9 禁原生控件）。
         contentWidth: availableWidth
-        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
         ColumnLayout {
             id: content
@@ -308,7 +312,9 @@ Item {
                         text: String(page.toolButtonClicks)
                         color: Theme?.textSecondary ?? "transparent"
                         font.pixelSize: Theme?.fontSizeSmall ?? 10
-                        anchors.verticalCenter: parent.verticalCenter
+                        // 父项是 RowLayout：用 Layout.alignment，别用 anchors
+                        // （anchors 在布局管理的项上是 undefined behavior，Qt 会打一条警告）
+                        Layout.alignment: Qt.AlignVCenter
                     }
                 }
             }
@@ -1334,6 +1340,295 @@ Item {
                     text: String(page.demoRetries)
                     color: Theme?.textSecondary ?? "transparent"
                     font.pixelSize: Theme?.fontSizeSmall ?? 10
+                }
+            }
+
+            // ── FmPage：页面骨架（返工 C 组新增）—— 页头 + 三态区都在里面 ──
+            ColumnLayout {
+                objectName: "galleryItem_FmPage"
+                Layout.fillWidth: true
+                spacing: Theme?.spacingXs ?? 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme?.spacingSm ?? 0
+
+                    Text {
+                        text: "FmPage"
+                        color: Theme?.accent ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeBase ?? 12
+                        font.bold: true
+                    }
+
+                    Text {
+                        objectName: "galleryHint_page"
+                        Layout.fillWidth: true
+                        text: Tr?.map["dev_gallery_hint_page"] ?? "dev_gallery_hint_page"
+                        color: Theme?.textSecondary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        elide: Text.ElideRight
+                    }
+                }
+
+                // 嵌套一个**真的**页面骨架：它自带的三个演示按钮能切三态（探针点它们），
+                // 下面那行读数直接读它的 `contentState`。12 个领域页现在就是这么写的。
+                FmPage {
+                    id: galleryNestedPage
+                    objectName: "galleryNestedPage"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 300
+                    iconName: "guide"
+                    title: "FmPage"
+                    description: Tr?.map["dev_gallery_hint_page"] ?? "dev_gallery_hint_page"
+                    contentState: "empty"
+                    demoControlsVisible: true
+                }
+
+                Text {
+                    objectName: "galleryPageReadout"
+                    text: "contentState: " + galleryNestedPage.contentState
+                    color: Theme?.textSecondary ?? "transparent"
+                    font.pixelSize: Theme?.fontSizeSmall ?? 10
+                }
+            }
+
+            // ── FmCheckBox：勾选 / 半选 / 禁用（返工 C 组新增） ──
+            ColumnLayout {
+                objectName: "galleryItem_FmCheckBox"
+                Layout.fillWidth: true
+                spacing: Theme?.spacingXs ?? 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme?.spacingSm ?? 0
+
+                    Text {
+                        text: "FmCheckBox"
+                        color: Theme?.accent ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeBase ?? 12
+                        font.bold: true
+                    }
+
+                    Text {
+                        objectName: "galleryHint_checkbox"
+                        Layout.fillWidth: true
+                        text: Tr?.map["dev_gallery_hint_checkbox"] ?? "dev_gallery_hint_checkbox"
+                        color: Theme?.textSecondary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        elide: Text.ElideRight
+                    }
+                }
+
+                RowLayout {
+                    spacing: Theme?.spacingMd ?? 0
+
+                    FmCheckBox {
+                        objectName: "galleryCheckBoxLive"
+                        text: "live"
+                        checked: page.demoAgreed
+                        onToggled: page.demoAgreed = checked
+                    }
+
+                    FmCheckBox {
+                        objectName: "galleryCheckBoxChecked"
+                        text: "checked"
+                        checked: true
+                    }
+
+                    FmCheckBox {
+                        objectName: "galleryCheckBoxPartial"
+                        text: "partial"
+                        tristate: true
+                        checkState: Qt.PartiallyChecked
+                    }
+
+                    FmCheckBox {
+                        objectName: "galleryCheckBoxDisabled"
+                        text: "disabled"
+                        checked: true
+                        enabled: false
+                    }
+
+                    Text {
+                        objectName: "galleryCheckBoxReadout"
+                        text: String(page.demoAgreed)
+                        color: Theme?.textSecondary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                }
+            }
+
+            // ── FmSpinBox：数值步进 + 可编辑 / 禁用（返工 C 组新增） ──
+            ColumnLayout {
+                objectName: "galleryItem_FmSpinBox"
+                Layout.fillWidth: true
+                spacing: Theme?.spacingXs ?? 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme?.spacingSm ?? 0
+
+                    Text {
+                        text: "FmSpinBox"
+                        color: Theme?.accent ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeBase ?? 12
+                        font.bold: true
+                    }
+
+                    Text {
+                        objectName: "galleryHint_spinbox"
+                        Layout.fillWidth: true
+                        text: Tr?.map["dev_gallery_hint_spinbox"] ?? "dev_gallery_hint_spinbox"
+                        color: Theme?.textSecondary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        elide: Text.ElideRight
+                    }
+                }
+
+                RowLayout {
+                    spacing: Theme?.spacingMd ?? 0
+
+                    FmSpinBox {
+                        objectName: "gallerySpinBox"
+                        from: 1
+                        to: 64
+                        stepSize: 1
+                        value: page.demoThreads
+                        editable: true
+                        onValueModified: page.demoThreads = value
+                    }
+
+                    FmSpinBox {
+                        objectName: "gallerySpinBoxDisabled"
+                        from: 0
+                        to: 100
+                        value: 40
+                        enabled: false
+                    }
+
+                    Text {
+                        objectName: "gallerySpinBoxReadout"
+                        text: String(page.demoThreads)
+                        color: Theme?.textSecondary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                }
+            }
+
+            // ── FmScrollView：整块内容比可视区高（返工 C 组新增） ──
+            ColumnLayout {
+                objectName: "galleryItem_FmScrollView"
+                Layout.fillWidth: true
+                spacing: Theme?.spacingXs ?? 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme?.spacingSm ?? 0
+
+                    Text {
+                        text: "FmScrollView"
+                        color: Theme?.accent ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeBase ?? 12
+                        font.bold: true
+                    }
+
+                    Text {
+                        objectName: "galleryHint_scrollview"
+                        Layout.fillWidth: true
+                        text: Tr?.map["dev_gallery_hint_scrollview"] ?? "dev_gallery_hint_scrollview"
+                        color: Theme?.textSecondary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        elide: Text.ElideRight
+                    }
+                }
+
+                FmScrollView {
+                    id: galleryScrollerDemo
+                    objectName: "galleryScrollView"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 150
+                    contentWidth: availableWidth
+
+                    Column {
+                        width: galleryScrollerDemo.availableWidth
+                        spacing: Theme?.spacingXs ?? 0
+
+                        Repeater {
+                            model: 24
+
+                            Text {
+                                width: parent.width
+                                text: "scroll row " + index
+                                color: Theme?.textSecondary ?? "transparent"
+                                font.pixelSize: Theme?.fontSizeSmall ?? 10
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── FmScrollBar：贴在 ListView 上的滚动条（返工 C 组新增） ──
+            ColumnLayout {
+                objectName: "galleryItem_FmScrollBar"
+                Layout.fillWidth: true
+                spacing: Theme?.spacingXs ?? 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme?.spacingSm ?? 0
+
+                    Text {
+                        text: "FmScrollBar"
+                        color: Theme?.accent ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeBase ?? 12
+                        font.bold: true
+                    }
+
+                    Text {
+                        objectName: "galleryHint_scrollbar"
+                        Layout.fillWidth: true
+                        text: Tr?.map["dev_gallery_hint_scrollbar"] ?? "dev_gallery_hint_scrollbar"
+                        color: Theme?.textSecondary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        elide: Text.ElideRight
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 150
+                    color: Theme?.cardBg ?? "transparent"
+                    border.width: 1
+                    border.color: Theme?.cardBorder ?? "transparent"
+                    radius: Theme?.radiusMd ?? 0
+
+                    // `ScrollBar.vertical` 是 Qt 的附着属性名（改不了）——
+                    // 它需要 QtQuick.Controls 在作用域里，所以本页保留了那个 import；
+                    // 闸门 R9 判的是控件的**声明**，附着属性名不算（见 COMPONENTS.md 第五.4）。
+                    ListView {
+                        id: galleryScrollBarList
+                        objectName: "galleryScrollBarList"
+                        anchors.fill: parent
+                        anchors.margins: 2
+                        clip: true
+                        model: 40
+                        spacing: 0
+                        ScrollBar.vertical: FmScrollBar {
+                            objectName: "galleryScrollBar"
+                            alwaysVisible: true
+                        }
+
+                        delegate: Text {
+                            width: galleryScrollBarList.width
+                            height: 22
+                            text: "line " + index
+                            color: Theme?.textSecondary ?? "transparent"
+                            font.pixelSize: Theme?.fontSizeSmall ?? 10
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
                 }
             }
         }

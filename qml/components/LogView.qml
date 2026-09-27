@@ -311,14 +311,16 @@ Item {
                     font.bold: true
                 }
 
-                // 搜索框：占位文案走 i18n（键 `search` 是既有键，不新造前缀）
-                TextField {
+                // 搜索框：返工 C 组换成自研件（闸门 R9 禁原生控件 —— 原生输入框在 Basic
+                // 样式下是浅色的，锁深色的界面里必然突兀）。`search` 是既有 i18n 键，
+                // 不新造前缀；`onTextChanged` 能直接用，因为 FmSearchField 的根节点就是
+                // TextField（`text` / `placeholderText` / 自带信号都转发得到）。
+                FmSearchField {
                     id: searchField
                     objectName: "logSearchField"
                     anchors.verticalCenter: parent.verticalCenter
                     width: Math.max(120, Math.min(240, root.width / 4))
-                    height: Math.max(20, (Theme?.iconSize ?? 16) + (Theme?.spacingSm ?? 4))
-                    font.pixelSize: Theme?.fontSizeSmall ?? 11
+                    height: Math.max(24, (Theme?.iconSize ?? 16) + (Theme?.spacingSm ?? 4))
                     placeholderText: (typeof Tr !== "undefined" && Tr)
                                      ? (Tr.map["search"] ?? "search") : "search"
                     text: root.searchText
@@ -334,70 +336,38 @@ Item {
                     font.pixelSize: Theme?.fontSizeSmall ?? 11
                 }
 
-                ToolButton {
-                    id: clearButton
+                // 清空：图标 + 文字 → FmButton（自研件里"有文字的按钮"就是它）
+                FmButton {
                     objectName: "logClearButton"
                     anchors.verticalCenter: parent.verticalCenter
-                    height: parent.height
+                    primary: false
+                    iconName: "trash"
+                    text: (typeof Tr !== "undefined" && Tr)
+                          ? (Tr.map["clear_log"] ?? "clear_log") : "clear_log"
                     onClicked: root.clear()
-                    contentItem: Row {
-                        spacing: Theme?.spacingXs ?? 2
-
-                        Image {
-                            anchors.verticalCenter: parent.verticalCenter
-                            source: (typeof Runtime !== "undefined" && Runtime)
-                                    ? (Runtime?.iconUrl("trash") ?? "") : ""
-                            sourceSize.width: Theme?.iconSize ?? 16
-                            sourceSize.height: Theme?.iconSize ?? 16
-                            width: Theme?.iconSize ?? 16
-                            height: Theme?.iconSize ?? 16
-                        }
-
-                        Text {
-                            objectName: "logClearText"
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: (typeof Tr !== "undefined" && Tr)
-                                  ? (Tr.map["clear_log"] ?? "clear_log") : "clear_log"
-                            color: Theme?.textPrimary ?? "transparent"
-                            font.pixelSize: Theme?.fontSizeSmall ?? 11
-                        }
-                    }
                 }
 
                 // 复制全部：**只给图标**。既有 1529 个键里没有"复制全部"这一条
                 // （copy_link 的语义是复制链接），而本任务不允许改 ui/locales/*.json，
                 // 所以这里不放可能误导的文案，语义交给 copy.svg 图标表达。
                 // 键落地之后补 ToolTip 即可（登记在 COMPONENTS.md 的待办里）。
-                ToolButton {
+                FmToolButton {
                     objectName: "logCopyButton"
                     anchors.verticalCenter: parent.verticalCenter
-                    height: parent.height
+                    iconName: "copy"
                     onClicked: root.copyAll()
-                    contentItem: Image {
-                        source: (typeof Runtime !== "undefined" && Runtime)
-                                ? (Runtime?.iconUrl("copy") ?? "") : ""
-                        sourceSize.width: Theme?.iconSize ?? 16
-                        sourceSize.height: Theme?.iconSize ?? 16
-                        width: Theme?.iconSize ?? 16
-                        height: Theme?.iconSize ?? 16
-                    }
                 }
 
                 // 到底部（同时重新打开自动滚动）；图标颜色即 autoScroll 的状态指示
-                ToolButton {
+                FmToolButton {
                     objectName: "logBottomButton"
                     anchors.verticalCenter: parent.verticalCenter
-                    height: parent.height
+                    iconName: "chevron-down"
+                    // 原来用 `opacity: 0.45` 表示"自动滚动已关" —— 换成令牌色表达同一件事，
+                    // 顺带不再让图标因为透明度而看不清（且颜色只来自 Theme.*，闸门 R8）
+                    iconColor: root.autoScroll ? Theme?.textPrimary ?? "transparent"
+                                               : Theme?.textTertiary ?? "transparent"
                     onClicked: root.scrollToEnd()
-                    contentItem: Image {
-                        source: (typeof Runtime !== "undefined" && Runtime)
-                                ? (Runtime?.iconUrl("chevron-down") ?? "") : ""
-                        sourceSize.width: Theme?.iconSize ?? 16
-                        sourceSize.height: Theme?.iconSize ?? 16
-                        width: Theme?.iconSize ?? 16
-                        height: Theme?.iconSize ?? 16
-                        opacity: root.autoScroll ? 1.0 : 0.45
-                    }
                 }
             }
         }
@@ -421,7 +391,9 @@ Item {
                 // 等宽字体 + 定高行：追加时不重新排版（这是"每秒上千行"能跑住的关键）
                 spacing: 0
                 boundsBehavior: Flickable.StopAtBounds
-                ScrollBar.vertical: ScrollBar {}
+                // 返工 C 组：原来的 `ScrollBar {}`（原生 Basic 样式 = 浅色亮条）换成自研件。
+                // 附着属性名 `ScrollBar.vertical` 来自 Qt，改不了；换的是"值"这个实例。
+                ScrollBar.vertical: FmScrollBar {}
 
                 //: 用户自己滚动了：在底部就继续跟随，不在底部就**不抢**
                 onMovementEnded: root.autoScroll = view.atYEnd

@@ -28,6 +28,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -61,6 +62,7 @@ EXPECTED_BAD: Dict[str, FrozenSet[str]] = {
     "qml/overlays/R6_transparent.qml": frozenset({"R6"}),
     "app/bridges/bad_thread.py": frozenset({"R7"}),
     "qml/R8_hardcoded_color.qml": frozenset({"R8"}),
+    "qml/R9_native_control.qml": frozenset({"R9"}),
 }
 
 
@@ -206,12 +208,12 @@ def test_every_bad_fixture_turns_exactly_its_own_rule_red():
     assert problems == [], "\n".join(problems)
 
 
-def test_all_eight_rules_have_a_negative_fixture():
-    """8 条规则每条至少 1 个负例 —— "能变红"的证明不能有缺口。"""
+def test_all_nine_rules_have_a_negative_fixture():
+    """9 条规则每条至少 1 个负例 —— "能变红"的证明不能有缺口。"""
     covered: Set[str] = set()
     for rules in EXPECTED_BAD.values():
         covered |= set(rules)
-    assert covered == {"R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"}
+    assert covered == {"R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9"}
     gate = _load_gate()
     report = gate.run_gate(BAD)
     fired = {v.rule for v in report.violations}
@@ -362,6 +364,134 @@ def test_r8_registered_exception_marks_and_expires():
     with _patched_registry({"qml/R8_hardcoded_color.qml:99999:R8": ("故意指向不存在的行号", "2.8")}):
         expired = gate.run_gate(BAD, only=["R8"])
         assert [key for key, _, _ in expired.expired] == ["qml/R8_hardcoded_color.qml:99999:R8"]
+
+
+# ─── 2c. R9（界面返工 C 组新增）：原生视觉控件 ─────────────────
+
+
+def test_r9_catches_declarations_including_inline_ones():
+    """三种声明形状都要报：顶层、输入类、以及**附着属性里的行内声明**。
+
+    行内那条是返工 C 组实测过的形状 —— `LogView.qml` 与 `Gallery.qml` 原来就是
+    `ScrollBar.vertical: ScrollBar {}`，判据要是写成"行首出现类型名"就会把它漏掉。
+    """
+    gate = _load_gate()
+    report = gate.run_gate(BAD, only=["R9"])
+    mine = [v for v in report.violations if v.path == "qml/R9_native_control.qml"]
+    details = " ".join(v.detail for v in mine)
+    assert "原生控件 Button" in details, "缺顶层声明用例"
+    assert "原生控件 TextField" in details, "缺输入类声明用例"
+    assert "原生控件 ScrollBar" in details, "缺附着属性里的行内声明用例"
+    assert len(mine) == 3, [v.render() for v in mine]
+    # 行内声明的列号要落在第二个 `ScrollBar`（第 24 行的冒号之后），不是行首
+    scrollbar = next(v for v in mine if "ScrollBar" in v.detail)
+    assert scrollbar.column > 5, f"行内声明的列号应当在冒号之后，实际 {scrollbar.column}"
+    # 报错文案必须直接说"换成哪个自研件"
+    assert "FmButton" in details and "FmScrollBar" in details
+
+
+def test_r9_allows_wrappers_attached_names_and_exempt_files():
+    """三条放行边界：同名包装器、附着属性的**名字**、零依赖兜底窗。
+
+    这三条都不是"判据写漏了"，而是刻意留出来的（见闸门文件头 R9 那一段）：
+    自研件本来就得用原生控件实现；`ScrollBar.vertical` 这个名字来自 Qt；
+    `FatalError.qml` 连 `Theme` 都没有。
+    """
+    gate = _load_gate()
+    report = gate.run_gate(REPO_ROOT, only=["R9"])
+
+    # 1) 同名包装器：真实仓库里 FmSwitch/FmComboBox 等 11 个文件都在白名单里
+    for rel, types in gate.NATIVE_CONTROL_WRAPPERS.items():
+        node = gate.load_project(REPO_ROOT)
+        ctx = next(c for c in node.qml_ctx if c.rel == rel)
+        found = {m.group("type") for m in gate.NATIVE_DECL_RE.finditer(ctx.code)}
+        assert found, f"{rel} 的声明一个都没扫到 —— 白名单条目是空的，这条断言失去意义"
+        assert found <= set(types), f"{rel} 里出现了白名单外的原生控件：{sorted(found - set(types))}"
+
+    # 2) 附着属性的名字不算：LogView 里 `ScrollBar.vertical: FmScrollBar {}` 必须放行
+    logview = (REPO_ROOT / "qml" / "components" / "LogView.qml").read_text(encoding="utf-8")
+    assert "ScrollBar.vertical: FmScrollBar" in logview, "LogView 的滚动条写法变了，这条断言要跟着改"
+    assert not [v for v in report.violations if v.path.endswith("LogView.qml")]
+
+    # 3) 零依赖兜底窗：豁免文件不出现在被扫列表里，且 **确实** 不引用任何上下文属性
+    assert "qml/FatalError.qml" in gate.NATIVE_CONTROL_EXEMPT
+    r9 = next(r for r in report.results if r.rule == "R9")
+    assert "qml/FatalError.qml" not in r9.files, "豁免文件不该出现在扫描列表里"
+    assert "FatalError.qml" in r9.note, "豁免要在结果里说明，不能悄悄跳过"
+    fatal = (REPO_ROOT / "qml" / "FatalError.qml").read_text(encoding="utf-8")
+    for name in ("Theme", "Tr", "Runtime", "Nav", "Shell", "Dialogs", "Startup"):
+        assert not re.search(rf"(?<![\w?.]){name}\s*[.?]", fatal), (
+            f"豁免的前提是零依赖，但 FatalError.qml 引用了 {name} —— 豁免该取消了"
+        )
+
+
+def test_r9_boundary_pinned_by_mutation(tmp_path):
+    """把原生控件塞进正例 → 立刻变红；塞进**同名包装器** → 必须仍然干净。
+
+    后一半是这条规则的关键：判据不严一点就是"任何原生控件都红"，
+    那等于把自研件的实现方式也一起禁掉（FmSwitch 的根节点本来就是 Switch）。
+    """
+    base = _copy_fixture("good", tmp_path)
+    gate = _load_gate()
+    assert gate.run_gate(base, only=["R9"]).violations == []
+
+    # 变异 1：页面里出现原生控件（正例的页面根节点是 FluPage，所以锚点用它）
+    page = base / "qml" / "pages" / "Home" / "HomePage.qml"
+    original = page.read_text(encoding="utf-8")
+    mutated = original.replace(
+        "FluPage {",
+        'FluPage {\n    Button {\n        text: "ok"\n    }',
+        1,
+    )
+    assert mutated != original, "变异锚点没命中，测试本身失效了"
+    page.write_text(mutated, encoding="utf-8")
+    report = gate.run_gate(base, only=["R9"])
+    assert [v.path for v in report.violations] == ["qml/pages/Home/HomePage.qml"], [v.render() for v in report.violations]
+    assert "FmButton" in report.violations[0].detail
+    page.write_text(original, encoding="utf-8")
+
+    # 变异 2：包装器里用**它自己包的那个**原生控件 → 不许报。
+    # 写的是 `qml/components/FmSwitch.qml`：闸门的白名单是按**相对路径 + 类型**配的，
+    # 这个路径在真实仓库与 fixture 副本里是同一个键（`FmSwitch` 本来就包 `Switch`）。
+    wrapper = base / "qml" / "components" / "FmSwitch.qml"
+    wrapper.write_text(
+        "// 正例：同名包装器允许出现它包装的原生控件\n"
+        "import QtQuick\n"
+        "import QtQuick.Controls\n"
+        "Switch {\n"
+        "    id: control\n"
+        "    text: Tr.map[\"settings_minimize\"] ?? \"settings_minimize\"\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    assert gate.run_gate(base, only=["R9"]).violations == [], "同名包装器被误报了"
+
+    # 变异 3：同一个包装器里换成**别的**原生控件 → 必须报（白名单是按类型配的，不是按文件）
+    wrapper.write_text(
+        "// 变异：包装器里混进了别的原生控件\n"
+        "import QtQuick\n"
+        "import QtQuick.Controls\n"
+        "Item {\n"
+        "    ToolButton {\n"
+        "        text: \"x\"\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    again = gate.run_gate(base, only=["R9"])
+    assert [v.path for v in again.violations] == ["qml/components/FmSwitch.qml"], \
+        [v.render() for v in again.violations]
+
+
+def test_r9_repo_is_clean_and_rules_table_matches():
+    """真实仓库必须零违规（返工 C 组的交付物就是这个），且 R9 真的在判。"""
+    gate = _load_gate()
+    report = gate.run_gate(REPO_ROOT, only=["R9"])
+    assert report.violations == [], [v.render() for v in report.violations]
+    r9 = next(r for r in report.results if r.rule == "R9")
+    assert len(r9.files) >= 40, f"R9 只扫到 {len(r9.files)} 个文件，范围是不是被改窄了"
+    assert "R9" in gate.RULE_IDS and gate.CHECKERS["R9"] is gate.check_r9
+    assert gate.NATIVE_CONTROL_WRAPPERS, "同名包装器白名单空了 —— R9 会开始误报自研件"
 
 
 # ─── 3. 正例：不许误报（并证明正例不是空文件） ─────────────────
@@ -519,10 +649,13 @@ def test_real_registry_entries_are_wellformed():
 
 
 def test_json_output_agrees_with_exit_code():
+    gate = _load_gate()
     for base, expected_ok in ((GOOD, True), (BAD, False)):
         code, out = _run(["--base", str(base), "--json"])
         payload = json.loads(out)
-        assert [r["id"] for r in payload["rules"]] == ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]
+        # 规则清单**从闸门自己读**：加一条规则时这里不该再手工同步一次
+        # （R9 落地时就是因为写死了 R1~R8 而红的 —— 写死的清单必然滞后）
+        assert [r["id"] for r in payload["rules"]] == list(gate.RULE_IDS)
         assert payload["summary"]["ok"] is expected_ok
         assert (code == 0) is expected_ok
         for result in payload["rules"]:

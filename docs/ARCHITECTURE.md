@@ -531,16 +531,28 @@ main_qml.assemble(start_startup=True)
   → 每个节点都经 MainThreadDispatcher 把主窗口提到前面（对照旧实现的 lift + focus_force）
 ```
 
-### QML 界面结构（返工 B 组之后）
+### QML 界面结构（返工 B / C 组之后）
 
 ```
 qml/App.qml                FluWindow + effect:"normal" + appBar: AppBar
   └ shell/AppBar.qml       FluAppBar 子类，40px：返回 / 面包屑 / 搜索 / 通知 / 账号（右侧 120px 留给窗口按钮）
   └ shell/Navigation.qml   分组导航（组标题来自 nav_bridge.NAV_GROUPS），选中态 = accentSoft + 3px 指示条
-  └ shell/PageStack.qml    StackView（Nav 的镜像）
+  └ shell/PageStack.qml    StackView（Nav 的镜像）；每条路由一个页面对象
   └ shell/StatusBar.qml    28px：顶边 1px divider + 状态文本 + 不确定进度条 + 后台任务数
-  └ components/Fm*.qml     21 个自研组件（页面与壳层只允许用这些）
+  └ pages/<领域>/<X>Page.qml   每个页面都是 components/FmPage.qml 的薄壳（22 行）：
+                               路由帧 + 页头 + 三态（contentState）都在 FmPage 里
+  └ components/Fm*.qml     26 个自研组件（页面与壳层只允许用这些，闸门 R5 + R9 守）
 ```
+
+**页面那一层的收敛（返工 C 组）**：12 个内置领域页原来各 145 行、内容逐字相同，现在各 22 行，
+页头 / 路由帧 / 三态渲染只有 `FmPage` 一份实现。三态用 `FmLoadingState` / `FmEmptyState` /
+`FmErrorState`，`contentState` 是 `ready | loading | empty | error` 四值。
+
+**原生控件禁令（闸门 R9）**：`qml/**` 里不许**声明** QtQuick.Controls 的原生控件
+（`Button` / `TextField` / `CheckBox` / `ScrollBar` / `ScrollView` / `SpinBox` …）。
+原因是本项目跑的是 **Basic** 样式（`main_qml.py` 设的 `QT_QUICK_CONTROLS_STYLE`），
+原生控件的颜色来自系统调色板，锁深色的界面里必然是浅色外来件。三条边界：同名包装器放行、
+附着属性名（`ScrollBar.vertical:`）不算、`qml/FatalError.qml` 零依赖豁免。
 
 窗口的拖动由 `FluFrameless` 的 Win32 命中测试实现：**顶栏上每个可交互项都要登记**
 （`App.qml` 遍历 `AppBar.interactiveItems` 调 `setHitTestVisible`），
