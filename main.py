@@ -13,6 +13,7 @@ v3.3 - feat: multi-language support (English, Japanese, Traditional Chinese)
 v3.4 - feat: pre-download Minecraft resource pack for faster version installation
 """
 
+import importlib.util
 import os
 import re
 import sys
@@ -24,6 +25,7 @@ import logzero
 from logzero import logger
 
 from config import config
+from scripts.build_plan import UI_BACKENDS, normalize_backend
 
 
 def set_chinese_language():
@@ -651,6 +653,111 @@ def _build_plugin_tabs(app, plugin_manager, registrations):
             logger.warning(f"构建插件标签页失败 ({plugin_id}): {e}")
 
 
+# ── 界面后端分派（阶段 3 前置）──
+
+
+def _parse_ui_arg(argv):
+    """从命令行里取 `--ui <后端>`（支持 `--ui=qml`）。没写就返回 None。
+
+    刻意**不用** argparse：入口现有的 CLI 语义是手写解析（`_parse_cli_args`），
+    多引一个解析器会让"两套 CLI 语义"出现分叉（迁移红线 2）。
+    """
+    for index, arg in enumerate(argv):
+        if arg == "--ui" and index + 1 < len(argv):
+            return argv[index + 1]
+        if arg.startswith("--ui="):
+            return arg.split("=", 1)[1]
+    return None
+
+
+def _resolve_ui_backend(argv=None):
+    """决定这次启动用哪套界面：命令行 > 配置 > 默认。返回 `UI_BACKENDS` 里的值。
+
+    默认永远是 `tk`（`config.DEFAULT_UI_BACKEND`）：阶段 3 期间 QML 页面还是占位壳，
+    提前切默认等于把空页面发给用户。阶段 4.1 才改默认值。
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    requested = _parse_ui_arg(argv)
+    if requested is not None:
+        backend = normalize_backend(requested)
+        if backend != requested.strip().lower():
+            logger.warning(f"命令行指定的界面后端 {requested!r} 不是合法值（{'/'.join(UI_BACKENDS)}），已回落到 {backend}")
+        return backend
+    return normalize_backend(getattr(config, "ui_backend", None))
+
+
+def _probe_qml_backend():
+    """探测 QML 后端能否启动，返回 `(可用, 不可用的原因)`。**只探测，不装配**。
+
+    为什么是"先探测"而不是"先跑、崩了再回退"：`main_qml.main()` 自己的启动期异常路径会弹
+    致命错误窗并返回 1（`main_qml.show_fatal_error`）。若在外层再回退到 Tk，用户会先看到
+    "QML 启动失败"再看到一个经典界面 —— 两个界面同时存在，原因还说不清。所以回退只发生在
+    **装配之前**就能判定"根本起不来"的情况（没装 Qt / 没有 FluentUI 模块 / 没有 QML 入口）。
+
+    探测全部是"查文件 + 查模块是否存在"，不加载 Qt、不建引擎，因此可以放心在入口调。
+    """
+    if importlib.util.find_spec("PySide6") is None:
+        return False, "没装 PySide6（需要 pyside6-essentials 与 pyside6-addons）"
+    try:
+        import main_qml
+    except Exception as exc:  # noqa: BLE001 - 任何导入期异常都算"起不来"
+        return False, f"导入 main_qml 失败：{type(exc).__name__}: {exc}"
+    module_dir = main_qml.qml_import_path()
+    if not Path(module_dir).is_dir():
+        return False, f"FluentUI QML 模块目录不存在：{module_dir}"
+    entry = main_qml.app_qml_path("App.qml")
+    if not Path(entry).is_file():
+        return False, f"QML 根组件不存在：{entry}"
+    return True, ""
+
+
+def _notify_ui_fallback(reason):
+    """用户**显式**要求 qml 却回退了 Tk 时，把原因说给他看。
+
+    只在命令行显式指定时调用：配置文件里的 qml 回退只记日志 —— 否则一台装不上 Qt 的机器
+    每次启动都弹一次，用户除了关掉什么也做不了。
+
+    弹窗本身走 `ui/splash.py::show_error_dialog`（入口不得内联 Tk 界面代码 —— 分层闸门
+    `scripts/check_services_purity.py` 的"入口文件"那一项会拦；启动期弹窗本来就属于 ui/ 层）。
+    """
+    try:
+        from ui.splash import show_error_dialog
+
+        show_error_dialog("FMCL 界面回退", f"QML 界面无法启动，已回退到经典界面：\n\n{reason}")
+    except Exception as exc:  # noqa: BLE001 - 连提示都弹不出来时必须留日志
+        logger.warning(f"回退提示无法显示（{type(exc).__name__}: {exc}）")
+
+
+def _dispatch_ui(argv):
+    """决定这次启动起哪套界面，返回 `(动作, 原因)`。
+
+    动作只有三种值，**纯决策**（不弹窗、不装配、不起事件循环），所以入口分派是可测的：
+
+    * `"qml"`：用 QML 界面起（探测通过）；
+    * `"fallback"`：要求了 qml 但根本起不来 → 回退经典界面，原因在第二个元素里；
+    * `"tk"`：本来就该用经典界面。
+
+    回退只发生在**装配之前**能判定"根本起不来"的情况；QML 装配期自己的异常仍由
+    `main_qml.main()` 的致命错误窗负责（见 `_probe_qml_backend` 的说明）。
+    """
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if _resolve_ui_backend(argv) != "qml":
+        return "tk", ""
+    usable, why = _probe_qml_backend()
+    if usable:
+        return "qml", ""
+    logger.warning(f"QML 后端不可用，回退经典界面：{why}")
+    return "fallback", why
+
+
+def _run_qml_backend(argv):
+    """装配并进入 QML 事件循环，返回退出码。"""
+    import main_qml
+
+    logger.info(f"界面后端：qml（{main_qml.app_qml_path('App.qml')}）")
+    return int(main_qml.main(list(argv), run_loop=True))
+
+
 if __name__ == "__main__":
     mode, payload = _parse_cli_args()
     if mode == "login" and isinstance(payload, tuple):
@@ -659,4 +766,12 @@ if __name__ == "__main__":
     elif mode == "agent":
         run_agent_cli_mode(payload)
     else:
+        _argv = sys.argv[1:]
+        _action, _why = _dispatch_ui(_argv)
+        if _action == "qml":
+            sys.exit(_run_qml_backend(_argv))
+        if _action == "fallback" and _parse_ui_arg(_argv) is not None:
+            # 只有"用户显式要求 qml"才弹提示：配置文件里的 qml 回退只记日志，
+            # 否则一台装不上 Qt 的机器每次启动都弹一次。
+            _notify_ui_fallback(_why)
         main()

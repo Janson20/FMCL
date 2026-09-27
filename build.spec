@@ -1,267 +1,247 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 构建脚本 - 多平台支持"""
+"""PyInstaller 构建脚本 —— 两个界面后端（由环境变量 `UI_BACKEND` 选择）。
+
+真正的构建计划在 `scripts/build_plan.py`（普通模块，测试可以 import）；本文件只负责
+平台相关的 EXE / BUNDLE / COLLECT 组装，因为这部分本来就与平台绑死。
+
+用法（迁移前的用法保持不变）：
+
+    pyinstaller build.spec                              # tk 后端（默认）→ dist/FMCL.exe
+    $env:UI_BACKEND='qml'; pyinstaller build.spec       # qml 后端 → dist/FMCL-QML/（目录产物）
+    $env:PLATFORM='win'; $env:ARCH='x86'                # 平台/架构覆盖（与迁移前一致）
+
+产物形态（为什么 QML 是目录而不是单文件）：
+
+* tk：**单文件 EXE**，与今天发布的产物逐条一致（同一个 `main.py`、同一套 `excludes`）；
+* qml：**onedir**（`COLLECT`）。onefile 每次启动都要把 Qt 运行时（约 200 MB）解压到临时目录，
+  启动器的冷启动体验不可接受。`updater.py` 只认 `FMCL-Setup-*.exe` 安装包，
+  **装目录不影响自动更新链路**（已核对 `updater.py::find_suitable_asset`）。
+
+阶段 3 期间 QML 产物是**验收/预览产物**，发布链仍然只出 tk 产物；单文件双后端（一个 exe 里
+同时含 Tk 与 Qt、用 `config.ui_backend` 现场切换）是阶段 4.3 的事。
+"""
 
 import os
 import sys
-import tkinter as tk
 from pathlib import Path
 
-# 自动检测平台
-_platform = sys.platform
-if _platform == 'win32':
-    platform = 'win'
-elif _platform == 'darwin':
-    platform = 'mac'
-else:
-    platform = 'linux'
+# PyInstaller 会把 SPECPATH 注入 spec 的全局命名空间；测试/其它调用方可能直接 exec 本文件。
+_SPEC_DIR = globals().get("SPECPATH") or os.getcwd()
+if _SPEC_DIR not in sys.path:
+    sys.path.insert(0, _SPEC_DIR)
 
-# 支持环境变量覆盖
-platform = os.environ.get('PLATFORM', platform)
-arch = os.environ.get('ARCH', 'amd64')
-
-print(f"Building for platform: {platform}, arch: {arch}")
+from scripts.build_plan import (  # noqa: E402  （必须在 sys.path 处理之后）
+    detect_platform,
+    missing_qml_requirements,
+    normalize_backend,
+    plan,
+    should_drop_collected_binary,
+    should_drop_qml_module_dir,
+)
 
 block_cipher = None
 
-# 图标路径
-icon_path = os.path.join(os.getcwd(), 'icon.ico')
+_root = os.getcwd()
+_backend = normalize_backend(os.environ.get("UI_BACKEND"))
+# 自动检测平台，支持环境变量覆盖
+_platform = os.environ.get("PLATFORM") or detect_platform(sys.platform)
+arch = os.environ.get("ARCH", "amd64")
 
-# locales 目录路径（多语言支持）
-locales_src = os.path.join(os.getcwd(), 'ui', 'locales')
+print(f"Building backend={_backend} platform={_platform}, arch={arch}")
 
-# pyproject.toml 路径
-pyproject_path = os.path.join(os.getcwd(), 'pyproject.toml')
+# ── QML 后端的构建前置检查 ──
+# `third_party/*` 不入库（体积原因），新克隆的机器上没有自编译的 FluentUI 模块。
+# 不检查的话 PyInstaller 会产出一个"看着正常、一启动就找不到界面"的产物 —— 那种故障在
+# 源码态永远复现不出来。这里宁可响亮地失败，并把补救命令打出来。
+if _backend == "qml":
+    _missing = missing_qml_requirements(Path(_root))
+    if _missing:
+        raise SystemExit(
+            "[build.spec] QML 后端缺少构建前置：\n  - "
+            + "\n  - ".join(_missing)
+            + "\n\n先补齐第三方源码与自编译模块，再重试：\n"
+            + "  powershell -NoProfile -ExecutionPolicy Bypass -File third_party/fetch_sources.ps1\n"
+            + "  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_fluentui.ps1\n"
+        )
 
-# TERMS_OF_USE.md 路径
-terms_path = os.path.join(os.getcwd(), 'TERMS_OF_USE.md')
+_P = plan(_backend, _root, _platform)
 
-# ui/static 路径（下载等待小游戏等静态资源）
-static_src = os.path.join(os.getcwd(), 'ui', 'static')
-
-# 数据文件列表：图标 + locales + pyproject.toml + TERMS_OF_USE.md + static
-datas = [(icon_path, '.'), (pyproject_path, '.')]
-if os.path.exists(locales_src):
-    datas.append((locales_src, 'ui' + os.sep + 'locales'))
-if os.path.exists(static_src):
-    datas.append((static_src, 'ui' + os.sep + 'static'))
-if os.path.exists(terms_path):
-    datas.append((terms_path, '.'))
-
-# .NET 辅助程序源码（GDK 解压/认证注入：运行时用 dotnet 在用户机器上构建）
-native_root_rel = os.path.join('launcher', 'bedrock', 'native')
-for _rel in (
-    os.path.join('helper', 'BedrockGdkHelper.csproj'),
-    os.path.join('helper', 'Program.cs'),
-    os.path.join('extractor', 'BedrockXvdExtractor.csproj'),
-    os.path.join('extractor', 'Program.cs'),
-):
-    _src = os.path.join(os.getcwd(), native_root_rel, _rel)
-    if os.path.exists(_src):
-        datas.append((_src, os.path.join(native_root_rel, os.path.dirname(_rel))))
-
-# 通用隐式导入
-hidden_imports = [
-    'minecraft_launcher_lib',
-    'minecraft_launcher_lib._helper',
-    'minecraft_launcher_lib._internal_types',
-    'minecraft_launcher_lib.command',
-    'minecraft_launcher_lib.exceptions',
-    'minecraft_launcher_lib.fabric',
-    'minecraft_launcher_lib.forge',
-    'minecraft_launcher_lib.install',
-    'minecraft_launcher_lib.java_utils',
-    'minecraft_launcher_lib.microsoft_account',
-    'minecraft_launcher_lib.mod_loader',
-    'minecraft_launcher_lib.mod_loader._forge',
-    'minecraft_launcher_lib.mod_loader._fabric',
-    'minecraft_launcher_lib.mod_loader._neoforge',
-    'minecraft_launcher_lib.mrpack',
-    'minecraft_launcher_lib.natives',
-    'minecraft_launcher_lib.news',
-    'minecraft_launcher_lib.quilt',
-    'minecraft_launcher_lib.runtime',
-    'minecraft_launcher_lib.types',
-    'minecraft_launcher_lib.utils',
-    'minecraft_launcher_lib.vanilla_launcher',
-    'forgepy',
-    'requests',
-    'logzero',
-    'tqdm',
-    'keyboard',
-    'tkinter',
-    'tkinter.ttk',
-    'tkinter.filedialog',
-    'tkinter.messagebox',
-    'tkinter.colorchooser',
-    'tkinter.commondialog',
-    'tkinter.constants',
-    'PIL',
-    'PIL.Image',
-    'PIL.ImageTk',
-    'customtkinter',
-    'orjson',
-    'urllib3',
-    'rarfile',
-    'markdown',
-    'tkinterweb',
-    '_build_secrets',
-]
-
-# 平台特定导入
-if platform == 'win':
-    hidden_imports.extend([
-        'pywintypes',
-        'win32com',
-        'win32com.client',
-    ])
-elif platform == 'mac':
-    hidden_imports.extend([
-        'AppKit',
-        'Foundation',
-    ])
+icon_path = _P["icon"]
+datas = _P["datas"]
+hidden_imports = list(_P["hidden_imports"])
+excludes = list(_P["excludes"])
+entry = _P["entry"]
+product_name = _P["product_name"]
+onefile = bool(_P["onefile"])
 
 # ── 收集 tkinter/TCL 库文件（Windows 必需）──
 # tkinter 需要访问 tcl86t.dll, tk86t.dll 等文件
-binaries_tkinter = []
-if platform == 'win':
-    # 获取 Python 的 tcl 库目录
-    tk_lib_dir = Path(sys.prefix) / 'tcl' / 'tk8.6'
-    if tk_lib_dir.exists():
-        binaries_tkinter.append((str(tk_lib_dir), '.'))
-    tcl_lib_dir = Path(sys.prefix) / 'tcl' / 'tcl8.6'
-    if tcl_lib_dir.exists():
-        binaries_tkinter.append((str(tcl_lib_dir), '.'))
+binaries = []
+if _platform == "win":
+    for _lib_dir in (Path(sys.prefix) / "tcl" / "tk8.6", Path(sys.prefix) / "tcl" / "tcl8.6"):
+        if _lib_dir.exists():
+            binaries.append((str(_lib_dir), "."))
 
-# ── 语音输入 (sounddevice + onnxruntime + sentencepiece) 动态库收集 ──
-from PyInstaller.utils.hooks import collect_dynamic_libs
+    # ── 语音输入 (sounddevice + onnxruntime + sentencepiece) 动态库收集 ──
+    from PyInstaller.utils.hooks import collect_dynamic_libs
 
-voice_binaries = []
-try:
-    voice_binaries += collect_dynamic_libs('_sounddevice_data')
-    voice_binaries += collect_dynamic_libs('onnxruntime')
-    voice_binaries += collect_dynamic_libs('sentencepiece')
-except Exception:
-    pass
-voice_hidden_imports = [
-    'sounddevice', '_sounddevice_data', 'numpy', 'sentencepiece',
-    'onnxruntime', 'ui.agent.voice_input', 'ui.agent.voice',
-    'ui.agent.voice.sensevoice', 'ui.agent.voice.models',
-    # 任务 1.15：业务逻辑已搬到 services/，ui.* 只剩转发 shim；
-    # sensevoice 依然是延迟 import（_load_engine 内），故两边都登记。
-    'services.voice_service', 'services.voice',
-    'services.voice.sensevoice', 'services.voice.models',
-]
+    for _package in ("_sounddevice_data", "onnxruntime", "sentencepiece"):
+        try:
+            binaries += collect_dynamic_libs(_package)
+        except Exception:
+            pass
 
 a = Analysis(
-    ['main.py'],
+    [entry],
     pathex=[],
-    binaries=binaries_tkinter + voice_binaries if platform == 'win' else binaries_tkinter,
+    binaries=binaries,
     datas=datas,
-    hiddenimports=hidden_imports + voice_hidden_imports,
+    hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        'PyQt5', 'PyQt6', 'PySide2', 'PySide6',
-        'matplotlib', 'pandas', 'scipy',
-        'IPython', 'jupyter', 'notebook',
-    ],
+    excludes=excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
 )
 
+# ── QML 后端：二次过滤收集结果 ──
+# PyInstaller 的 PySide6 hook 会把整个 Qt 运行时收进来，其中未使用的部分体积很大
+# （Qt6WebEngineCore.dll 单个 142 MB）。裁剪依据见 scripts/build_plan.py 的
+# QML_DROP_BINARY_PATTERNS / QML_KEEP_MODULE_DIRS。
+if _P["filter_collected"]:
+    _binaries_before = len(a.binaries)
+    a.binaries = [b for b in a.binaries if not (should_drop_collected_binary(b[0]) or should_drop_collected_binary(b[1]))]
+    _datas_before = len(a.datas)
+    a.datas = [d for d in a.datas if not (should_drop_qml_module_dir(d[0]) or should_drop_qml_module_dir(d[1]))]
+    print(
+        f"[build.spec] 裁剪：二进制 {_binaries_before} → {len(a.binaries)}，"
+        f"数据 {_datas_before} → {len(a.datas)}"
+    )
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-if platform == 'win':
-    # Windows: 单文件可执行文件 (NSIS 安装包会打包它)
-    exe = EXE(
-        pyz,
-        a.scripts,
-        a.binaries,
-        a.zipfiles,
-        a.datas,
-        [],
-        name='FMCL',
-        debug=False,
-        bootloader_ignore_signals=False,
-        strip=False,
-        upx=True,
-        upx_exclude=[],
-        runtime_tmpdir='FMCL',
-        console=False,
-        disable_windowed_traceback=False,
-        argv_emulation=False,
-        target_arch=None,
-        codesign_identity=None,
-        entitlements_file=None,
-        icon=icon_path,
-    )
+#: onedir（QML 后端）走 exclude_binaries=True + COLLECT；onefile 直接把 binaries/datas 塞进 EXE。
+_payload = [a.binaries, a.zipfiles, a.datas] if onefile else []
 
-    # Windows Agent CLI: 控制台子系统的独立入口
-    agent_a = Analysis(
-        ['agent_cli.py'],
-        pathex=[],
-        binaries=[],
-        datas=datas,
-        hiddenimports=hidden_imports,
-        hookspath=[],
-        hooksconfig={},
-        runtime_hooks=[],
-        excludes=[
-            'PyQt5', 'PyQt6', 'PySide2', 'PySide6',
-            'matplotlib', 'numpy', 'pandas', 'scipy',
-            'IPython', 'jupyter', 'notebook',
-        ],
-        win_no_prefer_redirects=False,
-        win_private_assemblies=False,
-        cipher=block_cipher,
-        noarchive=False,
-    )
+if _platform == "win":
+    if onefile:
+        exe = EXE(
+            pyz,
+            a.scripts,
+            a.binaries,
+            a.zipfiles,
+            a.datas,
+            [],
+            name=product_name,
+            debug=False,
+            bootloader_ignore_signals=False,
+            strip=False,
+            # Qt 运行时不压缩：UPX 压缩过的 Qt DLL 有加载失败风险，解压也拖慢冷启动。
+            upx=not _P["with_qt"],
+            upx_exclude=[],
+            runtime_tmpdir=product_name,
+            console=False,
+            disable_windowed_traceback=False,
+            argv_emulation=False,
+            target_arch=None,
+            codesign_identity=None,
+            entitlements_file=None,
+            icon=icon_path,
+        )
+    else:
+        exe = EXE(
+            pyz,
+            a.scripts,
+            [],
+            exclude_binaries=True,
+            name=product_name,
+            debug=False,
+            bootloader_ignore_signals=False,
+            strip=False,
+            upx=False,
+            upx_exclude=[],
+            runtime_tmpdir=None,
+            console=False,
+            disable_windowed_traceback=False,
+            argv_emulation=False,
+            target_arch=None,
+            codesign_identity=None,
+            entitlements_file=None,
+            icon=icon_path,
+        )
+        coll = COLLECT(
+            exe,
+            a.binaries,
+            a.zipfiles,
+            a.datas,
+            strip=False,
+            upx=False,
+            upx_exclude=[],
+            name=product_name,
+        )
 
-    agent_pyz = PYZ(agent_a.pure, agent_a.zipped_data, cipher=block_cipher)
+    if onefile:
+        # Windows Agent CLI: 控制台子系统的独立入口（仅 tk 产物需要；QML 产物是验收产物）
+        agent_a = Analysis(
+            ['agent_cli.py'],
+            pathex=[],
+            binaries=[],
+            datas=datas,
+            hiddenimports=hidden_imports,
+            hookspath=[],
+            hooksconfig={},
+            runtime_hooks=[],
+            excludes=[*excludes, 'numpy'],
+            win_no_prefer_redirects=False,
+            win_private_assemblies=False,
+            cipher=block_cipher,
+            noarchive=False,
+        )
 
-    agent_exe = EXE(
-        agent_pyz,
-        agent_a.scripts,
-        agent_a.binaries,
-        agent_a.zipfiles,
-        agent_a.datas,
-        [],
-        name='FMCL-Agent',
-        debug=False,
-        bootloader_ignore_signals=False,
-        strip=False,
-        upx=True,
-        upx_exclude=[],
-        runtime_tmpdir=None,
-        console=True,
-        disable_windowed_traceback=False,
-        argv_emulation=False,
-        target_arch=None,
-        codesign_identity=None,
-        entitlements_file=None,
-        icon=icon_path,
-    )
+        agent_pyz = PYZ(agent_a.pure, agent_a.zipped_data, cipher=block_cipher)
 
-elif platform == 'mac':
-    # macOS: 单文件 EXE + BUNDLE 为 .app
+        agent_exe = EXE(
+            agent_pyz,
+            agent_a.scripts,
+            agent_a.binaries,
+            agent_a.zipfiles,
+            agent_a.datas,
+            [],
+            name='FMCL-Agent',
+            debug=False,
+            bootloader_ignore_signals=False,
+            strip=False,
+            upx=True,
+            upx_exclude=[],
+            runtime_tmpdir=None,
+            console=True,
+            disable_windowed_traceback=False,
+            argv_emulation=False,
+            target_arch=None,
+            codesign_identity=None,
+            entitlements_file=None,
+            icon=icon_path,
+        )
+
+elif _platform == "mac":
+    # macOS：单文件 EXE + BUNDLE 为 .app
     # 注意: target_arch 必须与实际 Python 安装架构一致，不能用 universal2
     # 因为 pip 安装的 .so 文件不是 fat binary
     mac_target_arch = 'arm64' if arch == 'arm64' else 'x86_64'
     exe = EXE(
         pyz,
         a.scripts,
-        a.binaries,
-        a.zipfiles,
-        a.datas,
+        *_payload,
         [],
-        name='FMCL',
+        exclude_binaries=not onefile,
+        name=product_name,
         debug=False,
         bootloader_ignore_signals=False,
         strip=False,
-        upx=False,
+        upx=not _P["with_qt"],
         upx_exclude=[],
         runtime_tmpdir=None,
         console=False,
@@ -272,9 +252,22 @@ elif platform == 'mac':
         entitlements_file=None,
     )
 
+    # QML 后端的 macOS 目录产物**未实测**（阶段 0 的出门条件是 Windows x64 一个目标）。
+    if not onefile:
+        coll = COLLECT(
+            exe,
+            a.binaries,
+            a.zipfiles,
+            a.datas,
+            strip=False,
+            upx=False,
+            upx_exclude=[],
+            name=product_name,
+        )
+
     app = BUNDLE(
         exe,
-        name='FMCL.app',
+        name=f'{product_name}.app',
         icon=icon_path.replace('.ico', '.icns') if os.path.exists(icon_path.replace('.ico', '.icns')) else None,
         bundle_identifier='com.fmcl.launcher',
         info_plist={
@@ -286,19 +279,18 @@ elif platform == 'mac':
     )
 
 else:
-    # Linux: 单文件可执行文件
+    # Linux：单文件可执行文件（QML 后端为目录产物）
     exe = EXE(
         pyz,
         a.scripts,
-        a.binaries,
-        a.zipfiles,
-        a.datas,
+        *_payload,
         [],
-        name='FMCL',
+        exclude_binaries=not onefile,
+        name=product_name,
         debug=False,
         bootloader_ignore_signals=False,
-        strip=True,
-        upx=True,
+        strip=onefile,
+        upx=not _P["with_qt"],
         upx_exclude=[],
         runtime_tmpdir=None,
         console=True,
@@ -309,4 +301,16 @@ else:
         entitlements_file=None,
     )
 
-print(f"Build configuration complete for {platform}-{arch}")
+    if not onefile:
+        coll = COLLECT(
+            exe,
+            a.binaries,
+            a.zipfiles,
+            a.datas,
+            strip=False,
+            upx=False,
+            upx_exclude=[],
+            name=product_name,
+        )
+
+print(f"Build configuration complete for backend={_backend} platform={_platform}-{arch}")

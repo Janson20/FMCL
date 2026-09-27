@@ -39,6 +39,21 @@ APP_NAME = "FMCL"
 
 logger = logging.getLogger("main_qml")
 
+# ─── QML 引擎的进程级开关（D-150）──────────────────────────────
+# **必须在任何 `QQmlApplicationEngine()` 建起来之前**设好：QML 磁盘缓存是引擎侧的静态状态，
+# 引擎一建就定了，之后再改环境变量没有任何作用（`poc/_probe_disk_cache_state.py` 实测：
+# 设 `1` 时缓存目录里 0 个 `.qmlc`，不设或设 `0` 时写出 27 个）。
+#
+# 为什么产品侧要关掉它（D-150）：磁盘缓存让编译单元**异步**取回，而主题热切换会连带重建一批
+# 对象；若在"单元还没取回来"的窗口里建对象，引擎就报 `QmlIcon: Cannot find member data` /
+# `Property 'xxx' is not a function` —— 那是**对象建了一半**，不只是日志噪声。
+# 实测（`poc/_measure_d150.py`，每档各跑两遍）：缓存开着 → 主题段稳定 10 条；关掉 → 0 条。
+# 代价（打包产物冷启动到窗口出现，`poc/_smoke_packaged.py`）：关掉后 ≤1.2 s，与开着相比
+# 差值落在 400 ms 采样精度之内 —— 用这点启动时间换掉一类"半成品对象"竞态是划算的。
+#
+# `setdefault`：显式设 `QML_DISABLE_DISK_CACHE=0` 仍可把它打开（做对照实验用）。
+os.environ.setdefault("QML_DISABLE_DISK_CACHE", "1")
+
 #: `QML` 单例（C++ 侧注册成 URI 类型，QML 里 `import FMCL 1.0`）。
 #: 名字必须与 `docs/refactor/11-phase2-contract.md` 第四节一致。
 SINGLETON_BRIDGES: Tuple[Tuple[str, str, str], ...] = (

@@ -301,6 +301,10 @@ uv sync --group ui
 # 注意：需要先编译 FluentUI 插件（阶段 0 的产物，不入库）：scripts/build_fluentui.ps1
 uv run python main_qml.py
 
+# 迁移期两套界面并存，同一个入口用 --ui 选择（默认仍是经典界面，见下节）
+uv run python main.py              # 经典（Tk）界面 —— 默认
+uv run python main.py --ui qml     # QML 界面（与在 config.json 里设 "ui_backend": "qml" 等价）
+
 # 新增依赖（会同时更新 pyproject.toml 与 uv.lock）
 uv add 包名
 uv add --group dev 开发期包名
@@ -339,6 +343,11 @@ uv run python scripts/check_qml_rules.py
 # 逼着他把台账改成「已修」并补上正向判据
 uv run python -m pytest tests/test_defect_ledger.py -q
 uv run python poc/_verify_defect_status.py        # 同一张表的命令行总览（读同一份数据）
+
+# 打包计划与界面后端（阶段 3 前置）：默认后端必须是 tk、QML 侧的桥与服务（全是按字符串
+# 动态导入，静态分析看不见）必须全在 hiddenimports 里、tk 产物与迁移前逐条一致、
+# build.spec 真的把计划用上了（用假 PyInstaller 符号 exec 一遍 spec 再断言）
+uv run python -m pytest tests/test_build_plan.py tests/test_ui_backend.py -q
 ```
 
 ### 常用命令
@@ -580,15 +589,49 @@ uv run python poc/_update_visual_baseline.py --write    # 真的写盘
 > 的修复**各撤一次**，确认对应的钉子真的变红，然后**逐字节还原**（SHA256 比对）。
 > 判据型改动最容易出的问题是"钉子其实是空断言"，这是唯一能证明它有牙齿的办法。
 
+### 界面后端：两套界面与切换（阶段 3 前置）
+
+迁移期**两套界面并存**：经典界面（`ui/` + Tk，`main.py`）与 QML 界面（`qml/` +
+`main_qml.py`）。它们共用零界面依赖的 `services/` 层，所以切换只是"换一层皮"。
+
+| 事项 | 取值 |
+| --- | --- |
+| 配置项 | `config.json` 的 `ui_backend`，取值 `tk`（默认）/ `qml` |
+| 命令行 | `--ui tk` / `--ui qml`（**压过配置**） |
+| 优先级 | 命令行 > 配置 > 默认 |
+| 默认值 | **`tk`** —— 阶段 3 期间 QML 侧的页面还是占位壳，阶段 4.1 才切默认 |
+| 回退 | 要求 `qml` 但**装配前**就判定起不来（没装 PySide6 / 没有 FluentUI 模块 / 没有 `qml/App.qml`）→ 记日志 + 退回经典界面；命令行显式要求时额外弹一次提示。配置里的非法值一律回落 `tk`（手改配置文件不会让入口起不来） |
+
+打包（详细前置见「构建」一节）：
+
+```powershell
+$env:UI_BACKEND='qml'; .\.venv\Scripts\python.exe -m PyInstaller build.spec --noconfirm   # → dist\FMCL-QML\
+```
+
+* 经典产物是**单文件** `dist\FMCL.exe`（与迁移前逐条一致）；
+* QML 产物是**目录** `dist\FMCL-QML\`（`COLLECT`）。理由：onefile 每次启动都要把 Qt 运行时
+  （约 200 MB）解到临时目录，启动器的冷启动体验不可接受；`updater.py` 只认
+  `FMCL-Setup-*.exe` 安装包，装目录**不影响自动更新链路**。
+* 安装包带 `/DQML_BUILD` 时装成 `FMCL-QML`（`%LOCALAPPDATA%\Programs\FMCL-QML`，快捷方式与
+  注册表键都带 `-QML` 后缀），**可与经典版并存**、装卸互不影响；不带该开关时脚本行为与迁移前一致。
+
 ### 构建
 
 ```bash
-make build            # PyInstaller 构建可执行文件
+make build            # PyInstaller 构建可执行文件（经典界面，单文件 dist/FMCL.exe）
+make build-qml        # QML 界面（目录产物 dist/FMCL-QML/，含 Qt 运行时与 QML 模块）
 make build-installer  # Windows NSIS 安装包 (需要 NSIS)
+make build-qml-installer  # QML 界面安装包（装目录产物，与经典版可并存）
 make build-dmg        # macOS DMG 磁盘映像 (仅 macOS)
 make build-deb        # Linux DEB 包
 make build-appimage   # Linux AppImage
 ```
+
+> QML 产物有个**不入库**的构建前置：`third_party/` 下自编译的 FluentUI 模块（体积原因只入库
+> 来源记录与脚本）。缺了它 `build.spec` 会**直接报错停下**并打印补救命令，而不是产出一个
+> "看着正常、一启动就没有界面"的包。补齐方式：
+> `powershell -NoProfile -ExecutionPolicy Bypass -File third_party/fetch_sources.ps1`
+> 然后 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_fluentui.ps1`。
 
 > 构建问题排查请参考 [docs/BUILD_FIXES.md](docs/BUILD_FIXES.md)
 

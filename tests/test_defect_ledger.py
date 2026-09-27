@@ -317,6 +317,39 @@ def _d152_qml_overlay_never_shuts_down_gpu() -> Tuple[bool, str]:
                               else "已接上（可以改成「已修」了）"))
 
 
+def _d150_product_disables_disk_cache(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-150（挂账）：产品侧靠"建引擎**之前**关掉 QML 磁盘缓存"规避那 10 条竞态报错。
+
+    钉住的是**规避还在、且位置对**：删掉那一行，或者把它挪到建引擎之后，磁盘缓存就重新打开，
+    主题热切换段那 10 条 TypeError 会回到产品里（实测：缓存开着稳定 10 条 / 关掉 0 条）。
+    正解是"升级 Qt 或打包预编译 QML"，排期阶段 4.3 的打包重做。
+    """
+    body = source("main_qml.py") if text is None else text
+    guard = body.find("QML_DISABLE_DISK_CACHE")
+    engine = body.find("QQmlApplicationEngine()")
+    ordered = guard >= 0 and (engine < 0 or guard < engine)
+    detail = f"main_qml：开关位置={guard}、引擎构造位置={engine}"
+    detail += "（在引擎之前，规避生效）" if ordered else "（缺失或在引擎之后 —— 规避失效）"
+    return ordered, detail
+
+
+def _d153_fluent_lookup_still_scans_gc(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-153（挂账）：FluentUI 模块目录的查找仍走 `gc.get_objects()` 取"最后一个引擎"。
+
+    现象（2026-09-27 定位）：进程里若先存在一个游离的 `QQmlApplicationEngine`（没有 FluentUI
+    导入路径），`fluentAvailable` 会去扫 `gc.get_objects()` 并取**最后一个**引擎 —— 取的正是那个
+    游离引擎，于是 FluTheme 取不到、`fluentAvailable=False`。阶段 1 的证据脚本
+    `poc/_verify_group_b_independent.py` 第 5 节（"没被游离引擎带偏"）就是因此报红的；
+    显式注入通道（`use_engine`）本身是好的（探针实测 `_engine is 入口引擎` 为真）。
+    用户已裁决方案 (a)：**下一轮**改掉 —— 模块目录查找只认显式注入的引擎，去掉 gc 顺序依赖。
+    修好之后这条钉子会先红，逼着回来把台账改成「已修」并补正向判据。
+    """
+    body = source("app/bridges/theme_bridge.py") if text is None else text
+    scans_gc = "gc.get_objects()" in body
+    return scans_gc, ("theme_bridge 里" + ("仍在用 gc 扫描挑引擎（现象仍在）" if scans_gc
+                                          else "已不再靠 gc 顺序挑引擎（可以改成「已修」了）"))
+
+
 LEDGER: Dict[str, Entry] = {
     # ─── 返工 E 组本轮修好的（正向断言） ───────────────────────────
     "D-04": Entry(
@@ -418,12 +451,14 @@ LEDGER: Dict[str, Entry] = {
         files=("ui/locales/zh_CN.json",)),
     "D-150": Entry(
         defect="D-150", state="挂账",
-        summary="QML 磁盘缓存的异步取编译单元与主题切换竞态（刷 TypeError，无可见损伤）",
-        where="tests/_smoke_driver.py",
-        markers=(), reason="用户已裁决：产品侧**暂不改**（接受日志噪声）；"
-                           "「打包预编译 QML」并入**阶段 3** 的打包任务（`build.spec` 目前连 "
-                           "`qml/` 都没打包）。测试侧已用 `QML_DISABLE_DISK_CACHE=1` 规避。",
-        files=("tests/_smoke_driver.py",)),
+        summary="QML 磁盘缓存的异步取编译单元与主题切换竞态（对象建一半：刷 TypeError）",
+        where="main_qml.py", check=_d150_product_disables_disk_cache,
+        reason="产品侧已**规避**（不是修根因）：`main_qml` 在建任何引擎之前 `setdefault` 关掉 "
+               "QML 磁盘缓存 —— 实测缓存开着时主题段稳定 10 条报错、关掉 0 条，而打包产物冷启动"
+               "差值落在 400 ms 采样精度内（`poc/_measure_d150.py`、`poc/_smoke_packaged.py`）。"
+               "正解（升级 Qt，或打包时预编译 QML 后再打开缓存）排期**阶段 4.3** 的打包重做；"
+               "`tests/_smoke_driver.py` 自己那份规避保留（同一条路径的双保险）。",
+        files=("main_qml.py", "tests/_smoke_driver.py")),
     "D-151": Entry(
         defect="D-151", state="挂账",
         summary="pydub 0.25.1 里没有 `effects.speed_change` → `_pydub_available` 恒为 False，"
@@ -441,13 +476,23 @@ LEDGER: Dict[str, Entry] = {
         reason="QML 侧的收尾钩子属于**阶段 3** 的悬浮窗接线（Tk 版有 `init_gpu/shutdown_gpu` "
                "配对，QML 版只接了 init）。",
         files=("app/bridges/overlay_bridge.py",)),
+    "D-153": Entry(
+        defect="D-153", state="挂账",
+        summary="FluentUI 模块目录查找靠 `gc.get_objects()` 取最后一个引擎 —— 有游离引擎时取错，"
+                "`fluentAvailable` 变 False（阶段 1 证据脚本第 5 节红灯的成因）",
+        where="app/bridges/theme_bridge.py", check=_d153_fluent_lookup_still_scans_gc,
+        reason="用户已裁决方案 (a)：**阶段 3 的首轮**就修（下一轮即动手）—— 模块目录查找改为只认显式"
+               "注入的 `use_engine` 引擎（`main_qml.register_bridges` 已经会注入），去掉对 gc 对象"
+               "顺序的依赖；顺带让那条阶段 1 证据脚本重新转绿。显式通道本身没问题（探针实测注入的"
+               "是入口引擎），所以这是「取值路径选错」，不是「注入没生效」。",
+        files=("app/bridges/theme_bridge.py",)),
 }
 
 #: 台账必须覆盖的缺陷号（防"悄悄少一条"）：18 条欠账 + 本轮新登记的。
 REQUIRED_IDS = (
     "D-04", "D-05", "D-10", "D-11", "D-13", "D-16", "D-17", "D-18", "D-19", "D-20",
     "D-21", "D-22", "D-23", "D-24", "D-25", "D-26", "D-27", "D-28",
-    "D-146", "D-147", "D-150", "D-151", "D-152",
+    "D-146", "D-147", "D-150", "D-151", "D-152", "D-153",
 )
 
 
@@ -535,6 +580,9 @@ def test_check_based_probes_are_not_empty_assertions() -> None:
          '            self._running = True\n'
          '        elif task_type == "server_join_error":\n',
          "把那行冗余赋值加回去"),
+        ("D-150", _d150_product_disables_disk_cache,
+         source("main_qml.py").replace("QML_DISABLE_DISK_CACHE", "已删掉的开关"),
+         "删掉关闭磁盘缓存那一行"),
     ]
     problems = []
     for defect, probe, mutated, note in cases:

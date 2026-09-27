@@ -1,4 +1,4 @@
-.PHONY: help install build build-installer build-dmg build-deb build-appimage release clean test lint fix
+.PHONY: help install build build-qml build-installer build-qml-installer build-dmg build-deb build-appimage release clean test lint fix
 
 VERSION ?= $(shell python -c "import re; print(re.search(r'version\s*=s*[\"'']([^\"'']+)[\"'']', open('pyproject.toml').read()).group(1))" 2>/dev/null || echo "2.0.2")
 
@@ -14,11 +14,17 @@ install-dev: ## 安装开发依赖
 	pip install -r requirements-dev.txt
 	npm install
 
-build: ## 构建可执行文件 (PyInstaller)
+build: ## 构建可执行文件 (PyInstaller, 经典界面)
 	pyinstaller build.spec --noconfirm
+
+build-qml: ## 构建 QML 界面的目录产物 (PyInstaller, UI_BACKEND=qml)
+	UI_BACKEND=qml pyinstaller build.spec --noconfirm
 
 build-installer: build ## 构建 Windows 安装包 (需要 NSIS)
 	makensis /DVERSION=$(VERSION) installer.nsi
+
+build-qml-installer: build-qml ## 构建 QML 界面安装包 (目录产物; 需要 NSIS)
+	makensis /DVERSION=$(VERSION) /DQML_BUILD installer.nsi
 
 build-dmg: build ## 构建 macOS DMG (仅 macOS)
 	@echo "Creating DMG for version $(VERSION)..."

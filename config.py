@@ -8,6 +8,9 @@ from typing import Any, Dict, Optional
 import logzero
 from logzero import logger
 
+from scripts.build_plan import DEFAULT_UI_BACKEND as _DEFAULT_UI_BACKEND
+from scripts.build_plan import UI_BACKENDS as _UI_BACKENDS
+from scripts.build_plan import normalize_backend as _normalize_ui_backend
 from secure_storage import decrypt_token, encrypt_token, set_key_dir
 
 # 高性能 JSON 解析：orjson 比 stdlib json 快 3-10 倍
@@ -208,6 +211,12 @@ class Config:
     DEFAULT_PLAYER_NAME = "Steve"
     DEFAULT_LANGUAGE = "zh_CN"
 
+    #: 界面后端默认值（阶段 3 前置）。**必须**是 `scripts/build_plan.py` 里那一份常量：
+    #: 打包（build.spec）与运行期（入口分派）读同一个值，避免"产物是 qml 但配置说是 tk"。
+    #: 阶段 3 期间保持 `tk` —— QML 侧的 12 个页面还是占位壳，切默认等于把空页面发给用户；
+    #: 阶段 4.1 才把默认改成 `qml`，并保留本配置项作为回滚开关。
+    DEFAULT_UI_BACKEND = _DEFAULT_UI_BACKEND
+
     # 配置错误回调（由 UI 层注册，用于显示错误弹窗）
     _error_callback: Any = None
 
@@ -289,6 +298,11 @@ class Config:
         self.theme_name: str = "default"
         self.accent_color: Optional[str] = None
         self.dynamic_version_theme: bool = False
+
+        # 界面后端（阶段 3 前置新增）：`tk`（默认）或 `qml`。
+        # 迁移期两套界面并存，这个值决定入口起哪一套；命令行 `--ui qml|tk` 可临时覆盖它，
+        # 优先级是 命令行 > 配置 > 默认（见 main.py 的 `_resolve_ui_backend`）。
+        self.ui_backend: str = self.DEFAULT_UI_BACKEND
 
         # Java 运行时配置
         self.java_mode: str = "auto"
@@ -417,6 +431,16 @@ class Config:
                 self.accent_color = data["accent_color"]
             if "dynamic_version_theme" in data:
                 self.dynamic_version_theme = data["dynamic_version_theme"]
+            if "ui_backend" in data:
+                # 非法值（手改配置文件、旧版本残留、类型不对）一律回落到默认后端并留日志：
+                # 入口分派不该因为一个拼错的字符串而起不来。
+                stored_backend = data["ui_backend"]
+                self.ui_backend = _normalize_ui_backend(stored_backend)
+                if not isinstance(stored_backend, str) or stored_backend.strip().lower() not in _UI_BACKENDS:
+                    logger.warning(
+                        f"配置里的界面后端 {stored_backend!r} 不是合法值（{'/'.join(_UI_BACKENDS)}），"
+                        f"已回落到 {self.ui_backend}"
+                    )
             if "java_mode" in data:
                 self.java_mode = data["java_mode"]
             if "java_custom_path" in data:
@@ -476,6 +500,7 @@ class Config:
                 "theme_name": self.theme_name,
                 "accent_color": self.accent_color,
                 "dynamic_version_theme": self.dynamic_version_theme,
+                "ui_backend": self.ui_backend,
                 "ai_privacy_consent": self.ai_privacy_consent,
                 "terms_consent": self.terms_consent,
                 "bedrock_terms_accepted": self.bedrock_terms_accepted,

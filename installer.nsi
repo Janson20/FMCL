@@ -1,14 +1,26 @@
-﻿; FMCL Windows Installer - NSIS Script
+; FMCL Windows Installer - NSIS Script
 ; 使用方法: makensis /DVERSION=x.x.x installer.nsi           (x64)
 ;          makensis /DVERSION=x.x.x /DARCH=x86 installer.nsi (x86)
+;          makensis /DVERSION=x.x.x /DQML_BUILD installer.nsi (QML 界面，目录产物)
 
 Unicode true
 
 !define PRODUCT_NAME "FMCL"
 !define PRODUCT_PUBLISHER "FMCL Team"
 !define PRODUCT_WEB_SITE "https://github.com/Janson20/FMCL"
-!define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\FMCL.exe"
-!define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
+
+; QML 界面构建（阶段 3 前置）：产物是**目录** `dist\FMCL-QML\`（含 Qt 运行时），安装整棵目录树。
+; 不带 `/DQML_BUILD` 时本脚本的行为与迁移前逐条一致 —— 发布链仍然只出经典界面的单文件产物。
+; 用 `${FCL_SUFFIX}` 一个定义驱动"可执行名 / 安装目录 / 快捷方式 / 注册表键"四处后缀，
+; 这样 QML 版能与经典版**并存**（装卸互不影响）。
+!ifdef QML_BUILD
+  !define FCL_SUFFIX "-QML"
+!else
+  !define FCL_SUFFIX ""
+!endif
+
+!define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\FMCL${FCL_SUFFIX}.exe"
+!define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\FMCL${FCL_SUFFIX}"
 
 ; 如果没有传入 VERSION，使用默认值
 !ifndef VERSION
@@ -26,20 +38,28 @@ Unicode true
 !endif
 
 ; 不带 .NET SDK 的 x64 精简版（CI 传入 /DNO_DOTNET_SDK，供自动更新默认下载）
-!ifdef NO_DOTNET_SDK
-  OutFile "FMCL-Setup-${VERSION}-without-dotnetsdk.exe"
-!else if "${ARCH}" == "x86"
-  OutFile "FMCL-Setup-${VERSION}-x86.exe"
+!ifdef QML_BUILD
+  OutFile "FMCL-Setup-${VERSION}-qml.exe"
 !else
-  OutFile "FMCL-Setup-${VERSION}.exe"
+  !ifdef NO_DOTNET_SDK
+    OutFile "FMCL-Setup-${VERSION}-without-dotnetsdk.exe"
+  !else if "${ARCH}" == "x86"
+    OutFile "FMCL-Setup-${VERSION}-x86.exe"
+  !else
+    OutFile "FMCL-Setup-${VERSION}.exe"
+  !endif
 !endif
 
-Name "${PRODUCT_NAME} ${VERSION}"
+!ifdef QML_BUILD
+  Name "${PRODUCT_NAME} ${VERSION} (QML)"
+!else
+  Name "${PRODUCT_NAME} ${VERSION}"
+!endif
 ; 按当前用户安装到 %LOCALAPPDATA%\Programs\FMCL
 ; 安装到 Program Files 需要管理员权限，且普通用户无法在安装目录写入
 ; .minecraft / config.json 等数据，导致启动器必须以管理员身份运行
 ; （issue #10）。改为用户目录后安装与使用均无需管理员权限。
-InstallDir "$LOCALAPPDATA\Programs\FMCL"
+InstallDir "$LOCALAPPDATA\Programs\FMCL${FCL_SUFFIX}"
 InstallDirRegKey HKCU "${PRODUCT_DIR_REGKEY}" ""
 ShowInstDetails show
 ShowUnInstDetails show
@@ -73,33 +93,39 @@ Section "MainSection" SEC01
   SetOutPath "$INSTDIR"
   SetOverwrite on
 
+!ifdef QML_BUILD
+  ; QML 产物是目录：可执行文件 + Qt 运行时 + QML 模块（`app_qml/` 与自编译的 `qml/`），
+  ; 整棵拷进来；可执行文件名由 build.spec 的产物名决定（FMCL-QML.exe）。
+  File /r "dist\FMCL-QML\*"
+!else
   ; 复制主程序（x86 构建产物为 FMCL-x86.exe，统一安装为 FMCL.exe）
   File "/oname=FMCL.exe" "dist\${FCL_EXE}"
+!endif
 
   ; 创建 .minecraft 目录
   CreateDirectory "$INSTDIR\.minecraft"
 
   ; 创建快捷方式
-  CreateShortCut "$DESKTOP\FMCL.lnk" "$INSTDIR\FMCL.exe"
-  CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
-  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\FMCL.lnk" "$INSTDIR\FMCL.exe"
-  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk" "$INSTDIR\uninst.exe"
+  CreateShortCut "$DESKTOP\FMCL${FCL_SUFFIX}.lnk" "$INSTDIR\FMCL${FCL_SUFFIX}.exe"
+  CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}${FCL_SUFFIX}"
+  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}${FCL_SUFFIX}\FMCL${FCL_SUFFIX}.lnk" "$INSTDIR\FMCL${FCL_SUFFIX}.exe"
+  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}${FCL_SUFFIX}\Uninstall.lnk" "$INSTDIR\uninst.exe"
 SectionEnd
 
 Section -AdditionalIcons
-  WriteIniStr "$INSTDIR\${PRODUCT_NAME}.url" "InternetShortcut" "URL" "${PRODUCT_WEB_SITE}"
-  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\Website.lnk" "$INSTDIR\${PRODUCT_NAME}.url"
+  WriteIniStr "$INSTDIR\${PRODUCT_NAME}${FCL_SUFFIX}.url" "InternetShortcut" "URL" "${PRODUCT_WEB_SITE}"
+  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}${FCL_SUFFIX}\Website.lnk" "$INSTDIR\${PRODUCT_NAME}${FCL_SUFFIX}.url"
 SectionEnd
 
 Section -Post
   WriteUninstaller "$INSTDIR\uninst.exe"
-  WriteRegStr HKCU "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\FMCL.exe"
+  WriteRegStr HKCU "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\FMCL${FCL_SUFFIX}.exe"
   WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "DisplayName" "$(^Name)"
   WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\uninst.exe"
   WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
   WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
-  WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\FMCL.exe"
+  WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "DisplayIcon" "$INSTDIR\FMCL${FCL_SUFFIX}.exe"
 SectionEnd
 
 Section "-7ZipCheck" SEC07Z
@@ -320,18 +346,23 @@ SectionEnd
 !endif
 
 Section Uninstall
-  Delete "$INSTDIR\${PRODUCT_NAME}.url"
+  Delete "$INSTDIR\${PRODUCT_NAME}${FCL_SUFFIX}.url"
   Delete "$INSTDIR\uninst.exe"
-  Delete "$INSTDIR\FMCL.exe"
+  Delete "$INSTDIR\FMCL${FCL_SUFFIX}.exe"
 
-  Delete "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk"
-  Delete "$SMPROGRAMS\${PRODUCT_NAME}\Website.lnk"
-  Delete "$SMPROGRAMS\${PRODUCT_NAME}\FMCL.lnk"
-  Delete "$DESKTOP\FMCL.lnk"
+  Delete "$SMPROGRAMS\${PRODUCT_NAME}${FCL_SUFFIX}\Uninstall.lnk"
+  Delete "$SMPROGRAMS\${PRODUCT_NAME}${FCL_SUFFIX}\Website.lnk"
+  Delete "$SMPROGRAMS\${PRODUCT_NAME}${FCL_SUFFIX}\FMCL${FCL_SUFFIX}.lnk"
+  Delete "$DESKTOP\FMCL${FCL_SUFFIX}.lnk"
 
-  RMDir "$SMPROGRAMS\${PRODUCT_NAME}"
+  RMDir "$SMPROGRAMS\${PRODUCT_NAME}${FCL_SUFFIX}"
   RMDir /r "$INSTDIR\.minecraft"
+!ifdef QML_BUILD
+  ; QML 产物是一棵目录（Qt 运行时有几千个文件），必须整棵删掉，否则残留一半的安装
+  RMDir /r "$INSTDIR"
+!else
   RMDir "$INSTDIR"
+!endif
 
   DeleteRegKey HKCU "${PRODUCT_UNINST_KEY}"
   DeleteRegKey HKCU "${PRODUCT_DIR_REGKEY}"
