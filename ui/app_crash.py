@@ -628,7 +628,11 @@ class CrashHandlerMixin(object):
 
         cancel_btn = tk.Button(
             dialog,
-            text=_("confirm"),
+            # 缺陷 D-04（返工 E 组修）：这一格原来写的是 `_("confirm")` ——
+            # 隐私弹窗右侧那颗按钮是**拒绝**（`command=dialog.destroy`，不写入同意），
+            # 文案却是「确定 / OK / 確定」，与左边那颗「同意并继续」放在一起会让人误以为
+            # 两颗都是同意。`cancel` 键四种语言都现成（取消 / 取消 / Cancel / キャンセル）。
+            text=_("cancel"),
             command=dialog.destroy,
             font=(FONT_FAMILY, 10),
             relief="flat",

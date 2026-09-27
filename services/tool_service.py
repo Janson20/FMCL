@@ -66,6 +66,10 @@ i18n：本模块通过 ``services.i18n_service._`` 取词（与 ``ui.i18n._`` �
    （界面侧本来就是 ``str(e)`` 填进 ``tool_quiz_*_error`` 的）。
 7. 日志器由 ``logzero.logger`` 改为 ``logging.getLogger("services.tool_service")``
    （与其它服务一致）；**日志文本逐字不变**。
+8. ``_format_size`` 改为转调 ``services.monitor_service._format_bytes``（返工 E 组
+   D-27）：两边原来是一份**逐字同构**的副本（同阶梯、同精度），合并成一份实现后
+   返回值、精度、边界行为逐字不变，调用点也不用动
+   （``ui/app_tools.py`` 的 ``_format_size = _tool_svc._format_size`` 拿到的仍是同一个对象）。
 
 ----
 
@@ -121,14 +125,25 @@ logger = logging.getLogger(__name__)
 
 
 def _format_size(bytes_count: int) -> str:
-    if bytes_count < 1024:
-        return f"{bytes_count} B"
-    elif bytes_count < 1024 * 1024:
-        return f"{bytes_count / 1024:.1f} KB"
-    elif bytes_count < 1024 * 1024 * 1024:
-        return f"{bytes_count / (1024 * 1024):.1f} MB"
-    else:
-        return f"{bytes_count / (1024 * 1024 * 1024):.2f} GB"
+    """把字节数格式化成可读字符串（D-27：与监控侧共用**同一份实现**）。
+
+    这里原本是 ``services/monitor_service._format_bytes`` 的**逐字副本**（同样的
+    1024 阶梯、同样的 ``.1f`` KB/MB 与 ``.2f`` GB 精度），阶段 2 返工 E 组按
+    "同一件事只有一份实现"合并成转调。返回值逐字不变 ——
+    ``tests/test_tool_service.py`` 的 9 个边界值（含 ``-1`` / ``1023`` /
+    ``1024**3 - 1``）与 ``ui/app_tools.py`` 的 ``_format_size = _tool_svc._format_size``
+    别名都原样通过。
+
+    这里的**延迟导入**是有意的，不是漏写：``monitor_service`` 在导入期会去探测
+    psutil / pynvml / keyboard / gpu-detector 这几个"随时可能缺席"的可选依赖，
+    而工具箱（垃圾清理 / 下载器 / 查服 / Hash / 题库）跟 GPU 监控没有任何关系 ——
+    为一个纯格式化函数让 ``import services.tool_service`` 顺带把 GPU 探测拉起来，
+    是拿启动时间换一行 import。函数级 import 在本仓库是既有写法（flake8 的 E402
+    就是为此放开的），每次调用的代价只是一次 ``sys.modules`` 查表。
+    """
+    from services.monitor_service import _format_bytes
+
+    return _format_bytes(bytes_count)
 
 
 def relative_path_from(path: str, base: str) -> str:

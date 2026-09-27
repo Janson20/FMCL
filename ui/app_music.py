@@ -15,7 +15,7 @@ import tkinter.filedialog as filedialog
 import webbrowser
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
 import customtkinter as ctk
@@ -36,7 +36,7 @@ from ui.music_effects import (
     AudioEffectProcessor,
     EffectSettings,
 )
-from ui.music_lyrics import LyricLine, LyricParser
+from ui.music_lyrics import LyricParser
 from ui.music_playlist import (
     HISTORY_PLAYLIST_ID,
     SORT_ADD_TIME_ASC,
@@ -201,6 +201,56 @@ from services.music_smtc import SMTCController as _SMTCController  # noqa: F401
 from services.music_smtc import _winsdk_available, _winsdk_import_error  # noqa: F401
 
 
+# ════════════════════════════════════════════════════════════════════════
+# D-19（返工 E 组）：进度/时长基准必须与"实际在播的那个文件"一致
+# ════════════════════════════════════════════════════════════════════════
+
+
+def _music_playback_duration(
+    original_duration: float,
+    settings: "EffectSettings",
+    original_path: str,
+    processed_path: str,
+    read_duration: Optional[Callable[[str], float]] = None,
+) -> float:
+    """算出**实际播放文件**的时长（秒）：进度条 / 总时长 / seek / 预取判据共用的基准。
+
+    为什么不能继续用原文件时长（D-19）：音效链里**只有变速会改变文件长度**
+    （``pydub.effects.speed_change`` 只改帧率、不重采样，长度约等于 原长 / rate）；
+    变调走 ``_spawn(...).set_frame_rate()`` 的往返、EQ/混响/声像都不变长度 ——
+    这一点写下来是为了防止下一个人把变调也算进来。
+    而 ``_music_engine.poll_position()``（在 ``_poll_music_progress`` 里）报的是
+    **在播文件**的秒数，
+    两边不在同一个时间轴上，于是：进度条走不满、拖动定位偏移、
+    2 倍速下 ``plan_prefetch`` 的"过半"判据（progress < duration * 0.5）恒为真
+    → 歌单预取永不触发（"放完秒播"退化成播完才起线程加载）。
+
+    取值优先级：
+    1. 处理没有生效（``processed_path`` 为空或与原文件同一路径）→ 原时长，一字不改；
+    2. **读实际文件的时长**（``read_duration`` 是注入缝，界面传 ``self._get_metadata``）——
+       这是唯一能自动跟上"处理链将来变化"的来源，也覆盖了 ``_apply_speed``
+       内部吞掉异常、实际并没有变速的那种情况；
+    3. 读不到（容器不被 mutagen 支持 / 临时文件已被清掉）→ 交给服务层的
+       ``services.music_effects.effective_duration()`` 按倍速折算（**唯一实现**：
+       并行落地的两个工作包各写了一份，收口时把"折算"收敛到服务层，
+       见 `07-known-defects.md` D-19 与 E 组执行记录）。
+    """
+    if not processed_path or processed_path == original_path:
+        return original_duration
+    if read_duration is not None:
+        try:
+            actual = read_duration(processed_path) or 0
+        except Exception:
+            actual = 0
+        if actual > 0:
+            return float(actual)
+    if not getattr(settings, "speed_enabled", False):
+        return original_duration
+    from services.music_effects import effective_duration
+
+    return effective_duration(original_duration, getattr(settings, "speed_rate", 1.0) or 1.0)
+
+
 class MusicPlayerMixin(object):
     def __init_music(self):
         # ── 播放引擎（阶段 1.4-A）：状态机/决策/纯计算住在 services/music_player.py ──
@@ -226,6 +276,7 @@ class MusicPlayerMixin(object):
         self._music_progress_timer_id = None
         self._music_init_done: bool = False
         self._music_hotkeys_registered: bool = False
+        self._music_exit_flushed: bool = False  # 退出收尾（D-146）只做一次，兼防递归
         self._music_warmup_hook = None
         self._music_playlist_widgets: List[dict] = []
         self._music_smtc: _SMTCController = _SMTCController()
@@ -241,7 +292,6 @@ class MusicPlayerMixin(object):
         self._music_tab_mode: str = "local"  # "local" | "online"
         self._music_search_results: List[OnlineMusicInfo] = []
         self._music_search_widgets: List[dict] = []
-        self._music_search_thread_id = None
         self._music_selected_source: str = "kw"
         self._music_search_keyword: str = ""
         self._music_search_page: int = 1  # 当前搜索页码（从 1 开始）
@@ -269,7 +319,6 @@ class MusicPlayerMixin(object):
         self._music_copy_feedback_timer = None  # 复制反馈文字恢复定时器
         # ── 歌词状态 ──
         self._music_lyric_parser: LyricParser = LyricParser()
-        self._music_lyric_lines: List[LyricLine] = []
         self._music_show_lyric_translation: bool = True
         self._music_show_lyric_roma: bool = False
         self._music_desktop_lyric: Optional[DesktopLyricWindow] = None
@@ -622,7 +671,6 @@ class MusicPlayerMixin(object):
     def _build_music_playlist_panel(self):
         list_frame = ctk.CTkFrame(self._music_main_frame, fg_color=COLORS["card_bg"], corner_radius=12)
         list_frame.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True, padx=(0, 10))
-        self._music_list_frame = list_frame
 
         header = ctk.CTkFrame(list_frame, fg_color="transparent", height=35)
         header.pack(fill=ctk.X, padx=12, pady=(12, 5))
@@ -687,7 +735,6 @@ class MusicPlayerMixin(object):
         sort_frame = ctk.CTkFrame(right_frame, fg_color="transparent", height=28)
         sort_frame.pack(fill=ctk.X, pady=(0, 4))
         sort_frame.pack_propagate(False)
-        self._music_sort_frame = sort_frame
 
         sort_label_font = ctk.CTkFont(family=FONT_FAMILY, size=11)
 
@@ -919,7 +966,6 @@ class MusicPlayerMixin(object):
         tab_bar = ctk.CTkFrame(self._music_tab_content, fg_color="transparent", height=32)
         tab_bar.pack(fill=ctk.X, padx=15, pady=(10, 0))
         tab_bar.pack_propagate(False)
-        self._music_source_tab_bar = tab_bar
 
         btn_cfg = {
             "height": 28,
@@ -1137,7 +1183,6 @@ class MusicPlayerMixin(object):
         # 搜索结果列表
         result_frame = ctk.CTkFrame(self._music_online_frame, fg_color=COLORS["card_bg"], corner_radius=12)
         result_frame.pack(fill=ctk.BOTH, expand=True)
-        self._music_online_result_frame = result_frame
 
         result_header = ctk.CTkFrame(result_frame, fg_color="transparent", height=30)
         result_header.pack(fill=ctk.X, padx=12, pady=(10, 5))
@@ -1401,6 +1446,24 @@ class MusicPlayerMixin(object):
         self._music_cancel_fade()
         self._stop_lyric_poll()
         # 应用音效处理
+        #
+        # D-13（挂账，未修行为）：这一段仍在**主线程**同步跑 —— `process()` 是
+        # 整曲解码 + 滤波 + 导出，效果开关打开时切歌会卡住界面数秒。
+        # 用户已裁决**方案 A：投给 `app/tasks.py:TaskRunner` 异步处理**，
+        # 排期在**阶段 3.18**（音效/歌词页）一起做，本轮只留注释、不改行为。
+        # 异步化时必须同时保住这四件事（docs/refactor/05-risks-and-redlines.md R-36）：
+        #   1. **设置快照**：`self._music_effects.settings` 必须快照后传进 worker，
+        #      否则用户在 worker 跑的过程中改滑块会得到"半新半旧"的处理结果；
+        #   2. **临时文件所有权与清理**：`_music_effects_processed_files` 现在由主线程
+        #      append、退出时由 `_music_cleanup_fx_files()` 清理；异步化后要写清
+        #      "谁 append、谁在什么时机删"，以及"处理完成时用户已经切歌"时那个
+        #      孤儿文件归谁删（否则每切一次歌漏一个 fmcl_fx_*.wav）；
+        #   3. **失败降级为"播原文件"**：今天 `process()` 自己吞异常并返回原路径，
+        #      这里的 `except: pass` 再兜一层；异步化后这条语义不能变成"处理失败就
+        #      不播了"，必须是"降级播原文件 + 记日志"；
+        #   4. **"音效处理中"态 + 代际守卫**：处理期间按钮禁用/状态栏文案要给出反馈，
+        #      并用代际号（与 `_music_search_seq` 同族，R-33）丢弃旧结果，
+        #      防止"处理 A 的过程里用户点了 B，A 的结果回来把 B 顶掉"。
         processed_path = filepath
         if self._music_effects.settings.has_any_enabled:
             try:
@@ -1412,8 +1475,20 @@ class MusicPlayerMixin(object):
                 pass
         try:
             self._music_engine.load_and_play(processed_path, start_pos)
+            # D-19：时长基准取**实际播放文件**（processed_path），不是原始 filepath。
+            # 传原时长会让 `state.duration`、镜像出来的 `self._music_duration`
+            # 以及它们的三处读者（`_poll_music_progress` 的进度条 / `_music_seek` 的
+            # seek / `_music_maybe_prefetch_next` 的预取判据）整体偏掉。
             self._music_engine.begin_local_playback(
-                filepath, self._get_metadata(filepath).get("duration", 0), start_pos
+                filepath,
+                _music_playback_duration(
+                    self._get_metadata(filepath).get("duration", 0),
+                    self._music_effects.settings,
+                    filepath,
+                    processed_path,
+                    lambda p: self._get_metadata(p).get("duration", 0),
+                ),
+                start_pos,
             )
             self._music_is_playing = True
             self._music_is_paused = False
@@ -1462,6 +1537,9 @@ class MusicPlayerMixin(object):
         self._music_cancel_fade()
         self._stop_lyric_poll()
         # 应用音效处理
+        #
+        # D-13（挂账，未修行为）：与 `_play_file` 同一段主线程同步处理，
+        # 裁决与排期见那边的注释（方案 A / 阶段 3.18 / 必须保住的四件事）。
         processed_path = filepath
         if self._music_effects.settings.has_any_enabled:
             try:
@@ -1473,7 +1551,20 @@ class MusicPlayerMixin(object):
                 pass
         try:
             self._music_engine.load_and_play(processed_path, start_pos)
-            self._music_engine.begin_online_playback(filepath, online_info.interval, quality, start_pos)
+            # D-19：同上，时长基准取实际播放文件；在线侧的"原时长"来自
+            # `online_info.interval`（音源给的原始时长），同样会被变速拉偏。
+            self._music_engine.begin_online_playback(
+                filepath,
+                _music_playback_duration(
+                    online_info.interval,
+                    self._music_effects.settings,
+                    filepath,
+                    processed_path,
+                    lambda p: self._get_metadata(p).get("duration", 0),
+                ),
+                quality,
+                start_pos,
+            )
             self._music_is_playing = True
             self._music_is_paused = False
             self._music_is_online_playing = True
@@ -1622,6 +1713,33 @@ class MusicPlayerMixin(object):
             self._music_fade_out()
 
     def _music_stop(self, instant: bool = False):
+        # ── 退出收尾接线（D-146）──────────────────────────────────────────
+        # `_music_cleanup()` 原来**没有任何调用点**（全仓只有它自己的定义），
+        # 于是"退出前强制写盘"这条路从来没有执行过：歌单只在 30s 周期保存里
+        # 落盘（`PERIODIC_SAVE_INTERVAL_MS`），用户"加了几首歌然后 30 秒内退出"就可能丢改动。
+        #
+        # 为什么接在这里：本窗口唯一的退出漏斗是
+        # `WM_DELETE_WINDOW → EventHandlerMixin.on_closing → self.destroy()`
+        # （main.py:474 / ui/app_handlers.py:1713-1722），而 `destroy()` 里给音乐侧
+        # 预留的钩子只有这一处 —— `ui/app_base.py:103-107` 先置 `self._running = False`
+        # 再 `hasattr(self, "_music_stop") → self._music_stop(instant=True)`，
+        # 那一刻**部件都还在、仍在 Tk 主线程**，是收尾的最后安全点。
+        # （更直白的写法是在 `ui/app_base.py:destroy()` 里加一条
+        # `hasattr(self, "_music_cleanup")` 钩子，与 `_unregister_hotkeys` 同样；
+        # 但 `ui/app_base.py` 不在本轮文件所有权内，故改从本函数进入，语义等价。）
+        #
+        # 判据用 `_running`：它在 `ui/app_base.py:38` 置 True，只在
+        # `destroy()`（:69）与 `on_closing`（app_handlers:1725）置 False，
+        # 所以"`_running` 为假"恰好等于"正在退出"，而不是普通停止/切歌。
+        # `_music_init_done` 保证初始化完成过（否则这些属性还不存在）。
+        if not getattr(self, "_running", True) and getattr(self, "_music_init_done", False):
+            # 一次性闸门：`_music_cleanup()` 内部还会再调一次 `_music_stop(instant=True)`，
+            # 没有它就会无限递归（这一步必须在调用之前置位）。
+            if not self._music_exit_flushed:
+                self._music_exit_flushed = True
+                self._music_cleanup()
+        # 注意本判据必须在下面的 `available` 提前 return **之前**：
+        # pygame 不可用的环境里歌单照样需要落盘，早退会把收尾一起跳掉。
         if not self._music_engine.available:
             return
         # 停止/切换播放：在途与已完成的歌单预取全部失效
@@ -1669,6 +1787,14 @@ class MusicPlayerMixin(object):
         """
         # 判定（含"每首只触发一次"的闸门与随机索引）在 services.music_player.plan_prefetch；
         # **线程仍由界面侧起**，音质变量也在主线程读（后台线程绝不触碰 Tk 变量）。
+        #
+        # D-19：这里的 `duration` 与 `progress` 必须**在同一个时间轴上** —— 两个都按
+        # "实际在播文件"（变速后的临时文件）算。判据是
+        # `progress < duration * PREFETCH_START_RATIO`（services/music_player.py:647），
+        # 一旦 duration 退回原始时长，2.0 倍速下 progress 最多只走到 duration * 0.5，
+        # 判据恒为真 → 预取永不触发。`self._music_duration` 是引擎状态的镜像，
+        # 它的来源只有 `begin_*_playback` 的入参（见 `_play_file` / `_play_online_file`），
+        # 所以修 D-19 只需要修那两处，这里跟着自动走对。
         plan = self._music_engine.plan_prefetch(
             self._music_playlist_context_songs,
             self._music_playlist_context_idx,
@@ -4449,6 +4575,12 @@ class MusicPlayerMixin(object):
     # ═══════════════ 清理 ═══════════════
 
     def _music_cleanup(self):
+        """退出收尾：停播、注销热键、停周期保存、**强制写盘**、清临时文件、关歌词窗。
+
+        调用点见 `_music_stop` 顶部的 D-146 说明（`destroy()` → `_music_stop(instant=True)`）；
+        本函数必须保持"可被重复调用"（幂等）—— 一次性闸门在调用方，不在这里，
+        因为 `_music_stop` 本身也会被退出路径之外的代码调用。
+        """
         self._music_stop(instant=True)
         self._stop_lyric_poll()
         self._update_music_footer()

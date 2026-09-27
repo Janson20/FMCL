@@ -5,6 +5,7 @@
 """
 
 import json
+import logging
 import os
 import platform
 import time
@@ -38,6 +39,10 @@ except ImportError:
         return _json_mod.loads(data)
 
 
+# 本模块的日志器：services 层不得依赖界面，日志一律走标准库 logging
+_logger = logging.getLogger(__name__)
+
+
 # ─── 常量 ──────────────────────────────────────────────────
 
 HISTORY_PLAYLIST_ID = "__history__"
@@ -50,11 +55,37 @@ MAX_HISTORY = 200
 # ─── 平台相关路径 ─────────────────────────────────────────
 
 
+def _writable_data_dir(primary: Path) -> Path:
+    """返回一个**可写**的歌单数据目录：primary 不可写时回退到用户数据目录（D-20）
+
+    与 config.py 的策略同构（判可写性 → 不可写就换 `_get_user_data_dir()`）：原来这里的 `mkdir`
+    是裸调，"装到 Program Files / 只读盘 / 路径被同名文件占住"都会直接抛，而两个可达调用方
+    （`load` / `save`）都把异常吞掉 —— 表现为"歌单改了、重启就没了"，而 `config.json` 照常落盘。
+    回退与彻底失败都必须留下日志，否则用户看不到任何迹象。
+
+    复用 config.py 的辅助而不是再抄一份判据（`services/backup_manager.py` 对 `_json_*` 已有同样
+    先例）；延迟导入是为了不在音乐模块的导入期把整个 launcher 配置栈拉起来。
+    """
+    from config import _get_user_data_dir, _is_writable_dir
+
+    if _is_writable_dir(primary):
+        return primary
+    fallback = _get_user_data_dir() / "data"
+    if _is_writable_dir(fallback):
+        _logger.warning("歌单数据目录不可写（%s），已回退到 %s", primary, fallback)
+        return fallback
+    _logger.error("歌单数据目录与回退目录都不可写，歌单本次不会落盘：%s", primary)
+    return primary
+
+
 def get_music_data_dir() -> Path:
     """获取音乐数据目录，遵循 XDG Base Directory 规范
 
     - Linux: ~/.local/share/fmcl/data/
     - Windows/macOS: ./data/
+
+    返回的目录一定**试过**创建；primary 建不出来或不可写时按 config.py 同构的回退策略
+    换到用户数据目录（见 `_writable_data_dir`），成功回退会打 warning。
     """
     if platform.system().lower() == "linux":
         home = Path.home()
@@ -62,8 +93,7 @@ def get_music_data_dir() -> Path:
         data_dir = xdg_data_home / "fmcl" / "data"
     else:
         data_dir = Path.cwd() / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir
+    return _writable_data_dir(data_dir)
 
 
 def get_music_data_path() -> Path:
@@ -114,6 +144,12 @@ class PlaylistSong:
     added_at: float = 0.0  # 加入时间戳
 
     # 唯一标识（用于在歌单中精确匹配）
+    #
+    # 注意：`_id` 是**磁盘格式的一部分** —— `to_dict()` 遍历 `fields(self)`，所以它会写进
+    # music.json（复核当日实测 124/124 条记录都带 `_id`），`from_dict()` 也按字段名读回，
+    # 而 tests/test_music_playlist.py 的往返用例**钉住了这个现状**。阶段 3.16 换歌单格式时
+    # 才动它：届时要把 `_id` 正式化成公开字段，并**带迁移方案**（旧文件里的 `_id` 必须能读回来），
+    # 不能只是把这里删掉。
     _id: str = ""
 
     def __post_init__(self):
@@ -127,7 +163,11 @@ class PlaylistSong:
             )
 
     def to_dict(self) -> dict:
-        """序列化为字典"""
+        """序列化为字典
+
+        连私有字段 `_id` 一起写出去（它是磁盘格式的一部分，测试钉住了现状；
+        阶段 3.16 换格式时要带迁移方案，见 `PlaylistSong._id` 处的说明）。
+        """
         result = {}
         for f in fields(self):
             value = getattr(self, f.name)
@@ -192,11 +232,8 @@ class PlaylistSong:
 
     def matches(self, other: "PlaylistSong") -> bool:
         """判断两首歌是否相同（用于去重）"""
-        if self.source_type == "local" and other.source_type == "local":
-            return os.path.normpath(self.file_path) == os.path.normpath(other.file_path)
-        if self.source_type == "online" and other.source_type == "online":
-            return self.online_source == other.online_source and self.online_songmid == other.online_songmid
-        return False
+        key = _song_key(self)
+        return key is not None and key == _song_key(other)
 
 
 @dataclass
@@ -252,6 +289,33 @@ class Playlist:
     def song_count(self) -> int:
         """歌单歌曲数量"""
         return len(self.songs)
+
+
+# ─── 去重比对键 ────────────────────────────────────────────
+
+
+def _song_key(song: "PlaylistSong"):
+    """生成"是否同一首歌"的比对键：本地歌用规范化路径，在线歌用音源 + 歌曲 ID
+
+    D-22：原来四处去重判定各自在内层循环里重算 `os.path.normpath`。现在把候选歌的键**算一次**、
+    循环里只比元组，判定语义逐字不变 —— 本地对本地比路径、在线对在线比音源+ID，混杂类型与
+    未知类型都不算同一首（未知类型返回 `None`，调用方据此跳过）。
+    """
+    if song.source_type == "local":
+        return ("local", os.path.normpath(song.file_path))
+    if song.source_type == "online":
+        return ("online", song.online_source, song.online_songmid)
+    return None
+
+
+def _query_keys(file_path: str, online_source: str, online_songmid: str) -> set:
+    """生成"查这首歌"的比对键集合（空参数不参与判定），键的形状与 `_song_key` 一致
+
+    D-22：`os.path.normpath(file_path)` 只算一次，而不是在歌单里逐首重算。
+    """
+    local_key = ("local", os.path.normpath(file_path)) if file_path else None
+    online_key = ("online", online_source, online_songmid) if online_source else None
+    return {k for k in (local_key, online_key) if k is not None}
 
 
 # ─── 歌单管理器 ────────────────────────────────────────────
@@ -349,9 +413,10 @@ class PlaylistManager:
     def record_to_history(self, song: PlaylistSong) -> bool:
         """记录一首歌到播放历史（去重 + 上限裁剪）"""
         pl = self.get_or_create_history_playlist()
-        # 去重：如果已存在，移除旧的
+        # 去重：如果已存在，移除旧的（比对键只算一次，见 _song_key）
+        key = _song_key(song)
         for i, existing in enumerate(pl.songs):
-            if existing.matches(song):
+            if key is not None and _song_key(existing) == key:
                 pl.songs.pop(i)
                 break
         # 添加在最前面
@@ -371,14 +436,10 @@ class PlaylistManager:
         pl = self.get_playlist(playlist_id)
         if pl is None:
             return False
-        # 去重：同一首本地文件或在线歌曲不重复添加
-        for existing in pl.songs:
-            if song.source_type == "local" and existing.source_type == "local":
-                if os.path.normpath(existing.file_path) == os.path.normpath(song.file_path):
-                    return False
-            elif song.source_type == "online" and existing.source_type == "online":
-                if existing.online_source == song.online_source and existing.online_songmid == song.online_songmid:
-                    return False
+        # 去重：同一首本地文件或在线歌曲不重复添加（候选歌的比对键只算一次，见 _song_key）
+        key = _song_key(song)
+        if key is not None and any(_song_key(existing) == key for existing in pl.songs):
+            return False
         pl.songs.append(song)
         pl.updated_at = time.time()
         self._sort_playlist_internal(pl)
@@ -423,34 +484,18 @@ class PlaylistManager:
         pl = self.get_playlist(playlist_id)
         if pl is None:
             return False
-        for existing in pl.songs:
-            if song.source_type == "local" and existing.source_type == "local":
-                if os.path.normpath(existing.file_path) == os.path.normpath(song.file_path):
-                    return True
-            elif song.source_type == "online" and existing.source_type == "online":
-                if existing.online_source == song.online_source and existing.online_songmid == song.online_songmid:
-                    return True
-        return False
+        # 与 add_song 用同一套比对键（D-22：候选歌的 normpath 不在循环里重算）
+        key = _song_key(song)
+        return key is not None and any(_song_key(existing) == key for existing in pl.songs)
 
     def is_song_in_any_playlist(self, file_path: str = "", online_source: str = "", online_songmid: str = "") -> bool:
         """检查歌曲是否已在某个歌单中（用于 UI 显示"已收藏"状态）"""
+        keys = _query_keys(file_path, online_source, online_songmid)
         for pl in self._playlists:
             if pl.is_system:
                 continue  # 系统歌单不参与"已收藏"判断
-            for s in pl.songs:
-                if (
-                    file_path
-                    and s.source_type == "local"
-                    and os.path.normpath(s.file_path) == os.path.normpath(file_path)
-                ):
-                    return True
-                if (
-                    online_source
-                    and s.source_type == "online"
-                    and s.online_source == online_source
-                    and s.online_songmid == online_songmid
-                ):
-                    return True
+            if any(_song_key(s) in keys for s in pl.songs):
+                return True
         return False
 
     def get_playlist_names_for_song(
@@ -458,25 +503,12 @@ class PlaylistManager:
     ) -> List[str]:
         """返回包含该歌曲的所有歌单名称列表（用于 UI 显示）"""
         names = []
+        keys = _query_keys(file_path, online_source, online_songmid)
         for pl in self._playlists:
             if pl.is_system:
                 continue
-            for s in pl.songs:
-                if (
-                    file_path
-                    and s.source_type == "local"
-                    and os.path.normpath(s.file_path) == os.path.normpath(file_path)
-                ):
-                    names.append(pl.name)
-                    break
-                if (
-                    online_source
-                    and s.source_type == "online"
-                    and s.online_source == online_source
-                    and s.online_songmid == online_songmid
-                ):
-                    names.append(pl.name)
-                    break
+            if any(_song_key(s) in keys for s in pl.songs):
+                names.append(pl.name)
         return names
 
     # ── 排序 ──
@@ -532,11 +564,19 @@ class PlaylistManager:
     # ── 持久化 ──
 
     def load(self, path: Optional[Path] = None):
-        """从文件加载歌单数据"""
-        if path is None:
-            path = get_music_data_path()
+        """从文件加载歌单数据
 
-        if not path.exists():
+        路径解析也在 try 里（D-20）：解析失败（cwd 被删、目录异常）不该把异常抛给
+        Tk 回调 —— 调用方会把它吞掉，表现为"歌单凭空空了"。
+        """
+        if path is None:
+            try:
+                path = get_music_data_path()
+            except Exception as e:
+                _logger.error("歌单数据路径解析失败，本次不加载：%s: %s", type(e).__name__, e)
+                path = None
+
+        if path is None or not path.exists():
             self._playlists.clear()
             self._current_playlist_id = None
             # 确保历史歌单始终存在
@@ -564,9 +604,17 @@ class PlaylistManager:
             self.get_or_create_history_playlist()
 
     def save(self, path: Optional[Path] = None):
-        """保存歌单数据到文件（原子写入）"""
+        """保存歌单数据到文件（原子写入）
+
+        任何失败都只**记日志**、不抛给调用方，并保留脏标记等下次重试（D-20）：两个可达
+        调用点（周期落盘、退出前清理）都在 Tk 回调的 try 里，抛出去等于"歌单静默不落盘"。
+        """
         if path is None:
-            path = get_music_data_path()
+            try:
+                path = get_music_data_path()
+            except Exception as e:
+                _logger.error("歌单数据路径解析失败，本次未落盘：%s: %s", type(e).__name__, e)
+                return
 
         data = {
             "version": 1,
@@ -581,7 +629,12 @@ class PlaylistManager:
             tmp_path.write_text(content, encoding="utf-8")
             tmp_path.rename(path)
         except Exception:
-            path.write_text(content, encoding="utf-8")
+            # 原子写失败（临时文件占了名字 / 跨设备改名等）才退化成直接写
+            try:
+                path.write_text(content, encoding="utf-8")
+            except Exception as e:
+                _logger.error("歌单落盘失败，改动留在内存里等下次重试：%s: %s", type(e).__name__, e)
+                return
         self._dirty = False
 
 

@@ -142,6 +142,15 @@ MOVES: List[Move] = [
          (("from ui.music_lyrics import", "from services.music_lyrics import"),)),
     Move("ui/music_effects.py", "services/music_effects.py",
          "音效 DSP（EQ/混响/变调/变速）", 1),
+    # 返工 E 组补登记：这次搬家当初**漏登**了（`ui/music_playlist.py` 的 shim 一直在、
+    # 测试侧的 `MOVED` 也一直覆盖它，但闸门这张表里没有它 —— 于是"行数是否与原文一致"
+    # 这件事在闸门侧**从来没被校验过**）。补上它之后，D-20 / D-22 的行数偏差才有了
+    # 合法的登记位置（两张登记表的键集合必须一致，见
+    # `tests/test_services_relocation.py::test_registered_line_deltas_agree_with_the_relocate_gate`）。
+    # refs = 11：按本文件的口径（全仓 .py 里「模块点分路径 + 非标识符字符」的出现次数，
+    # 排除 poc/）实测得出。
+    Move("ui/music_playlist.py", "services/music_playlist.py",
+         "歌单持久化（歌单增删改、排序、拼音检索）", 11),
     Move("backup_manager.py", "services/backup_manager.py",
          "存档备份管理（备份/恢复/删除/校验/导出/ZIP 压缩）", 8),
     # 任务 1.4 的"音乐源适配"整块：9 个文件、约 164KB，实测 UI 触点全为 0，
@@ -461,6 +470,32 @@ def apply_move(m: Move, rep: Reporter) -> None:
 #: **每条例外都必须被命中**：命中 0 次（或增量对不上）都会报错，防止登记过期后
 #: 这张表变成永远免疫的垃圾场。
 REGISTERED_LINE_DELTAS: Dict[str, Tuple[int, str]] = {
+    "services/music_effects.py": (
+        99,
+        "返工 E 组 D-147 + D-25（WP3，`poc/review/e_group/wp3_music_effects.md`）："
+        "D-147 是「音效链依赖外部 ffmpeg，却既没声明、也没探测，失败完全静默」——"
+        "真正做解码/编码的是外部 ffmpeg 进程（pydub 只是容器），而原来的守卫连日志都没有，"
+        "用户看到的是「设了没反应」；修法是新增 `_find_ffmpeg()` / `FFMPEG_PATH` / "
+        "`ffmpeg_available()` / `unavailable_reason()`（可查询的可用性状态）并把整体跳过与"
+        "每个单效果的失败都记成可定位的 WARNING。"
+        "D-25 是 `_apply_speed` 的未用形参（改为变速结果长度校验，正好是 D-19 的进度基准）"
+        "与 `_apply_reverb` 的无用赋值（删除），并新增 D-19 要用的纯函数 "
+        "`effective_duration()` / `playback_duration()`。"
+        "总行数 +99（非空行 +82，多出的 17 行是函数之间的空行与 docstring 分段）。"
+        "同一条偏差也登记在 tests/test_services_relocation.py 的 REGISTERED_LINE_DELTAS 里"
+        "（那里按**非空行**算，所以登记的是 +82）。",
+    ),
+    "services/music_playlist.py": (
+        53,
+        "返工 E 组 D-20 + D-22（用户已裁决的第 1、2 批）：D-20 是写盘前的目录创建没有保护"
+        "（父目录建不出来/无权限时直接抛）而调用方都吞异常 → 表现为「歌单静默不落盘」；"
+        "修法按 config.py 的同构做法（先试 primary、不可写就回退到 %LOCALAPPDATA%\\FMCL\\data "
+        "并打日志、两者都不可写打 error），落盘失败保留脏标记等下次重试。"
+        "D-22 是把 normpath 从「每首歌算一次」提到循环外（统一比对键）。"
+        "总行数 +53（非空行 +34，多出的 19 行是注释块、空行与函数之间的分隔）。"
+        "同一条偏差也登记在 tests/test_services_relocation.py 的 REGISTERED_LINE_DELTAS 里"
+        "（那里按**非空行**算，所以登记的是 +34）。",
+    ),
     "services/backup_manager.py": (
         11,
         "D-112（阶段 1 第 11 轮）：同一秒内的两次备份会因文件名只有秒级精度（"

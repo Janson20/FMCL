@@ -141,6 +141,41 @@ REGISTERED_LINE_DELTAS: dict[str, tuple[int, str]] = {
         "文档命令是 `python -X utf8 -m pytest`；UTF-8 模式下子进程按 OEM 码页输出的中文会在"
         "reader 线程里抛 UnicodeDecodeError（实测 byte 0xd0）。补 kwarg 多占一行。",
     ),
+    "services/music_playlist.py": (
+        34,
+        "D-20 + D-22（阶段 2 E 组 WP2，`poc/review/e_group/wp2_music_playlist.md`）："
+        "①D-20 —— `get_music_data_dir()` 的 `mkdir` 是裸调（父目录建不出来 / 只读盘 / 路径被同名"
+        "文件占住就直接抛），而两个可达调用方（`ui/app_music.py` 的 `_load_music_state` 与"
+        "`_music_periodic_save_tick`）都把异常吞掉 → 用户可见症状是「歌单静默不落盘、重启就没了」，"
+        "而 config.py 那边 cwd 不可写会回退到用户数据目录、`config.json` 照常落盘。修法是**同构**"
+        "复用 config.py 的 `_is_writable_dir` / `_get_user_data_dir`：先试 primary、不可写就回退"
+        "用户数据目录并打 warning，两者都不可写时打 error 且 `load` / `save` 不再把异常抛给 Tk 回调"
+        "（落盘失败保留脏标记等下次重试）。"
+        "②D-22 —— `add_song` / `is_song_in_playlist` / `is_song_in_any_playlist` / "
+        "`get_playlist_names_for_song` / `record_to_history` 的去重判定逐首重算 `os.path.normpath`，"
+        "改为 `_song_key` / `_query_keys` 把候选歌（查询路径）的键算一次（这一步是减行的）。"
+        "非空行 +34（总行 +53，多出的 19 行是新增 docstring 分段带来的空行）。"
+        "**这条偏差还必须同步到 `scripts/relocate_module.py` 的 `REGISTERED_LINE_DELTAS`"
+        "（那里按总行数算 → +53），并把 `ui/music_playlist.py → services/music_playlist.py` "
+        "补进该脚本的 `MOVES`（否则闸门会报「登记项没被命中」）—— 补齐之前"
+        "`test_registered_line_deltas_agree_with_the_relocate_gate` 会红（它要求两张登记表的键集合一致，"
+        "而 `services/music_playlist.py` 不在 `relocate.MOVES` 里，所以本条只能登记在测试侧等待同步）。**",
+    ),
+    "services/music_effects.py": (
+        82,
+        "D-147 + D-25（阶段 2 E 组 WP3，`poc/review/e_group/wp3_music_effects.md`）："
+        "①D-147 —— 音效链真正干活的是**外部 ffmpeg**（pydub 只是容器），而它既没写进 "
+        "pyproject/README、也没进打包，失败还被吞成「返回原文件」；更糟的是原来的守卫 "
+        "`if not has_any_enabled or not _pydub_available:` 连一条日志都没有（实测本机 "
+        "`_pydub_available` 恒为 False，见 D-148），用户看到的就是「设了没反应」。修法是新增 "
+        "`_find_ffmpeg()` / `FFMPEG_PATH` / `ffmpeg_available()` / `unavailable_reason()`，"
+        "把整体跳过与每个单效果的失败都记成可定位的 WARNING，并让 `available` 同时反映 ffmpeg。"
+        "②D-25 —— `_apply_speed` 的 `original_duration` 原来传进来没人读（现已用于长度校验，"
+        "这正是 D-19 要的进度基准），`_apply_reverb` 的 `dry_audio = audio` 赋值后无人读（已删）。"
+        "新增的两个纯函数 `effective_duration()` / `playback_duration()` 是 D-19 修法的入口。"
+        "非空行 +82（总行 +99，多出的 17 行是函数之间的空行与 docstring 分段）—— 全是新增的"
+        "探测/日志/折算代码与「为什么」注释，唯一的删除是 D-25 明令删掉的那一行。",
+    ),
 }
 
 

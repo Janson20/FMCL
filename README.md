@@ -78,6 +78,9 @@
 | Python 3.10+ | 运行启动器 |
 | Java 8+ | 运行 Minecraft（启动器自动扫描系统 Java，推荐版本由 MC 版本决定） |
 | Linux: `python3-tk` | 系统包（Ubuntu/Debian: `sudo apt install python3-tk python3-venv`） |
+| ffmpeg（可选） | 音乐音效（EQ / 混响 / 变调 / 变速）的外部解码器。**不是 Python 包**，`uv sync` 装不了它，需要自己装（Windows: `winget install --id Gyan.FFmpeg` 或 `choco install ffmpeg`；Debian/Ubuntu: `sudo apt install ffmpeg`；macOS: `brew install ffmpeg`）。没装时启动器照常运行，只是音效开关不起作用 —— 会记一条日志并改播原文件 |
+
+> **关于 ffmpeg**：音频效果链靠 pydub 调外部 ffmpeg 完成解码与编码，所以它属于「装了才有音效」的可选依赖；装好后要**重启启动器**（可用性在启动时探测一次，探测方式就是 `shutil.which("ffmpeg")`）。项目自身不随附、也不下载任何来源不明的 ffmpeg 二进制，请从上面的官方渠道安装。
 
 ---
 
@@ -330,6 +333,12 @@ uv run python scripts/relocate_module.py --check
 # 桥的线程红线、QML 里不得出现颜色字面量（颜色只能来自 Theme.*）、
 # 界面里不得出现 Qt 原生视觉控件（一律用 qml/components 里的 Fm*）
 uv run python scripts/check_qml_rules.py
+
+# 缺陷台账的期望状态表（返工 E 组新增，已进 CI）：已修项做**正向断言**、
+# 挂账项**钉住现状**并写明理由与排期 —— 谁把挂账项修好了，那条断言会先红，
+# 逼着他把台账改成「已修」并补上正向判据
+uv run python -m pytest tests/test_defect_ledger.py -q
+uv run python poc/_verify_defect_status.py        # 同一张表的命令行总览（读同一份数据）
 ```
 
 ### 常用命令

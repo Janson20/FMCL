@@ -23,8 +23,9 @@
    导入那一刻的副本，后续翻转看不到。这是搬运时特意保留的语义。
 """
 
+# 1.13 抽取时漏掉了 json：_try_amd_smi() 里的 json.loads 会 NameError（flake8 F821）
+import json
 import logging
-import os
 import re
 import subprocess
 import sys
@@ -76,6 +77,11 @@ except ImportError:
 
 def _format_bytes(n: int) -> str:
     """将字节数格式化为可读字符串"""
+    # D-27：这里是全仓唯一的这份四档实现（1024 阶梯、``.1f`` KB/MB、``.2f`` GB）。
+    # services/tool_service.py 的 ``_format_size`` 已改为转调这里 —— 两边原来的函数体
+    # 逐字同构（含边界与小数位），所以合并是行为中性的
+    # （tests/test_tool_service.py 的 9 个边界值原样通过）。ui/app_monitor.py 也是引用
+    # 本函数的别名。**不要再复制一份**。
     if n < 1024:
         return f"{n} B"
     elif n < 1024 * 1024:
@@ -113,6 +119,10 @@ class _GPUDetector:
 
     def init(self):
         """按优先级尝试各后端"""
+        # D-11 的调用约定：本方法会**就地**写 self._gpu_cache（各 _try_* 往里面塞静态
+        # 信息），所以必须在对象被发布给采样线程**之前**跑完 —— MetricsCollector.init_gpu()
+        # 就是在局部变量里 init() 完再一次性发布的。发布之后本对象的 _gpu_cache 只读，
+        # sample() 也一律返回副本（dict(self._gpu_cache) / .copy()），不把内部 dict 交出去。
         if self._try_pynvml():
             return
         if self._try_nvidia_smi():
@@ -403,9 +413,39 @@ class MetricsCollector:
 
     GPU 采样有独立节流（``_GPU_SAMPLE_INTERVAL`` 秒）。节流状态原先挂在窗口对象上，
     现在挂在本对象上：一个窗口对应一个采集器，语义等价。
+
+    **并发约定（D-11，无锁）**：本对象被两条线程碰：
+
+    * **采样线程**：调 :meth:`collect` 的那条 —— Tk 侧每拍起一个 worker，
+      QML 侧 ``app/bridges/overlay_bridge.py`` 用 ``QThreadPool`` 且
+      ``setMaxThreadCount(1)``；
+    * **生命周期侧**：调 :meth:`init_gpu` / :meth:`shutdown_gpu` 的那条 ——
+      Tk 侧是建/关窗的主线程，QML 侧是同一个池 worker（它**故意**把 ``init_gpu()``
+      放在 worker 里做，免得首帧被 nvidia-smi 卡住）。
+
+    两者之间**不加锁**（服务层也不引 ``threading.Lock``），靠下面三条纪律换取
+    "读者永远拿到一整份自洽快照"：
+
+    1. ``_gpu_cache`` **只整体替换、绝不就地修改**（没有 ``[k] = v`` / ``clear()``
+       / ``update()``），且发布前先冻结成本对象私有的副本；
+    2. 读侧（:meth:`collect` 的 GPU 段）**只绑定一次** ``self._gpu_cache``，
+       后面 4 个字段全从那个局部引用取 —— 不会有"替换了一半"的拼接；
+    3. ``_gpu_detector`` 同样按"整体发布 / 整体撤回"处理：:meth:`init_gpu` 先在
+       局部变量里构造并初始化完再赋值，:meth:`shutdown_gpu` 先摘引用再释放句柄；
+       :meth:`sample_gpu` 把引用取到局部变量后判空，消掉"先检查后使用"的间隙。
+
+    残留（有界，见 D-11 复核结论）：采样进行到一半时恰好撞上 :meth:`shutdown_gpu`
+    释放 NVML 句柄，那一次采样会被 ``_sample_pynvml`` 自己的 ``except Exception``
+    收敛成空/半份字段 —— 表现是监控窗某拍 GPU 显示为空，不会抛异常、不会崩。
+    另外"同一实例的 :meth:`collect` 串行调用"是调用方的责任（Tk 侧由 ``after``
+    定时器保证，QML 侧由 ``setMaxThreadCount(1)`` 保证）；真的并发了也只是
+    各拍各自采样、互相覆盖缓存，不会读到拼接 —— 这一条由
+    ``tests/test_monitor_gpu_cache.py`` 钉住。
     """
 
     def __init__(self) -> None:
+        # _gpu_detector / _gpu_cache 的跨线程纪律见类 docstring 的「并发约定（D-11）」：
+        # 两者都只做"整体替换"，任何就地修改都会破坏读侧"一整份自洽快照"的前提。
         self._gpu_detector = None
         self._gpu_cache: dict = {}
         self._gpu_last_sample = 0.0
@@ -413,24 +453,46 @@ class MetricsCollector:
     # ── GPU 检测器生命周期（原 PerformanceMonitorWindow 的同名方法）──
 
     def init_gpu(self) -> None:
-        """初始化多厂商 GPU 检测器。"""
-        self._gpu_detector = _GPUDetector()
-        self._gpu_detector.init()
+        """初始化多厂商 GPU 检测器。
+
+        D-11：构造与探测都在**局部变量**里做完，最后一次性发布 —— 采样线程要么
+        看到上一版检测器，要么看到一台**已初始化完**的新检测器，看不到"构造到一半"
+        （``init()`` 里会跑 nvidia-smi 等子进程，最长 5 秒，中途发布出去毫无意义）。
+        """
+        detector = _GPUDetector()
+        detector.init()
+        self._gpu_detector = detector
 
     def shutdown_gpu(self) -> None:
-        """关闭 GPU 检测器。"""
-        if self._gpu_detector is not None:
-            self._gpu_detector.shutdown()
-            self._gpu_detector = None
+        """关闭 GPU 检测器。
+
+        D-11：先"整体摘引用"再释放句柄。摘引用是一次赋值，采样线程此后拿到的就是
+        ``None``；仍在采样中的那一次调用可能撞上句柄被释放，但那种情况有界降级
+        （见类 docstring 的"残留"一段），不会抛到调用方。
+        """
+        detector = self._gpu_detector
+        if detector is None:
+            return
+        self._gpu_detector = None
+        detector.shutdown()
 
     def sample_gpu(self) -> dict:
         """采样 GPU 信息（通过统一检测器）。"""
-        if self._gpu_detector is not None:
-            return self._gpu_detector.sample()
-        return {}
+        # D-11：引用只取一次 —— 原来的 `if self._gpu_detector is not None: return
+        # self._gpu_detector.sample()` 在两次属性读取之间可能被 shutdown_gpu() 置空
+        # （先检查后使用的间隙），是 D-11 里除了缓存拼接之外的另一半现场。
+        detector = self._gpu_detector
+        if detector is None:
+            return {}
+        return detector.sample()
 
     def collect(self) -> dict:
-        """采集一次 CPU / 内存 / 交换区 / GPU 指标（阻塞式，应在工作线程调用）。"""
+        """采集一次 CPU / 内存 / 交换区 / GPU 指标（阻塞式，应在工作线程调用）。
+
+        D-11：本方法是 GPU 缓存的**读侧** —— 4 个 GPU 字段都来自同一份快照（开头只
+        绑定一次局部引用），并保持 2 秒节流（节流窗口内沿用上一版快照）。
+        期望同一实例的 :meth:`collect` 串行调用，见类 docstring 的"单线程所有权"。
+        """
         if not _psutil_available:
             return {}
 
@@ -466,14 +528,23 @@ class MetricsCollector:
             result["swap_total"] = "N/A"
 
         # ── GPU ──
+        # D-11：这一段的纪律是"**整体构造、一次性替换、只读一份快照**"。
+        # 修复前是"先整体替换 self._gpu_cache，再连续读它 4 次"：那只在
+        # "只有一个线程会写"的假设下成立 —— 而 QML 侧/重叠的刷新拍都可能让两个
+        # 采样线程同时在跑，4 个字段就会拼出两份不同采样（例如显卡名是新的、
+        # 占用率还是上一拍的）。现在读侧只绑定一次局部引用，拼接在结构上不可能出现。
         now = time.time()
         if now - self._gpu_last_sample >= _GPU_SAMPLE_INTERVAL:
             self._gpu_last_sample = now
-            self._gpu_cache = self.sample_gpu()
-        result["gpu_name"] = self._gpu_cache.get("name", "")
-        result["gpu_util"] = self._gpu_cache.get("util", "")
-        result["gpu_mem"] = self._gpu_cache.get("mem", "")
-        result["gpu_temp"] = self._gpu_cache.get("temp", "")
+            sampled = self.sample_gpu()
+            # 冻结成本对象私有的一份：即使某个后端以后交回它自己复用的 dict，
+            # 读者手里这一版也不会被别处改到（这是"不可变快照"的另一半）
+            self._gpu_cache = dict(sampled) if isinstance(sampled, dict) else {}
+        snapshot = self._gpu_cache
+        result["gpu_name"] = snapshot.get("name", "")
+        result["gpu_util"] = snapshot.get("util", "")
+        result["gpu_mem"] = snapshot.get("mem", "")
+        result["gpu_temp"] = snapshot.get("temp", "")
 
         return result
 
@@ -543,7 +614,7 @@ class HotkeyManager:
             pass
 
 
-__all__ = [
+__all__ = [  # noqa: F822 —— 四个可用性标志由本模块的 __getattr__ 读取时代理，静态分析看不到
     "MONITOR_HOTKEY",
     "MetricsCollector",
     "HotkeyManager",

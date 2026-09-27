@@ -1272,7 +1272,11 @@ class EventHandlerMixin(object):
             self.server_join_btn.configure(state=ctk.NORMAL)
             if success:
                 self.set_status(f"正在加入服务器 ({version_id})", "success")
-                self._running = True
+                # 缺陷 D-28（返工 E 组修）：这里原来还有一行 `self._running = True`，
+                # 是**恒真的空操作** —— `_handle_task` 只由 `_poll_queue` 调用，而后者开头就是
+                # `if not self._running: return`；能走到这一行，`_running` 必然已经是 True。
+                # 删掉它而不是留着：留着会让下一个人以为"服务器联机这条路需要手工把应用
+                # 标记成在跑"，从而在别处照着抄。
                 self.kill_btn.configure(state=ctk.NORMAL)
                 self._start_launch_animation()
                 self._run_in_thread(self._watch_game_exit)

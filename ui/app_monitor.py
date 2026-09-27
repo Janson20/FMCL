@@ -1,13 +1,12 @@
 """性能监控悬浮窗 - 快捷键 Ctrl+Shift+M 切换显示/隐藏"""
 
-import json
+# D-24：这一段的 import 原本还有 json / os / re / subprocess / sys / time 六个 ——
+# 1.13 把 GPU 检测、CPU/内存采集、热键注册搬进 services/monitor_service.py 之后，
+# 界面文件只剩"调服务 + 把结果刷到控件上"，这六个模块在这里已经零引用（AST 核对：
+# Name 载入都是 0 次）。flake8 的 F401 在 .flake8 里被忽略，所以它们一直挂着没被发现。
+# threading 仍要用（_do_refresh 起采集线程），保留。
 import logging
-import os
-import re
-import subprocess
-import sys
 import threading
-import time
 
 import customtkinter as ctk
 
@@ -77,15 +76,11 @@ class PerformanceMonitorWindow(ctk.CTkToplevel):
         self._running = False
         self._refresh_timer_id = None
         # 指标采集器：GPU 检测器与采样节流状态都挂在它身上（见 services/monitor_service.py）
+        # D-24：这里原本还有 _net_prev / _net_prev_time / _disk_prev / _disk_prev_time
+        # 四个"上一次 IO 计数"字段（给网络/磁盘速率用）—— 全文件只有这一处声明加
+        # start() 里的一次清零，没有任何读点（AST 核对：写 2 处、读 0 处），随网络/磁盘
+        # 采集一起作废，删掉。
         self._collector = _monitor_svc.MetricsCollector()
-
-        # 网络 IO 上一次值（用于计算速率）
-        self._net_prev: dict = {}
-        self._net_prev_time: float = 0
-
-        # 磁盘 IO 上一次值
-        self._disk_prev: dict = {}
-        self._disk_prev_time: float = 0
 
         # 主题引用（跟随主题切换）
         self._theme_refs: list = []
@@ -275,10 +270,6 @@ class PerformanceMonitorWindow(ctk.CTkToplevel):
         if self._running:
             return
         self._running = True
-        self._net_prev = {}
-        self._net_prev_time = 0
-        self._disk_prev = {}
-        self._disk_prev_time = 0
         self._schedule_refresh()
 
     def stop(self):
@@ -315,6 +306,11 @@ class PerformanceMonitorWindow(ctk.CTkToplevel):
 
     def _do_refresh(self):
         """执行一次数据采集（线程安全）"""
+        # D-11：采集线程只**读**采集器发布的快照；写侧（init_gpu / shutdown_gpu）
+        # 留在主线程（_init_gpu_monitor / _shutdown_gpu_monitor），两侧靠
+        # MetricsCollector 的"整体替换 + 只读快照"约定共存，**不加锁**。
+        # 约定细节见 services/monitor_service.MetricsCollector 的类 docstring；
+        # 改这里之前先读它 —— 在采样线程里调 init/shutdown 会破坏那条约定。
         t = threading.Thread(target=self._collect_metrics, daemon=True)
         t.start()
 

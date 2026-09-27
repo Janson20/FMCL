@@ -33,6 +33,13 @@ dependencies = [
     "onnxruntime-directml>=1.20; sys_platform == 'win32'",
     "urllib3>=2.0.0",
     "pyautogui>=0.9.54",
+    # ↓ 音效链（EQ / 混响 / 变调 / 变速）的外部依赖说明，见 D-147：
+    # pydub 只是 Python 侧的容器，真正解码/编码音频的是**外部 ffmpeg 可执行文件**。
+    # 它不是 PyPI 包（本项目不引入打包二进制的第三方包，也不随附来源不明的二进制），
+    # 所以**无法**在这里写成依赖项 —— 它属于运行期的可选外部依赖：没装时启动器照常
+    # 工作，只是音效处理整体降级为播原文件。探测方式是 `shutil.which("ffmpeg")`，
+    # 见 services/music_effects.py 的 `FFMPEG_PATH` / `ffmpeg_available()`；
+    # 探测失败时该模块会打一条可定位的 WARNING（不再静默）。用户侧说明见 README「环境要求」。
     "pydub>=0.25.1",
     "scipy>=1.11.0",
     "pyperclip>=1.8.2",

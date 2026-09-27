@@ -1,9 +1,21 @@
 """桌面歌词窗口 - 独立置顶半透明歌词显示
 
-单窗口架构:
-    - 使用 Toplevel 的 attributes("-transparentcolor") 实现背景透明
-    - 背景色块(控制栏+歌词行)通过调整 fg_color 的透明度来模拟整体半透明效果
-    - 所有文字始终完全不透明
+单窗口架构（**以实现为准**，D-23 修正）:
+    - 无边框（``overrideredirect(True)``）+ 置顶（``attributes("-topmost")``）
+    - 半透明靠**整窗** ``attributes("-alpha", ...)``：窗口里的一切（含文字）
+      都按同一个 alpha 变淡，没有例外
+    - 底色是**实色** ``COLORS["bg_dark"]``（``win.configure(fg_color=_BG_COLOR)``），
+      不是"背景透明"；因此**没有鼠标穿透**，整窗都接收事件
+
+为什么这里要写清楚：本模块的旧 docstring 曾宣称"用 ``-transparentcolor``
+实现背景透明 / 文字不受 alpha 影响 / 背景区域鼠标事件穿透"—— 全文件从来没有
+调用过 ``-transparentcolor``，那三句都是错的（D-23 记录的"docstring 在说谎"）。
+新界面 ``qml/overlays/DesktopLyricOverlay.qml`` 已按**同样的实际行为**实现
+（``opacity: 0.85`` 整窗 + ``color: Theme.bgDark`` 实色底），并由
+``tests/test_overlay_windows.py`` 的 ``window.opacity() == 0.85`` /
+``color.alpha() == 255``（注释写着"实色底，不许 transparent"）钉住。
+**鼠标穿透是阶段 3.18 的新增项**（用户已裁决本轮不做），不是本模块缺失的能力；
+真要做得先改那条"不许 transparent"的断言，并把 C2 从"推迟"改成"本次实现"。
 
 阶段 1 任务 1.4-A（形态 2：逻辑与窗口切分）：**零 GUI 的规则**已搬进
 ``services/desktop_lyric.py`` —— 屏幕尺寸 → 窗口坐标、进度 → 当前歌词行（二分）、
@@ -42,8 +54,11 @@ _BG_COLOR = COLORS["bg_dark"]  # "#1a1a2e"
 def _alpha_color(alpha: float) -> str:
     """将 hex 颜色与透明度混合生成带透明度的 hex 颜色字符串 (模拟 RGBA)
 
-    customtkinter 支持 "#RRGGBB" 格式, 不支持 alpha。这里用 `attributes -alpha`
-    控制整窗透明度，歌词文字不受影响因为背景是 transparentcolor。
+    customtkinter 只认 "#RRGGBB"，不支持 alpha，所以本函数其实**没有**在混 alpha：
+    它把 ``_BG_COLOR`` 原样解析成小写 hex 再拼回去（等价于恒等变换）。
+    真正控制透明度的只有窗口的 ``attributes("-alpha", ...)``，那会让**整窗**
+    （含文字）一起变淡 —— 与旧 docstring 说的"文字不受影响因为背景是
+    transparentcolor"相反，本文件没有任何 ``-transparentcolor`` 调用（D-23）。
     本函数暂不直接使用，保留备用。
     """
     r = int(_BG_COLOR[1:3], 16)
@@ -55,12 +70,13 @@ def _alpha_color(alpha: float) -> str:
 class DesktopLyricWindow:
     """桌面歌词独立窗口管理器
 
-    使用单窗口 + transparentcolor 实现。背景色块（控制栏面板和歌词行面板）
-    单独设置 fg_color，窗口其余区域透明。+/- 控件控制窗口 attributes -alpha。
-    但文字颜色不受 alpha 影响，因为文字在 transparentcolor 区域上显示。
+    单窗口实现（D-23 修正后的实况）：无边框 + 置顶，透明效果来自整窗
+    ``attributes("-alpha", ...)``，底是 ``COLORS["bg_dark"]`` 实色；
+    +/- 控件通过 ``_increase_opacity`` / ``_decrease_opacity`` 调同一个 alpha。
 
-    注意：由于 Windows tkinter 的 transparentcolor 特性，窗口的背景透明区域
-    鼠标事件会穿透到下层窗口。因此需要在控制栏区域有一个可见的底色面板来接收事件。
+    文字与背景**共用**这一个 alpha（不存在"文字不透明"这回事）；
+    窗口也**不穿透**：整窗都接收鼠标事件，控制栏上的底色面板不是"为了让穿透的
+    背景区域能收事件"而存在的，它只是视觉分区。
     """
 
     def __init__(self, parent):

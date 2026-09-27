@@ -17,9 +17,8 @@
 
 import logging
 import re
-from collections import OrderedDict
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass, field, replace
+from typing import Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger("music_lyrics")
 
@@ -44,6 +43,9 @@ class LyricLine:
     time: int = 0  # 起始时间 (毫秒)
     translation: str = ""  # 翻译文本
     roma: str = ""  # 罗马音
+    # D-16（**已知时序偏移，本轮只留记号、不改行为**）：`_parse_words` 让 `<s,d>` 之后的
+    # 文本从 `s+d` 起算而不是 `s`，逐字时序整体晚一个 duration；而 `words` / `is_word_based`
+    # / `end_time` 今天全仓零消费者，所以等阶段 3.18 的逐字（卡拉OK）渲染时一起修。
     words: List[LyricWord] = field(default_factory=list)  # 逐字歌词列表
     is_word_based: bool = False  # 是否为逐字歌词
 
@@ -57,6 +59,24 @@ class LyricLine:
 
     def __repr__(self):
         return f"LyricLine([{self.time}ms] {self.text!r})"
+
+
+@dataclass(frozen=True)
+class LyricSnapshot:
+    """一次解析的完整结果，**发布之后不再被修改**（D-10 的无锁快照）。
+
+    不加锁：服务层零并发原语是红线（`services/` 里连 `import threading` 都会被
+    `tests/test_music_local.py::TestServicesAreUIFree` 判红）。写侧（worker 线程）
+    只写局部变量、最后 `self._snapshot = 新快照` 一次性替换（引用赋值本身原子），
+    所以读侧一次取到整份快照 —— 读不到 clear() 之后、填完之前的中间态（旧写法会让
+    读者读到空列表或只剩前几行，症状是歌词瞬间消失/跳错行）；`lines` 是元组、`tags`
+    是局部 dict 的副本、`_merge_*` 走"重建行 + 换快照"，所以发布出去的那一份永远不会
+    再被任何人改（元组还顺手挡住了外部的 append / clear）。
+    """
+    lines: Tuple[LyricLine, ...] = ()
+    tags: Dict[str, str] = field(default_factory=dict)
+    offset_ms: int = 0
+    is_parsed: bool = False
 
 
 class LyricParser:
@@ -76,18 +96,15 @@ class LyricParser:
     _META_TAG_RE = re.compile(r"\[(ti|ar|al|offset|by|kuwo|tool):\s*(.*?)\s*\]", re.IGNORECASE)
 
     def __init__(self, offset_ms: int = 0):
-        self._lines: List[LyricLine] = []
-        self._tags: Dict[str, str] = {}
-        self._offset_ms: int = offset_ms
-        self._is_parsed: bool = False
-        # 缓存: 已搜索过的时间 -> 行索引
-        self._search_cache: OrderedDict = OrderedDict()
-        self._cache_max: int = 50
+        # 解析结果只挂在这一个引用上：读者拿到的永远是"某一版完整快照"（D-10）。
+        self._snapshot: LyricSnapshot = LyricSnapshot(offset_ms=offset_ms)
 
     # ─── 解析 ────────────────────────────────────────
 
     def parse(self, raw_text: Optional[str]) -> bool:
         """解析原始 LRC 文本
+
+        写路径只碰局部变量，解析完一次性换掉 `self._snapshot`（D-10），读者看不到半成品。
 
         Args:
             raw_text: LRC格式歌词文本
@@ -95,60 +112,54 @@ class LyricParser:
         Returns:
             是否解析成功
         """
-        self._lines.clear()
-        self._tags.clear()
-        self._search_cache.clear()
-
         if not raw_text or not raw_text.strip():
-            self._is_parsed = False
+            self._snapshot = LyricSnapshot()  # 空歌词：发布空快照（等价于原来的三个 clear）
             return False
 
         try:
             lines_raw = raw_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-            # 第一遍: 收集标签
+            tags: Dict[str, str] = {}
+            # 第一遍: 收集标签（写进局部 dict，解析成功后才随快照一起发布）
             for line in lines_raw:
                 line = line.strip()
                 if not line:
                     continue
-                self._collect_tags(line)
+                self._collect_tags(line, tags)
 
             # 全局偏移
-            offset_str = self._tags.get("offset", "0")
+            offset_str = tags.get("offset", "0")
             try:
-                self._offset_ms = int(offset_str)
+                offset_ms = int(offset_str)
             except (ValueError, TypeError):
-                self._offset_ms = 0
+                offset_ms = 0
 
-            # 第二遍: 解析歌词行
+            # 第二遍: 解析歌词行（同样只写局部列表）
+            lines: List[LyricLine] = []
             for line in lines_raw:
                 line = line.strip()
                 if not line:
                     continue
-                parsed = self._parse_line(line, self._offset_ms)
-                if parsed:
-                    self._lines.extend(parsed)
+                lines.extend(self._parse_line(line, offset_ms))
 
-            # 按时间排序
-            self._lines.sort(key=lambda l: l.time)
-            self._is_parsed = True
-            logger.debug(f"歌词解析完成: {len(self._lines)} 行")
+            # 按时间排序 —— get_line_at 的二分依赖"按 time 升序"这个不变式（见 D-18）
+            lines.sort(key=lambda l: l.time)
+            self._snapshot = LyricSnapshot(
+                lines=tuple(lines), tags=tags, offset_ms=offset_ms, is_parsed=True
+            )
+            logger.debug(f"歌词解析完成: {len(lines)} 行")
             return True
 
         except Exception as e:
             logger.error(f"歌词解析失败: {e}")
-            self._is_parsed = False
+            self._snapshot = LyricSnapshot()  # 失败也发布"空的完整快照"，不留半成品
             return False
 
-    def _collect_tags(self, line: str):
-        """收集元数据标签"""
+    def _collect_tags(self, line: str, tags: Dict[str, str]):
+        """收集元数据标签（写进调用方给的局部 dict，发布前不碰 self 上的状态）"""
         for match in self._META_TAG_RE.finditer(line):
             tag_name = match.group(1).lower()
             tag_value = match.group(2)
-            self._tags[tag_name] = tag_value
-
-        # 也检查简单格式 [tag:value]
-        if line.startswith("[ti:") or line.startswith("[ar:") or line.startswith("[al:"):
-            pass  # 已由正则处理
+            tags[tag_name] = tag_value
 
     def _parse_line(self, line: str, global_offset_ms: int) -> List[LyricLine]:
         """解析单行歌词 (可能包含多个时间标签 -> 生成多行)"""
@@ -206,6 +217,9 @@ class LyricParser:
                         duration = int(match.group(2))
                         if start < 0:
                             start = last_end
+                        # D-16：这里 + 下面的 `word_start = last_end` 一起让"标签后文本"
+                        # 整体晚一个 duration（标准语义是 `<s,d>` 后的文本从 s 起算）。
+                        # 无消费者，本轮只留记号，等阶段 3.18 逐字渲染一起修。
                         last_end = start + duration
                     except (ValueError, TypeError):
                         pass
@@ -243,7 +257,11 @@ class LyricParser:
     def get_line_at(self, elapsed_ms: int) -> Optional[LyricLine]:
         """获取指定时间点的当前歌词行
 
-        通过二分查找找到 elapsed_ms 所在的行。
+        **纯读函数（D-17）**：开头取一次本地快照引用，之后只读它，不写任何共享状态。
+        原写法往共享 LRU 缓存写 `cache[elapsed_ms]`、命中判定还迭代整个 OrderedDict，
+        跨线程时 `cache.items()` 撞上 worker 的 `cache.clear()` 会抛 RuntimeError
+        （被界面侧的 `except Exception: pass` 吞掉，症状是偶发少一帧歌词）；缓存收益
+        本来就小（读侧 100ms 一次、二分 300 行仅 9 次比较、降频档必然不命中），故删除。
 
         Args:
             elapsed_ms: 已播放时间 (毫秒)
@@ -251,21 +269,19 @@ class LyricParser:
         Returns:
             当前歌词行或None
         """
-        if not self._lines:
+        lines = self._snapshot.lines  # 一次取到整份快照：读到的必是某一版完整歌词
+        if not lines:
             return None
 
-        # 检查缓存
-        cache = self._search_cache
-        for cached_time, cached_idx in cache.items():
-            if cached_time <= elapsed_ms <= cached_time + 100:
-                return self._lines[cached_idx] if 0 <= cached_idx < len(self._lines) else None
-
-        # 二分查找: 找到最后一个 time <= elapsed_ms 的行
-        lo, hi = 0, len(self._lines) - 1
+        # 二分查找: 找到最后一个 time <= elapsed_ms 的行；不变式是 lines 按 time 升序
+        # （parse() 发布前已排序），退出时必有 lines[result_idx].time <= elapsed_ms <
+        # lines[result_idx+1].time —— 结果即答案，所以 D-18 那段"再 +1"的越界纠正分支
+        # 恒假（只有 D-10 的竞态能命中），本轮删除。
+        lo, hi = 0, len(lines) - 1
         result_idx = -1
         while lo <= hi:
             mid = (lo + hi) // 2
-            if self._lines[mid].time <= elapsed_ms:
+            if lines[mid].time <= elapsed_ms:
                 result_idx = mid
                 lo = mid + 1
             else:
@@ -274,34 +290,22 @@ class LyricParser:
         if result_idx < 0:
             return None
 
-        # 检查是否已越过该行的结束时间
-        current = self._lines[result_idx]
-        if result_idx + 1 < len(self._lines):
-            next_line = self._lines[result_idx + 1]
-            if elapsed_ms >= next_line.time:
-                result_idx += 1
-                current = next_line
-
-        # 缓存
-        cache[elapsed_ms] = result_idx
-        while len(cache) > self._cache_max:
-            cache.popitem(last=False)
-
-        return current
+        return lines[result_idx]
 
     def get_next_line(self, elapsed_ms: int) -> Optional[LyricLine]:
         """获取下一行歌词 (用于预加载)"""
+        lines = self._snapshot.lines  # 与 get_line_at 同一份；换掉则 line is current 不匹配
         current = self.get_line_at(elapsed_ms)
         if not current:
-            return self._lines[0] if self._lines else None
-        for i, line in enumerate(self._lines):
-            if line is current and i + 1 < len(self._lines):
-                return self._lines[i + 1]
+            return lines[0] if lines else None
+        for i, line in enumerate(lines):
+            if line is current and i + 1 < len(lines):
+                return lines[i + 1]
         return None
 
     def set_translation(self, raw_tlrc: Optional[str]):
         """设置翻译歌词 (通过时间标签匹配)"""
-        if not raw_tlrc or not self._lines:
+        if not raw_tlrc or not self._snapshot.lines:
             return
         try:
             tlrc_parser = LyricParser()
@@ -312,7 +316,7 @@ class LyricParser:
 
     def set_roma(self, raw_rlrc: Optional[str]):
         """设置罗马音歌词"""
-        if not raw_rlrc or not self._lines:
+        if not raw_rlrc or not self._snapshot.lines:
             return
         try:
             rlrc_parser = LyricParser()
@@ -321,55 +325,51 @@ class LyricParser:
         except Exception as e:
             logger.debug(f"罗马音歌词加载失败: {e}")
 
-    def _merge_translation(self, tlrc_lines: List[LyricLine]):
-        """将翻译文本合并到主歌词行 (通过时间标签匹配)"""
-        if not tlrc_lines:
+    def _merge_texts(self, field_name: str, other_lines: Sequence[LyricLine]):
+        """把翻译/罗马音按时间并进副文本字段，再一次性换快照（重建行对象，不就地改，见 D-10）"""
+        if not other_lines:
             return
-        tlrc_map = {line.time: line.text for line in tlrc_lines}
-        for line in self._lines:
-            translated = tlrc_map.get(line.time)
-            if translated:
-                line.translation = translated
+        text_map = {line.time: line.text for line in other_lines}
+        lines = tuple(
+            replace(line, **{field_name: text_map[line.time]}) if line.time in text_map else line
+            for line in self._snapshot.lines
+        )
+        self._snapshot = replace(self._snapshot, lines=lines)
 
-    def _merge_roma(self, rlrc_lines: List[LyricLine]):
+    def _merge_translation(self, tlrc_lines: Sequence[LyricLine]):
+        """将翻译文本合并到主歌词行 (通过时间标签匹配)"""
+        self._merge_texts("translation", tlrc_lines)
+
+    def _merge_roma(self, rlrc_lines: Sequence[LyricLine]):
         """将罗马音合并到主歌词行"""
-        if not rlrc_lines:
-            return
-        rlrc_map = {line.time: line.text for line in rlrc_lines}
-        for line in self._lines:
-            roma = rlrc_map.get(line.time)
-            if roma:
-                line.roma = roma
+        self._merge_texts("roma", rlrc_lines)
 
     # ─── 属性 ────────────────────────────────────────
 
     @property
-    def lines(self) -> List[LyricLine]:
-        return self._lines
+    def lines(self) -> Tuple[LyricLine, ...]:
+        return self._snapshot.lines
 
     @property
     def tags(self) -> Dict[str, str]:
-        return self._tags
+        return self._snapshot.tags
 
     @property
     def is_parsed(self) -> bool:
-        return self._is_parsed
+        return self._snapshot.is_parsed
 
     @property
     def title(self) -> str:
-        return self._tags.get("ti", "")
+        return self._snapshot.tags.get("ti", "")
 
     @property
     def artist(self) -> str:
-        return self._tags.get("ar", "")
+        return self._snapshot.tags.get("ar", "")
 
     @property
     def album(self) -> str:
-        return self._tags.get("al", "")
+        return self._snapshot.tags.get("al", "")
 
     def clear(self):
-        """清除所有已解析数据"""
-        self._lines.clear()
-        self._tags.clear()
-        self._search_cache.clear()
-        self._is_parsed = False
+        """清除所有已解析数据（发布空快照，不就地清空已发布的那一份）"""
+        self._snapshot = LyricSnapshot()

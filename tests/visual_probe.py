@@ -47,6 +47,10 @@ from typing import Any, Dict, List, Optional
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
+# 缺陷 D-150：QML 磁盘缓存那条**异步取编译单元**的路径会让主题切换时的对象创建报
+# `TypeError` / `Cannot find member data`（屏幕无可见损伤）。本探针也要切 5 个主题，
+# 所以和 `_smoke_driver.py` 用同一个规避（理由与复现方式写在那个文件里）。
+os.environ.setdefault("QML_DISABLE_DISK_CACHE", "1")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:

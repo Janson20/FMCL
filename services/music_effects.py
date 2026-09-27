@@ -4,10 +4,17 @@
 音频文件在播放前经过效果链处理后写入临时文件供 pygame 加载。
 
 效果链顺序: 均衡器 → 混响 → 变调 → 变速
+
+外部依赖（D-147）：**音效处理需要外部 ffmpeg 可执行文件**。pydub 只是 Python 侧的容器，
+真正解码/编码的是 ffmpeg 进程；它不是 PyPI 包，所以不在 pyproject 的依赖表里（本项目也
+不随附来源不明的二进制），缺失时整条音效链降级为"播原文件"。探测方式就是
+`shutil.which("ffmpeg")`，结果见 `FFMPEG_PATH` / `ffmpeg_available()`；每次跳过都会打一条
+能定位的日志，界面用 `AudioEffectProcessor.available` 或 `ffmpeg_available()` 查询。
 """
 
 import logging
 import os
+import shutil
 import tempfile
 import threading
 from dataclasses import dataclass, field
@@ -32,13 +39,43 @@ except ImportError:
     pass
 
 _pydub_available = False
+#: pydub 导入失败的原因（"" = 导入成功）。为什么留原因而不只留布尔：整条音效链以前是
+#: 静默失效的（用户看到的是"设了没反应"），把缺哪个符号写进日志与 `unavailable_reason()`
+#: 才能一眼定位。实测 pydub 0.25.1 的 `pydub.effects` 里没有 `speed_change`，
+#: 所以本模块在**所有**环境里都是 `_pydub_available = False`（见报告 D-148）。
+_pydub_error = ""
 try:
     from pydub import AudioSegment
     from pydub.effects import speed_change
 
     _pydub_available = True
-except ImportError:
-    pass
+except ImportError as e:
+    _pydub_error = f"{type(e).__name__}: {e}"
+
+
+def _find_ffmpeg() -> Optional[str]:
+    """在 PATH 里找外部 ffmpeg（找不到再试 avconv —— pydub 认这两个名字）。"""
+    return shutil.which("ffmpeg") or shutil.which("avconv")
+
+
+#: 外部 ffmpeg 可执行文件路径；None = 探测失败（音效链整体不可用，见 D-147）。
+#: 进程启动时探测一次：运行中才装好 ffmpeg 的话要重启启动器才会被看到。
+FFMPEG_PATH: Optional[str] = _find_ffmpeg()
+
+
+def ffmpeg_available() -> bool:
+    """外部 ffmpeg 在不在 —— 界面与测试都问这个布尔，不要自己再去查 PATH（D-147）。"""
+    return FFMPEG_PATH is not None
+
+
+def unavailable_reason() -> str:
+    """音效链今天为什么跑不了（"" = 可用）。**只给日志与诊断**，界面文案走 i18n。"""
+    reasons = []
+    if not _pydub_available:
+        reasons.append(f"pydub 不可用（{_pydub_error}）")
+    if not ffmpeg_available():
+        reasons.append("ffmpeg 不在 PATH（见 README 的环境要求）")
+    return "；".join(reasons)
 
 
 # EQ 预设: 10 段频率中心 (Hz)
@@ -127,11 +164,40 @@ class EffectSettings:
         return s
 
 
+def effective_duration(original_duration: float, speed_rate: float) -> float:
+    """按变速倍率把**原文件时长**折算成播放时长（秒）—— D-19 的进度基准。
+
+    只有变速会改长度（pydub 的变速 = 改采样率且不重采样，长度因此变成 original/rate）；
+    EQ 与混响不改长度，变调是 `_spawn` + `set_frame_rate` 的一次往返、长度也不变。
+    倍率非法（<=0）或等于 1.0、以及原时长本就非正时原样返回 —— 界面侧的时长宁可等于原值，
+    也不能变成负数或 0（那会让进度条与 seek 出现除零/倒退）。
+    """
+    if original_duration <= 0 or not speed_rate or speed_rate <= 0 or abs(speed_rate - 1.0) <= 0.001:
+        return float(original_duration)
+    return float(original_duration) / float(speed_rate)
+
+
+def playback_duration(
+    original_duration: float, settings: EffectSettings, processed_path: str, input_path: str
+) -> float:
+    """这次播放**实际**该用的时长（秒）—— D-19 的调用点用它，而不是原文件时长。
+
+    `processed_path == input_path` 表示这次没有产出处理文件（音效全关 / 没有 ffmpeg /
+    处理失败降级），此时长度就是原文件长度；否则按 `effective_duration()` 折算。
+    进度条百分比、拖动定位、预取阈值三处读的是同一个时长值，改对这一处等于同时修三处。
+    """
+    if not processed_path or processed_path == input_path or not settings.speed_enabled:
+        return float(original_duration)
+    return effective_duration(original_duration, settings.speed_rate)
+
+
 class AudioEffectProcessor:
     """音频效果处理器
 
     将输入音频文件通过效果链处理后输出到临时文件。
-    需要 pydub (ffmpeg) 和可选的 numpy/scipy。
+    依赖：pydub + **外部 ffmpeg**（真正做解码/编码的进程），以及可选的 numpy/scipy
+    （EQ 需要两者，混响只需要 numpy）。ffmpeg 缺失时整体降级为播原文件（D-147），
+    可用性用 `available` 查询；处理失败一律返回原文件路径，播放不会因此中断。
 
     使用示例:
         processor = AudioEffectProcessor()
@@ -146,8 +212,19 @@ class AudioEffectProcessor:
 
     @property
     def available(self) -> bool:
-        return _pydub_available
+        """音效链今天能不能真的跑起来：pydub 装好 **且** 外部 ffmpeg 找得到（D-147）。
 
+        界面拿它决定"音效面板是否可用 / 是否显示不可用提示"，不要自己 `shutil.which`。
+        """
+        return _pydub_available and ffmpeg_available()
+
+    # D-13（本轮只记录，不改行为）：下面的 process() 是**主线程同步**调用的 —— 整曲解码
+    # + 滤波 + 导出，用户一旦打开任一音效开关，切歌就会卡住界面数秒（有 ffmpeg 的机器上
+    # 才会发生）。已定方案 A：投给 app/tasks.py 的 TaskRunner 异步处理，**排期阶段 3.18**。
+    # 异步化时必须同时保住三件事，否则会退化成更糟的形态：
+    #   1) 设置快照：worker 拿到的是调用瞬间的 EffectSettings 副本，不能读共享可变设置；
+    #   2) 临时文件所有权：谁 mkstemp 谁登记 _temp_files，清理只在拥有者线程里做；
+    #   3) 失败降级：任何异常都返回原文件路径让播放继续（就是下面 except 里的语义）。
     def process(self, input_path: str, suffix: str = ".wav") -> Optional[str]:
         """处理音频文件，返回处理后临时文件路径
 
@@ -158,7 +235,11 @@ class AudioEffectProcessor:
         Returns:
             处理后临时文件路径，或None（无效果或处理失败时返回原文件路径）
         """
-        if not self.settings.has_any_enabled or not _pydub_available:
+        if not self.settings.has_any_enabled:
+            return input_path
+        if not self.available:
+            # D-147：依赖缺失以前是"静默返回原文件"，用户看到的是"设了没反应"。
+            logger.warning("音效处理被跳过（改播原文件）: %s —— %s", input_path, unavailable_reason())
             return input_path
 
         try:
@@ -260,7 +341,6 @@ class AudioEffectProcessor:
             decay = max(0.01, min(0.95, self.settings.reverb_decay))
             wet = max(0.0, min(1.0, self.settings.reverb_wet_level))
 
-            dry_audio = audio
             delay_samples = int(delay_ms * audio.frame_rate / 1000.0)
 
             if audio.channels == 2:
@@ -285,16 +365,34 @@ class AudioEffectProcessor:
     # ── 变调 / 变速 ──────────────────────────────────
 
     def _apply_pitch(self, audio: "AudioSegment") -> "AudioSegment":
+        # 长度不变：_spawn 改采样率后立刻 set_frame_rate 还原，是一次往返。
+        # D-19 的时长折算只认变速，别把变调也算进去。
         try:
             new_rate = int(audio.frame_rate * (2.0 ** (self.settings.pitch_semitones / 12.0)))
             return audio._spawn(audio.raw_data, overrides={"frame_rate": new_rate}).set_frame_rate(audio.frame_rate)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"变调处理失败，改播未变调的音频: {e}")
             return audio
 
     def _apply_speed(self, audio: "AudioSegment", original_duration: int) -> "AudioSegment":
+        """变速，并用 original_duration 校验长度（D-25：这个形参以前传进来没人读）。
+
+        为什么值得校验：变速后的**实际长度**就是 D-19 的进度基准，一旦它与
+        ``original_duration / rate`` 差得多，进度条、拖动定位、预取会一起跑偏 ——
+        所以这里留一条可定位的日志；真正的折算交给 `effective_duration()`，
+        本函数只处理音频、不改设置。
+        """
         try:
-            return speed_change(audio, self.settings.speed_rate)
-        except Exception:
+            changed = speed_change(audio, self.settings.speed_rate)
+            expected = int(round(original_duration / self.settings.speed_rate))
+            if abs(len(changed) - expected) > max(50, int(expected * 0.01)):
+                logger.warning(
+                    "变速后长度与预期不符: 原 %dms / 速率 %.3f → 期望 %dms，实际 %dms",
+                    original_duration, self.settings.speed_rate, expected, len(changed),
+                )
+            return changed
+        except Exception as e:
+            logger.warning(f"变速处理失败，改播未变速的音频: {e}")
             return audio
 
     # ── 声像 ─────────────────────────────────────────
@@ -311,7 +409,8 @@ class AudioEffectProcessor:
             else:
                 left_gain = max(0.0, left_gain)
             return audio.apply_gain_stereo(left_gain, right_gain)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"声像处理失败，改播未做声像的音频: {e}")
             return audio
 
     # ── 清理 ─────────────────────────────────────────
