@@ -475,3 +475,90 @@ def test_main_returns_zero_without_event_loop():
 
     # 单实例已被 fixture 占着 —— 这次启动应走"已经有实例在跑"的分支，同样是 0
     assert main_qml.main([], run_loop=False, init_logging=False) == 0
+
+
+# ─── 启动完成后的窗口提升（返工 A 组） ─────────────────────────
+
+
+class _FakeWindow:
+    """记账用的假窗口：只关心 raise_ / requestActivate 有没有被调。"""
+
+    def __init__(self, fail: bool = False) -> None:
+        self.calls: list[str] = []
+        self._fail = fail
+
+    def raise_(self):  # noqa: N802 - Qt 命名
+        if self._fail:
+            raise RuntimeError("平台不支持 raise()")
+        self.calls.append("raise_")
+
+    def requestActivate(self):  # noqa: N802
+        self.calls.append("requestActivate")
+
+
+class _FakeEngineForRaise:
+    def __init__(self, window) -> None:
+        self._window = window
+
+    def rootObjects(self):  # noqa: N802
+        return [self._window]
+
+
+def test_raise_main_window_is_skipped_on_offscreen():
+    """offscreen 平台必须**跳过**窗口提升 —— 缺陷 D-142 的连带修复。
+
+    基线 `main.py` 的 `_on_app_ready` 结尾是 `app.lift() + app.focus_force()`，本实现逐字对齐；
+    但 offscreen 平台不支持 raise()，会打一条 `QtWarningMsg: This plugin does not support raise()`，
+    而 [P0] 冒烟测试把"未登记的 Qt 警告"当作失败 —— 第一版把它写在 QML 的
+    `onVisibleChanged` 里，冒烟测试当场变红（那次实测值 183/183 → 1 条失败）。
+    """
+    import main_qml
+    from PySide6.QtGui import QGuiApplication
+
+    assert QGuiApplication.platformName() == "offscreen", "本仓库的 Qt 测试都在 offscreen 下跑"
+    window = _FakeWindow()
+    assert main_qml.raise_main_window(_FakeEngineForRaise(window)) is False
+    assert window.calls == [], "offscreen 下不该调 raise_/requestActivate"
+
+
+def test_raise_main_window_calls_both_methods_on_a_real_platform(monkeypatch):
+    """真平台（这里用假平台名模拟）上要**两个都调**，且单个失败不影响另一个。"""
+    import main_qml
+    from PySide6.QtGui import QGuiApplication
+
+    monkeypatch.setattr(QGuiApplication, "platformName", staticmethod(lambda: "windows"))
+    window = _FakeWindow()
+    assert main_qml.raise_main_window(_FakeEngineForRaise(window)) is True
+    assert window.calls == ["raise_", "requestActivate"]
+
+    # raise_ 抛异常时：requestActivate 照常走完，异常不许冒出去（提不动窗口不能挡住启动）
+    broken = _FakeWindow(fail=True)
+    assert main_qml.raise_main_window(_FakeEngineForRaise(broken)) is True
+    assert broken.calls == ["requestActivate"]
+
+
+def test_raise_main_window_refuses_off_the_main_thread(monkeypatch):
+    """**非主线程必须拒绝**（返工 A 组真机踩到的静默崩溃）。
+
+    启动链条的 `chainFinished` 是从任务线程发出来的，直连的 Python lambda 会在那条线程上跑，
+    而 `QWindow.raise_()` 只能在 GUI 线程调 —— 真机表现是**进程静默消失**：窗口一直不出现、
+    日志停在"启动器初始化完成"、没有任何 traceback。所以这里把"拒绝"变成判据。
+    """
+    import threading
+
+    import main_qml
+    from PySide6.QtGui import QGuiApplication
+
+    monkeypatch.setattr(QGuiApplication, "platformName", staticmethod(lambda: "windows"))
+    window = _FakeWindow()
+    engine = _FakeEngineForRaise(window)
+    result = {}
+
+    def worker() -> None:
+        result["raised"] = main_qml.raise_main_window(engine)
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join(timeout=10)
+    assert result.get("raised") is False, "非主线程竟然去动窗口了 —— 这会静默崩掉进程"
+    assert window.calls == [], "非主线程上调了 raise_/requestActivate"

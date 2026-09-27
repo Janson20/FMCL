@@ -726,6 +726,10 @@
   "notice_title": "公告",
   "notice_fetch_failed": "获取公告失败",
 
+  "startup_initializing": "正在启动，请稍候",
+  "startup_ready": "准备就绪",
+  "startup_failed_title": "启动器初始化失败",
+
   "tab_online": "🌐 联机",
   "online_title": "陶瓦联机",
   "online_description": "基于 EasyTier 虚拟组网实现 P2P 联机，无需公网中转服务器，支持多种 NAT 环境穿透。采用陶瓦大厅编号系统（U/ 前缀），创建或加入大厅即可与好友联机。仅支持 Windows 系统。",

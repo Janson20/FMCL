@@ -726,6 +726,10 @@
   "notice_title": "Announcement",
   "notice_fetch_failed": "Failed to fetch announcement",
 
+  "startup_initializing": "Starting, please wait",
+  "startup_ready": "Ready",
+  "startup_failed_title": "Launcher initialization failed",
+
   "tab_online": "🌐 Online",
   "online_title": "Terracotta Link",
   "online_description": "P2P multiplayer via EasyTier virtual networking. No public relay server required, supports various NAT traversal. Uses Terracotta lobby code system (U/ prefix). Create or join a lobby to play with friends. Windows only.",

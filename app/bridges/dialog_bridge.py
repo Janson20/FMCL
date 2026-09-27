@@ -362,8 +362,15 @@ class DialogBridge(QObject):
 
     # ─── DialogHost：Toast 与剪贴板 ─────────────────────────
 
-    def notify(self, payload: Dict[str, Any]) -> None:
-        """弹一条 Toast（右下角、向上堆叠、超时自动消失）。"""
+    @Slot("QVariantMap")
+    def notify(self, payload: Dict[str, Any]) -> None:  # noqa: N802 - QML 槽名（返工 A 组：给 QML 一个主动弹 Toast 的口子）
+        """弹一条 Toast（右下角、向上堆叠、超时自动消失）。
+
+        `@Slot` 是界面返工 A 组加的：`App.qml` 要把"启动器初始化失败"
+        （`Startup.coreFailed`）这条**以前没人接**的信号显示出来，而模态对话框
+        会与主线程的启动轮询互相等待，Toast 是唯一不会自锁的形态。
+        Python 侧的调用方（`QtUIPort`）不受影响 —— 加装饰器只是多暴露一个入口。
+        """
         data = dict(payload) if payload else {}
         if not self._on_main_thread() or not self.is_available():
             self.log.debug("notify：QML 宿主不可用，丢弃一条通知：%s", data.get("message", ""))

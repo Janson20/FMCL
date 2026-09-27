@@ -86,16 +86,76 @@ class _FakeFluTheme(QObject):
     """假装是 FluTheme 单例：只记账 `setProperty` 调用。
 
     桥只通过 `setProperty` 写它（阶段 0 第 10.1 节的实测写法），
-    所以覆盖这个方法就足以断言"九个键 + darkMode 真的写进去了"。
+    所以覆盖这个方法就足以断言"映射表里的键 + darkMode 真的写进去了"。
     `QObject.setProperty` 不是虚函数，Python 侧的同名方法会直接生效。
     """
 
     def __init__(self) -> None:
         super().__init__()
         self.written: Dict[str, Any] = {}
+        #: 写入顺序（返工 A 组 D-140：`darkMode` 必须在颜色之前）
+        self.order: List[str] = []
 
     def setProperty(self, name: str, value: Any) -> bool:  # noqa: N802 - Qt 命名
         self.written[name] = value
+        self.order.append(name)
+        return True
+
+
+class _FakeFluThemeWithRefresh(_FakeFluTheme):
+    """比 `_FakeFluTheme` 更真：模拟 `darkMode` 变化触发 `refreshColors()`。
+
+    这是 FluTheme **C++ 侧真实存在的行为**（`third_party/FluentUI/src/FluTheme.cpp`）：
+
+        connect(this, &FluTheme::darkModeChanged, this, [=] { Q_EMIT darkChanged(); });
+        connect(this, &FluTheme::darkChanged, this, [=] { refreshColors(); });
+
+    而 `refreshColors()` 会把**全部**颜色重置成 FluentUI 的默认值。
+    实测（`poc/_probe_fluent_darkmode.py`）：Light→Dark 切一次，刚写进去的
+    `windowBackgroundColor=#1a1a2e` 立刻变回 `#202020`。
+
+    所以"先写 darkMode 还是先写颜色"这件事**有可观测后果**，这里把它变成判据：
+    写序反了的话，我们注入的颜色会被这个假对象冲掉，用例当场红。
+    `Q_PROPERTY_AUTO` 宏里 `if (_##M != in_##M)` 的判断也照抄了 ——
+    同值再写一次不触发（实测同样如此），所以这个坑只在 darkMode 真的变化时出现。
+    """
+
+    #: 与 FluTheme 深色默认值同量级的一组假默认值（值本身不重要，重要的是"会被冲掉"）
+    DEFAULTS = {
+        "primaryColor": "#0078d4",
+        "backgroundColor": "#000000",
+        "windowBackgroundColor": "#202020",
+        "windowActiveBackgroundColor": "#1a1a1a",
+        "frameColor": "#383838",
+        "frameActiveColor": "#303030",
+        "dividerColor": "#505050",
+        "fontPrimaryColor": "#f8f8f8",
+        "fontSecondaryColor": "#dedede",
+        "fontTertiaryColor": "#c8c8c8",
+        "itemHoverColor": "#0fffffff",
+        "itemPressColor": "#17ffffff",
+        "itemCheckColor": "#1fffffff",
+    }
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.dark_mode = tb.FLUENT_LIGHT
+        self.colors: Dict[str, QColor] = {k: QColor(v) for k, v in self.DEFAULTS.items()}
+        #: 记录每一次"刷新"发生的时间点（写序反了就能从这上面看出来）
+        self.refreshes: List[str] = []
+
+    def setProperty(self, name: str, value: Any) -> bool:  # noqa: N802
+        if name == tb.FLUENT_DARK_MODE_PROP:
+            self.written[name] = value
+            self.order.append(name)
+            if int(value) != self.dark_mode:
+                self.dark_mode = int(value)
+                # ← 这就是 refreshColors()：把我们注入的颜色全部换成默认值
+                self.colors = {k: QColor(v) for k, v in self.DEFAULTS.items()}
+                self.refreshes.append(name)
+            return True
+        super().setProperty(name, value)  # 记账（written / order）
+        self.colors[name] = QColor(value) if isinstance(value, QColor) else value
         return True
 
 
@@ -210,6 +270,106 @@ def test_design_tokens_are_positive_and_font_family_is_set(bridge: tb.ThemeBridg
     assert (bridge.spacingXs, bridge.spacingSm, bridge.spacingMd, bridge.spacingLg, bridge.spacingXl) == (5, 10, 15, 20, 30)
     assert (bridge.radiusSm, bridge.radiusMd, bridge.radiusLg) == (6, 8, 12)
     assert bridge.iconSize == 20
+    # 返工 A 组新增的动效/布局令牌也要在元对象里（QML 读不到就是静默缺席）
+    assert (bridge.durationFast, bridge.durationNormal, bridge.durationSlow) == (110, 190, 300)
+    assert bridge.durationFast < bridge.durationNormal < bridge.durationSlow
+    assert bridge.navWidth > 0 and bridge.titleBarHeight > 0 and bridge.statusBarHeight > 0
+
+
+# ─── 1b. 派生语义令牌（返工 A 组任务 A5） ───────────────────────
+
+
+def test_derived_tokens_are_exposed_and_not_black(bridge: tb.ThemeBridge) -> None:
+    """15 个派生令牌都必须出现在元对象里，且**都是有效颜色**（不是兜底黑）。"""
+    meta = bridge.metaObject()
+    properties = {meta.property(i).name() for i in range(meta.propertyCount())}
+    missing = [name for name in tb.TOKEN_KEYS if name not in properties]
+    assert missing == [], f"派生令牌没注册成 Q_PROPERTY: {missing}"
+
+    for name in tb.TOKEN_KEYS:
+        value = getattr(bridge, name)
+        assert isinstance(value, QColor), f"{name} 不是 QColor（QML 的 color 收不了）"
+        assert value.isValid(), f"{name} 不是有效颜色"
+    # 兜底黑只该在"读不到主题值"时出现；正常主题下不该有一片黑
+    opaque = [n for n in tb.TOKEN_KEYS if bridge._token(n).alpha() == 255]
+    assert all(bridge._token(n) != QColor(tb.FALLBACK_COLOR) for n in opaque), (
+        "有不透明令牌掉进了兜底黑 —— 派生公式里的键名写错时会这样"
+    )
+
+
+def test_derived_tokens_follow_the_palette(bridge: tb.ThemeBridge, theme_engine: ThemeEngine) -> None:
+    """派生令牌必须**跟着主题走**，而不是在桥构造时算一次就冻住。
+
+    ⚠️ 判据写成"切主题后哪些令牌变了"之前先想清楚**比较的基准**：`COLORS` 是全进程唯一的
+    可变字典，全量跑时上一个用例可能留下任意一套颜色（返工 A 组第一版就是拿环境里的
+    accent 当基准，单跑绿、全量红）。所以这里不假设基准是什么，只断言"相对变化"。
+    """
+    before = {name: bridge._token(name).name() for name in tb.TOKEN_KEYS}
+    accent_before = bridge.accent.name()
+    bridge.setTheme("ocean")
+    after = {name: bridge._token(name).name() for name in tb.TOKEN_KEYS}
+    assert bridge.accent.name() != accent_before, "主题没切成功，后面的判据都不成立"
+    changed = [name for name in tb.TOKEN_KEYS if before[name] != after[name]]
+    # 15 个令牌里只有这几个**可能**与主题无关：
+    #   * itemHover/itemPress/itemCheck 是"白 + alpha"（深色锁定，见模块文档）；
+    #   * scrim 是纯黑 + alpha；
+    #   * accentText 只在强调色**跨过亮度阈值**时才换（两个主题的强调色可能都偏暗 → 都是白字）。
+    # 其余必须跟着主题变。少一个就说明那条派生链没接上 `_refresh_tokens()`。
+    may_stay = {"itemHover", "itemPress", "itemCheck", "scrim", "accentText"}
+    must_change = set(tb.TOKEN_KEYS) - may_stay
+    missed = sorted(must_change - set(changed))
+    assert missed == [], f"切主题后没跟着变的令牌: {missed}"
+    # 反过来也要收紧：与主题无关的那几个里，只允许"叠加色"不变（accentText 允许不变）
+    assert set(changed) <= set(tb.TOKEN_KEYS), "changed 里出现了不属于令牌表的名字"
+
+
+def test_token_relations_hold(bridge: tb.ThemeBridge) -> None:
+    """令牌之间的**关系**（比具体值更稳的判据，用户换主题也不会红）。"""
+    # 表面层级：窗口底 < 导航/顶栏 < 卡片 < 卡片悬停
+    assert bridge.windowBg.lightness() <= bridge.navBg.lightness(), "页面区没有比壳层更暗"
+    assert bridge.navBg.lightness() <= bridge.cardBg.lightness(), "卡片没有比导航栏更亮"
+    assert bridge.cardHover.lightness() > bridge.cardBg.lightness(), "悬停色没有比卡片更亮"
+    # 失焦的窗口底色比激活时更暗
+    assert bridge.windowBgInactive.lightness() < bridge.windowBg.lightness()
+    # 叠加色必须带透明度（否则会把下层完全盖住）
+    for name in ("accentSoft", "itemHover", "itemPress", "itemCheck", "scrim"):
+        assert bridge._token(name).alpha() < 255, f"{name} 是全不透明的，叠不上去"
+    # 文字层级：primary 亮于 secondary 亮于 tertiary
+    assert (
+        bridge.textPrimary.lightness() > bridge.textSecondary.lightness() > bridge.textTertiary.lightness()
+    ), "三级文字的明度顺序不对"
+    # 按下态比常态暗
+    assert bridge.accentPressed.lightness() < bridge.accent.lightness(), "accentPressed 没有比 accent 暗"
+
+
+def test_accent_text_switches_on_light_accents(theme_engine: ThemeEngine) -> None:
+    """`accentText` 要按强调色亮度自动选色（阶段 2 的遗留项 `onAccent`）。
+
+    强调色 `#e94560` 偏暗 → 白字；换成亮黄之后必须换成深色字，
+    否则"白字压亮黄"几乎看不见。
+
+    **两个桥都用配置注入强调色**（而不是读环境里那套）：`COLORS` 是全进程唯一的可变字典，
+    全量跑时前面的用例会留下任意强调色 —— 第一版直接读环境，单跑绿、全量红。
+    """
+    dark_accent = tb.ThemeBridge(
+        engine=QQmlApplicationEngine(),
+        theme_engine=theme_engine,
+        config=_FakeConfig(accent_color="#e94560"),
+    )
+    assert dark_accent.accent.name() == "#e94560", "强调色没设上，后面判据不成立"
+    assert dark_accent.accentText.name() == "#ffffff", "偏暗的强调色应当配白字"
+
+    light_accent = tb.ThemeBridge(
+        engine=QQmlApplicationEngine(),
+        theme_engine=theme_engine,
+        config=_FakeConfig(accent_color="#ffe066"),
+    )
+    assert light_accent.accent.name() == "#ffe066", "强调色没设上，后面判据不成立"
+    assert light_accent.accentText.lightness() < 128, (
+        f"亮强调色上仍然给白字（accentText={light_accent.accentText.name()}）—— 对比度不够"
+    )
+    assert tb.relative_luminance(QColor("#ffe066")) > tb.ACCENT_TEXT_LUMINANCE_THRESHOLD
+    assert tb.relative_luminance(QColor("#e94560")) <= tb.ACCENT_TEXT_LUMINANCE_THRESHOLD
 
 
 # ─── 2. 主题切换 ────────────────────────────────────────────────
@@ -495,28 +655,106 @@ def test_bridge_survives_when_singleton_instance_returns_nothing(
     assert built.fluentAvailable is False
 
 
-def test_fluent_theme_gets_the_nine_keys_and_dark_mode(
+def test_fluent_theme_gets_the_keys_and_dark_mode(
     theme_engine: ThemeEngine, config: _FakeConfig, tmp_path: Path
 ) -> None:
-    """九键映射表**真的**写到了 FluTheme 上，并且显式设了 darkMode。"""
+    """映射表**真的**写到了 FluTheme 上，并且显式设了 `darkMode`。
+
+    返工 A 组把"九键"扩成 :data:`tb.FLUENT_MAP` 全表（补上 `windowActiveBackgroundColor`
+    这类以前没映射、于是用的是 FluentUI 自己灰度的键），并把 `darkMode` 从 1 改成 2 ——
+    见下面 `test_dark_mode_uses_the_fluentui_enum_not_qt_colorscheme`。
+    """
     fake = _FakeFluTheme()
     built = tb.ThemeBridge(engine=_FakeQmlEngine(fake, _fake_fluent_module(tmp_path)),
                            theme_engine=theme_engine, config=config)
 
     assert built.fluentAvailable is True
-    expected = {
-        prop: QColor(palette.COLORS[snake]).name()
-        for snake, prop in tb.FLUENT_MAP
+    expected = {prop: built._token(token).name() for token, prop in tb.FLUENT_MAP}
+    actual = {
+        name: value.name()
+        for name, value in fake.written.items()
+        if name != tb.FLUENT_DARK_MODE_PROP
     }
-    actual = {name: value.name() for name, value in fake.written.items() if name != "darkMode"}
-    assert actual == expected, f"九键映射写错了:\n实际 {actual}\n预期 {expected}"
-    assert len(tb.FLUENT_MAP) == 9
-    assert fake.written["darkMode"] == tb.FLUENT_DARK == 1, "5 个预设全是深色，必须显式设 darkMode"
+    assert actual == expected, f"映射写错了:\n实际 {actual}\n预期 {expected}"
 
     # 切主题之后 FluTheme 要跟着变（否则 FluentUI 控件不跟随）
     built.setTheme("ocean")
     assert fake.written["primaryColor"].name() == "#00b4d8"
     assert fake.written["fontPrimaryColor"].name() == "#e0e0e0"
+
+
+def test_dark_mode_uses_the_fluentui_enum_not_qt_colorscheme(
+    theme_engine: ThemeEngine, config: _FakeConfig, tmp_path: Path
+) -> None:
+    """`darkMode` 必须是 **2**（`FluThemeType::DarkMode::Dark`）—— 缺陷 D-139。
+
+    这里曾经写的是 1，注释还写着"这是 Qt::Dark"。但 FluentUI 用的**不是** `Qt::ColorScheme`，
+    而是它自己的枚举（`third_party/FluentUI/src/Def.h`）：
+
+        enum DarkMode { System = 0x0000, Light = 0x0001, Dark = 0x0002 };
+
+    于是 `1` 其实是 **Light** —— FluentUI 控件（FluWindow 的顶栏、输入框）全走浅色，
+    而我们自己的壳层读的是深色调色板，界面上就是"白顶栏 + 黑正文"。
+    实测证据：`poc/_probe_fluent_darkmode.py`（`darkMode=1 → dark=False`，`=2 → dark=True`）。
+    """
+    fake = _FakeFluTheme()
+    tb.ThemeBridge(engine=_FakeQmlEngine(fake, _fake_fluent_module(tmp_path)),
+                   theme_engine=theme_engine, config=config)
+
+    assert tb.FLUENT_DARK == 2, "FluentUI 的 Dark 是 2（System=0 / Light=1 / Dark=2）"
+    assert tb.FLUENT_LIGHT == 1
+    assert fake.written[tb.FLUENT_DARK_MODE_PROP] == 2, (
+        f"darkMode 写成了 {fake.written[tb.FLUENT_DARK_MODE_PROP]!r}；1 是 Light，界面上会出现浅色控件"
+    )
+
+
+def test_dark_mode_is_written_before_colors(
+    theme_engine: ThemeEngine, config: _FakeConfig, tmp_path: Path
+) -> None:
+    """**写序**：`darkMode` 必须在颜色之前 —— 缺陷 D-140。
+
+    `darkMode` 真的变化时会触发 `darkModeChanged → darkChanged → refreshColors()`，
+    而 `refreshColors()` 会把全部颜色重置成 FluentUI 默认值。
+    所以先写颜色再写 `darkMode`，等于刚注入的调色板立刻被冲掉 ——
+    症状是"顶栏颜色对了、控件底色又变回 Flu 自己的灰"，而且没有任何报错。
+
+    这个用例用 `_FakeFluThemeWithRefresh`（照抄了 FluTheme 的刷新行为）来判：
+    只要写序反了，注入的颜色就活不下来。
+    """
+    fake = _FakeFluThemeWithRefresh()
+    built = tb.ThemeBridge(engine=_FakeQmlEngine(fake, _fake_fluent_module(tmp_path)),
+                           theme_engine=theme_engine, config=config)
+
+    assert fake.refreshes, "假 FluTheme 认为 darkMode 没变过（从 Light 切 Dark 应当触发一次刷新）"
+    assert fake.order[0] == tb.FLUENT_DARK_MODE_PROP, (
+        f"第一条写的不是 darkMode 而是 {fake.order[0]!r} —— refreshColors() 会把颜色冲掉"
+    )
+    assert fake.order.index(tb.FLUENT_DARK_MODE_PROP) == 0
+
+    # 语义判据（比顺序更本质）：注入的颜色在刷新之后**仍然是我们写的值**
+    for token, prop in tb.FLUENT_MAP:
+        expected = built._token(token).name()
+        actual = fake.colors[prop].name()
+        assert actual == expected, f"{prop} 被 refreshColors() 冲掉了：期望 {expected}，实际 {actual}"
+
+    # 切主题之后重新注入一遍，值必须跟着变（而不是停在默认值上）
+    built.setTheme("ocean")
+    assert fake.colors["primaryColor"].name() == "#00b4d8"
+    assert fake.colors["windowActiveBackgroundColor"].name() == built._token("windowBg").name(), (
+        "切主题后派生令牌没有跟着重算（windowBg 应当来自新主题的 bg_dark）"
+    )
+
+
+def test_fluent_map_token_names_all_resolve(
+    bridge: tb.ThemeBridge,
+) -> None:
+    """映射表左边的**令牌名**必须都能取到颜色（写错名字会静默变成黑色）。"""
+    known = {camel for camel, _ in tb.COLOR_KEYS} | set(tb.TOKEN_KEYS)
+    unknown = [token for token, _prop in tb.FLUENT_MAP if token not in known]
+    assert unknown == [], f"映射表里有不认识的令牌名: {unknown}"
+    # 派生令牌不许与 12 个主题色重名（重名会让主题文件里的值被悄悄覆盖）
+    overlap = {camel for camel, _ in tb.COLOR_KEYS} & set(tb.TOKEN_KEYS)
+    assert overlap == set(), f"派生令牌与主题色键重名: {overlap}"
 
 
 # ─── 7. 入口的字体注入（任务 2.10） ─────────────────────────────

@@ -49,13 +49,61 @@ QML 侧 ``import FMCL 1.0`` 之后按驼峰名读：``Theme.bgDark`` / ``Theme.f
   ``poc/theme_probe_2_8.py`` 另测出**不必等 ``engine.load()``**，所以桥在构造期就能写。
 - **先查导入路径再调 ``singletonInstance``**（:func:`_fluent_module_dir`）：模块解析不了时
   它不会优雅返回 ``None``，而是直接崩进程（全量测试里踩到，Windows access violation）。
-- 九键映射见 :data:`FLUENT_MAP`；``success`` / ``warning`` / ``error`` 在 FluTheme 里
+- 映射见 :data:`FLUENT_MAP`；``success`` / ``warning`` / ``error`` 在 FluTheme 里
   没有对应项，只留在我们这边给自研组件用。
-- **必须显式设 ``FluTheme.darkMode``**：实测 ``FluTheme.dark`` 只读（恒为 False），
+- **必须显式设 ``FluTheme.darkMode``**：实测 ``FluTheme.dark`` 只读（外部改不了），
   而 5 个预设主题全是深色（契约第六节决策 9）。
 - 取不到 FluTheme 时**只记 warning 并继续**：``fluentAvailable`` 变 False，界面照常起来。
   注意 ``singletonInstance`` 在模块不可用时返回的是 **undefined 的 QJSValue** 而不是 None
   （``poc/theme_probe_engine_ref.py`` 实测），所以判据是"是不是 QObject"。
+
+## 界面返工 A 组修掉的两个真缺陷（缺陷 D-139 / D-140）
+
+### D-139：``darkMode`` 的取值语义搞错了（``FLUENT_DARK`` 曾经是 1）
+
+FluentUI **不用** ``Qt::ColorScheme`` —— 它自己的枚举在
+``third_party/FluentUI/src/Def.h``：
+
+    namespace FluThemeType { enum DarkMode { System = 0x0000, Light = 0x0001, Dark = 0x0002 }; }
+
+所以旧值 ``1`` 是 **Light**。实测（``poc/_probe_fluent_darkmode.py``，本机复跑过）：
+
+    setProperty("darkMode", 0) → dark=True   windowBg=#202020  frameActive=#303030   （System，本机系统是深色）
+    setProperty("darkMode", 1) → dark=False  windowBg=#ededed  frameActive=#ffffff   （Light）
+    setProperty("darkMode", 2) → dark=True   windowBg=#202020  frameActive=#303030   （Dark）
+
+症状就是用户截图里那条**白色的窗口顶栏**：FluentUI 控件（FluWindow 的 appBar、
+FluButton、原生 TextField）全是浅色，而我们自己的壳层读的是深色调色板。
+
+### D-140：写 ``darkMode`` 会把刚写进去的颜色**全部冲掉** —— 所以写序有硬要求
+
+``FluTheme.cpp`` 里两条直连信号：
+
+    connect(this, &FluTheme::darkModeChanged, this, [=] { Q_EMIT darkChanged(); });
+    connect(this, &FluTheme::darkChanged, this, [=] { refreshColors(); });
+
+而 ``refreshColors()`` 会把**全部 14 个颜色**重置成 FluentUI 的默认值。实测：
+Light→Dark 切一次，刚写进去的 ``windowBackgroundColor=#1a1a2e`` 变回 ``#202020``。
+
+反过来，"同一个值再写一次"**不会**触发（``Q_PROPERTY_AUTO`` 宏里有
+``if (_##M != in_##M)`` 判断，``third_party/FluentUI/src/stdafx.h``），
+所以这个坑只在 darkMode **真的变化**的那一次出现 —— 也就是修好 D-139 的第一次同步。
+
+**结论：先写 ``darkMode``，再写颜色。** 顺序被 ``test_dark_mode_is_written_before_colors``
+钉住（把两行调过来该用例立刻变红）。
+
+## 语义令牌（返工 A 组新增）
+
+QML 侧**不许自己算颜色**（闸门 R8 禁颜色字面量，``Qt.rgba`` 也在禁列），
+所以"比卡片亮 6% 的悬停色"这类派生值必须由本桥算好再暴露成属性。
+派生只依赖 :data:`COLOR_KEYS` 那 12 个键，因此：
+
+* **不改** `services.palette.COLORS` 的 12 键契约（主题文件格式一个字都没变，老主题照常能用）；
+* 用户导入的主题只要定义那 12 键，派生令牌自动跟着走。
+
+派生表与理由见 :func:`derive_tokens`。锁深色是契约第六节决策 9 的延续
+（5 个预设主题全是深色），所以 ``itemHover`` / ``scrim`` 这类叠加色直接按
+"白 + alpha"给（浅色主题需要反过来，那是"支持亮色"时的事，见 ``05`` 的遗留项）。
 
 ## 引擎从哪来（契约没规定注入方式，这里说清楚）
 
@@ -141,25 +189,47 @@ COLOR_KEYS: Tuple[Tuple[str, str], ...] = (
     ("cardBorder", "card_border"),
 )
 
-#: `COLORS` 的键（下划线）→ QML 属性名（驼峰）。九键映射与 FluTheme 写入都要它。
+#: `COLORS` 的键（下划线）→ QML 属性名（驼峰）。
+#: 返工 A 组之后，FluTheme 映射不再用它（映射表的左边已经是驼峰令牌名），
+#: 但"蛇形键 ↔ 驼峰属性"的对照关系仍是主题文件与 QML 之间的桥，留着给诊断与测试用。
 SNAKE_TO_CAMEL: Dict[str, str] = {snake: camel for camel, snake in COLOR_KEYS}
 
-#: 我们的键 → FluTheme 属性（阶段 0 第 10.1 节的九键映射表）。
-#: `success` / `warning` / `error` 无对应项，只留在我们这边。
+#: 我们的键 → FluTheme 属性。**左侧是"令牌名"**：既能是 :data:`COLOR_KEYS` 里的 12 个驼峰名，
+#: 也能是 :func:`derive_tokens` 派生出来的语义令牌（两者在 `_tokens` 里合并成一张表）。
+#:
+#: `success` / `warning` / `error` 无对应项，只留在我们这边给自研组件用。
+#: `itemNormalColor` **故意不映射**：FluentUI 深色下它本来就是全透明（`QColor(255,255,255,0)`），
+#: 旧映射把它写成 `bg_light`（`#0f3460`），等于给每个 Flu* 控件的常态底刷了一层蓝 ——
+#: 这是"界面发花"的一个来源。留给 FluTheme 自己的深色默认值。
+#: `accentColor` **也不写**：它是 `FluAccentColor` 对象，改它会触发 `refreshColors()`
+#: （见 D-140），而我们真正要的是 `primaryColor`。
 FLUENT_MAP: Tuple[Tuple[str, str], ...] = (
     ("accent", "primaryColor"),
-    ("accent_hover", "itemHoverColor"),
-    ("bg_dark", "windowBackgroundColor"),
-    ("bg_medium", "backgroundColor"),
-    ("bg_light", "itemNormalColor"),
-    ("card_bg", "frameColor"),
-    ("card_border", "dividerColor"),
-    ("text_primary", "fontPrimaryColor"),
-    ("text_secondary", "fontSecondaryColor"),
+    ("windowBgInactive", "backgroundColor"),
+    ("windowBgInactive", "windowBackgroundColor"),
+    ("windowBg", "windowActiveBackgroundColor"),
+    ("barBg", "frameColor"),
+    ("barBg", "frameActiveColor"),
+    ("divider", "dividerColor"),
+    ("textPrimary", "fontPrimaryColor"),
+    ("textSecondary", "fontSecondaryColor"),
+    ("textTertiary", "fontTertiaryColor"),
+    ("itemHover", "itemHoverColor"),
+    ("itemPress", "itemPressColor"),
+    ("itemCheck", "itemCheckColor"),
 )
 
-#: FluTheme 的暗色模式值（Qt::Dark）。`dark` 只读、`darkMode` 可写（阶段 0 第 10.1 节）。
-FLUENT_DARK = 1
+#: `FluTheme.darkMode` 的取值。**不是 `Qt::ColorScheme`**（缺陷 D-139）：
+#: `FluThemeType::DarkMode` 是 `System=0 / Light=1 / Dark=2`（`third_party/FluentUI/src/Def.h`）。
+#: 证据：`poc/_probe_fluent_darkmode.py`，实测 1 → `dark=False`、2 → `dark=True`。
+FLUENT_LIGHT = 1
+FLUENT_DARK = 2
+
+#: `FluTheme.darkMode` 的属性名（写序有硬要求，见模块文档 D-140）。
+FLUENT_DARK_MODE_PROP = "darkMode"
+
+#: `darkMode` 的默认值：本项目的主题集全是深色，且**不求值系统**。
+FLUENT_DARK_MODE_DEFAULT = FLUENT_DARK
 
 #: 归一化失败时的兜底色。
 FALLBACK_COLOR = "#000000"
@@ -185,6 +255,145 @@ RADIUS_SM = 6
 RADIUS_MD = 8
 RADIUS_LG = 12
 ICON_SIZE = 20
+
+#: 返工 A 组新增的**动效与布局**令牌（数值取自参考项目 FusionMusicPlayer 的
+#: `app/ui/Theme.qml`，与我们的 `radius*` 档位对齐后取整）。
+DURATION_FAST = 110
+DURATION_NORMAL = 190
+DURATION_SLOW = 300
+NAV_WIDTH = 208
+TITLE_BAR_HEIGHT = 40
+STATUS_BAR_HEIGHT = 28
+
+
+# ─── 语义令牌派生（返工 A 组任务 A5） ──────────────────────────
+
+#: 派生令牌名（QML 属性名）。**与 :data:`COLOR_KEYS` 的 12 个名字不重叠** ——
+#: 重叠会让 `_tokens` 的合并悄悄覆盖掉主题文件里的值（有测试钉住不重叠）。
+TOKEN_KEYS: Tuple[str, ...] = (
+    "windowBg",
+    "windowBgInactive",
+    "navBg",
+    "barBg",
+    "cardHover",
+    "divider",
+    "overlayBg",
+    "scrim",
+    "textTertiary",
+    "accentSoft",
+    "accentPressed",
+    "accentText",
+    "itemHover",
+    "itemPress",
+    "itemCheck",
+)
+
+#: 深色主题下"叠加一层白"的不透明度档位（FluentUI 深色用的就是这三档，
+#: 见 `FluTheme.cpp` 的 `refreshColors()`）。锁深色 = 只会用到白色叠加。
+ITEM_HOVER_ALPHA = 0.06
+ITEM_PRESS_ALPHA = 0.09
+ITEM_CHECK_ALPHA = 0.12
+#: 强调色的柔和底（参考项目深色档是 0.20）。
+ACCENT_SOFT_ALPHA = 0.20
+#: 模态遮罩（参考项目深色档 0.55）。
+SCRIM_ALPHA = 0.55
+#: `accentText` 的对比度阈值：强调色相对亮度高于它就用深色文字，否则用白字。
+ACCENT_TEXT_LUMINANCE_THRESHOLD = 0.55
+
+
+def mix_colors(first: QColor, second: QColor, ratio: float) -> QColor:
+    """按 ``ratio`` 把 ``first`` 混向 ``second``（含 alpha 通道）。
+
+    QColor 在 Qt6/PySide6 里**没有** mix 方法，所以这里自己插值
+    （参考项目的 QML `Theme.mix()` 是同一套算法，只是那边在 QML 里算 ——
+    我们这边放 Python 是因为闸门 R8 不许 QML 出现颜色字面量）。
+
+    Examples:
+        >>> mix_colors(QColor("#000000"), QColor("#ffffff"), 0.5).name()
+        '#808080'
+    """
+    t = min(1.0, max(0.0, float(ratio)))
+    return QColor.fromRgbF(
+        first.redF() + (second.redF() - first.redF()) * t,
+        first.greenF() + (second.greenF() - first.greenF()) * t,
+        first.blueF() + (second.blueF() - first.blueF()) * t,
+        first.alphaF() + (second.alphaF() - first.alphaF()) * t,
+    )
+
+
+def relative_luminance(color: QColor) -> float:
+    """WCAG 相对亮度（0~1）—— 只用来判断"强调色上该压黑字还是白字"。"""
+    channels = []
+    for value in (color.redF(), color.greenF(), color.blueF()):
+        channels.append(value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def derive_tokens(colors: Dict[str, QColor]) -> Dict[str, QColor]:
+    """从 12 个主题色派生出界面重做需要的语义令牌。
+
+    Args:
+        colors: 驼峰名 → QColor 的 12 键表（见 :data:`COLOR_KEYS`）。
+            缺键时按黑兜底（与 :func:`normalize_color` 同一条兜底策略）。
+
+    Returns:
+        令牌名 → QColor（键见 :data:`TOKEN_KEYS`）。
+
+    +-------------------+--------------------------------+------------------------------------+
+    | 令牌              | 派生                            | 为什么                              |
+    +===================+================================+====================================+
+    | ``windowBg``      | ``bg_dark`` 原值                | 窗口/页面最底那一层（最暗）          |
+    | ``windowBgInactive`` | ``bg_dark`` 压暗 18%         | FluWindow 失焦时的底色比激活时更暗   |
+    | ``navBg``         | ``bg_medium`` 原值              | 导航栏与页面区同色会糊成一片         |
+    | ``barBg``         | ``bg_medium`` 原值              | 顶栏/状态栏与导航栏同层              |
+    | ``cardHover``     | ``card_bg`` 提亮 6%             | 卡片/列表行悬停要有反馈              |
+    | ``divider``       | ``card_border`` 混向 ``bg_medium`` 50% | 分割线要比卡片描边更弱        |
+    | ``overlayBg``     | ``card_bg`` 提亮 5%             | 对话框要比卡片再"浮"一层             |
+    | ``scrim``         | 黑 55% 透明                     | 模态遮罩                            |
+    | ``textTertiary``  | ``text_secondary`` 压暗 45%     | 三级文字（补充说明、计数）           |
+    | ``accentSoft``    | 强调色 20% 透明                 | 导航选中底/标签底（不要实心强调块）  |
+    | ``accentPressed`` | 强调色压暗 15%                  | 按下态（Qt 的 `darker()`）           |
+    | ``accentText``    | 按强调色亮度给白或近黑          | 强调底上的文字（浅强调色压白字看不清）|
+    | ``itemHover``     | 白 6% 透明                      | FluentUI 深色的悬停叠加              |
+    | ``itemPress``     | 白 9% 透明                      | 同上，按下                          |
+    | ``itemCheck``     | 白 12% 透明                     | 同上，选中/勾选                     |
+    +-------------------+--------------------------------+------------------------------------+
+    """
+    black = QColor("#000000")
+    white = QColor("#ffffff")
+
+    def get(name: str) -> QColor:
+        return colors.get(name, black)
+
+    accent = get("accent")
+    bg_dark = get("bgDark")
+    bg_medium = get("bgMedium")
+    card_bg = get("cardBg")
+    text_secondary = get("textSecondary")
+
+    use_white_text = relative_luminance(accent) <= ACCENT_TEXT_LUMINANCE_THRESHOLD
+
+    def overlay(alpha: float) -> QColor:
+        return QColor(255, 255, 255, int(round(255 * alpha)))
+
+    return {
+        "windowBg": bg_dark,
+        "windowBgInactive": mix_colors(bg_dark, black, 0.18),
+        "navBg": bg_medium,
+        "barBg": bg_medium,
+        "cardHover": mix_colors(card_bg, white, 0.06),
+        "divider": mix_colors(get("cardBorder"), bg_medium, 0.5),
+        "overlayBg": mix_colors(card_bg, white, 0.05),
+        "scrim": QColor(0, 0, 0, int(round(255 * SCRIM_ALPHA))),
+        "textTertiary": mix_colors(text_secondary, bg_medium, 0.45),
+        "accentSoft": QColor(accent.red(), accent.green(), accent.blue(), int(round(255 * ACCENT_SOFT_ALPHA))),
+        "accentPressed": accent.darker(115),
+        # 强调色偏亮时压白字看不清（FmButton 的遗留项 `onAccent`）：亮度超过阈值就改用深色。
+        "accentText": white if use_white_text else mix_colors(bg_dark, black, 0.4),
+        "itemHover": overlay(ITEM_HOVER_ALPHA),
+        "itemPress": overlay(ITEM_PRESS_ALPHA),
+        "itemCheck": overlay(ITEM_CHECK_ALPHA),
+    }
 
 
 def _coerce_color(value: Any) -> Optional[QColor]:
@@ -322,6 +531,9 @@ class ThemeBridge(QObject):
         self._config = config
         self._config_checked = config is not None
         self._colors: Dict[str, str] = {}
+        #: 派生令牌的**对象**缓存（QML 每读一次属性都要 new 一个 QColor 太浪费；
+        #: 值只随主题变，所以跟 `_colors` 一起在 `_read_colors()` 里重算一次）。
+        self._derived: Dict[str, QColor] = {}
         self._revision = 0
         self._fluent: Optional[QObject] = None
         self._fluent_warned = False
@@ -333,6 +545,20 @@ class ThemeBridge(QObject):
 
     def _color(self, camel: str) -> QColor:
         return QColor(self._colors.get(camel, FALLBACK_COLOR))
+
+    def _token(self, name: str) -> QColor:
+        """按令牌名取色：先查 12 个主题色，再查派生令牌（两边**不允许重名**）。
+
+        FluTheme 映射表（:data:`FLUENT_MAP`）与新增的 QML 属性都走这里，
+        这样"注入 FluTheme 的颜色"与"QML 看到的颜色"永远是同一个来源。
+        """
+        if name in self._colors:
+            return self._color(name)
+        cached = self._derived.get(name)
+        if cached is not None:
+            return cached
+        logger.warning("未知令牌 %r（按 %s 兜底）", name, FALLBACK_COLOR)
+        return QColor(FALLBACK_COLOR)
 
     @Property(QColor, notify=changed)
     def bgDark(self) -> QColor:  # noqa: N802 - QML 属性名
@@ -381,6 +607,91 @@ class ThemeBridge(QObject):
     @Property(QColor, notify=changed)
     def cardBorder(self) -> QColor:  # noqa: N802
         return self._color("cardBorder")
+
+    # ─── 派生语义令牌（返工 A 组任务 A5；派生规则见 derive_tokens） ──
+    #
+    # 为什么要有这一组：闸门 R8 不许 QML 出现颜色字面量（`Qt.rgba` 也在禁列），
+    # 所以"比卡片亮 6% 的悬停色"这种值只能由 Python 算好。它们**全部**由那 12 个
+    # 主题色派生，因此主题文件格式没变、用户导入的主题照样能用。
+
+    @Property(QColor, notify=changed)
+    def windowBg(self) -> QColor:  # noqa: N802
+        """窗口/页面区最底那一层（= `bg_dark`）。"""
+        return self._token("windowBg")
+
+    @Property(QColor, notify=changed)
+    def windowBgInactive(self) -> QColor:  # noqa: N802
+        """窗口失焦时的底色（比激活时压暗 18%）。"""
+        return self._token("windowBgInactive")
+
+    @Property(QColor, notify=changed)
+    def navBg(self) -> QColor:  # noqa: N802
+        """左侧导航栏底色（= `bg_medium`）。"""
+        return self._token("navBg")
+
+    @Property(QColor, notify=changed)
+    def barBg(self) -> QColor:  # noqa: N802
+        """顶栏/状态栏底色（= `bg_medium`）。"""
+        return self._token("barBg")
+
+    @Property(QColor, notify=changed)
+    def cardHover(self) -> QColor:  # noqa: N802
+        """卡片/列表行悬停时的底色（卡片色提亮 6%）。"""
+        return self._token("cardHover")
+
+    @Property(QColor, notify=changed)
+    def divider(self) -> QColor:
+        """1px 分割线（比 `cardBorder` 更弱，不会把界面切成豆腐块）。"""
+        return self._token("divider")
+
+    @Property(QColor, notify=changed)
+    def overlayBg(self) -> QColor:  # noqa: N802
+        """对话框/浮层底色（比卡片再"浮"一层）。"""
+        return self._token("overlayBg")
+
+    @Property(QColor, notify=changed)
+    def scrim(self) -> QColor:
+        """模态遮罩（黑 55% 透明）。"""
+        return self._token("scrim")
+
+    @Property(QColor, notify=changed)
+    def textTertiary(self) -> QColor:  # noqa: N802
+        """三级文字：补充说明、计数、"第 N 项"这类信息。"""
+        return self._token("textTertiary")
+
+    @Property(QColor, notify=changed)
+    def accentSoft(self) -> QColor:  # noqa: N802
+        """强调色的柔和底（导航选中底、标签底）—— 不要用实心强调块。"""
+        return self._token("accentSoft")
+
+    @Property(QColor, notify=changed)
+    def accentPressed(self) -> QColor:  # noqa: N802
+        """强调色的按下态（压暗 15%）。"""
+        return self._token("accentPressed")
+
+    @Property(QColor, notify=changed)
+    def accentText(self) -> QColor:  # noqa: N802
+        """压在强调色上的文字色（按强调色亮度自动选白/近黑）。
+
+        这是阶段 2 记录在案的遗留项：`FmButton` 一直是"白字压强调色"，
+        遇到浅强调色（黄、青）就几乎看不见。现在由这里统一给。
+        """
+        return self._token("accentText")
+
+    @Property(QColor, notify=changed)
+    def itemHover(self) -> QColor:  # noqa: N802
+        """FluentUI 式悬停叠加（白 6% 透明）—— 叠在任何表面上都协调。"""
+        return self._token("itemHover")
+
+    @Property(QColor, notify=changed)
+    def itemPress(self) -> QColor:  # noqa: N802
+        """FluentUI 式按下叠加（白 9% 透明）。"""
+        return self._token("itemPress")
+
+    @Property(QColor, notify=changed)
+    def itemCheck(self) -> QColor:  # noqa: N802
+        """FluentUI 式选中叠加（白 12% 透明）。"""
+        return self._token("itemCheck")
 
     # ─── 调色板版本号与主题信息 ─────────────────────────────
 
@@ -491,6 +802,38 @@ class ThemeBridge(QObject):
     def iconSize(self) -> int:  # noqa: N802
         """控件内图标边长（20；FluentUI `FluAppBar` 的默认值）。"""
         return ICON_SIZE
+
+    # ─── 动效与布局令牌（返工 A 组新增；数值来源见常量注释） ──
+
+    @Property(int, constant=True)
+    def durationFast(self) -> int:  # noqa: N802
+        """快动效 110ms：悬停、选中底色这类"随手就变"的反馈。"""
+        return DURATION_FAST
+
+    @Property(int, constant=True)
+    def durationNormal(self) -> int:  # noqa: N802
+        """常规动效 190ms：展开/收起、页面切换。"""
+        return DURATION_NORMAL
+
+    @Property(int, constant=True)
+    def durationSlow(self) -> int:  # noqa: N802
+        """慢动效 300ms：启动画面淡出这类一次性过渡。"""
+        return DURATION_SLOW
+
+    @Property(int, constant=True)
+    def navWidth(self) -> int:  # noqa: N802
+        """左侧导航栏宽度（208）。"""
+        return NAV_WIDTH
+
+    @Property(int, constant=True)
+    def titleBarHeight(self) -> int:  # noqa: N802
+        """顶栏高度（40）—— `FluAppBar` 的默认 30 太挤，放不下搜索框。"""
+        return TITLE_BAR_HEIGHT
+
+    @Property(int, constant=True)
+    def statusBarHeight(self) -> int:  # noqa: N802
+        """底部状态栏高度（28）。"""
+        return STATUS_BAR_HEIGHT
 
     # ─── 主题操作（契约 §5.1 冻结的形态） ───────────────────
 
@@ -653,8 +996,18 @@ class ThemeBridge(QObject):
         colors = getattr(palette, "COLORS", None) or {}
         return {camel: normalize_color(colors.get(snake), snake) for camel, snake in COLOR_KEYS}
 
+    def _refresh_tokens(self) -> None:
+        """读完 12 键之后立刻重算派生令牌。
+
+        **必须与 `_read_colors()` 成对调用**（两个读口子：`_sync()` 与
+        `_apply_initial_theme()`），否则派生令牌会停在上一套主题上 ——
+        症状是"切了主题，卡片变了但悬停色/选中条还是旧的"。
+        """
+        self._colors = self._read_colors()
+        self._derived = derive_tokens({name: self._color(name) for name, _ in COLOR_KEYS})
+
     def _bump(self) -> None:
-        """自增 revision 并发 `changed`（12 个色键 + revision 共用的 NOTIFY）。"""
+        """自增 revision 并发 `changed`（12 个色键 + 15 个令牌 + revision 共用的 NOTIFY）。"""
         self._revision += 1
         self.changed.emit()
 
@@ -663,9 +1016,9 @@ class ThemeBridge(QObject):
 
         三个动作**必须成对出现**：一开始只写了前两步里的"读 + 发信号"，
         结果切主题时 FluTheme 没跟着变（FluentUI 控件不跟随）—— 被
-        `test_fluent_theme_gets_the_nine_keys_and_dark_mode` 抓到。
+        `test_fluent_theme_gets_the_keys_and_dark_mode` 抓到。
         """
-        self._colors = self._read_colors()
+        self._refresh_tokens()
         self._apply_to_fluent()
         self._bump()
 
@@ -692,7 +1045,7 @@ class ThemeBridge(QObject):
                     engine.apply_theme(theme, self._accent)
             except Exception as e:  # noqa: BLE001 - 主题坏了也必须把界面起起来
                 logger.warning("应用启动主题失败（继续用现有调色板）: %s", e)
-        self._colors = self._read_colors()
+        self._refresh_tokens()
         self._apply_to_fluent()
 
     def _ensure_theme_engine(self) -> Optional[Any]:
@@ -800,7 +1153,7 @@ class ThemeBridge(QObject):
             self._warn_fluent(f"FluTheme 不可用（singletonInstance 返回 {type(candidate).__name__}）")
             return None
         self._fluent = candidate
-        logger.info("FluTheme 已接上：注入九键 + 显式 darkMode=%s", FLUENT_DARK)
+        logger.info("FluTheme 已接上：darkMode=%s（Dark）+ 注入 %d 个颜色键", FLUENT_DARK, len(FLUENT_MAP))
         return candidate
 
     def _warn_fluent(self, reason: str) -> None:
@@ -813,14 +1166,22 @@ class ThemeBridge(QObject):
         )
 
     def _apply_to_fluent(self) -> bool:
-        """写 FluTheme 的九键 + 显式 `darkMode`。取不到时降级并返回 False。"""
+        """写 FluTheme：**先 `darkMode`，再颜色**（写序有硬要求，见模块文档 D-140）。
+
+        为什么顺序不能反：`darkMode` 真的变化时会触发
+        `darkModeChanged → darkChanged → refreshColors()`，而 `refreshColors()`
+        会把**全部**颜色重置成 FluentUI 默认值。先写颜色再写 `darkMode`，
+        等于刚涂好的墙立刻被刷回原色 —— 实测 `#1a1a2e` → `#202020`。
+        """
         theme = self._resolve_fluent()
         if theme is None:
             return False
         try:
-            for snake, prop in FLUENT_MAP:
-                theme.setProperty(prop, QColor(self._colors.get(SNAKE_TO_CAMEL[snake], FALLBACK_COLOR)))
-            theme.setProperty("darkMode", FLUENT_DARK)
+            # 1) 先定明暗：本项目的主题集全是深色（契约第六节决策 9），不求值系统。
+            theme.setProperty(FLUENT_DARK_MODE_PROP, FLUENT_DARK_MODE_DEFAULT)
+            # 2) 再把我们的令牌逐个盖上去（这一步必须在 1) 之后）。
+            for token, prop in FLUENT_MAP:
+                theme.setProperty(prop, self._token(token))
         except Exception as e:  # noqa: BLE001 - C++ 侧对象可能已随引擎析构
             logger.warning("写入 FluTheme 失败（本次降级，下次同步重试）: %s", e)
             self._fluent = None
@@ -862,15 +1223,34 @@ class ThemeBridge(QObject):
 
 
 __all__ = [
+    "ACCENT_SOFT_ALPHA",
+    "ACCENT_TEXT_LUMINANCE_THRESHOLD",
     "COLOR_KEYS",
     "DEFAULT_THEME",
+    "DURATION_FAST",
+    "DURATION_NORMAL",
+    "DURATION_SLOW",
     "FALLBACK_COLOR",
     "FLUENT_DARK",
+    "FLUENT_DARK_MODE_DEFAULT",
+    "FLUENT_DARK_MODE_PROP",
+    "FLUENT_LIGHT",
     "FLUENT_MAP",
     "FLUENT_THEME_TYPE",
     "FLUENT_URI",
+    "ITEM_CHECK_ALPHA",
+    "ITEM_HOVER_ALPHA",
+    "ITEM_PRESS_ALPHA",
+    "NAV_WIDTH",
     "QML_NAME",
+    "SCRIM_ALPHA",
+    "STATUS_BAR_HEIGHT",
+    "TITLE_BAR_HEIGHT",
+    "TOKEN_KEYS",
     "ThemeBridge",
+    "derive_tokens",
     "is_hex_color",
+    "mix_colors",
     "normalize_color",
+    "relative_luminance",
 ]

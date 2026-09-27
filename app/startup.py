@@ -87,6 +87,7 @@ class StartupController(QObject):
         notice_fetcher: Optional[Callable[[], Optional[str]]] = None,
         predownload_runner: Optional[Callable[[], Any]] = None,
         clock: Callable[[], float] = time.monotonic,
+        splash_expected: bool = False,
         parent: Optional[QObject] = None,
     ) -> None:
         """
@@ -94,6 +95,10 @@ class StartupController(QObject):
             注入点（全部为测试而设，默认值是生产实现）：
             `launcher_factory` / `achievements_factory` / `notice_fetcher` /
             `predownload_runner` / `clock` / 三个毫秒参数。
+            splash_expected: 调用方**马上就会**调 :meth:`start`（装配方知道这件事：
+                `main_qml.assemble` 的 `start_startup`）。它只影响"引擎加载那一刻"
+                QML 看到的 :attr:`startupActive`：置真时主窗口从一开始就藏着，
+                不会先闪一下再被启动画面盖住（缺陷 D-142 的落地细节）。
         """
         super().__init__(parent)
         self._context = context
@@ -113,6 +118,7 @@ class StartupController(QObject):
         self._status_text = ""
         self._status_level = "info"
         self._started_at = 0.0
+        self._splash_expected = bool(splash_expected)
         self._launcher_ready = threading.Event()
         self._achievements_ready = threading.Event()
         self._dismissed = False
@@ -153,6 +159,31 @@ class StartupController(QObject):
     def dismissed(self) -> bool:
         return self._dismissed
 
+    @Property(bool, notify=phaseChanged)
+    def splashExpected(self) -> bool:  # noqa: N802
+        """调用方是否声明了"马上要跑启动流程"（`splash_expected`，只读）。"""
+        return self._splash_expected
+
+    @Property(bool, notify=phaseChanged)
+    def startupActive(self) -> bool:  # noqa: N802
+        """**启动画面是否占屏** —— QML 的 `Splash` 与主窗口都只绑这一个属性。
+
+        语义（缺陷 D-142 的落地）：
+
+        * 启动流程**没开跑**（`assemble(start_startup=False)`：测试、探针、CLI 装配
+          半个引擎的场景）→ False：没有"正在启动"这回事，不该把窗口藏起来，
+          更不该显示一个**永远不会自己关掉**的加载窗（那正是用户报上来的现象）；
+        * 开跑之后 → 由四条竞争退出路径决定的 `dismissed` 说了算。
+
+        为什么要有 `splash_expected` 这一档：`start()` 必须在 `engine.load()` **之后**
+        调（协议/公告弹窗要 QML 侧的宿主先就位），而 QML 在 `load()` 期就要决定
+        "藏主窗口、显启动画面"。没有这个声明位的话，主窗口会先显示一帧、
+        再被启动画面盖住 —— 一次看得见的闪。
+        """
+        if not self._splash_expected and not self._started_at:
+            return False
+        return not self._dismissed
+
     @Property(int, constant=True)
     def minimumSplashMs(self) -> int:  # noqa: N802
         return self.min_splash_ms
@@ -167,6 +198,9 @@ class StartupController(QObject):
             "phase": self._phase,
             "dismissed": self._dismissed,
             "dismiss_reason": self._dismiss_reason,
+            "startup_active": self.startupActive,
+            "splash_expected": self._splash_expected,
+            "started": bool(self._started_at),
             "launcher_ready": self._launcher_ready.is_set(),
             "achievements_ready": self._achievements_ready.is_set(),
             "launcher_error": self._launcher_error,
@@ -185,7 +219,11 @@ class StartupController(QObject):
             return
         self._started_at = self._clock()
         self._chrono.append(("start", 0))
-        self._set_status("startup_initializing", "loading")
+        # 级别用 "info" 而不是自造的 "loading"：状态条（`ShellBridge.setStatus`）只认
+        # info / success / warning / error 四档，其它值会被它降级成 info 并打一条 warning
+        # （返工 A 组接线时在日志里实测到 `未知状态级别 'loading'`）。四档是跨界面的公共词汇，
+        # 不该在这里另立一套。
+        self._set_status("startup_initializing", "info")
         tasks = getattr(self._context, "tasks", None)
 
         def _run(fn: Callable[[], Any], label: str) -> None:

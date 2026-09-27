@@ -40,16 +40,37 @@ FluWindow {
     minimumWidth: 960
     minimumHeight: 640
 
-    // 主窗口的可见性由**启动流程**决定（任务 2.14）：启动画面期间隐藏，
-    // 关画面之后才显示。
+    // 主窗口的可见性由**启动流程**决定（任务 2.14；返工 A 组修掉 D-142）。
     //
     // 判据要**两段都判**：
     //   * `typeof Startup !== "undefined"` —— 挡住"完全没声明"（抛 ReferenceError）；
     //   * `&& Startup` —— 挡住"已声明但为 null"（引擎析构时上下文属性先被清空，
-    //     绑定还排在求值队列里，这时 `Startup.dismissed` 会抛 TypeError）。
+    //     绑定还排在求值队列里，这时 `Startup.startupActive` 会抛 TypeError）。
     // 只写 `typeof` 的话守卫测试立刻会红（我第一版就是这么写的，被
     // `test_no_qml_binding_errors_at_process_exit` 当场抓到）。
-    visible: (typeof Startup !== "undefined" && Startup) ? Startup.dismissed : true
+    //
+    // `startupActive` 的语义（含"启动流程没开跑就别藏窗口"这一档）写在
+    // app/startup.py 的属主文档里 —— 测试、探针、只装配半个引擎的场景全都靠它
+    // 拿到"看得见的主窗口"，而不是靠 FluWindow 自己的 show() 兜底。
+    readonly property bool startupActive: (typeof Startup !== "undefined" && Startup) ? Startup.startupActive : false
+    visible: !app.startupActive
+
+    // `autoVisible: false` 是**必须**的：FluWindow 在自己的 `Component.onCompleted` 里
+    // 会无条件 `show()`，那一步会把上面这条绑定覆盖掉，于是主窗口在启动画面期间
+    // 就露出来了（用户截图里"两层窗口叠在一起"就是这么来的）。
+    autoVisible: !app.startupActive
+
+    // 启动画面收起后把主窗口激活一次：启动画面是 `WindowStaysOnTopHint` 的置顶窗，
+    // 它自己藏掉之后焦点不一定回到主窗口。
+    //
+    // 只调 `requestActivate()`，**不调 `raise()`** —— offscreen 平台不支持 raise()，
+    // 会打一条 `QtWarningMsg: This plugin does not support raise()`，而 [P0] 冒烟测试
+    // 把"未登记的 Qt 警告"当作失败（返工 A 组第一版就这么把冒烟测红了）。
+    // 置顶窗藏掉之后本来也不缺"提到前面"这一步。
+    onVisibleChanged: {
+        if (visible)
+            app.requestActivate()
+    }
 
     // 红线 5 + 闸门 R1：材质必须显式关掉（"normal" = 纯色，阶段 0 第 2.4 节实测）。
     effect: "normal"
@@ -112,6 +133,35 @@ FluWindow {
         function onNavFailed(reason) {
             if (Shell)
                 Shell.setStatus(reason, "error")
+        }
+    }
+
+    // ── 启动流程 → 界面（返工 A 组补上的接线）────────────────────────
+    // 这两个信号在阶段 2 就发出去了，但**一直没有人接**：`Startup.statusChanged`
+    // 只被 Splash 读（那是画面内的一条文案），`coreFailed` 压根没有消费者 ——
+    // 于是"启动器初始化失败"这条路在 QML 界面上**完全看不见**（主窗口照常显示、
+    // 状态条空空如也、也没有任何提示）。旧实现（main.py 的 `_show_init_error`）
+    // 是"状态栏报错 + 弹错误框"，这里按同样的语义补齐，只是弹窗走 Toast：
+    // 启动失败发生在主线程的轮询里，用模态对话框会自己等自己。
+    Connections {
+        target: (typeof Startup !== "undefined" && Startup) ? Startup : null
+
+        function onStatusChanged(key, level) {
+            if (!Shell)
+                return
+            // Python 侧给的是 **i18n 键名**（它不持有界面文案），翻译在 QML 侧做
+            Shell.setStatus(Tr ? (Tr?.map[key] ?? key) : key, level)
+        }
+
+        function onCoreFailed(titleKey, message) {
+            var title = Tr ? (Tr?.map[titleKey] ?? titleKey) : titleKey
+            // 状态条显示**具体原因**（旧实现 `_show_init_error` 就是先 `set_status(错误文本)`），
+            // 标题与原因一起进 Toast。这里**不做字符串拼接**：拼接就需要一个分隔符字面量，
+            // 而闸门 R3 连全角冒号都算硬编码文本（第一版就是被它拦下的）—— 文案属于语言文件。
+            if (Shell)
+                Shell.setStatus(message, "error")
+            if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.available)
+                Dialogs.notify({"level": "error", "message": title, "subtitle": message, "icon": "error"})
         }
     }
 

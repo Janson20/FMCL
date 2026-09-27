@@ -49,6 +49,23 @@ def _qapp() -> QGuiApplication:
 _APP = _qapp()
 
 
+def wait_until(predicate: Any, timeout_ms: int = 4000, step_ms: int = 20) -> bool:
+    """把事件循环转到条件成立为止（返回是否等到）。
+
+    为什么不用"睡固定时间再断言"：那是**时间代理断言**，机器一忙就假红 ——
+    指标采集这条链是 `worker 线程取数 → 主线程 flush 定时器（100ms）→ 通知`，
+    全量测试里同进程还挂着别的用例留下的线程池时，250ms 并不总是够。
+    本仓库已经因为同一类写法修过一次（`tests/test_ui_port_qt.py` 的 60ms/50ms 赛跑）。
+    """
+    waited = 0
+    while waited < timeout_ms:
+        if predicate():
+            return True
+        QTest.qWait(step_ms)
+        waited += step_ms
+    return bool(predicate())
+
+
 # ─── 替身 ───────────────────────────────────────────────────────
 
 
@@ -718,8 +735,10 @@ def test_metrics_refresh_updates_property_through_the_flush_timer() -> None:
         assert bridge.monitorMetrics == {}, "还没采集时是空表"
         bridge.showMonitor()
         assert bridge.metricsRunning is True, "监控窗可见就必须在轮询"
-        QTest.qWait(250)  # 等主线程的 flush 定时器（100ms）
-        assert bridge.monitorMetrics == payload, "桥必须原样转发服务返回值，不做任何加工"
+        # 等**条件**而不是等固定时间：worker 取数 + 主线程 flush 定时器（100ms）都要走完
+        assert wait_until(lambda: bridge.monitorMetrics == payload), (
+            f"flush 定时器过后 monitorMetrics 仍是 {bridge.monitorMetrics!r}"
+        )
         assert len(changed) >= 1
         assert calls, "provider 必须被真的调用过"
     finally:
@@ -731,7 +750,9 @@ def test_metrics_polling_stops_when_monitor_hides() -> None:
     bridge = make_bridge(metrics_provider=lambda: calls.append(1) or {"cpu_percent": 1})
     try:
         bridge.showMonitor()
-        QTest.qWait(80)
+        # 先等到**真的采过一次**再隐藏：不然 `after_hide == 0`，后面的断言是空断言
+        # （"没有再采"在"从来没采过"时也成立）。
+        assert wait_until(lambda: len(calls) >= 1), "监控窗显示后一直没采集，判据不成立"
         bridge.hideMonitor()
         assert bridge.metricsRunning is False
         after_hide = len(calls)
@@ -748,8 +769,9 @@ def test_metrics_provider_error_does_not_break_the_bridge() -> None:
     bridge = make_bridge(metrics_provider=boom)
     try:
         bridge.showMonitor()
-        QTest.qWait(250)
-        assert "error" in bridge.monitorMetrics, "采集失败要在指标里看得见"
+        assert wait_until(lambda: "error" in bridge.monitorMetrics), (
+            f"采集失败没在指标里露出来：{bridge.monitorMetrics!r}"
+        )
         assert bridge.monitorVisible is True, "采集失败不该影响窗口"
         assert "psutil" in bridge.monitorMetrics["error"]
     finally:

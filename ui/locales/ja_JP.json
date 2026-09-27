@@ -726,6 +726,10 @@
   "notice_title": "お知らせ",
   "notice_fetch_failed": "お知らせの取得に失敗しました",
 
+  "startup_initializing": "起動しています。しばらくお待ちください",
+  "startup_ready": "準備完了",
+  "startup_failed_title": "ランチャーの初期化に失敗しました",
+
   "tab_online": "🌐 オンライン",
   "online_title": "テラコッタリンク",
   "online_description": "EasyTier仮想ネットワークによるP2Pマルチプレイ。公開中継サーバー不要で、様々なNAT環境に対応。テラコッタロビーコードシステム（U/ プレフィックス）を使用。ロビーを作成または参加して友達とプレイ。Windows専用。",

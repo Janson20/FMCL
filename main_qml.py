@@ -306,6 +306,67 @@ def make_dialog_host(prebuilt: Optional[Dict[str, Any]] = None) -> Any:
         return None
 
 
+# ─── 窗口提升（启动完成） ──────────────────────────────────────
+
+
+def raise_main_window(engine: Any) -> bool:
+    """把主窗口提到前面并抢焦点 —— 逐字对齐旧实现 `main.py` 的 `app.lift() + app.focus_force()`。
+
+    ## 为什么需要它
+
+    启动画面是 `WindowStaysOnTopHint` 的置顶窗（基线用的是 Tk 的 `-topmost`），而主窗口在
+    启动期间是**藏起来的**（返工 A 组修掉的缺陷 D-142）。启动链条跑完之后，主窗口虽然显示了，
+    但它不一定在别的窗口前面 —— 返工 A 组真机截图时就撞到过"界面在文件资源管理器后面"。
+
+    ## 为什么在 Python 侧做，而不是写进 QML 的 `onVisibleChanged`
+
+    offscreen 平台**不支持** `raise()`，会打一条 `QtWarningMsg: This plugin does not support
+    raise()`，而 [P0] 冒烟测试把"未登记的 Qt 警告"当失败（第一版写在 QML 里，冒烟测试当场变红）；
+    而且那一下在控件装载期就会触发。窗口提升本来就属于"装配 + 平台能力"，放在装配处最合适。
+
+    ## 主线程前提（**踩过的坑**）
+
+    `QWindow.raise_()` / `requestActivate()` 只能在 GUI 线程调。启动链条的信号是从
+    **任务线程**发出来的（`StartupController.startPredownload` 里的 `tasks.submit`），
+    直连的 Python lambda 会在那条线程上执行 —— 真机实测的表现是**进程静默消失**
+    （窗口一直不出现、日志停在"启动器初始化完成"、没有任何 Python traceback）。
+    所以调用方必须用 `MainThreadDispatcher` 兜一层（见 `assemble()` 里的接线），
+    本函数另外自带一道判据：不在主线程就直接拒绝并记 warning，宁可不动窗口也不崩进程。
+
+    Returns:
+        是否真的调了（offscreen 或不在主线程时返回 False，测试据此断言分支被跳过）。
+    """
+    from PySide6.QtCore import QThread
+    from PySide6.QtGui import QGuiApplication
+
+    app = QGuiApplication.instance()
+    if app is None:
+        return False
+    try:
+        # 判据与 `DialogBridge._on_main_thread` 一致：`==` 而不是 `is` ——
+        # PySide6 会给同一个 C++ 线程对象包出不同的 Python 包装器，`is` 会误判。
+        on_main = QThread.currentThread() == app.thread()
+    except RuntimeError:  # C++ 对象已析构（进程收尾时可能出现）
+        on_main = False
+    if not on_main:
+        logger.warning("raise_main_window 只能在主线程调用（当前不在主线程），已跳过")
+        return False
+    if QGuiApplication.platformName() == "offscreen":
+        logger.debug("offscreen 平台不支持 raise()，跳过窗口提升")
+        return False
+    raised = False
+    for obj in list(engine.rootObjects()):
+        for name in ("raise_", "requestActivate"):
+            method = getattr(obj, name, None)
+            if callable(method):
+                try:
+                    method()
+                    raised = True
+                except Exception as e:  # noqa: BLE001 - 提不动就算了，不能挡住启动
+                    logger.debug("窗口提升 %s() 失败: %s", name, e)
+    return raised
+
+
 # ─── 致命错误兜底 ──────────────────────────────────────────────
 
 
@@ -479,11 +540,15 @@ def assemble(
 
     # ── 任务 2.14：启动流程控制器 ──
     # 挂在 QML 上是 `Startup`（启动画面的显示、协议/公告/预下载链条都由它驱动）。
+    # `splash_expected` 必须与下面的 `start_startup` **同源**：它让 QML 在 `load()` 期
+    # 就知道"启动画面要占屏"，主窗口因此从一开始就藏着，不会先闪一帧（缺陷 D-142）。
     startup = None
     try:
         from app.startup import StartupController
 
-        startup = StartupController(context, ui_port=getattr(context, "ui", None))
+        startup = StartupController(
+            context, ui_port=getattr(context, "ui", None), splash_expected=start_startup
+        )
         engine.rootContext().setContextProperty("Startup", startup)
         engine._fmcl_bridges = getattr(engine, "_fmcl_bridges", {})
         engine._fmcl_bridges["Startup"] = startup
@@ -524,6 +589,32 @@ def assemble(
                 logger.info("悬浮窗全局热键已接线")
             except Exception as e:  # noqa: BLE001
                 logger.warning("悬浮窗热键接线失败（热键不可用）: %s", e)
+
+    # ── 启动画面收起 / 启动链条走完后，把主窗口提到前面（返工 A 组接线）──
+    # 基线 `main.py` 的 `_on_app_ready` 结尾是两行：`app.lift()` + `app.focus_force()`；
+    # 另外 `_dismiss_splash` 里那一下 `app.deiconify()` 在 Tk 上本身就会把窗口提到前面。
+    # Qt 这边只 `show()` 不一定会激活（Windows 的前台窗口锁），真机实测会出现
+    # "启动完成后界面在别的窗口后面" —— 所以两处都要提一次。
+    #
+    # **必须走 dispatcher**：`chainFinished` 是从任务线程发出来的（`tasks.submit`），
+    # 直连的 Python lambda 会在那条线程上执行，而 `QWindow.raise_()` 只能在 GUI 线程调
+    # —— 真机实测的表现是进程静默消失（窗口不出现、日志停在"初始化完成"、无 traceback）。
+    if startup is not None:
+        try:
+            schedule = dispatcher.as_scheduler()
+
+            def _bring_to_front() -> None:
+                schedule(lambda: raise_main_window(engine))
+
+            wired = []
+            for signal_name in ("splashDismissed", "chainFinished"):
+                signal = getattr(startup, signal_name, None)
+                if signal is not None:
+                    signal.connect(_bring_to_front)
+                    wired.append(signal_name)
+            logger.info("已接线『把主窗口提到前面』：%s", wired)
+        except Exception as e:  # noqa: BLE001 - 提不动窗口不该挡住启动
+            logger.warning("接线『启动完成提窗口』失败: %s", e)
 
     def _on_quit() -> None:
         """退出清理链（对照表 A-20，逐条对齐旧实现：

@@ -546,6 +546,76 @@ def test_icon_url_returns_empty_for_unknown_or_illegal_names(runtime, caplog):
     assert Path(ok).parent == ICON_DIR, f"图标不来自 {ICON_DIR}: {ok}"
 
 
+# ── 缺陷 D-141：默认颜色不能是黑的 ──────────────────────────────
+
+
+class _FakeEngineWithProvider:
+    """只满足 `icon_provider.install()` / `installed()` 需要的两个口子。
+
+    为什么**不**建真 `QQmlApplicationEngine`：本模块的文件头写着"不在 pytest 进程里建
+    `QGuiApplication` / `QQmlEngine`" —— `ThemeBridge._discover_engine()` 会用
+    `gc.get_objects()` 抓进程里最后一个引擎去注 `FluTheme`，多出来的引擎会把
+    `tests/test_main_qml_entry.py` 的装配带偏（实测代价：4 failed + 12 errors）。
+    这里只要 `addImageProvider` 与 `\u005ffmcl_icon_providers` 两个属性，假对象足够。
+    """
+
+    def __init__(self) -> None:
+        self.providers: dict = {}
+
+    def addImageProvider(self, provider_id: str, provider) -> None:  # noqa: N802 - Qt 命名
+        self.providers[provider_id] = provider
+
+
+def test_icon_url_uses_the_colored_provider_when_it_is_installed():
+    """注册了上色 provider 之后，`Runtime.iconUrl()` 必须返回**上色 URL**。
+
+    缺陷 D-141：93 个图标资源全都写着 `fill="currentColor"`，而 QtSvg 把 `currentColor`
+    解析成**不透明黑**；`Runtime.iconUrl()` 以前返回的是原始 SVG 的 file URL，
+    于是深色主题下导航栏/顶栏/对话框的几十处图标全是黑的（用户截图里就是这样）。
+    现在默认色取主题的二级文字色，颜色由 Python 侧渲进位图。
+    """
+    from app.bridges import icon_provider
+    from app.bridges.runtime_bridge import RuntimeBridge
+    from services import palette
+
+    engine = _FakeEngineWithProvider()
+    icon_provider.install(engine)
+    runtime = RuntimeBridge()
+    runtime.use_engine(engine)
+
+    url = runtime.iconUrl("check")
+    assert url.startswith(icon_provider.ICON_URL_PREFIX), f"没走上色 provider: {url!r}"
+    name, color = icon_provider.parse_request(url[len(icon_provider.ICON_URL_PREFIX):])
+    assert name == "check"
+    assert color.lower() == str(palette.COLORS["text_secondary"]).lower(), (
+        f"默认图标色不是主题的二级文字色（拿到 {color!r}）—— 那会退化成黑色图标"
+    )
+    assert color.lower() != "#000000", "默认颜色还是黑的，D-141 没修好"
+
+
+def test_icon_url_falls_back_to_file_url_without_a_provider():
+    """没拿到引擎（或引擎上没装 provider）时退回老行为：file URL，**能看见但是黑的**。
+
+    这条是"确定的老行为"，也是 `FmIcon` 的 `fallbackUsed` 报警路径：
+    宁可显示一张黑图标并把它标出来，也不要拿一个别的引擎解析不了的 `image://` URL。
+    """
+    from app.bridges import icon_provider
+    from app.bridges.runtime_bridge import RuntimeBridge
+
+    runtime = RuntimeBridge()  # 没有 use_engine
+    assert runtime.iconUrl("check").startswith("file:")
+
+    runtime.use_engine(_FakeEngineWithProvider())  # 有引擎，但没装 provider
+    assert runtime.iconUrl("check").startswith("file:")
+
+    # 装了别的 provider 不算数（判据是"这个 id 在不在"，不是"有没有装过东西"）
+    engine = _FakeEngineWithProvider()
+    engine.addImageProvider("something-else", object())
+    runtime.use_engine(engine)
+    assert runtime.iconUrl("check").startswith("file:")
+    assert icon_provider.installed(engine) is None
+
+
 # ─── 5. 负例自检（证明上面不是空断言） ───────────────────────────
 
 

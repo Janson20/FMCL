@@ -167,7 +167,18 @@ def test_every_page_has_route_object_and_three_states(smoke_json: Dict[str, Any]
         for entry in states:
             assert entry["got"] == entry["state"], f"{route} 的 {entry['state']} 没生效"
             assert entry["label"].strip(), f"{route} 的 {entry['state']} 没有文案"
-            assert entry["icon"].startswith("file:"), f"{route} 的 {entry['state']} 没有图标"
+            # 图标 URL 有**两种合法形态**（界面返工 A 组 D-141 之后默认走第一种）：
+            #   * `image://fmcl-icon/<名>?color=%23RRGGBB` —— 上色 provider 已注册（生产路径）；
+            #   * `file:///…/icons/<名>.svg` —— provider 缺席时的退化形态（能看见但是黑的）。
+            # 判据是"拿到了可用图标"，而不是"必须是哪一种"；颜色必须是 `#rrggbb` 那种十六进制，
+            # 防止退回"默认黑"（那正是 D-141：93 个 SVG 全是 currentColor，QtSvg 渲成不透明黑）。
+            url = entry["icon"]
+            assert url.startswith(("image://fmcl-icon/", "file:")), (
+                f"{route} 的 {entry['state']} 图标 URL 形态不对: {url!r}"
+            )
+            if url.startswith("image://fmcl-icon/"):
+                assert "color=%23" in url, f"{route} 的 {entry['state']} 图标没带上色参数: {url!r}"
+                assert "color=%23000000" not in url, f"{route} 的 {entry['state']} 图标又退回默认黑了"
 
 
 # ─── 3. 截图 ────────────────────────────────────────────────────

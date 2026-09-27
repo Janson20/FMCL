@@ -375,10 +375,17 @@ Item {
 
 **三条纪律**（都由 `scripts/check_qml_rules.py` 静态拦，别只靠自觉）：
 
-1. **颜色**：只来自 `Theme.*` 的 12 个语义色键与 14 个设计令牌
+1. **颜色**：只来自 `Theme.*` 的 12 个语义色键、15 个派生令牌与设计令牌
    （`bgDark/bgMedium/bgLight/accent/accentHover/success/warning/error/textPrimary/textSecondary/cardBg/cardBorder`
-   ＋ `fontSizeSmall/Base/Large/Title`、`spacingXs/Sm/Md/Lg/Xl`、`radiusSm/Md/Lg`、`iconSize`、`fontFamily`）。
-   QML 里出现 `#e94560` 这类字面量即 **R8** 违规；渐变与亚克力材质是 **R1**（项目 UI 红线 5）。
+   ＋ `windowBg/windowBgInactive/navBg/barBg/cardHover/divider/overlayBg/scrim/textTertiary/accentSoft/accentPressed/accentText/itemHover/itemPress/itemCheck`
+   ＋ `fontSizeSmall/Base/Large/Title`、`spacingXs/Sm/Md/Lg/Xl`、`radiusSm/Md/Lg`、`iconSize`、`fontFamily`、
+   `durationFast/Normal/Slow`、`navWidth/titleBarHeight/statusBarHeight`）。
+   派生令牌由 **Python 侧**从 12 个主题色算出来（`app/bridges/theme_bridge.py: derive_tokens`）——
+   QML 里不许自己调 `Qt.rgba` / `Qt.lighter`，出现 `#e94560` 这类字面量即 **R8** 违规；
+   渐变与亚克力材质是 **R1**（项目 UI 红线 5）。
+   界面的明暗**锁深色**（5 个预设主题全是深色）：`FluTheme.darkMode` 被显式设成
+   `FluThemeType::DarkMode::Dark`（**值 2**，不是 `Qt::ColorScheme` 的 1 —— 写成 1 是浅色，
+   会让 FluentUI 控件与我们的壳层撞色）。
 2. **文案**：绑定写 `Tr.map["键"] ?? "键"`，**不要**在绑定里写 `Tr.t("键")`——QML 只跟踪属性读取，
    语言切换时函数返回值不会重算（契约第六节决策 1，闸门 **R4**）；字符串里写死中文是 **R3**。
 3. **图标**：一律 `FmIcon { name: "check"; color: Theme.accent }`，名字取自 `qml/assets/icons/*.svg`
@@ -408,6 +415,30 @@ install_icon_provider(engine)          # 见 main_qml.assemble()
 
 ```bash
 uv run python tests/test_components_qml.py     # 截图写到 poc/gallery_2_16/，清单写到 poc/components_2_16.txt
+```
+
+### 启动画面与主题底座（界面返工 A 组）
+
+启动流程的**时序**在 Python 侧（`app/startup.py` 的 `StartupController`，复刻旧 `main.py` 的
+4 条互相竞争的退出路径：≥1 秒显示 / 30 秒硬超时 / 初始化失败仍显示主窗口 / 关画面失败也继续），
+QML 只负责按 `Startup.startupActive` 显示：
+
+* `startupActive === true` → 启动画面显示、**主窗口藏起来**（不再是"两层窗口叠在一起"）；
+* 变成 false → 启动画面淡出后隐藏、主窗口显示，并由 `main_qml.raise_main_window()`
+  把主窗口提到前面（对照旧实现的 `app.lift() + app.focus_force()`）。
+
+启动流程**没开跑**时（测试装配、探针、`assemble(start_startup=False)`）这个属性恒为 false ——
+不会出现"一个没人去关的加载窗"，那条路径以前正是"加载完不消失"的来源。
+
+界面返工 A 组同时修掉了三处会让界面看起来"配色打架"的缺陷：
+FluentUI 的暗色取值（原来写成了浅色）、注入 FluTheme 的写序（`darkMode` 必须先写，
+否则它触发的 `refreshColors()` 会把刚注入的颜色全部冲掉）、以及图标默认色（原来是黑，
+深色底上几乎看不见）。
+
+```bash
+# 真机启动时序的可见性走查（子进程跑真 QML：启动画面出现 → 消失 → 主窗口出现）
+uv run python -m pytest tests/test_startup_visibility.py -q
+uv run python tests/qml_startup_probe.py          # 直接看 JSON 观察结果
 ```
 
 ### 构建

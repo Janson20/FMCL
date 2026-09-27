@@ -512,6 +512,25 @@ main() → setup_logging() → config.ensure_directories() → migrate_accounts(
       └── 静默检查更新（GitHub Release）
 ```
 
+### QML 版（`main_qml.py`，阶段 2 起）
+
+时序语义与上表**逐条对齐**，但实现在 `app/startup.py` 的 `StartupController` 里（可注入时钟，
+能确定性地测 30 秒超时这类路径），QML 只按 `Startup.startupActive` 决定两个窗口谁可见：
+
+```
+main_qml.assemble(start_startup=True)
+  → build_qt_context()（QtUIPort / MainThreadDispatcher / AppContext）
+  → register_bridges()（Theme / Tr / Runtime / Nav / Shell / Dialogs / Hotkeys / Overlay / Tasks / Events）
+  → install_icon_provider()（必须早于 engine.load）
+  → StartupController(splash_expected=True) + engine.load(App.qml)
+  → StartupController.start()
+      ├── 后台任务：MinecraftLauncher、AchievementEngine（两者就绪 + ≥1 秒 → dismissed）
+      ├── 30 秒硬超时 → 强制关启动画面
+      └── 初始化失败 → 关启动画面但**仍然显示主窗口** + 状态条报错 + 错误 Toast
+  → 收尾链条：协议同意 → 公告 → 预下载 → chainFinished
+  → 每个节点都经 MainThreadDispatcher 把主窗口提到前面（对照旧实现的 lift + focus_force）
+```
+
 ## 技术栈
 
 | 组件 | 技术 | 说明 |
