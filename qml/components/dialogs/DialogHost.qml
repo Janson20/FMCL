@@ -145,8 +145,9 @@ Item {
         id: scrim
         objectName: "dialogScrim"
         anchors.fill: parent
-        color: Theme?.bgDark ?? "transparent"
-        opacity: 0.55
+        // 遮罩走派生令牌 `Theme.scrim`（黑 55% 透明）——返工 A 组加的它就是为了
+        // "同一个语义只有一处取值"：以前是 `bgDark` + 本地 `opacity: 0.55` 两个来源。
+        color: Theme?.scrim ?? "transparent"
         visible: host.head !== null || host.progressData !== null
         z: 1
 

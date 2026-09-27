@@ -48,6 +48,7 @@ Item {
     property string demoKeyword: ""
     property int demoRetries: 0
     property real demoFraction: 0.15
+    property int toolButtonClicks: 0
 
     //: 进度条的自动演示（每 100ms 加 5%，到 1 回到 0）：让"活的进度条"不需要人动手
     Timer {
@@ -242,6 +243,72 @@ Item {
                         name: "error"
                         color: Theme?.error ?? "transparent"
                         size: Theme?.iconSize ?? 0
+                    }
+                }
+            }
+
+            // ── FmToolButton：纯图标命中区（顶栏/行尾）与它的三态 ──
+            ColumnLayout {
+                objectName: "galleryItem_FmToolButton"
+                Layout.fillWidth: true
+                spacing: Theme?.spacingXs ?? 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme?.spacingSm ?? 0
+
+                    Text {
+                        text: "FmToolButton"
+                        color: Theme?.accent ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeBase ?? 12
+                        font.bold: true
+                    }
+
+                    Text {
+                        objectName: "galleryHint_toolbutton"
+                        Layout.fillWidth: true
+                        text: Tr?.map["dev_gallery_hint_toolbutton"] ?? "dev_gallery_hint_toolbutton"
+                        color: Theme?.textSecondary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        elide: Text.ElideRight
+                    }
+                }
+
+                RowLayout {
+                    spacing: Theme?.spacingMd ?? 0
+
+                    FmToolButton {
+                        objectName: "galleryToolButtonNormal"
+                        iconName: "refresh"
+                        onClicked: page.toolButtonClicks += 1
+                    }
+
+                    FmToolButton {
+                        objectName: "galleryToolButtonSelected"
+                        iconName: "trophy"
+                        selected: true
+                        onClicked: page.toolButtonClicks += 1
+                    }
+
+                    FmToolButton {
+                        objectName: "galleryToolButtonBadge"
+                        iconName: "notify"
+                        badgeText: "3"
+                        onClicked: page.toolButtonClicks += 1
+                    }
+
+                    FmToolButton {
+                        objectName: "galleryToolButtonDisabled"
+                        iconName: "trash"
+                        enabled: false
+                    }
+
+                    Text {
+                        objectName: "galleryToolButtonReadout"
+                        text: String(page.toolButtonClicks)
+                        color: Theme?.textSecondary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        anchors.verticalCenter: parent.verticalCenter
                     }
                 }
             }

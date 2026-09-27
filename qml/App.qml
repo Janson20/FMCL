@@ -1,10 +1,10 @@
 // FMCL QML 根窗口 —— 阶段 2 任务 2.12 的窗口骨架（对应 02 第三节的骨架图）。
 //
-// 结构（自上而下四层，与骨架图一一对应）：
+// 结构（自上而下三层，与骨架图一一对应；返工 B 组把原来那两条顶栏合并成了一条）：
 //
-//   FluWindow                     窗口本体 + 内置 appBar（标题、最小化/最大化/关闭）
-//     └ TitleBar                  返回 / 面包屑 / 全局搜索 / 通知 / 账号
-//     └ RowLayout
+//   FluWindow                     窗口本体 + **定制 appBar**（shell/AppBar.qml）
+//     └ AppBar                    唯一一条顶栏：返回 / 面包屑 / 全局搜索 / 通知 / 账号
+//     └ RowLayout                 窗口按钮由 FluAppBar 自带，占右侧 120px
 //         ├ Navigation            12 个一级导航项（+ 插件页），切换即 Nav.push(routeId)
 //         └ PageStack             页面栈（Nav 的镜像，见 PageStack.qml 的说明）
 //     └ StatusBar                 状态文本 / 进度 / 后台任务数
@@ -14,7 +14,7 @@
 // （红线 5：禁渐变/亚克力；闸门 R1 只认字面量，写变量它看不见）。
 //
 // 本文件里没有一处硬编码颜色（一律 Theme.*）、没有一个中文字面量（一律 Tr?.map[...]）、
-// 没有一个 emoji（图标一律 (Runtime?.iconUrl("name") ?? "") → qml/assets/icons/*.svg）。
+// 没有一个 emoji（图标一律 FmIcon / Runtime.iconUrl → qml/assets/icons/*.svg）。
 //
 // 关于 `Theme?.x ?? 兜底` 的写法：上下文属性在引擎析构时**先**被清成 null，而绑定还排在
 // 求值队列里 —— 不判空的话退出阶段每个绑定刷一条 `TypeError: … of null`，日志判据
@@ -79,15 +79,18 @@ FluWindow {
     // 判空是必须的：引擎析构时上下文属性会先被清掉，而求值还排在队列里（2.2 实测的日志污染）。
     title: Runtime ? (Runtime.appName + " " + Runtime.appVersion) : ""
 
+    // ── 唯一一条顶栏（返工 B 组）──────────────────────────────────
+    // `FluWindow.appBar` 是可替换属性；换掉的代价是必须自己保留
+    // `buttonMinimize / buttonMaximize / buttonClose` 与 `layoutStandardbuttons` ——
+    // `FluFrameless` 强依赖它们（见 shell/AppBar.qml 的文件头），
+    // 所以这里给的是 `FluAppBar` 的**子类**，而不是随便一个 Item。
+    appBar: AppBar {
+        id: appBar
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
-
-        TitleBar {
-            id: titleBar
-            Layout.fillWidth: true
-            Layout.preferredHeight: 48
-        }
 
         RowLayout {
             Layout.fillWidth: true
@@ -96,14 +99,14 @@ FluWindow {
 
             Navigation {
                 Layout.fillHeight: true
-                Layout.preferredWidth: 208
+                Layout.preferredWidth: Theme?.navWidth ?? 208
             }
 
-            // 页面区：底色用 Theme?.bgDark ?? "transparent"（比壳层深一档，把页面从导航栏里"沉"下去）
+            // 页面区：底色比壳层深一档（`Theme.windowBg` = bg_dark），把页面从导航栏里"沉"下去
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                color: Theme?.bgDark ?? "transparent"
+                color: Theme?.windowBg ?? "transparent"
 
                 PageStack {
                     id: pageStack
@@ -114,7 +117,7 @@ FluWindow {
 
         StatusBar {
             Layout.fillWidth: true
-            Layout.preferredHeight: 28
+            Layout.preferredHeight: Theme?.statusBarHeight ?? 28
         }
     }
 
@@ -123,6 +126,14 @@ FluWindow {
         // 深链/命令行参数在入口调 Nav.openDeepLink() 即可，那时栈已经有底了。
         if (Nav && Nav.depth === 0)
             Nav.goHome()
+
+        // 顶栏上的可交互项必须登记进 FluFrameless 的命中测试白名单，否则点击会被系统
+        // 当成"拖窗口"吃掉 —— QML 侧一个事件都收不到，且**不报错**（见 AppBar 的文件头）。
+        var items = (appBar && appBar.interactiveItems) ? appBar.interactiveItems : []
+        for (var i = 0; i < items.length; ++i) {
+            if (items[i])
+                app.setHitTestVisible(items[i])
+        }
     }
 
     Connections {

@@ -3,7 +3,7 @@
   "title": "⛏ FMCL",
   "subtitle": "Fusion Minecraft Launcher",
   
-  "tab_game": "🎮 游戏",
+  "tab_game": "游戏",
   "tab_bedrock": "🎮 基岩",
   "tab_backup": "💾 备份",
   "tab_server": "🖥 开服",
@@ -13,7 +13,7 @@
   
   "refresh": "🔄 刷新",
   "update": "⬆ 更新",
-  "settings": "⚙ 设置",
+  "settings": "设置",
   "about": "ℹ 关于",
   
   "player_name": "👤 角色名",
@@ -25,7 +25,7 @@
   "launcher_log": "📋 启动器日志",
   "clear_log": "清空日志",
   
-  "installed_versions": "📦 已安装版本",
+  "installed_versions": "已安装版本",
   "version_count": "{count} 个版本",
   "no_installed_versions": "暂无已安装的版本\n请在右侧安装新版本",
   "launch_game": "🚀 启动游戏",
@@ -433,7 +433,7 @@
   "mod_browser": "🧩 Modrinth 模组浏览器 - {version}",
   "mod_browser_title": "📦 资源浏览 - {version}",
   "mod_browser_header": "📦 资源浏览 - {version}",
-  "mod_browser_title_all": "📦 资源浏览",
+  "mod_browser_title_all": "资源浏览",
   "mod_browser_header_all": "📦 资源浏览",
   "mod_browser_all_versions": "全部版本",
   "mod_browser_filter_all_loaders": "全部加载器",
@@ -730,6 +730,13 @@
   "startup_ready": "准备就绪",
   "startup_failed_title": "启动器初始化失败",
 
+  "dev_gallery_hint_toolbutton": "纯图标按钮：顶栏与行尾的方形命中区（常态 / 选中 / 角标 / 禁用四态）",
+
+  "nav_group_game": "游戏",
+  "nav_group_resources": "资源与联机",
+  "nav_group_tools": "工具与扩展",
+  "nav_group_plugin": "插件",
+
   "tab_online": "🌐 联机",
   "online_title": "陶瓦联机",
   "online_description": "基于 EasyTier 虚拟组网实现 P2P 联机，无需公网中转服务器，支持多种 NAT 环境穿透。采用陶瓦大厅编号系统（U/ 前缀），创建或加入大厅即可与好友联机。仅支持 Windows 系统。",
@@ -851,7 +858,7 @@
   "mod_update_batch_done": "全部 {success} 个模组更新完成！",
   "mod_update_batch_done_partial": "{success} 个成功，{failed} 个失败",
 
-  "ach_stats_title": "🏆 成就总览",
+  "ach_stats_title": "成就总览",
   "ach_stats_detail": "{unlocked}/{total} 已解锁",
   "ach_unlocked": "成就已解锁！",
   "ach_maxed": "已满级",
@@ -1048,7 +1055,7 @@
   "account_ms_verifying": "正在验证微软账号...",
   "account_ms_token_expired": "微软账号 Token 已过期，请重新登录",
   "account_refreshing": "正在刷新 Token...",
-  "tab_music": "🎵 音乐",
+  "tab_music": "音乐",
   "music_open_folder": "📂 打开文件夹",
   "music_no_folder": "未选择文件夹",
   "music_no_track": "未选择曲目",
@@ -1115,9 +1122,9 @@
   "music_wy_sync_failed": "同步失败",
   "music_wy_playlist_page": "第 {page} / {total} 页",
 
-  "tab_tools": "🔧 工具",
+  "tab_tools": "工具",
 
-  "tab_agent": "🤖 AGENT",
+  "tab_agent": "AGENT",
   "mp_browser_title": "🌐 从 Modrinth 下载整合包",
   "mp_browser_search_placeholder": "🔍 搜索整合包...",
   "mp_browser_loading": "⏳ 加载中...",

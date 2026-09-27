@@ -3,7 +3,7 @@
   "title": "⛏ FMCL",
   "subtitle": "Fusion Minecraft Launcher",
   
-  "tab_game": "🎮 ゲーム",
+  "tab_game": "ゲーム",
   "tab_bedrock": "🎮 Bedrock",
   "tab_backup": "💾 バックアップ",
   "tab_server": "🖥 サーバー",
@@ -13,7 +13,7 @@
   
   "refresh": "🔄 更新",
   "update": "⬆ アップデート",
-  "settings": "⚙ 設定",
+  "settings": "設定",
   "about": "ℹ について",
   
   "player_name": "👤 プレイヤー名",
@@ -25,7 +25,7 @@
   "launcher_log": "📋 ランチャーログ",
   "clear_log": "ログをクリア",
   
-  "installed_versions": "📦 インストール済みバージョン",
+  "installed_versions": "インストール済みバージョン",
   "version_count": "{count} バージョン",
   "no_installed_versions": "インストール済みバージョンがありません\n右側で新しいバージョンをインストールしてください",
   "launch_game": "🚀 ゲームを起動",
@@ -433,7 +433,7 @@
   "mod_browser": "🧩 Modrinth MODブラウザ - {version}",
   "mod_browser_title": "📦 リソースブラウザ - {version}",
   "mod_browser_header": "📦 リソースブラウザ - {version}",
-  "mod_browser_title_all": "📦 リソースブラウザ",
+  "mod_browser_title_all": "リソースブラウザ",
   "mod_browser_header_all": "📦 リソースブラウザ",
   "mod_browser_all_versions": "すべてのバージョン",
   "mod_browser_filter_all_loaders": "すべてのローダー",
@@ -730,6 +730,13 @@
   "startup_ready": "準備完了",
   "startup_failed_title": "ランチャーの初期化に失敗しました",
 
+  "dev_gallery_hint_toolbutton": "アイコンのみのボタン：アプリバーや行末の正方形ヒット領域（通常 / 選択 / バッジ / 無効）",
+
+  "nav_group_game": "ゲーム",
+  "nav_group_resources": "リソースとマルチプレイ",
+  "nav_group_tools": "ツールと拡張",
+  "nav_group_plugin": "プラグイン",
+
   "tab_online": "🌐 オンライン",
   "online_title": "テラコッタリンク",
   "online_description": "EasyTier仮想ネットワークによるP2Pマルチプレイ。公開中継サーバー不要で、様々なNAT環境に対応。テラコッタロビーコードシステム（U/ プレフィックス）を使用。ロビーを作成または参加して友達とプレイ。Windows専用。",
@@ -851,7 +858,7 @@
   "mod_update_batch_done": "{success} 個のMODを更新しました！",
   "mod_update_batch_done_partial": "{success} 成功、{failed} 失敗",
 
-  "ach_stats_title": "🏆 実績概要",
+  "ach_stats_title": "実績概要",
   "ach_stats_detail": "{unlocked}/{total} 解除済み",
   "ach_unlocked": "実績解除！",
   "ach_maxed": "最大レベル",
@@ -1048,7 +1055,7 @@
   "account_ms_verifying": "Microsoftアカウントを確認中...",
   "account_ms_token_expired": "Microsoftアカウントのトークンが期限切れです。再ログインしてください",
   "account_refreshing": "トークンを更新中...",
-  "tab_music": "🎵 ミュージック",
+  "tab_music": "ミュージック",
   "music_open_folder": "📂 フォルダを開く",
   "music_no_folder": "フォルダが選択されていません",
   "music_no_track": "トラックが選択されていません",
@@ -1115,9 +1122,9 @@
   "music_wy_sync_failed": "同期失敗",
   "music_wy_playlist_page": "{page} / {total} ページ",
 
-  "tab_tools": "🔧 ツール",
+  "tab_tools": "ツール",
 
-  "tab_agent": "🤖 AGENT",
+  "tab_agent": "AGENT",
   "mp_browser_title": "🌐 Modrinth からModpackをダウンロード",
   "mp_browser_search_placeholder": "🔍 Modpackを検索...",
   "mp_browser_loading": "⏳ ロード中...",

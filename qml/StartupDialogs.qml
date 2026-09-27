@@ -57,10 +57,14 @@ Item {
     }
 
     // ── 全屏遮罩 + 协议弹窗 ───────────────────────────────────────
+    // 遮罩用派生令牌 `Theme.scrim`（黑 55% 透明），**不再是不透明的 bgDark** ——
+    // 返工 B 组实测：不透明遮罩会把整个界面盖死，启动完成后用户看到的是
+    // "一片纯色底 + 一个弹窗"，看不到背后的壳层，观感上像卡住了。
+    // 卡片用 `Theme.overlayBg`（比 cardBg 再"浮"一层），遮罩变透明之后仍然分得清层次。
     Rectangle {
         anchors.fill: parent
         visible: root.agreementOpen
-        color: Theme?.bgDark ?? "transparent"
+        color: Theme?.scrim ?? "transparent"
         z: 200
 
         Rectangle {
@@ -68,7 +72,7 @@ Item {
             anchors.centerIn: parent
             width: Math.min(720, parent.width - 80)
             height: Math.min(560, parent.height - 80)
-            color: Theme?.cardBg ?? "transparent"
+            color: Theme?.overlayBg ?? "transparent"
             border.width: 1
             border.color: Theme?.cardBorder ?? "transparent"
             radius: Theme?.radiusLg ?? 12
@@ -172,14 +176,14 @@ Item {
     Rectangle {
         anchors.fill: parent
         visible: root.noticeOpen
-        color: Theme?.bgDark ?? "transparent"
+        color: Theme?.scrim ?? "transparent"
         z: 210
 
         Rectangle {
             anchors.centerIn: parent
             width: Math.min(640, parent.width - 80)
             height: Math.min(480, parent.height - 80)
-            color: Theme?.cardBg ?? "transparent"
+            color: Theme?.overlayBg ?? "transparent"
             border.width: 1
             border.color: Theme?.cardBorder ?? "transparent"
             radius: Theme?.radiusLg ?? 12

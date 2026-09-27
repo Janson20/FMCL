@@ -43,6 +43,18 @@ NAV_ORDER: Tuple[str, ...] = (
 )
 
 
+def grouped_nav_order() -> List[str]:
+    """按 `NAV_GROUPS` 分组后的领域顺序（**显示层**的顺序，供别的用例引用）。
+
+    期望值从桥自己的分组表算出来（不是在测试里再抄一份），所以"把某个领域挪组"
+    只会让实现与期望同时变，不会留下一条过期的断言。
+    """
+    order: List[str] = []
+    for _group, _title_key, members in nb.NAV_GROUPS:
+        order.extend(domain for domain in NAV_ORDER if domain in members)
+    return order
+
+
 class _Spy:
     """信号记录器：把 `(信号名, 参数)` 顺序记下来，供"到底发没发"的断言用。"""
 
@@ -114,11 +126,21 @@ def test_every_route_icon_exists_in_the_icon_set() -> None:
 
 
 def test_nav_items_are_the_12_domains_in_order(nav: NavBridge) -> None:
+    """一级导航项：**12 个领域一个不少、顺序与骨架图一致**（返工 B 组之后多两个分组字段）。
+
+    分组只是**多带的元数据**，不改变 `nav_items()` 的顺序 —— 顺序由 `_NAV_ORDER` 冻结
+    （对应 02 骨架图），"屏幕上按组排"是显示层的事（`shell/Navigation.qml` 的
+    `buildRows()`，由 `tests/test_shell_qml.py` 断言屏幕顺序）。
+    """
     items = nav.nav_items()
     assert [item["id"] for item in items] == list(NAV_ORDER)
     for item in items:
-        assert set(item) == {"id", "title_key", "icon", "source"}
+        assert set(item) == {"id", "title_key", "icon", "source", "group", "group_title_key"}
         assert item["source"] == "builtin"
+        assert item["group_title_key"].startswith("nav_group_"), item
+    # 每个领域都必须落在某个声明过的组里（漏归组的会被兜底到 plugin 组，这里不允许）
+    declared = {domain for _g, _t, members in nb.NAV_GROUPS for domain in members}
+    assert {item["id"] for item in items} <= declared
 
 
 def test_routes_and_breadcrumb_carry_usable_qml_urls(nav: NavBridge) -> None:

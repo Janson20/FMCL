@@ -233,6 +233,40 @@ _NAV_ORDER: Tuple[str, ...] = (
     "music", "tools", "achievements", "agent", "bedrock", "settings",
 )
 
+#: 一级导航的**分组**（界面返工 B 组）：`(组 id, 组标题 i18n 键, 成员领域 id)`。
+#:
+#: 为什么放在桥里而不是 QML 里：分组是"这些领域怎么归类"的知识，与 `_NAV_ORDER` 同源 ——
+#: 写死在 QML 里的话，将来加一个领域会出现"导航里多了一项但没有组"的静默缺口。
+#: 三个组的成员必须**恰好覆盖** `_NAV_ORDER`（`tests/test_nav_bridge.py` 钉住这条）。
+#: 插件页不在内置领域里，归到 `plugin` 组（由 `nav_group_of()` 兜底）。
+#:
+#: **成员的书写顺序与 `_NAV_ORDER` 一致**（不是随便排的）：显示顺序 = 领域顺序，
+#: 分组只负责"把连续的一段圈起来"，不重新排序。两边顺序不一致时
+#: `test_navigation_is_grouped_with_headers` 会红 —— 那正是它的用途。
+#: 某个组在当前平台上没有可用项时（如非 Windows 的基岩版），QML 不画它的标题。
+NAV_GROUPS: Tuple[Tuple[str, str, Tuple[str, ...]], ...] = (
+    ("game", "nav_group_game", ("home", "versions", "bedrock")),
+    ("resources", "nav_group_resources", ("resources", "servers", "online", "backups")),
+    ("tools", "nav_group_tools", ("music", "tools", "achievements", "agent", "settings")),
+)
+
+#: 插件页（`source == "plugin"`）的兜底组。
+NAV_GROUP_PLUGIN: Tuple[str, str] = ("plugin", "nav_group_plugin")
+
+#: 插件页的兜底图标（`registerPluginRoute` 的签名里没有图标参数）。
+NAV_PLUGIN_ICON = "plugin"
+
+
+def nav_group_of(route_id: str) -> Tuple[str, str]:
+    """领域 id → `(组 id, 组标题键)`。查不到（插件页、将来新增但忘了归组的领域）走兜底组。
+
+    返回**元组**而不是两个函数：调用方一次要拿两样，分两次查容易只改一处。
+    """
+    for group_id, title_key, members in NAV_GROUPS:
+        if route_id in members:
+            return group_id, title_key
+    return NAV_GROUP_PLUGIN
+
 
 def build_default_routes() -> List[Route]:
     """按表构造内置路由（每次调用返回新列表，测试可以安全地改）。
@@ -541,22 +575,33 @@ class NavBridge(QObject):
     # ─── 给 Shell 用的普通方法（不是槽：一级导航项的唯一入口是 Shell.navItems()） ──
 
     def nav_items(self) -> List[Dict[str, Any]]:
-        """一级导航项：`[{id, title_key, icon, source}, …]`（内置 12 项 + 插件项）。
+        """一级导航项：`[{id, title_key, icon, source, group, group_title_key}, …]`。
 
         当前平台不支持的领域（如非 Windows 上的基岩版）**不出现**在这里 ——
         与旧界面"仅 Windows 才建这个页"一致，也让用户看不到点不开的项。
+
+        **分组字段是界面返工 B 组加的**（`group` / `group_title_key`）：12 个一级领域
+        排成一条平铺列表时没有任何层次，用户要一行一行读；分组信息属于"领域集合"
+        这一层知识，放这里（而不是写死在 QML 里）才能保证"加一个领域时不会忘记归组" ——
+        `tests/test_nav_bridge.py` 会断言每个一级项都落在 :data:`NAV_GROUPS` 声明的组里。
         """
         items: List[Dict[str, Any]] = []
         for route_id in self._roots:
             route = self._routes.get(route_id)
             if route is None or route.parent or not self._available(route):
                 continue
+            group = nav_group_of(route.id)
             items.append(
                 {
                     "id": route.id,
                     "title_key": route.title_key,
-                    "icon": route.icon,
+                    # 插件页没有图标字段（`registerPluginRoute` 的签名里没有它）→ 给个兜底图标，
+                    # 否则 QML 侧会拿到 undefined 去请求一张叫 "undefined" 的图
+                    # （实测：`image://fmcl-icon/undefined` 的 provider 报错）。
+                    "icon": route.icon or NAV_PLUGIN_ICON,
                     "source": route.source,
+                    "group": group[0],
+                    "group_title_key": group[1],
                 }
             )
         return items

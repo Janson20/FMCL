@@ -3,7 +3,7 @@
   "title": "⛏ FMCL",
   "subtitle": "Fusion Minecraft Launcher",
   
-  "tab_game": "🎮 Game",
+  "tab_game": "Game",
   "tab_bedrock": "🎮 Bedrock",
   "tab_backup": "💾 Backup",
   "tab_server": "🖥 Server",
@@ -13,7 +13,7 @@
   
   "refresh": "🔄 Refresh",
   "update": "⬆ Update",
-  "settings": "⚙ Settings",
+  "settings": "Settings",
   "about": "ℹ About",
   
   "player_name": "👤 Player Name",
@@ -25,7 +25,7 @@
   "launcher_log": "📋 Launcher Log",
   "clear_log": "Clear Log",
   
-  "installed_versions": "📦 Installed Versions",
+  "installed_versions": "Installed Versions",
   "version_count": "{count} version(s)",
   "no_installed_versions": "No installed versions\nInstall a new version on the right",
   "launch_game": "🚀 Launch Game",
@@ -433,7 +433,7 @@
   "mod_browser": "🧩 Modrinth Mod Browser - {version}",
   "mod_browser_title": "📦 Resource Browser - {version}",
   "mod_browser_header": "📦 Resource Browser - {version}",
-  "mod_browser_title_all": "📦 Resource Browser",
+  "mod_browser_title_all": "Resource Browser",
   "mod_browser_header_all": "📦 Resource Browser",
   "mod_browser_all_versions": "All Versions",
   "mod_browser_filter_all_loaders": "All Loaders",
@@ -730,6 +730,13 @@
   "startup_ready": "Ready",
   "startup_failed_title": "Launcher initialization failed",
 
+  "dev_gallery_hint_toolbutton": "Icon-only button: square hit area for the app bar and list trailing actions (normal / selected / badge / disabled)",
+
+  "nav_group_game": "Game",
+  "nav_group_resources": "Resources & Online",
+  "nav_group_tools": "Tools & Extras",
+  "nav_group_plugin": "Plugins",
+
   "tab_online": "🌐 Online",
   "online_title": "Terracotta Link",
   "online_description": "P2P multiplayer via EasyTier virtual networking. No public relay server required, supports various NAT traversal. Uses Terracotta lobby code system (U/ prefix). Create or join a lobby to play with friends. Windows only.",
@@ -851,7 +858,7 @@
   "mod_update_batch_done": "All {success} mod(s) updated!",
   "mod_update_batch_done_partial": "{success} succeeded, {failed} failed",
 
-  "ach_stats_title": "🏆 Achievement Overview",
+  "ach_stats_title": "Achievement Overview",
   "ach_stats_detail": "{unlocked}/{total} Unlocked",
   "ach_unlocked": "Achievement Unlocked!",
   "ach_maxed": "Maxed",
@@ -1048,7 +1055,7 @@
   "account_ms_verifying": "Verifying Microsoft account...",
   "account_ms_token_expired": "Microsoft account Token expired, please login again",
   "account_refreshing": "Refreshing Token...",
-  "tab_music": "🎵 Music",
+  "tab_music": "Music",
   "music_open_folder": "📂 Open Folder",
   "music_no_folder": "No folder selected",
   "music_no_track": "No track selected",
@@ -1115,9 +1122,9 @@
   "music_wy_sync_failed": "Sync Failed",
   "music_wy_playlist_page": "Page {page} / {total}",
 
-  "tab_tools": "🔧 Tools",
+  "tab_tools": "Tools",
 
-  "tab_agent": "🤖 AGENT",
+  "tab_agent": "AGENT",
   "mp_browser_title": "🌐 Download Modpack from Modrinth",
   "mp_browser_search_placeholder": "🔍 Search modpacks...",
   "mp_browser_loading": "⏳ Loading...",

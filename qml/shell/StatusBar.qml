@@ -5,18 +5,36 @@
 //   * 状态文本：`Shell.statusText` / `Shell.statusLevel`（10 秒后自动清空，A-09）；
 //   * 后台任务数：`Shell.backgroundTaskCount`。
 //
+// 返工 B 组的改动（对齐参考项目的语言）：
+//   * 顶边一条 1px `Theme.divider`：状态条与页面区**同色**，没有这条就分不清边界；
+//   * 进度条从原生 `ProgressBar`（Basic 样式 = 系统灰，且与主题无关）换成自研
+//     `FmProgressBar`（强调色、不确定模式），高度 4px；
+//   * 文案层级：状态文本用 `textSecondary`，级别色只在 success/warning/error 时覆盖；
+//   * 高度走 `Theme.statusBarHeight` 令牌（28）。
+//
 // 颜色全部来自 `Theme.*`（闸门 R8），级别 → 颜色的映射写成函数是为了只有一处。
 
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "../components"
 
 Rectangle {
     id: bar
     objectName: "statusBar"
 
-    color: Theme?.bgMedium ?? "transparent"
-    implicitHeight: 28
+    color: Theme?.barBg ?? "transparent"
+    implicitHeight: Theme?.statusBarHeight ?? 28
+
+    // 顶边分割线：1px，用派生令牌 `divider`（比 cardBorder 更弱）
+    Rectangle {
+        objectName: "statusBarDivider"
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 1
+        color: Theme?.divider ?? "transparent"
+    }
 
     function levelColor(level) {
         if (level === "success")
@@ -49,11 +67,13 @@ Rectangle {
         }
 
         // 当前任务进度：有后台任务时才有意义（具体百分比属于各自的任务，见 2.4 的 Tasks）
-        ProgressBar {
+        FmProgressBar {
             objectName: "statusProgress"
             Layout.preferredWidth: 120
-            Layout.preferredHeight: 6
+            Layout.alignment: Qt.AlignVCenter
             indeterminate: true
+            showPercent: false
+            barHeight: 4
             visible: Shell ? Shell.busy : false
         }
 
@@ -71,13 +91,11 @@ Rectangle {
             spacing: Theme?.spacingXs ?? 0
             visible: Shell ? Shell.busy : false
 
-            Image {
-                source: (Runtime?.iconUrl("pending") ?? "")
-                sourceSize.width: Theme?.iconSize ?? 0
-                sourceSize.height: Theme?.iconSize ?? 0
-                width: Theme?.fontSizeSmall ?? 10
-                height: Theme?.fontSizeSmall ?? 10
-                smooth: true
+            FmIcon {
+                name: "pending"
+                color: Theme?.textSecondary ?? "transparent"
+                size: Theme?.fontSizeSmall ?? 10
+                Layout.alignment: Qt.AlignVCenter
             }
 
             Text {

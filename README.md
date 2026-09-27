@@ -417,6 +417,9 @@ install_icon_provider(engine)          # 见 main_qml.assemble()
 uv run python tests/test_components_qml.py     # 截图写到 poc/gallery_2_16/，清单写到 poc/components_2_16.txt
 ```
 
+**当前组件清单是 21 个**（返工 B 组加了 `FmToolButton`：顶栏与行尾的纯图标命中区，
+带选中/角标/禁用三态）。
+
 ### 启动画面与主题底座（界面返工 A 组）
 
 启动流程的**时序**在 Python 侧（`app/startup.py` 的 `StartupController`，复刻旧 `main.py` 的
@@ -439,6 +442,28 @@ FluentUI 的暗色取值（原来写成了浅色）、注入 FluTheme 的写序�
 # 真机启动时序的可见性走查（子进程跑真 QML：启动画面出现 → 消失 → 主窗口出现）
 uv run python -m pytest tests/test_startup_visibility.py -q
 uv run python tests/qml_startup_probe.py          # 直接看 JSON 观察结果
+```
+
+### 壳层（返工 B 组：一条顶栏 + 分组导航）
+
+窗口顶部现在是**一条** 40px 的顶栏（`qml/shell/AppBar.qml`，`FluAppBar` 的子类）：
+左边「返回 + 面包屑」、右边「搜索 + 通知 + 账号」，最右侧 120px 是窗口按钮 ——
+返工前这里是**两条**横条（`FluWindow` 内置的 appBar + 自绘的 `TitleBar`），
+颜色还各走一套来源，观感上就是"上下分裂"。
+
+左侧导航按**分组**排（游戏 / 资源与联机 / 工具与扩展），选中项是
+`accentSoft` 底 + 3px 强调色指示条 + 强调色图标与文字；分组数据来自桥
+（`app/bridges/nav_bridge.py` 的 `NAV_GROUPS`），不在 QML 里写死。
+
+> **顶栏上的按钮必须登记进命中测试白名单**：无边框窗口的拖动由 Win32 命中测试实现，
+> 光标落在顶栏里且不在白名单项上时返回 `HTCAPTION`，QML 侧**收不到事件**（不报错、只是没反应）。
+> 登记处是 `qml/App.qml` 的 `Component.onCompleted`（遍历 `AppBar.interactiveItems`），
+> `tests/test_shell_qml.py` 会断言"声明的项恰好是界面上那四个"。
+
+```bash
+# 骨架走查（子进程跑真 QML：四层结构、分组顺序、选中态、点导航切页）
+uv run python -m pytest tests/test_shell_qml.py -q
+uv run python tests/qml_shell_probe.py            # 直接看 JSON 观察结果
 ```
 
 ### 构建

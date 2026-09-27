@@ -41,6 +41,14 @@ MARKER = "PROBE_JSON:"
 APP = QGuiApplication.instance() or QGuiApplication([])
 SINK = main_qml.install_message_handler()
 ENGINE = main_qml.build_engine()
+
+# 图标上色 provider 必须注册（生产路径在 `main_qml.assemble()` 里做）：
+# 不注册的话每个 `image://fmcl-icon/…` 都会得到一条 `Invalid image provider` 警告，
+# 而"消息里有没有 Qt 报错"是判据之一 —— 那会让探针自己制造的噪声看起来像缺陷。
+from app.bridges.icon_provider import install as install_icon_provider  # noqa: E402
+
+install_icon_provider(ENGINE)
+
 BRIDGES = main_qml.register_bridges(ENGINE, None)
 NAV = ENGINE._fmcl_bridges["Nav"]
 SHELL = ENGINE._fmcl_bridges["Shell"]
@@ -49,18 +57,88 @@ ROOT = ENGINE.rootObjects()[0] if ENGINE.rootObjects() else None
 QTest.qWait(120)
 
 
+def js_list(value: Any) -> list:
+    """把 QML 里的 JS 数组读成 Python 列表。
+
+    `property()` 拿到的是 **QJSValue**（不是 list），直接 `for … in` 会抛
+    `TypeError: 'QJSValue' object is not iterable`（返工 B 组实测踩到）。
+    """
+    if value is None:
+        return []
+    for converter in ("toVariant",):
+        method = getattr(value, converter, None)
+        if callable(method):
+            converted = method()
+            if converted is not None:
+                try:
+                    return list(converted)
+                except TypeError:
+                    pass
+    length = getattr(value, "property", None)
+    if callable(length):
+        try:
+            return [value.property(index) for index in range(int(value.property("length")))]
+        except Exception:  # noqa: BLE001 - 不是数组就当空表
+            return []
+    try:
+        return list(value)
+    except TypeError:
+        return []
+
+
 def item(name: str) -> Any:
     return ROOT.findChild(QQuickItem, name) if ROOT is not None else None
 
 
 def nav_delegates() -> Dict[str, Any]:
+    """导航列表里的**导航项**（返工 B 组之后列表里还有组标题行，按前缀筛掉）。
+
+    组标题的 objectName 是 `navGroup_<组 id>`，导航项是 `navItem_<领域 id>` ——
+    两者都是 delegate 的根（delegate 根才是 `contentItem` 的子项），
+    所以这里必须按名字筛，不能"凡是带 objectName 的都算导航项"。
+    """
     listing = item("navigationList")
     if listing is None:
         return {}
     content = listing.property("contentItem")
     if content is None:
         return {}
-    return {child.objectName(): child for child in content.childItems() if child.objectName()}
+    return {
+        child.objectName(): child
+        for child in content.childItems()
+        if child.objectName().startswith("navItem_")
+    }
+
+
+def nav_group_rows() -> List[str]:
+    """导航列表里的**组标题行**（返工 B 组的导航分组）。"""
+    listing = item("navigationList")
+    if listing is None:
+        return []
+    content = listing.property("contentItem")
+    if content is None:
+        return []
+    return sorted(
+        child.objectName() for child in content.childItems()
+        if child.objectName().startswith("navGroup_")
+    )
+
+
+def nav_rows_by_position() -> List[str]:
+    """导航列表里**按屏幕位置从上到下**排好的行名（返工 B 组的分组顺序就靠它断言）。
+
+    delegate 的 `y` 是 ListView 排出来的真实位置；用 `contentY` 偏移在首屏可以忽略
+    （列表还没滚动过）。
+    """
+    listing = item("navigationList")
+    if listing is None:
+        return []
+    content = listing.property("contentItem")
+    if content is None:
+        return []
+    rows = [child for child in content.childItems() if child.objectName()]
+    rows.sort(key=lambda child: float(child.property("y")))
+    return [child.objectName() for child in rows]
 
 
 def settle(timeout_ms: int = 3000) -> None:
@@ -148,16 +226,52 @@ def main() -> int:
         "visible": bool(ROOT.property("visible")),
         "title": str(ROOT.property("title")),
     }
+    # `titleBar` 也一并记下来：返工 B 组把那条自绘顶栏并进了 `appBar`，
+    # 这里留着它就是为了让测试能断言"旧的那条真的没了"（两条横条叠着是返工前的观感）。
     report["layers"] = {
         name: item(name) is not None
-        for name in ("titleBar", "breadcrumb", "navigation", "pageStack", "statusBar", "globalSearchBox")
+        for name in ("appBar", "titleBar", "breadcrumb", "navigation", "pageStack",
+                     "statusBar", "globalSearchBox")
+    }
+    # 顶栏把"可交互项"声明成一个列表，App.qml 在完成时逐个登记进 FluFrameless 的命中测试
+    # 白名单（不登记的话点击会被系统当成拖窗口吃掉：不报错、只是按钮没反应）。
+    # `_hitTestList` 是 C++ 侧私有成员，离屏下也观察不到 —— 这里记录**声明**本身，
+    # 由测试断言"声明的名字恰好是那四个、且界面上都真的存在"（漏一个就是漏一个）。
+    app_bar = ROOT.property("appBar")
+    declared = []
+    if app_bar is not None:
+        for entry in js_list(app_bar.property("interactiveItems")):
+            if entry is not None:
+                declared.append(entry.objectName())
+    report["hitTest"] = {
+        "declared": sorted(name for name in declared if name),
+        "present": sorted(
+            name for name in ("backButton", "globalSearchBox", "notificationButton", "accountButton")
+            if item(name) is not None
+        ),
     }
     report["navItems"] = [entry["id"] for entry in SHELL.navItems()]
+    report["navGroups"] = [entry["group"] for entry in SHELL.navItems()]
+    report["navGroupHeaders"] = nav_group_rows()
+    #: 屏幕上的真实顺序（组标题与导航项混在一起）—— 分组显示的判据
+    report["navRowOrder"] = nav_rows_by_position()
     report["navDelegates"] = sorted(nav_delegates())
     report["navItemTexts"] = {
         name: str(widget.findChild(QQuickItem, "navItemText").property("text"))
         for name, widget in nav_delegates().items()
     }
+    # 选中态：导航项的指示条与图标颜色（返工 B 组的"一眼看得出在哪一页"）。
+    # 首页是栈底，所以进页面后 `navItem_home` 一定是选中态。
+    home_row = nav_delegates().get("navItem_home")
+    if home_row is not None:
+        indicator = home_row.findChild(QQuickItem, "navItemIndicator")
+        icon = home_row.findChild(QQuickItem, "navItemIcon")
+        report["navSelection"] = {
+            "indicatorOpacity": float(indicator.property("opacity")) if indicator is not None else -1.0,
+            "indicatorColor": str(indicator.property("color")) if indicator is not None else "",
+            "iconColor": str(icon.property("color")) if icon is not None else "",
+            "index": int(home_row.property("y")),
+        }
 
     # 1) 点一遍 12 个一级导航项
     report["walk"] = walk()

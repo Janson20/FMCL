@@ -64,6 +64,21 @@ AVAILABLE_DOMAINS: Tuple[str, ...] = tuple(
     if domain != "bedrock" or nb.host_platform() == nb.WINDOWS_PLATFORM
 )
 
+
+def grouped_nav_order() -> List[str]:
+    """界面上**显示**的导航顺序（返工 B 组之后是按组排的，组内保持 `DOMAINS` 的顺序）。
+
+    注意与 `nav_bridge.nav_items()` 的区别：桥返回的是**领域表**的顺序（`_NAV_ORDER`，
+    与 02 骨架图一致，契约没变），分组是**显示层**的事 —— 两者都对，但它们是两件事，
+    所以这里分别断言（"桥的顺序"与"屏幕上的顺序"）。
+    期望值从桥自己的分组表算出来，而不是在测试里再抄一遍。
+    """
+    available = set(AVAILABLE_DOMAINS)
+    order: List[str] = []
+    for _group, _title_key, members in nb.NAV_GROUPS:
+        order.extend(domain for domain in members if domain in available)
+    return order
+
 #: 这些子串出现在 Qt 消息里 = QML 真的报错了（平台级提示不算）。
 QML_ERROR_MARKERS = (
     "TypeError", "ReferenceError", "SyntaxError", "is not defined",
@@ -146,9 +161,18 @@ def test_root_window_is_created_and_is_a_fluwindow() -> None:
 
 
 def test_shell_has_title_bar_navigation_page_stack_and_status_bar() -> None:
+    """骨架的结构锚点都在（返工 B 组把两条顶栏合并成一条，`titleBar` → `appBar`）。
+
+    名字换了但**判据没放宽**：这条仍然是"顶栏 / 面包屑 / 导航 / 页面栈 / 状态栏 / 全局搜索"
+    六样俱全，只是顶栏现在由 `shell/AppBar.qml`（`FluAppBar` 子类）承担 ——
+    它同时是窗口按钮所在的那一条（返工前那是 FluWindow 内置的 appBar，另一条自绘的
+    TitleBar 叠在它下面，两条颜色各走一套来源）。
+    """
     layers = probe()["layers"]
-    for name in ("titleBar", "breadcrumb", "navigation", "pageStack", "statusBar", "globalSearchBox"):
+    for name in ("appBar", "breadcrumb", "navigation", "pageStack", "statusBar", "globalSearchBox"):
         assert layers[name] is True, f"骨架缺 {name}"
+    # 旧的那条自绘顶栏必须**真的没了**（否则又变成两条横条叠着）
+    assert layers["titleBar"] is False, "shell/TitleBar.qml 应该已经被 shell/AppBar.qml 取代"
 
 
 def test_entry_registers_every_bridge_including_nav_and_shell() -> None:
@@ -158,16 +182,65 @@ def test_entry_registers_every_bridge_including_nav_and_shell() -> None:
         assert name in bridges["registered"]
 
 
+def test_appbar_declares_every_interactive_item_for_hit_testing() -> None:
+    """顶栏上每个可交互项都必须在 `interactiveItems` 里（返工 B 组的顶栏契约）。
+
+    为什么这条值得单独钉：无边框窗口的拖动是 Win32 命中测试做的 —— 光标落在顶栏里
+    **且不在白名单项上**时，系统返回 `HTCAPTION`（拖动/双击最大化），QML 侧**收不到事件**。
+    漏登记的后果是"那个按钮点了没反应"，而且不报错、不打日志。
+    """
+    hit = probe()["hitTest"]
+    assert hit["declared"] == ["accountButton", "backButton", "globalSearchBox", "notificationButton"], (
+        f"顶栏声明的可交互项不对：{hit['declared']}"
+    )
+    assert hit["present"] == hit["declared"], (
+        f"声明了却找不到对应控件：{sorted(set(hit['declared']) - set(hit['present']))}"
+    )
+
+
 # ─── 2. 12 个一级导航项 ─────────────────────────────────────────
 
 
 def test_navigation_shows_the_domains() -> None:
+    """导航项来自 Nav 的路由表：一个不多一个不少，文案都在。
+
+    `navItems` 是**桥**的顺序（`_NAV_ORDER`，与 02 骨架图一致）；
+    "屏幕上按组排"由 `test_navigation_is_grouped_with_headers` 断言。
+    """
     report = probe()
     assert report["navItems"] == list(AVAILABLE_DOMAINS), "导航项与顺序来自 Nav 的路由表"
     assert len(report["navItems"]) == (12 if nb.host_platform() == nb.WINDOWS_PLATFORM else 11)
     assert report["navDelegates"] == sorted(f"navItem_{domain}" for domain in AVAILABLE_DOMAINS)
     for name, text in report["navItemTexts"].items():
         assert text.strip(), f"{name} 的导航项没有文案"
+
+
+def test_navigation_is_grouped_with_headers() -> None:
+    """分组标题真的画出来了，而且**屏幕顺序**是按组排的（返工 B 组）。"""
+    report = probe()
+    order = grouped_nav_order()
+    expected_rows: List[str] = []
+    for group, _title_key, members in nb.NAV_GROUPS:
+        present = [domain for domain in members if domain in set(AVAILABLE_DOMAINS)]
+        if not present:
+            continue  # 该组在当前平台没有可用项 → 连标题都不画
+        expected_rows.append(f"navGroup_{group}")
+        expected_rows.extend(f"navItem_{domain}" for domain in present)
+    assert report["navRowOrder"] == expected_rows, (
+        f"导航的屏幕顺序不对：\n实际 {report['navRowOrder']}\n期望 {expected_rows}"
+    )
+    # `navGroups` 是**桥的顺序**（`_NAV_ORDER`）下每个项带的组 id —— 用它自己的映射算期望
+    expected_groups = [nb.nav_group_of(domain)[0] for domain in AVAILABLE_DOMAINS]
+    assert report["navGroups"] == expected_groups, "导航项的组 id 与分组表不一致"
+    assert order == [row[len("navItem_"):] for row in expected_rows if row.startswith("navItem_")]
+
+
+def test_the_current_navigation_item_is_highlighted() -> None:
+    """选中态：指示条不透明、图标走强调色（返工 B 组的"一眼看得出在哪一页"）。"""
+    sel = probe()["navSelection"]
+    assert sel["indicatorOpacity"] == 1.0, "首页的选中指示条没显示"
+    assert sel["indicatorColor"] and sel["iconColor"], "指示条/图标没拿到颜色"
+    assert sel["indicatorColor"] == sel["iconColor"], "指示条与图标应当同一个强调色"
 
 
 # ─── 3. 点一下真的能切页 ────────────────────────────────────────
@@ -183,6 +256,8 @@ def test_clicking_a_nav_item_switches_the_page() -> None:
 
 def test_walking_all_domains_by_clicking_switches_every_page() -> None:
     walk = probe()["walk"]
+    # walk 是按**桥的顺序**（navItems）点的，所以这里比的是 AVAILABLE_DOMAINS；
+    # 屏幕上的分组顺序由上一条用例断言。
     assert [row["domain"] for row in walk] == list(AVAILABLE_DOMAINS)
     for row in walk:
         assert row["route"] == row["domain"], f"{row['domain']} 切页后 currentRoute 不对"
@@ -191,7 +266,14 @@ def test_walking_all_domains_by_clicking_switches_every_page() -> None:
 
 
 def test_page_three_states_are_reachable() -> None:
-    icons = {"loading": "loading.svg", "empty": "folder-open.svg", "error": "error.svg"}
+    """三态都能点到，且每态都换成了对应的图标。
+
+    图标 URL 有**两种合法形态**（返工 A 组 D-141 之后默认走第一种）：
+    `image://fmcl-icon/<名>?color=%23RRGGBB`（上色 provider 已注册）或
+    `file:///…/icons/<名>.svg`（provider 缺席时的退化形态）。所以判据是
+    "URL 里带着那个图标名"，而不是"必须是哪一种 URL"。
+    """
+    icons = {"loading": "loading", "empty": "folder-open", "error": "error"}
     states = {entry["expected"]: entry for entry in probe()["threeStates"]}
     assert set(states) == set(icons), "三态都要能点到"
     for expected, entry in states.items():
@@ -401,8 +483,9 @@ def test_pristine_shell_qml_passes_every_rule(tmp_path: Path) -> None:
         # 锚点必须**在整个文件里只出现一次**：App.qml 的注释里也写着 `effect: "normal"`，
         # 用裸串替换会改到注释上（探针 poc/_probe_r1_mutation.py 实测踩到），闸门当然不报。
         ("App.qml", '\n    effect: "normal"\n', '\n    effect: "acrylic"\n', "R1"),
-        ("shell/Navigation.qml", 'color: Theme?.bgMedium ?? "transparent"', 'color: "#123456"', "R8"),
-        ("shell/StatusBar.qml", 'color: Theme?.bgMedium ?? "transparent"', 'color: "\u7ea2\u8272"', "R3"),
+        # 导航栏与状态条的自研件背景色（返工 B 组改成派生令牌之后的锚点）
+        ("shell/Navigation.qml", 'color: Theme?.navBg ?? "transparent"', 'color: "#123456"', "R8"),
+        ("shell/StatusBar.qml", 'color: Theme?.barBg ?? "transparent"', 'color: "\u7ea2\u8272"', "R3"),
         (
             "shell/Breadcrumb.qml",
             "text: Tr?.map[modelData.title_key] ?? modelData.title_key",

@@ -531,6 +531,21 @@ main_qml.assemble(start_startup=True)
   → 每个节点都经 MainThreadDispatcher 把主窗口提到前面（对照旧实现的 lift + focus_force）
 ```
 
+### QML 界面结构（返工 B 组之后）
+
+```
+qml/App.qml                FluWindow + effect:"normal" + appBar: AppBar
+  └ shell/AppBar.qml       FluAppBar 子类，40px：返回 / 面包屑 / 搜索 / 通知 / 账号（右侧 120px 留给窗口按钮）
+  └ shell/Navigation.qml   分组导航（组标题来自 nav_bridge.NAV_GROUPS），选中态 = accentSoft + 3px 指示条
+  └ shell/PageStack.qml    StackView（Nav 的镜像）
+  └ shell/StatusBar.qml    28px：顶边 1px divider + 状态文本 + 不确定进度条 + 后台任务数
+  └ components/Fm*.qml     21 个自研组件（页面与壳层只允许用这些）
+```
+
+窗口的拖动由 `FluFrameless` 的 Win32 命中测试实现：**顶栏上每个可交互项都要登记**
+（`App.qml` 遍历 `AppBar.interactiveItems` 调 `setHitTestVisible`），
+否则点击会被系统当成拖窗口吃掉 —— 不报错、只是没反应。
+
 ## 技术栈
 
 | 组件 | 技术 | 说明 |

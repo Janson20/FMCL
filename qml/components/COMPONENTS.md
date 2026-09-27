@@ -20,7 +20,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
   需要行内代码样式时用**双反引号**（示例列就是这么写的）。
 - 组件名一律 Fm 前缀 + 大驼峰，一个组件一个文件（文件名 = 组件名 = 白名单里的名字）。
 
-## 二、页面能用的 20 个组件（阶段 3 只允许用这些）
+## 二、页面能用的 21 个组件（阶段 3 只允许用这些）
 
 | 组件 | 用途（什么时候用 / 什么时候不要用） | 关键属性 | 最小示例 |
 |------|--------------------------------------|----------|----------|
@@ -44,6 +44,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `FmErrorState` | 取数据失败（网络、磁盘、服务异常）。不要用于字段校验、一次性提示、加载中 | `title` `description` `detailText` `retryText` `iconName` `retried()` | ``FmErrorState { description: page.errorText; detailText: page.errorDetail; retryText: "retry"; onRetried: page.reload() }`` |
 | `FmTable` | 多列、需要对照阅读的结构化数据。不要用于一两列的行、卡片内容、行内编辑 | `columns`（`[{key,title,width,align}]`） `rows` `emptyText` `clickable` `rowActivated(i,row)` | ``FmTable { columns: page.cols; rows: page.rows; emptyText: "no rows" }`` |
 | `FmIcon` | 界面上的一切图标（唯一的上色入口）。不要用于 FluentUI 控件内部图标、多色插画 | `name` `color` `size` `fallbackUsed` | ``FmIcon { name: "check"; color: Theme?.success ?? "transparent"; size: Theme?.iconSize ?? 0 }`` |
+| `FmToolButton` | **纯图标**的方形命中区（顶栏的返回/通知/账号、行尾的复制/删除）。不要用于有文字的按钮（`FmButton`）、导航项、整行点击（`FmListItem`） | `iconName` `iconColor` `hoverIconColor` `iconSize` `selected` `side` `badgeText` `enabled` `clicked()` | ``FmToolButton { iconName: "notify"; selected: page.unread > 0; badgeText: page.unread > 0 ? String(page.unread) : "" }`` |
 
 ## 三、宿主与对话框组件（2.13 / 2.15 落地，页面一般不直接用，但一样登记）
 
@@ -79,10 +80,15 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 
 ## 五、三条纪律（页面作者最常踩的）
 
-1. **颜色**：`Theme.bgDark / bgMedium / bgLight / accent / accentHover / success /
-   warning / error / textPrimary / textSecondary / cardBg / cardBorder` 十二个语义色键
-   ＋ 字号/间距/圆角/图标尺寸十四个设计令牌，除此之外没有合法颜色来源
-   （缺陷 D-102 与风险 R-15 就是这么来的）。
+1. **颜色**：`Theme.*` 的 12 个语义色键 ＋ **15 个派生令牌**（`windowBg / windowBgInactive /
+   navBg / barBg / cardHover / divider / overlayBg / scrim / textTertiary / accentSoft /
+   accentPressed / accentText / itemHover / itemPress / itemCheck`）＋ 字号/间距/圆角/图标尺寸
+   十四个设计令牌 ＋ 动效（`durationFast/Normal/Slow`）与布局（`navWidth/titleBarHeight/
+   statusBarHeight`）令牌，除此之外没有合法颜色来源（缺陷 D-102 与风险 R-15 就是这么来的）。
+   派生令牌由 **Python 侧**从 12 键算出来（`app/bridges/theme_bridge.py: derive_tokens()`）——
+   QML 里**不许**自己调 `Qt.rgba` / `Qt.lighter`（闸门 R8 连 `Qt.rgba` 一起拦）。
+   界面**锁深色**（5 个预设主题全是深色）：`FluTheme.darkMode` 显式设成它自己的枚举里的
+   暗色档（`FluThemeType::DarkMode::Dark`，值 **2**；写成 1 是浅色，那条坑记在 D-139）。
 2. **文案**：一律 `Tr.map["键"] ?? "键"`，**不要**在绑定里写 `Tr.t(...)`
    （QML 只跟踪属性读取，语言切换时不会重算 —— 契约第六节决策 1，闸门 R4 静态拦）。
 3. **图标**：`FmIcon { name: "check" }`，名字来自 `qml/assets/icons/*.svg`
