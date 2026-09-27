@@ -317,7 +317,10 @@ uv run python scripts/check_services_purity.py
 uv run python scripts/check_callback_keys.py --fail-on-soft
 
 # i18n：4 语言键集合一致、无缺失键、占位符跨语言一致、调用点参数齐全
+#      （检查 6 扫 QML 侧的字面量键、检查 7 扫路由表登记的键 —— 这两处以前没有检查）
 uv run python scripts/check_i18n.py
+uv run python scripts/check_i18n.py --only qml     # 只跑 QML 侧那一项
+uv run python scripts/check_i18n.py --only route   # 只跑路由表那一项
 
 # 模块搬家的完整性（主体逐节点一致 / 行数一致 / 旧路径别名同一对象）
 uv run python scripts/relocate_module.py --check
@@ -525,6 +528,48 @@ uv run python poc/_gen_placeholder_pages.py
 > URL 直接拼在 `source:` 表达式上就没有这条多余请求；最小复现见
 > `poc/_probe_fmicon_empty_request.py`，回归用例见
 > `tests/test_icon_provider.py::test_icon_name_becoming_non_empty_never_requests_an_empty_name`。
+
+### 像素级视觉回归（返工 D 组）
+
+上面所有判据都停在**属性层**（`Theme.bgDark` 的值、截图非空、12 张图两两不同）。
+D 组补的是**渲染结果本身**：把窗口帧降采样成 4x4 的块，数"主题令牌有没有落到屏幕上"、
+"有没有一块浅色的外来件"、"页头图标那块像素是不是主题文字色"。
+
+- 判据定义在 `tests/visual_metrics.py`（纯函数，喂一张 `QImage` 就能单测），
+  采集在 `tests/visual_probe.py`（子进程起真引擎，17 s 采 25 帧），
+  断言在 `tests/test_visual_regression.py`（14 例），统计基线在 `tests/visual_baseline.json`。
+- 核心判据是**浅色外来成片 == 0**：颜色"浅"（相对亮度 ≥ 0.5）**且不属于任何主题令牌**，
+  并聚成一个近似矩形（≥ 8 个 4x4 块、填充率 ≥ 0.5）才算"一件东西"。
+  文字与图标都在令牌表里，所以不会误报 —— 这条判据就是 **R9（禁原生控件）的像素级依据**：
+  同一块深色底上，原生 `Button` 刷出 1 片 `#e0e0e0`（270 个块），自研 `FmButton` 是 0 片。
+- 12 个一级页 + 5 个预设主题 + 画廊顶/底两帧，实测**成片数全为 0**、浅色像素占比 ≤ 0.03%、
+  页头图标的近黑像素全为 0（D-141 / D-144 的像素级证据）。真机（DPR=1.25）也量过一遍：
+  `poc/_capture_gallery_native.py` → `poc/review/d_group/native_gallery.png`（成片数同样为 0）。
+  真机与 offscreen 的**浅色占比**能差 20 倍（0.62% vs 0.03%，真机字形抗锯齿更多），
+  **成片数**两边都是 0 —— 所以判据用成片数，不用占比。
+
+同时补了 i18n 闸门的两项盲区（**检查 6** 扫 QML 里的字面量键、**检查 7** 扫路由表
+`nav_bridge._ROUTE_TABLE` 登记的标题键），一次报出 **51 个从来没有词条的键**
+（32 个 `dev_gallery_*` 一类 + 19 个详情页标题），四种语言各补齐（1542 → 1593 键）。
+第二批是**真机截图逐字读**才发现的：组件画廊的页头写着 `dev_gallery_title` ——
+路由标题是 QML 动态解析的键，静态检查两条都够不着。
+
+```bash
+# 跑一遍视觉回归（约 17 s 采集 + 断言；模块标了 slow）
+uv run pytest tests/test_visual_regression.py -q
+
+# 单独采集一批（人复查用，PNG 落在 --out；JSON 里是全部像素统计）
+uv run python tests/visual_probe.py --out poc/review/d_group/visual
+uv run python tests/visual_probe.py --only gallery --json poc/_visual_probe.json
+
+# 有意改了布局/配色之后重生成基线（diff 要看一眼再提交）
+uv run python poc/_update_visual_baseline.py            # 只打印 diff
+uv run python poc/_update_visual_baseline.py --write    # 真的写盘
+```
+
+> **判据自己也要有变异证据**：`poc/_verify_rework_d.py` 会把 R9 与 D-143 / D-144 / D-145
+> 的修复**各撤一次**，确认对应的钉子真的变红，然后**逐字节还原**（SHA256 比对）。
+> 判据型改动最容易出的问题是"钉子其实是空断言"，这是唯一能证明它有牙齿的办法。
 
 ### 构建
 

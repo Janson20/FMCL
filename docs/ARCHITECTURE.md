@@ -553,6 +553,22 @@ qml/App.qml                FluWindow + effect:"normal" + appBar: AppBar
 原因是本项目跑的是 **Basic** 样式（`main_qml.py` 设的 `QT_QUICK_CONTROLS_STYLE`），
 原生控件的颜色来自系统调色板，锁深色的界面里必然是浅色外来件。三条边界：同名包装器放行、
 附着属性名（`ScrollBar.vertical:`）不算、`qml/FatalError.qml` 零依赖豁免。
+这条理由在返工 D 组被**量过**：同一块深色底上，原生 `Button` 刷出 1 片浅色成片
+（`#e0e0e0`×270 个 4x4 块），自研 `FmButton` 是 0 片。
+
+**界面的三层判据（返工 D 组补齐第三层）**：
+
+| 层 | 判什么 | 在哪 |
+|----|--------|------|
+| 组件契约 | 每个 `Fm*` 的属性/信号/文档头 | `tests/test_components_qml.py` |
+| 骨架走查 | 12 页路由、三态、主题/语言热切换、截图非空且两两不同 | `tests/ui_smoke.py` + `tests/test_ui_smoke.py` |
+| **像素** | 主题令牌真的落到屏幕上、没有浅色外来件、图标是主题色、静态帧逐字节稳定 | `tests/visual_metrics.py` + `tests/visual_probe.py` + `tests/test_visual_regression.py`（基线 `tests/visual_baseline.json`） |
+
+```bash
+uv run pytest tests/test_visual_regression.py -q      # 约 17 s 采集 + 断言
+uv run python tests/visual_probe.py --only gallery    # 只采一段，人复查 PNG
+```
+
 
 窗口的拖动由 `FluFrameless` 的 Win32 命中测试实现：**顶栏上每个可交互项都要登记**
 （`App.qml` 遍历 `AppBar.interactiveItems` 调 `setHitTestVisible`），

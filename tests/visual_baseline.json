@@ -1,0 +1,153 @@
+{
+  "schema": 1,
+  "note": "像素统计基线（不是金标准截图）。采集条件：offscreen / Basic 样式 / 主题钉在预设 default 且清掉自定义强调色 / 窗口 1280x840。容差与判据见 tests/test_visual_regression.py；重生成用 poc/_update_visual_baseline.py --write。",
+  "platform": "offscreen",
+  "style": "Basic",
+  "pages": {
+    "home": {
+      "cardBgPct": 61.28,
+      "navBgPct": 17.44,
+      "windowBgPct": 17.36,
+      "meanLuma": 0.0215,
+      "distinct": 303,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 62
+    },
+    "versions": {
+      "cardBgPct": 61.28,
+      "navBgPct": 17.4,
+      "windowBgPct": 17.27,
+      "meanLuma": 0.0216,
+      "distinct": 292,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 28
+    },
+    "resources": {
+      "cardBgPct": 61.27,
+      "navBgPct": 17.46,
+      "windowBgPct": 17.28,
+      "meanLuma": 0.0216,
+      "distinct": 288,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 154
+    },
+    "servers": {
+      "cardBgPct": 61.27,
+      "navBgPct": 17.39,
+      "windowBgPct": 17.31,
+      "meanLuma": 0.0215,
+      "distinct": 295,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 48
+    },
+    "online": {
+      "cardBgPct": 58.97,
+      "navBgPct": 17.42,
+      "windowBgPct": 19.15,
+      "meanLuma": 0.0215,
+      "distinct": 291,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 26
+    },
+    "backups": {
+      "cardBgPct": 61.28,
+      "navBgPct": 17.38,
+      "windowBgPct": 17.33,
+      "meanLuma": 0.0215,
+      "distinct": 299,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 42
+    },
+    "music": {
+      "cardBgPct": 61.28,
+      "navBgPct": 17.37,
+      "windowBgPct": 17.33,
+      "meanLuma": 0.0215,
+      "distinct": 297,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 31
+    },
+    "tools": {
+      "cardBgPct": 61.28,
+      "navBgPct": 17.43,
+      "windowBgPct": 17.34,
+      "meanLuma": 0.0215,
+      "distinct": 293,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 20
+    },
+    "achievements": {
+      "cardBgPct": 61.28,
+      "navBgPct": 17.39,
+      "windowBgPct": 17.29,
+      "meanLuma": 0.0216,
+      "distinct": 288,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 51
+    },
+    "agent": {
+      "cardBgPct": 58.98,
+      "navBgPct": 17.44,
+      "windowBgPct": 19.74,
+      "meanLuma": 0.0212,
+      "distinct": 306,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 18
+    },
+    "bedrock": {
+      "cardBgPct": 61.28,
+      "navBgPct": 17.46,
+      "windowBgPct": 17.24,
+      "meanLuma": 0.0216,
+      "distinct": 301,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 38
+    },
+    "settings": {
+      "cardBgPct": 61.28,
+      "navBgPct": 17.38,
+      "windowBgPct": 17.33,
+      "meanLuma": 0.0215,
+      "distinct": 286,
+      "iconOpaque": 324,
+      "iconNearTextPrimary": 64
+    }
+  },
+  "themes": {
+    "default": {
+      "dominant": "#1e2a4a",
+      "accent": "#e94560",
+      "meanLuma": 0.0215,
+      "distinct": 305,
+      "cardBgPct": 61.28
+    },
+    "ocean": {
+      "dominant": "#1a2d42",
+      "accent": "#00b4d8",
+      "meanLuma": 0.0226,
+      "distinct": 292,
+      "cardBgPct": 61.26
+    },
+    "forest": {
+      "dominant": "#142e1c",
+      "accent": "#2ecc71",
+      "meanLuma": 0.0201,
+      "distinct": 308,
+      "cardBgPct": 62.51
+    },
+    "lavender": {
+      "dominant": "#2a1a45",
+      "accent": "#9b59b6",
+      "meanLuma": 0.0151,
+      "distinct": 318,
+      "cardBgPct": 61.26
+    },
+    "sunset": {
+      "dominant": "#2a1e14",
+      "accent": "#e67e22",
+      "meanLuma": 0.0137,
+      "distinct": 305,
+      "cardBgPct": 79.94
+    }
+  }
+}

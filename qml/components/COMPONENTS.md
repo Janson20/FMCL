@@ -108,6 +108,16 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
    Theme.*（与 D-102 同一类问题；返工 C 组之前 StartupDialogs / LogDemo /
    TextInputDialog / ProgressDialog 里就有这样的件）。
 
+   **这句话现在是量过的，不再是论述**（返工 D 组补的像素级证据）：同一块深色底上，
+   原生 Button 刷出 **1 片浅色成片**（`#e0e0e0`，270 个 4x4 块，填充率 0.87，
+   浅色像素占 5.143%），自研 `FmButton` 是 **0 片 / 0.000%**；
+   12 个一级页 + 5 个预设主题 + 画廊两帧的**成片数全是 0**。
+   判据见 `tests/visual_metrics.py`（"浅色且不属于任何主题令牌、并聚成近似矩形"），
+   断言见 `tests/test_visual_regression.py`，变异证据见 `poc/_verify_rework_d.py --only R9`。
+
+   （写这条时踩过一次坑：把原生类型名加单反引号写进来，`tests/test_components_qml.py`
+   的"白名单里不许有不存在的组件"立刻判红 —— 本节里提到 Qt 原生类型名时**一律不加反引号**。）
+
    R9 的三条边界（写在 `scripts/check_qml_rules.py` 文件头的 R9 那一段，这里给出结论）：
 
    - **同名包装器**放行：自研件本来就得用原生控件实现（`FmSwitch.qml` 的根节点就是

@@ -61,6 +61,7 @@ Rectangle {
             color: Theme?.bgLight ?? "transparent"
 
             Row {
+                id: headerRow
                 anchors.fill: parent
                 anchors.leftMargin: Theme?.spacingSm ?? 0
                 anchors.rightMargin: Theme?.spacingSm ?? 0
@@ -71,7 +72,10 @@ Rectangle {
                     delegate: Text {
                         objectName: "fmTableHeaderCell"
                         width: modelData.width !== undefined ? modelData.width : 120
-                        height: parent.height
+                        // 引用 `headerRow` 而不是 `parent`：`Repeater` 建委托时**父对象还没赋值**，
+                        // `parent.height` 会先求值一次并抛 `TypeError: Cannot read property
+                        // 'height' of null`（缺陷 D-145，`Gallery.qml` 的滚动演示同一个坑）。
+                        height: headerRow.height
                         text: modelData.title !== undefined ? String(modelData.title) : String(modelData.key)
                         color: Theme?.textSecondary ?? "transparent"
                         font.pixelSize: Theme?.fontSizeSmall ?? 10
@@ -122,6 +126,7 @@ Rectangle {
                        : (index % 2 === 0 ? "transparent" : Theme?.bgMedium ?? "transparent")
 
                 Row {
+                    id: rowCells
                     anchors.fill: parent
                     anchors.leftMargin: Theme?.spacingSm ?? 0
                     anchors.rightMargin: Theme?.spacingSm ?? 0
@@ -133,7 +138,8 @@ Rectangle {
                             objectName: "fmTableCell"
                             property var columnData: modelData
                             width: columnData.width !== undefined ? columnData.width : 120
-                            height: parent.height
+                            // 同上（D-145）：委托根不能读 `parent.*`
+                            height: rowCells.height
                             text: rowItem.rowData ? String(rowItem.rowData[columnData.key] ?? "") : ""
                             color: Theme?.textPrimary ?? "transparent"
                             font.pixelSize: Theme?.fontSizeSmall ?? 10

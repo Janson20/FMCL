@@ -1552,6 +1552,7 @@ Item {
                     contentWidth: availableWidth
 
                     Column {
+                        id: scrollDemoColumn
                         width: galleryScrollerDemo.availableWidth
                         spacing: Theme?.spacingXs ?? 0
 
@@ -1559,7 +1560,11 @@ Item {
                             model: 24
 
                             Text {
-                                width: parent.width
+                                // 引用 `scrollDemoColumn` 而不是 `parent`：`Repeater` 建委托时
+                                // 父对象还没赋值，`parent.width` 会先抛一次
+                                // `TypeError: Cannot read property 'width' of null`
+                                // （缺陷 D-145；24 个委托 = 每次进画廊刷 24 条）
+                                width: scrollDemoColumn.width
                                 text: "scroll row " + index
                                 color: Theme?.textSecondary ?? "transparent"
                                 font.pixelSize: Theme?.fontSizeSmall ?? 10

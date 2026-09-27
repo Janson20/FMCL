@@ -79,14 +79,32 @@ class Findings:
     missing_call_kwargs: List[Tuple[str, List[str], Usage]] = field(default_factory=list)
     unused: List[str] = field(default_factory=list)
     dynamic_calls: List[Usage] = field(default_factory=list)
+    #: QML 侧扫描结果（返工 D 组）：引用到的静态键数量、动态键、缺键。
+    qml_usages: int = 0
+    qml_dynamic_calls: List[Usage] = field(default_factory=list)
+    qml_absent: Dict[str, List[Usage]] = field(default_factory=dict)
+    #: 路由表 / 导航分组里登记的键与其中的缺键（返工 D 组追加）。
+    route_keys: List[Usage] = field(default_factory=list)
+    route_absent: Dict[str, List[Usage]] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
+        """整体判定。**必须与 `report()` 的 `problems` 口径一致**（见测试
+        `test_ok_property_agrees_with_exit_code`）。
+
+        第一版写的是 `not self.lang_missing` —— 而 `check_language_parity` 总会给
+        **每个**语言建一个键（内容可能是空列表），字典非空但没有任何问题，
+        于是 `ok` **永远是 False**。CLI 走的是 `problems` 计数而不是这个属性，
+        所以这个错一直没被看见（返工 D 组给闸门补测试时抓到）。
+        `lang_extra`（参照语言没有的键）按原判据**只报不判失败**，这里保持一致。
+        """
         return not (
-            self.lang_missing
+            any(self.lang_missing.values())
             or self.used_but_absent
             or self.placeholder_mismatch
             or self.missing_call_kwargs
+            or self.qml_absent
+            or self.route_absent
         )
 
 
@@ -290,6 +308,215 @@ def check_call_site_kwargs(
     return problems
 
 
+# ─── QML 侧取词（返工 D 组补：语言文件是 ui/locales，但 QML 也在读它） ──
+#
+# 为什么必须补这一项：本脚本原来的扫描范围是**Python**（`CODE_ROOTS`），
+# 而 QML 侧走的是 `Tr?.map["key"]` —— 语言文件对两侧是同一份，检查却只覆盖了
+# 一侧。返工 C 组给画廊补 5 个键时就是手工数的（`poc/_fix_locale_newlines.py`），
+# D 组一量才发现另有 **27 个** `dev_gallery_*` 键从来没进过语言文件：
+# 它们在界面上直接显示成键名本身（`dev_gallery_hint_button`），而闸门一直是绿的。
+
+#: QML 里取键的两种写法：绑定用 `Tr?.map["k"]`（`Tr.map["k"]` 也允许），
+#: 命令式用 `Tr.t("k")`。方括号里是**变量**（`Tr?.map[modelData.title_key]`）的
+#: 无法静态判定，单独计入 `dynamic_calls`。
+QML_KEY_RES: Tuple["re.Pattern[str]", ...] = (
+    re.compile(r"""Tr\??\.map\s*\[\s*["']([A-Za-z0-9_]+)["']\s*\]"""),
+    re.compile(r"""Tr\??\.t\s*\(\s*["']([A-Za-z0-9_]+)["']"""),
+)
+#: QML 动态取键（方括号里不是字面量）
+QML_DYNAMIC_RE = re.compile(r"""Tr\??\.map\s*\[\s*([^"'\]]+?)\s*\]""")
+
+#: QML 扫描根（相对仓库根）
+QML_ROOTS: Tuple[str, ...] = ("qml",)
+
+
+def iter_qml_files() -> List[Path]:
+    out: List[Path] = []
+    for root in QML_ROOTS:
+        base = REPO_ROOT / root
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*.qml")):
+            if any(part in SKIP_DIRS for part in path.parts):
+                continue
+            out.append(path)
+    return out
+
+
+def strip_qml_comments(text: str) -> str:
+    """把 QML 注释抹成空格（换行保留，所以行号不变）。
+
+    为什么必须抹：本仓库的组件文件头大量用 `Tr?.map[…]` 举例说明写法，
+    不抹注释就会把**示例**当成"代码引用了这个键"（第一版就是这么把
+    `FmPage.qml` 注释里的 `versions_none` 报成缺键的），注释里的省略号
+    也会被当成动态键。**字符串字面量必须留着** —— 取键的写法就在字符串里。
+
+    坑：`//` 也出现在 URL 里（`image://fmcl-icon/…`），所以要看"当前是否在字符串内"。
+    模板字符串（反引号）与正则字面量本仓库没有用到，这里不处理。
+    """
+    out: List[str] = []
+    index = 0
+    length = len(text)
+    quote = ""
+    while index < length:
+        char = text[index]
+        if quote:
+            out.append(char)
+            if char == "\\" and index + 1 < length:
+                out.append(text[index + 1])
+                index += 2
+                continue
+            if char == quote:
+                quote = ""
+            index += 1
+            continue
+        if char in "\"'":
+            quote = char
+            out.append(char)
+            index += 1
+            continue
+        if char == "/" and index + 1 < length and text[index + 1] == "/":
+            while index < length and text[index] != "\n":
+                out.append(" ")
+                index += 1
+            continue
+        if char == "/" and index + 1 < length and text[index + 1] == "*":
+            while index < length and not (text[index] == "*" and index + 1 < length
+                                          and text[index + 1] == "/"):
+                out.append("\n" if text[index] == "\n" else " ")
+                index += 1
+            out.append("  ")
+            index += 2
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def qml_usages_in_text(path: Path, text: str) -> Tuple[List[Usage], List[Usage]]:
+    """从**一段 QML 文本**里取键（注释先抹掉），返回（静态键, 动态键）。
+
+    单独抽出来是为了能被测试直接喂字符串：闸门自己也要被测
+    （见 `tests/test_i18n_gate.py`）。
+    """
+    scanned = strip_qml_comments(text)
+    static: List[Usage] = []
+    dynamic: List[Usage] = []
+    found: Set[Tuple[int, str]] = set()
+    for regex in QML_KEY_RES:
+        for match in regex.finditer(scanned):
+            key = match.group(1)
+            line = scanned.count("\n", 0, match.start()) + 1
+            if (line, key) in found:
+                continue
+            found.add((line, key))
+            static.append(Usage(key=key, file=path, line=line))
+    for match in QML_DYNAMIC_RE.finditer(scanned):
+        inner = match.group(1).strip()
+        if inner.startswith(("'", '"')):
+            continue  # 字面量，上面已经收过
+        line = scanned.count("\n", 0, match.start()) + 1
+        dynamic.append(Usage(key=f"<{inner}>", file=path, line=line))
+    return static, dynamic
+
+
+def collect_qml_usages() -> Tuple[List[Usage], List[Usage]]:
+    """扫 `qml/**` 里的取键调用，返回（静态键, 动态键）。注释先抹掉。"""
+    static: List[Usage] = []
+    dynamic: List[Usage] = []
+    for path in iter_qml_files():
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as e:
+            print(f"[错误] 读不了 {path}: {e}", file=sys.stderr)
+            continue
+        file_static, file_dynamic = qml_usages_in_text(path, text)
+        static.extend(file_static)
+        dynamic.extend(file_dynamic)
+    return static, dynamic
+
+
+def check_qml_keys(
+    locales: Dict[str, Dict[str, str]],
+    usages: List[Usage],
+) -> Dict[str, List[Usage]]:
+    """QML 引用、但**任何语言文件里都没有**的键。
+
+    判据与检查 2 相同（缺键在界面上显示成键名），只是扫描面从 Python 换到 QML。
+    注意：QML 里普遍写着 ``Tr?.map[k] ?? k`` 的兜底 —— 兜底**不**算有词条，
+    它只是把"找不到"变成"显示键名"，用户看到的仍然是英文键名。
+    """
+    all_keys: Set[str] = set()
+    for table in locales.values():
+        all_keys |= set(table)
+    absent: Dict[str, List[Usage]] = {}
+    for usage in usages:
+        if usage.key not in all_keys:
+            absent.setdefault(usage.key, []).append(usage)
+    return absent
+
+
+# ─── 路由表里的 i18n 键（返工 D 组追加的一项） ────────────────────
+#
+# 为什么还要单独查这一处：`app/bridges/nav_bridge.py` 的 `_ROUTE_TABLE` 把**键名写在表里**
+# （`("versions/detail", "version_detail_title", …)`），QML 侧用
+# `Tr?.map[modelData.title_key]` **动态**解析 —— 于是检查 2（扫 Python 的 `_()` 调用）
+# 与检查 6（扫 QML 字面量）**都看不见它**。后果是真机上直接可见的：
+# 面包屑与页头显示成 `version_detail_title` 这个键名本身
+# （D 组就是"去真机截图上多看一眼"才发现组件画廊的页头写着 `dev_gallery_title`）。
+#
+# 解析方式：**静态读 AST**，不 import 桥（闸门不该为了查键去拉起 Qt 依赖）。
+# 取 `_ROUTE_TABLE` 的第 1 列（title_key）与第 5 列（description_key）、
+# `NAV_GROUPS` 的第 1 列（组标题键）。
+
+#: 路由表的列：`(id, title_key, icon, parent, qml, description_key)`。
+ROUTE_TABLE_FILE = "app/bridges/nav_bridge.py"
+ROUTE_KEY_TABLES: Tuple[Tuple[str, Tuple[int, ...]], ...] = (
+    ("_ROUTE_TABLE", (1, 5)),
+    ("NAV_GROUPS", (1,)),
+)
+
+
+def route_table_keys() -> List[Usage]:
+    """路由表 / 导航分组里登记的所有 i18n 键（静态解析，不 import app 代码）。"""
+    path = REPO_ROOT / ROUTE_TABLE_FILE
+    if not path.is_file():
+        return []
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except SyntaxError as e:
+        print(f"[错误] 解析 {ROUTE_TABLE_FILE} 失败: {e}", file=sys.stderr)
+        return []
+    usages: List[Usage] = []
+    for node in ast.walk(tree):
+        targets = []
+        if isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        elif isinstance(node, ast.Assign):
+            targets = list(node.targets)
+            value = node.value
+        else:
+            continue
+        names = {t.id for t in targets if isinstance(t, ast.Name)}
+        for table_name, columns in ROUTE_KEY_TABLES:
+            if table_name not in names or not isinstance(value, ast.Tuple):
+                continue
+            for row in value.elts:
+                if not isinstance(row, ast.Tuple):
+                    continue
+                for column in columns:
+                    if len(row.elts) <= column:
+                        continue
+                    cell = row.elts[column]
+                    if not isinstance(cell, ast.Constant) or not isinstance(cell.value, str):
+                        continue
+                    key = cell.value.strip()
+                    if key:
+                        usages.append(Usage(key=key, file=path, line=int(cell.lineno)))
+    return usages
+
+
 def build_findings() -> Findings:
     locales = load_locales()
     static, dynamic = collect_usages()
@@ -297,6 +524,12 @@ def build_findings() -> Findings:
     f.dynamic_calls = dynamic
     f.placeholder_mismatch = check_placeholders(locales)
     f.missing_call_kwargs = check_call_site_kwargs(locales, static)
+    qml_static, qml_dynamic = collect_qml_usages()
+    f.qml_usages = len(qml_static)
+    f.qml_dynamic_calls = qml_dynamic
+    f.qml_absent = check_qml_keys(locales, qml_static)
+    f.route_keys = route_table_keys()
+    f.route_absent = check_qml_keys(locales, f.route_keys)
 
     all_keys: Set[str] = set()
     for table in locales.values():
@@ -382,6 +615,39 @@ def report(f: Findings, show_missing: bool, show_unused: int, locales_count: int
             print(f"        {rel}:{usage.line}  调用点已传: {sorted(usage.kwargs) or '（无）'}")
     print()
 
+    print("[检查 6] QML 引用了、但语言文件里没有的键")
+    print(f"  扫到 {f.qml_usages} 处静态取键（`Tr?.map[\"k\"]` / `Tr.t(\"k\")`）")
+    if not f.qml_absent:
+        print("  通过（0 个）")
+    else:
+        problems += len(f.qml_absent)
+        print(f"  缺 {len(f.qml_absent)} 个 —— 这些键在界面上会显示成键名本身"
+              "（QML 普遍写着 `?? k` 的兜底，兜底只是把'找不到'变成'显示键名'）：")
+        for key, usages in sorted(f.qml_absent.items()):
+            files = "、".join(sorted({
+                f"{u.file.relative_to(REPO_ROOT)}:{u.line}" for u in usages}))
+            print(f"    {key!r}  {len(usages)} 处：{files}")
+    if f.qml_dynamic_calls:
+        print(f"  另有 {len(f.qml_dynamic_calls)} 处**动态键**（方括号里是变量）无法静态判定：")
+        for u in f.qml_dynamic_calls[:10]:
+            print(f"      {u.file.relative_to(REPO_ROOT)}:{u.line}  Tr.map[{u.key[1:-1]}]")
+        if len(f.qml_dynamic_calls) > 10:
+            print(f"      ...（还有 {len(f.qml_dynamic_calls) - 10} 处）")
+    print()
+
+    print("[检查 7] 路由表 / 导航分组登记的键是否存在")
+    print(f"  扫到 {len(f.route_keys)} 个键（`{ROUTE_TABLE_FILE}` 的 `_ROUTE_TABLE` 与 `NAV_GROUPS`）")
+    if not f.route_absent:
+        print("  通过（0 个）")
+    else:
+        problems += len(f.route_absent)
+        print(f"  缺 {len(f.route_absent)} 个 —— 这些键会显示在**面包屑与页头**上"
+              "（QML 侧是 `Tr?.map[modelData.title_key]`，动态解析，前面两项检查都看不见）：")
+        for key, usages in sorted(f.route_absent.items()):
+            where = "、".join(f"{u.file.relative_to(REPO_ROOT)}:{u.line}" for u in usages)
+            print(f"    {key!r}  {where}")
+    print()
+
     print("[检查 4] 语言文件有但代码从不引用的键")
     print(f"  共 {len(f.unused)} 个")
     if show_unused:
@@ -411,7 +677,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--show-unused", type=int, default=0, metavar="N", help="列出前 N 个零引用键")
     parser.add_argument(
         "--only",
-        choices=["parity", "missing", "placeholders", "unused"],
+        choices=["parity", "missing", "placeholders", "unused", "qml", "route"],
         help="只跑某一项检查",
     )
     args = parser.parse_args(argv)
@@ -423,23 +689,48 @@ def main(argv: Sequence[str] | None = None) -> int:
     f = build_findings()
     locales_count = len(list(LOCALES_DIR.glob("*.json")))
 
+    # `--only X` 的语义：**只留 X**，其余检查的结果全部清掉（否则别的检查的缺键会一起报）。
+    # 每加一项新检查都要在这五个分支里补上它，否则 `--only` 会误报 ——
+    # 这也是把它写成"先全清、再按项保留"更不容易漏的原因（下面按项清）。
     if args.only == "parity":
         f.used_but_absent.clear()
         f.placeholder_mismatch.clear()
+        f.qml_absent.clear()
+        f.route_absent.clear()
     elif args.only == "missing":
         f.lang_missing.clear()
         f.lang_extra.clear()
         f.placeholder_mismatch.clear()
+        f.qml_absent.clear()
+        f.route_absent.clear()
     elif args.only == "placeholders":
         f.lang_missing.clear()
         f.lang_extra.clear()
         f.used_but_absent.clear()
+        f.qml_absent.clear()
+        f.route_absent.clear()
     elif args.only == "unused":
         f.lang_missing.clear()
         f.lang_extra.clear()
         f.used_but_absent.clear()
         f.placeholder_mismatch.clear()
+        f.qml_absent.clear()
+        f.route_absent.clear()
         args.show_unused = args.show_unused or 50
+    elif args.only == "qml":
+        f.lang_missing.clear()
+        f.lang_extra.clear()
+        f.used_but_absent.clear()
+        f.placeholder_mismatch.clear()
+        f.missing_call_kwargs.clear()
+        f.route_absent.clear()
+    elif args.only == "route":
+        f.lang_missing.clear()
+        f.lang_extra.clear()
+        f.used_but_absent.clear()
+        f.placeholder_mismatch.clear()
+        f.missing_call_kwargs.clear()
+        f.qml_absent.clear()
 
     return report(f, args.show_missing, args.show_unused, locales_count)
 

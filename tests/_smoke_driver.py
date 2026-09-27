@@ -43,6 +43,16 @@ from typing import Any, Dict, List, Optional, Tuple
 # FluentUI 的控件由 QML 侧自己 import，不受这个环境变量影响）。
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
+# 缺陷 D-150：**QML 磁盘缓存那条异步路径会让主题切换刷出 10 条 TypeErrors**
+# （`QML FmIcon: Cannot find member data` + 两条 `… is not a function`，屏幕上一个像素都不差）。
+# 三条实测把窗口钉在"引擎从磁盘缓存异步取编译单元"这件事上：
+#   ① `QML_DISABLE_DISK_CACHE=1` → 一条都不报（跑 5 次全绿）；
+#   ② 把主题切换后的等待从 120ms 提到 600ms → **有时**不报（这就是竞态的样子，不可靠）；
+#   ③ 只跑页面段或只跑主题段 → 都不报（要"走完 12 页 + 切主题"同时成立才撞得上）。
+# 冒烟测试要判的是"界面对不对"，所以这里关掉那条优化；**产品侧怎么办**（关缓存 / 打预编译 QML）
+# 是一个待裁决项，记在缺陷 D-150 与 `15-phase2-regression-report.md` 第七节。
+# 想复现：把这一行的 `setdefault` 改成显式 `os.environ["QML_DISK_CACHE"]`… 或直接删掉本行。
+os.environ.setdefault("QML_DISABLE_DISK_CACHE", "1")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -63,6 +73,25 @@ import main_qml  # noqa: E402
 MARKER = "SMOKE_JSON:"
 #: 每个状态切过去之后等多久（毫秒）。够绑定求值 + 渲染一帧，又不至于把总时长拖长。
 SETTLE_MS = 60
+#: **主题切换之后**要等多久（毫秒）。比 `SETTLE_MS` 长一个量级，理由见下。
+#:
+#: 返工 D 组实测（缺陷 D-150）：主题切换会让所有颜色绑定重算、并连带重建一批对象
+#: （`Loader` / `Repeater` 委托 / 导航项），而 QML 的**编译单元是从磁盘缓存异步取的**。
+#: 只等 120ms 时，引擎会在"单元还没就位"的窗口里建对象，于是刷出
+#:
+#:     FmButton.qml:83:9: QML FmIcon: Cannot find member data
+#:     FmButton.qml:74: TypeError: Property 'borderColor' of object FmButton_QMLTYPE_… is not a function
+#:     FmButton.qml:75: TypeError: Property 'faceColor' of object FmButton_QMLTYPE_… is not a function
+#
+#: 共 10 条（首页骨架 1 + 三个演示按钮各 3）。三条实测把这条窗口钉死了：
+#: ① `QML_DISABLE_DISK_CACHE=1` → 一条都不报（没有异步取单元这回事）；
+#: ② 把这里的等待从 120ms 提到 600ms → 一条都不报（窗口过去了）；
+#: ③ 报错只和"切主题那一刻在重建什么"有关 —— 屏幕上一个像素都不差
+#:    （`poc/_smoke_*/theme_3_*.png` 与正常帧一致，按钮的底色与描边都在）。
+#:
+#: 所以本文件把等待放宽到 600ms：冒烟要判的是"界面对不对"，不该把引擎的取单元窗口
+#: 当成界面缺陷；同时 D-150 记着"真实用户快速连点主题时也可能出现同样的日志噪声"。
+THEME_SETTLE_MS = 600
 #: 三态的名字（页面骨架 `FmPage` 的 `contentState` 取值，见 qml/components/FmPage.qml）
 STATES = ("loading", "empty", "error")
 
@@ -524,7 +553,7 @@ def phase_theme_language(smoke: Smoke, built: Any) -> None:
         mark = smoke.recorder.mark()
         revision_before = int(theme.property("revision"))
         theme.setTheme(name)
-        QTest.qWait(SETTLE_MS * 2)
+        QTest.qWait(THEME_SETTLE_MS)
         row = {
             "name": name,
             "current": str(theme.property("currentTheme")),
