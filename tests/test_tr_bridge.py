@@ -44,6 +44,27 @@ def _app():
     return app
 
 
+@pytest.fixture(autouse=True)
+def _restore_i18n_state():
+    """每个用例前后都把**全局 i18n 状态**还原。
+
+    为什么必须有：`TrBridge` 一构造就 `init_i18n(...)`，改的是 `services.i18n_service`
+    的模块级 `_translations` / `_current_language` —— 那是**全进程共享**的。
+    本文件里有用例会把语言切到 en_US（D-160 的判据就是这么写的），
+    不还原的话后面所有走 `_()` 的测试都会拿到英文文案
+    （实测踩到：`tests/test_music_service.py` 的 `assert ... == "2 首"` 变红，
+    而单独跑它是绿的）。
+    """
+    from services import i18n_service
+
+    saved_lang = i18n_service.get_current_language()
+    saved = dict(i18n_service._translations)
+    yield
+    i18n_service._translations.clear()
+    i18n_service._translations.update(saved)
+    i18n_service._current_language = saved_lang
+
+
 class FakeConfig(QObject):
     """假配置：**避免测试去改真实的 `config.json`**。"""
 

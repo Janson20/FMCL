@@ -278,6 +278,8 @@
   "settings_mirror": "🇨🇳 Use Chinese mirror",
   "settings_download_threads": "⚡ Download threads",
   "settings_language": "🌐 Interface Language",
+  "first_run_language_title": "Choose your language",
+  "first_run_language_hint": "First launch — pick the interface language. You can change it later in Settings → Launcher.",
   "settings_close": "Close",
   "settings_minimize_enabled": "Minimize after game launch: Enabled",
   "settings_minimize_disabled": "Minimize after game launch: Disabled",

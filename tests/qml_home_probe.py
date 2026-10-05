@@ -218,6 +218,27 @@ FAKE_ACCOUNT = FakeAccount()
 FAKE_ACH = FakeAchievement()
 FAKE_STARTUP = FakeStartup()
 
+
+class PinnedConfig:
+    """只用于**钉住界面语言**的内存配置。
+
+    为什么必须钉：`TrBridge` 无参构造时会去读根模块的 `config`（缺陷 D-160 的修法），
+    于是"开发机上把界面语言改成 en_US"会让本探针里所有中文断言集体变红
+    （本轮实测踩到：全量测试里本文件红了 6 条）。探针的环境必须自洽。
+    """
+
+    def __init__(self, language: str = "zh_CN") -> None:
+        self.language = language
+        self.language_chosen = True
+
+    def save_config(self) -> bool:
+        return True
+
+
+from app.bridges import tr_bridge as _tr_bridge  # noqa: E402
+
+_tr_bridge._root_config = lambda: PinnedConfig()  # type: ignore[assignment]
+
 CONTEXT = build_context(config=None, register=True, set_current=False)
 CONTEXT.register_instance("game", FAKE_GAME, replace=True)
 CONTEXT.register_instance("account", FAKE_ACCOUNT, replace=True)

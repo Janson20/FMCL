@@ -68,6 +68,8 @@ class StartupController(QObject):
     statusChanged = Signal(str, str)
     #: 需要显示用户协议/AI 隐私同意弹窗
     agreementRequired = Signal()
+    #: 需要显示"首次启动选界面语言"弹窗（QML 版新增；Tk 版不做，它即将退役）
+    languageRequired = Signal()
     #: 公告拉到了（内容非空才发）
     noticeReady = Signal(str)
     #: 本次会话有没有公告可看（首页的"公告入口"要它）
@@ -91,6 +93,7 @@ class StartupController(QObject):
         notice_fetcher: Optional[Callable[[], Optional[str]]] = None,
         predownload_runner: Optional[Callable[[], Any]] = None,
         terms_loader: Optional[Callable[[], str]] = None,
+        language_required: Optional[Callable[[], bool]] = None,
         launcher_wiring: Optional[Callable[[Any], None]] = None,
         update_checker: Optional[Callable[[], Any]] = None,
         clock: Callable[[], float] = time.monotonic,
@@ -123,6 +126,9 @@ class StartupController(QObject):
         #: 协议全文的读取器（默认 `services.legal_service.load_terms_text`）。**测试注入点**：
         #: 默认实现读仓库根的 `TERMS_OF_USE.md`（16 KB），测试没必要真读盘。
         self._terms_loader = terms_loader or self._default_terms_loader
+        #: "要不要问界面语言"的判定（默认读 `config.language_chosen`）。**测试注入点**：
+        #: 不注入的话用例会依赖开发机上那份 `config.json`（它有没有 `language` 键）。
+        self._language_required = language_required
         #: 懒加载缓存（协议全文只读一次；`termsText` 是 constant 属性）
         self._terms_cache: Optional[str] = None
         #: 核心接线（端口/账号系统/游戏语言）。**测试注入点**：默认实现会碰真实
@@ -499,14 +505,25 @@ class StartupController(QObject):
     def _auto_update_enabled(self) -> bool:
         return bool(self._config_value("auto_check_update", False))
 
-    def _config_value(self, name: str, default: Any) -> Any:
-        """读一个配置项：优先 `AppContext` 里那份（测试可注入），回退全局单例。"""
+    def _config_object(self) -> Any:
+        """取那份"进程级唯一配置"：优先 `AppContext` 里的（测试可注入），回退根模块单例。"""
         try:
             config = getattr(self._context, "config", None) if self._context is not None else None
             if config is None:
                 from config import config as global_config
 
                 config = global_config
+            return config
+        except Exception as e:  # noqa: BLE001
+            logger.warning("取配置对象失败: %s", e)
+            return None
+
+    def _config_value(self, name: str, default: Any) -> Any:
+        """读一个配置项（配置对象取不到时返回默认值）。"""
+        config = self._config_object()
+        if config is None:
+            return default
+        try:
             return getattr(config, name, default)
         except Exception as e:  # noqa: BLE001 - 读配置失败按默认值处理
             logger.warning("读取配置 %s 失败（用默认值 %r）: %s", name, default, e)
@@ -620,20 +637,55 @@ class StartupController(QObject):
         """取 QML 侧的桥（`main_qml` 注册进 `engine._fmcl_bridges`，这里由入口回填）。"""
         return (self._bridges or {}).get(name)
 
-    # ─── 协议 → 公告 → 预下载 ───────────────────────────────
+    # ─── 首次启动选语言 → 协议 → 公告 → 预下载 ───────────────
+
+    def _language_chosen(self) -> bool:
+        """用户是否已经选过界面语言（首次启动要问一次）。
+
+        **默认实现读配置**；测试可以整体替换（`language_required` 注入点），
+        免得用例依赖"开发机上那份 config.json 长什么样"。
+        """
+        if self._language_required is not None:
+            try:
+                return not bool(self._language_required())
+            except Exception as e:  # noqa: BLE001 - 判不出来就按"已选过"处理（不打扰用户）
+                logger.warning("判断是否要问语言失败（按已选过处理）: %s", e)
+                return True
+        return bool(self._config_value("language_chosen", False))
+
+    @Slot()
+    def chooseLanguage(self) -> None:  # noqa: N802
+        """QML 侧选完语言：记下"已选过"并回到链条。
+
+        **语言本身不由这里写** —— `Tr.setLanguage(code)` 已经承担了"切语言 + 落盘"
+        （`tests/test_tr_bridge.py::test_language_is_persisted_to_config` 钉着它）。
+        这里只写"用户已经做过这个选择"这个事实（`config.language_chosen`），
+        两件事各归各位，不重复实现。
+        """
+        try:
+            config = self._config_object()
+            if config is not None:
+                config.language_chosen = True
+                save = getattr(config, "save_config", None)
+                if callable(save):
+                    save()
+        except Exception as e:  # noqa: BLE001 - 写不进去也要让用户能继续用
+            logger.error("记录「已选过语言」失败: %s", e)
+        self._chrono.append(("language_chosen", int((self._clock() - self._started_at) * 1000)))
+        self._continue_to_agreement()
 
     def _check_agreement(self) -> None:
-        try:
-            from config import config
+        # 首次启动**先问语言**：协议全文是按语言渲染的，先问再给条款才合理。
+        if not self._language_chosen():
+            self._chrono.append(("language_required", int((self._clock() - self._started_at) * 1000)))
+            self.languageRequired.emit()
+            return
+        self._continue_to_agreement()
 
-            agreed = bool(getattr(config, "terms_consent", False)) and bool(
-                getattr(config, "ai_privacy_consent", False)
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("读取协议同意状态失败（按已同意处理）: %s", e)
-            agreed = True
-
-        if not agreed:
+    def _continue_to_agreement(self) -> None:
+        if not bool(self._config_value("terms_consent", False)) or not bool(
+            self._config_value("ai_privacy_consent", False)
+        ):
             self._chrono.append(("agreement_required", int((self._clock() - self._started_at) * 1000)))
             self.agreementRequired.emit()
             return
@@ -643,13 +695,13 @@ class StartupController(QObject):
     def confirmAgreement(self) -> None:  # noqa: N802
         """QML 侧用户点了"同意"：写回两个标志并继续链条。"""
         try:
-            from config import config
-
-            config.terms_consent = True
-            config.ai_privacy_consent = True
-            save = getattr(config, "save_config", None)
-            if callable(save):
-                save()
+            config = self._config_object()
+            if config is not None:
+                config.terms_consent = True
+                config.ai_privacy_consent = True
+                save = getattr(config, "save_config", None)
+                if callable(save):
+                    save()
         except Exception as e:  # noqa: BLE001 - 写不进去也要让用户能继续用
             logger.error("写入协议同意状态失败: %s", e)
         self._chrono.append(("agreement_confirmed", int((self._clock() - self._started_at) * 1000)))

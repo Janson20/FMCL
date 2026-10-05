@@ -278,6 +278,8 @@
   "settings_mirror": "🇨🇳 中国ミャーを使用",
   "settings_download_threads": "⚡ ダウンロードスレッド数",
   "settings_language": "🌐 インターフェース言語",
+  "first_run_language_title": "表示言語を選択",
+  "first_run_language_hint": "初回起動です。表示言語を選んでください（後から「設定 → ランチャー」で変更できます）",
   "settings_close": "閉じる",
   "settings_minimize_enabled": "ゲーム起動後に最小化: 有効",
   "settings_minimize_disabled": "ゲーム起動後に最小化: 無効",

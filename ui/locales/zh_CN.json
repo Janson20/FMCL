@@ -278,6 +278,8 @@
   "settings_mirror": "🇨🇳 使用国内镜像源",
   "settings_download_threads": "⚡ 下载线程数",
   "settings_language": "🌐 界面语言",
+  "first_run_language_title": "选择界面语言",
+  "first_run_language_hint": "首次启动，请选择界面语言（之后可在「设置 → 启动器」里更改）",
   "settings_close": "关闭",
   "settings_minimize_enabled": "游戏启动后最小化: 已启用",
   "settings_minimize_disabled": "游戏启动后最小化: 已禁用",

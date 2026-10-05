@@ -32,6 +32,13 @@ Item {
     property bool noticeOpen: false
     property string noticeText: ""
 
+    //: **首次启动选界面语言**（A-27，用户 2026-10-05 转达的网友需求）。
+    //: 它排在协议之前 —— 协议全文是按语言渲染的，先问语言再给条款才合理。
+    //: 选中的语言先落进 `Tr`（`Tr.setLanguage` 自己会写 `config.language`），
+    //: 再由 `Startup.chooseLanguage()` 记下"已选过"并继续链条。
+    property bool languageOpen: false
+    property string languageChoice: ""
+
     //: 协议全文（`Startup.termsText`，Markdown 原文）。**做成根上的只读属性**而不是
     //: 内联在滚动视图里：`typeof Startup !== "undefined"` 的判空只写一处，
     //: 也让下面那句 `textFormat` 有单一的真值来源。读不到时为空串 → 用摘要兜底。
@@ -51,6 +58,20 @@ Item {
         noticeOpen = true
     }
 
+    function openLanguage() {
+        // 默认选中当前语言（`Tr.language` 可能是系统语言推断出来的）
+        languageChoice = Tr ? String(Tr.language ?? "") : ""
+        languageOpen = true
+    }
+
+    function confirmLanguage() {
+        if (languageChoice.length > 0 && Tr)
+            Tr.setLanguage(languageChoice)   // 切语言 + 写 config.language
+        languageOpen = false
+        if (typeof Startup !== "undefined" && Startup)
+            Startup.chooseLanguage()          // 记下"已选过"并继续链条
+    }
+
     function t(key) {
         return Tr ? (Tr?.map[key] ?? key) : key
     }
@@ -65,8 +86,83 @@ Item {
             root.openAgreement()
         }
 
+        function onLanguageRequired() {
+            root.openLanguage()
+        }
+
         function onNoticeReady(content) {
             root.openNotice(content)
+        }
+    }
+
+    // ── 首次启动：选界面语言（A-27；排在协议之前）──────────────────
+    Rectangle {
+        objectName: "languageOverlay"
+        anchors.fill: parent
+        visible: root.languageOpen
+        color: Theme?.scrim ?? "transparent"
+        z: 190
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(460, parent.width - 80)
+            height: languageColumn.implicitHeight + 2 * (Theme?.spacingLg ?? 20)
+            color: Theme?.overlayBg ?? "transparent"
+            border.width: 1
+            border.color: Theme?.cardBorder ?? "transparent"
+            radius: Theme?.radiusLg ?? 12
+
+            ColumnLayout {
+                id: languageColumn
+                anchors.fill: parent
+                anchors.margins: Theme?.spacingLg ?? 20
+                spacing: Theme?.spacingMd ?? 15
+
+                Text {
+                    objectName: "languageTitle"
+                    Layout.fillWidth: true
+                    text: root.t("first_run_language_title")
+                    color: Theme?.textPrimary ?? "transparent"
+                    font.pixelSize: Theme?.fontSizeTitle ?? 18
+                    font.bold: true
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: root.t("first_run_language_hint")
+                    color: Theme?.textSecondary ?? "transparent"
+                    font.pixelSize: Theme?.fontSizeSmall ?? 10
+                    wrapMode: Text.WordWrap
+                }
+
+                // 四种语言各一行单选 —— 选项来自 `Tr.availableLanguages`（不在这里写死）
+                Repeater {
+                    objectName: "languageOptions"
+                    model: Tr ? Tr.availableLanguages : []
+                    delegate: FmRadio {
+                        objectName: "languageOption_" + modelData.code
+                        Layout.fillWidth: true
+                        text: modelData.name
+                        checked: root.languageChoice === modelData.code
+                        onToggled: {
+                            if (checked)
+                                root.languageChoice = modelData.code
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+
+                    FmButton {
+                        objectName: "languageConfirmButton"
+                        primary: true
+                        text: root.t("confirm")
+                        onClicked: root.confirmLanguage()
+                    }
+                }
+            }
         }
     }
 

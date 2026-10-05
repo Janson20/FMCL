@@ -294,6 +294,12 @@ class Config:
         # 语言设置
         self.language: str = self.DEFAULT_LANGUAGE
 
+        #: 用户**是否已经选过**界面语言（QML 版首次启动会问一次）。
+        #: 与 `language` 分开是必须的：`language` 有默认值（zh_CN），光看它分不出
+        #: "从没选过"和"选了中文"。迁移规则见 `_load()`：老配置里只要有 `language` 键，
+        #: 就视为已选过（否则所有老用户升级后都会被问一次，而他们的语言本来就是对的）。
+        self.language_chosen: bool = False
+
         # 主题设置
         self.theme_name: str = "default"
         self.accent_color: Optional[str] = None
@@ -425,6 +431,12 @@ class Config:
                 self.backup_auto_exit = data["backup_auto_exit"]
             if "language" in data:
                 self.language = data["language"]
+                # 迁移：老配置（没有 `language_chosen` 键）里出现过 `language` ⇒ 视为已选过。
+                # 显式写了 `language_chosen` 的以它为准（新配置两条都会有）。
+                if "language_chosen" not in data:
+                    self.language_chosen = True
+            if "language_chosen" in data:
+                self.language_chosen = bool(data["language_chosen"])
             if "theme_name" in data:
                 self.theme_name = data["theme_name"]
             if "accent_color" in data:
@@ -497,6 +509,7 @@ class Config:
                 "jdz_token": encrypt_token(self.jdz_token) if self.jdz_token else None,
                 "jdz_username": encrypt_token(self._jdz_username) if self._jdz_username else None,
                 "language": self.language,
+                "language_chosen": self.language_chosen,
                 "theme_name": self.theme_name,
                 "accent_color": self.accent_color,
                 "dynamic_version_theme": self.dynamic_version_theme,

@@ -278,6 +278,8 @@
   "settings_mirror": "🇨🇳 使用中國鏡像源",
   "settings_download_threads": "⚡ 下載執行緒數",
   "settings_language": "🌐 介面語言",
+  "first_run_language_title": "選擇介面語言",
+  "first_run_language_hint": "首次啟動，請選擇介面語言（之後可在「設定 → 啟動器」裡更改）",
   "settings_close": "關閉",
   "settings_minimize_enabled": "遊戲啟動後最小化: 已啟用",
   "settings_minimize_disabled": "遊戲啟動後最小化: 已停用",

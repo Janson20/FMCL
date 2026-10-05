@@ -38,6 +38,16 @@ class FakeConfig:
     def __init__(self, **kwargs: Any) -> None:
         self.auto_check_update = kwargs.get("auto_check_update", True)
         self.jdz_token = kwargs.get("jdz_token", "")
+        #: 首次启动选语言那一步要读写的两个字段（默认"已选过"，免得不相关的用例被拦在弹窗前）
+        self.language = kwargs.get("language", "zh_CN")
+        self.language_chosen = kwargs.get("language_chosen", True)
+        self.terms_consent = kwargs.get("terms_consent", True)
+        self.ai_privacy_consent = kwargs.get("ai_privacy_consent", True)
+        self.saved = 0
+
+    def save_config(self) -> bool:
+        self.saved += 1
+        return True
 
 
 class FakeTasks:
@@ -135,6 +145,9 @@ def make(**kwargs: Any) -> tuple[StartupController, FakeContext, Dict[str, Any]]
     # 协议全文默认也换成空实现：默认实现要读 16 KB 的 `TERMS_OF_USE.md`，
     # 而"默认实现确实读到了全文"由 `test_default_terms_loader_reads_the_real_document` 单独验。
     kwargs.setdefault("terms_loader", lambda: "")
+    # 语言那一步默认"已选过"（`language_required` 返回 False）：不固定的话，
+    # 用例会依赖开发机上那份 `config.json` 里有没有 `language` 键。
+    kwargs.setdefault("language_required", lambda: False)
 
     controller = StartupController(
         ctx,
@@ -328,6 +341,86 @@ def test_default_terms_loader_reads_the_real_document() -> None:
     text = controller.property("termsText")
     assert text.startswith("#"), "默认实现没有读到协议全文"
     assert len(text) > 5000, f"只读到 {len(text)} 字符，像是摘要而不是全文"
+
+
+# ─── 首次启动选语言（A-27；用户 2026-10-05 转达的网友需求）────────
+
+
+def test_language_is_asked_on_first_run() -> None:
+    """第一次启动：先弹语言，**不**直接弹协议（协议全文按语言渲染，先问再给条款）。"""
+    controller, _ctx, _parts = make(language_required=lambda: True, config=FakeConfig(terms_consent=False))
+    asked: List[int] = []
+    agreed: List[int] = []
+    controller.languageRequired.connect(lambda: asked.append(1))
+    controller.agreementRequired.connect(lambda: agreed.append(1))
+
+    controller._check_agreement()  # 链条入口（生产由 `agreement_delay_ms` 定时器触发）
+
+    assert asked == [1]
+    assert agreed == [], "语言还没选就问协议了"
+
+
+def test_already_chosen_goes_straight_to_the_agreement() -> None:
+    controller, _ctx, _parts = make(language_required=lambda: False, config=FakeConfig(terms_consent=False))
+    asked: List[int] = []
+    agreed: List[int] = []
+    controller.languageRequired.connect(lambda: asked.append(1))
+    controller.agreementRequired.connect(lambda: agreed.append(1))
+
+    controller._check_agreement()
+
+    assert asked == []
+    assert agreed == [1]
+
+
+def test_choosing_a_language_marks_it_and_continues() -> None:
+    """选完语言：写下"已选过"并回到链条（该弹协议就弹协议）。"""
+    config = FakeConfig(terms_consent=False, language_chosen=False)
+    controller, _ctx, _parts = make(language_required=lambda: True, config=config)
+    agreed: List[int] = []
+    controller.agreementRequired.connect(lambda: agreed.append(1))
+
+    controller._check_agreement()
+    controller.chooseLanguage()
+
+    assert config.language_chosen is True
+    assert config.saved >= 1, "「已选过」必须落盘，否则下次启动还会问"
+    assert agreed == [1]
+    chrono = [entry[0] for entry in controller.describe()["chrono"]]
+    assert "language_chosen" in chrono, f"事件流水里没有记下这次选择：{chrono}"
+
+
+def test_choosing_a_language_with_consent_already_given_goes_to_the_notice() -> None:
+    """协议已同意过的老用户：选完语言直接进公告，不再弹协议。"""
+    config = FakeConfig(terms_consent=True, ai_privacy_consent=True, language_chosen=False)
+    controller, _ctx, _parts = make(language_required=lambda: True, config=config)
+    agreed: List[int] = []
+    controller.agreementRequired.connect(lambda: agreed.append(1))
+
+    controller._check_agreement()
+    controller.chooseLanguage()
+
+    assert agreed == []
+
+
+def test_language_step_survives_a_broken_config() -> None:
+    """配置坏掉时按"已选过"处理 —— 宁可少问一次，也不能把启动卡住。"""
+    class Broken:
+        @property
+        def language_chosen(self) -> Any:
+            raise RuntimeError("配置读不出来")
+
+        def save_config(self) -> None:
+            raise RuntimeError("配置写不进去")
+
+    controller, _ctx, _parts = make(config=Broken(), language_required=None)
+    agreed: List[int] = []
+    controller.agreementRequired.connect(lambda: agreed.append(1))
+
+    controller._check_agreement()  # 读坏了 → 跳过语言这一步（按"已选过"处理，不打扰用户）
+    controller.chooseLanguage()    # 写坏了也不该抛
+
+    assert agreed == [1]
 
 
 # ─── A-22 公告重看 ─────────────────────────────────────────────
