@@ -27,6 +27,7 @@ import json
 import os
 import random
 import struct
+import time
 from pathlib import Path
 
 import pytest
@@ -1217,6 +1218,50 @@ def test_download_multi_progress_hook_is_optional(tmp_path):
     session = FakeSession(body)
     outcome = S.download_multi("http://example.test/f", str(tmp_path / "o.bin"), session=session)
     assert outcome.status == "success"
+
+
+def test_download_multi_reports_progress_even_without_a_clock_tick(tmp_path, monkeypatch):
+    """D-154：**一个时钟刻度都没跨过**的下载也必须报进度。
+
+    这条是该缺陷的钉子。原实现把 ``emit`` 写在 ``if elapsed > 0:`` 里面 —— 那层本意只是
+    给"算速率"的除法防零，却把进度回调也一起挡在了里面：整个下载若在**同一个时钟刻度内**
+    跑完（``elapsed == 0.0``），就一次回调都不发，界面进度条全程不动而文件其实已经下好。
+    Windows 上 ``time.time()`` 的步长约 0.5 ms，内存/局域网的小文件很容易撞上
+    （实证：自然时钟下 5000 B 负载 5/120 次、3 B 负载 3/120 次；`poc/_probe_tool_progress_tick.py`）。
+
+    判据故意用**冻结时钟**，而不是"多跑几次碰运气"：``time.time()`` 恒返回同一个值
+    ⇒ ``elapsed == 0.0`` 必然成立 ⇒ 这是确定性用例，不会变成偶发红灯
+    （同一条机制此前也让 `test_download_multi_segmented` 有约 0.5% 的假红概率）。
+    """
+    body = bytes(range(256)) * 16  # 4096 B，与上面分段用例同量级
+    events = []
+
+    class _FrozenTime:
+        """``time.time()`` 恒返回同一个值 = 整个下载没跨过任何一个时钟刻度。"""
+
+        def time(self):
+            return 1000.0
+
+        def __getattr__(self, name):  # 其余接口（sleep / perf_counter 之类）保持真的
+            return getattr(time, name)
+
+    monkeypatch.setattr(S, "time", _FrozenTime())
+    dest = tmp_path / "frozen.bin"
+    S.download_multi(
+        "http://example.test/file.bin",
+        str(dest),
+        threads=4,
+        session=FakeSession(body),
+        on_progress=lambda d, t, s: events.append((d, t, s)),
+    )
+
+    assert dest.read_bytes() == body
+    assert events, "亚时钟刻度的下载一次进度回调都没发（D-154 回归：emit 又被 `if elapsed > 0` 挡住了）"
+    assert events[-1][0] == len(body), f"最后一条进度的已完成字节不是总大小: {events[-1]}"
+    assert all(t == len(body) for _d, t, _s in events), f"总大小报错了: {events}"
+    assert all(s == 0.0 for _d, _t, s in events), (
+        f"没跨过时钟刻度时速率应当给 0.0（不要拿 0 去除）: {events}"
+    )
 
 
 def test_download_multi_smaller_than_thread_count(tmp_path):

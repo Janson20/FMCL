@@ -21,9 +21,10 @@
 ## 环境前提
 
 `QT_QPA_PLATFORM=offscreen`（在 import PySide6 之前设）。本模块**只在子进程里**建
-`QGuiApplication` / `QQmlEngine`：pytest 进程里留下的引擎会把
-`ThemeBridge._discover_engine()` 的 `gc` 扫描带偏（`tests/test_icon_set.py` 的模块
-文档记着这次事故的代价 —— 12 个 error）。provider 自身的断言只需要
+`QGuiApplication` / `QQmlEngine`：这条隔离的起因（pytest 进程里留下的引擎会把
+`ThemeBridge` 的引擎查找带偏，缺陷 **D-153**）已经在阶段 3 首轮修掉 —— `Theme` 现在只认
+装配方显式注入的引擎；但隔离本身刻意保留（`tests/test_icon_set.py` 的模块文档记着这次事故
+的代价，以及为什么"机制消失"不等于"可以拆隔离"）。provider 自身的断言只需要
 `QImage` / `QSvgRenderer` / `QPainter`，**不需要**应用实例。
 """
 

@@ -111,8 +111,8 @@ class ShellBridge(QObject):
         """`main_qml.register_bridges` 在注册后会调它。
 
         **为什么用引擎的桥表而不是自己去猜**：装配顺序里 `Nav` 先于 `Shell` 注册，
-        所以此刻 `engine._fmcl_bridges["Nav"]` 一定是最新的那个（`Theme.use_engine`
-        的注释里记着"从 gc 里猜引擎"被带偏的教训，这里不重犯）。
+        所以此刻 `engine._fmcl_bridges["Nav"]` 一定是最新的那个（"自己去猜"被带偏的教训
+        记在 `theme_bridge` 的模块文档里 —— 缺陷 D-153 删掉的正是那条兜底，这里不重犯）。
         """
         registry = getattr(engine, "_fmcl_bridges", None) or {}
         nav = registry.get("Nav")

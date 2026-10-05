@@ -25,16 +25,23 @@
 
 ## 引擎不能留在 pytest 进程里（实测踩过，代价是 12 个 error）
 
-`ThemeBridge._discover_engine()`（任务 2.8）用 `gc.get_objects()` 找进程里**最后一个**
-`QQmlEngine` 来注入 `FluTheme`。本模块第一版在进程里建了 QML 探针引擎，于是后一个模块
+`ThemeBridge`（任务 2.8）当时用 `gc.get_objects()` 找进程里**最后一个** `QQmlEngine`
+来注入 `FluTheme`。本模块第一版在进程里建了 QML 探针引擎，于是后一个模块
 `tests/test_main_qml_entry.py` 装配入口时把 `FluTheme` 注到了这个既没有 FluentUI 导入路径、
 也没有根对象的引擎上 —— `App.qml` 起不来，`main_qml.assemble()` 抛
 "QML 根对象未能创建"，还连带污染 `AppContext`（另外 3 条测试跟着红）。
 实测对照：**带本文件全量跑 = 4 failed + 12 errors；`--ignore=tests/test_icon_set.py`
 全量跑 = 2769 passed / 0 failed。**
 
-所以本模块的规矩是：**不在 pytest 进程里建 `QGuiApplication` / `QQmlEngine`**，
-真窗口那条路一律走子进程（与 `test_no_qml_binding_errors_at_process_exit` 同一思路）。
+那条取值路径已经按缺陷 **D-153**（阶段 3 首轮）**整条删除**：`Theme` 现在只认装配方显式
+注入的引擎（`use_engine`），进程里多几个别的引擎都不再影响它。**但下面的规矩照旧**：
+
+    不在 pytest 进程里建 `QGuiApplication` / `QQmlEngine`，真窗口那条路一律走子进程
+    （与 `test_no_qml_binding_errors_at_process_exit` 同一思路）。
+
+两个理由：① 上面那组对照是**旧代码**下测出来的，"引擎与插件留在同一个进程里"还有没有
+别的副作用（FluentUI 插件的进程级注册、编译单元缓存……）没有重测过，重测一次全量是
+阶段 4 收尾的事；② 子进程隔离比"记得清理"可靠 —— 这条判断不因为某个机制消失就作废。
 
 ## 环境前提
 
@@ -553,9 +560,8 @@ class _FakeEngineWithProvider:
     """只满足 `icon_provider.install()` / `installed()` 需要的两个口子。
 
     为什么**不**建真 `QQmlApplicationEngine`：本模块的文件头写着"不在 pytest 进程里建
-    `QGuiApplication` / `QQmlEngine`" —— `ThemeBridge._discover_engine()` 会用
-    `gc.get_objects()` 抓进程里最后一个引擎去注 `FluTheme`，多出来的引擎会把
-    `tests/test_main_qml_entry.py` 的装配带偏（实测代价：4 failed + 12 errors）。
+    `QGuiApplication` / `QQmlEngine`" —— 那条规矩的起因（`ThemeBridge` 按 `gc` 顺序挑引擎
+    去注 `FluTheme`，缺陷 D-153）虽然已经修掉，但隔离本身是刻意保留的（理由见文件头）。
     这里只要 `addImageProvider` 与 `\u005ffmcl_icon_providers` 两个属性，假对象足够。
     """
 

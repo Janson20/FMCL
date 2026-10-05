@@ -212,8 +212,11 @@ def register_bridges(engine: Any, context: Any, prebuilt: Optional[Dict[str, Any
                 logger.warning("桥接对象 %s 的 bind(context) 失败: %s", name, e)
 
         # 约定：桥若需要 QML 引擎（`Theme` 要写 FluTheme），**显式注入**。
-        # 不让它自己去 `gc` 里猜 —— 那会被"装配前创建过引擎的代码"（测试探针之类）
-        # 带偏，把 FluTheme 注到错的引擎上，症状是根组件起不来且报错与主题毫不相干。
+        # 桥自己不许去猜（缺陷 D-153 已把 `ThemeBridge` 里"从 `gc` 里取最后一个引擎"那条
+        # 兜底整条删掉）：那种猜法会被"装配前创建过引擎的代码"（测试探针之类）带偏，
+        # 把 FluTheme 注到错的引擎上，症状是根组件起不来且报错与主题毫不相干。
+        # 这里注入的就是本函数刚建的那个引擎，`Theme` 拿到后会**当场**解析一次 FluTheme
+        # （入口后面没有别的同步点，不这么做第一帧用的就是 FluentUI 的默认色）。
         use_engine = getattr(obj, "use_engine", None)
         if callable(use_engine):
             try:

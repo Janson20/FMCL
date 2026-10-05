@@ -70,6 +70,14 @@ i18n：本模块通过 ``services.i18n_service._`` 取词（与 ``ui.i18n._`` �
    D-27）：两边原来是一份**逐字同构**的副本（同阶梯、同精度），合并成一份实现后
    返回值、精度、边界行为逐字不变，调用点也不用动
    （``ui/app_tools.py`` 的 ``_format_size = _tool_svc._format_size`` 拿到的仍是同一个对象）。
+9. 进度回调不再被"时钟刻度"挡住（缺陷 **D-154**，阶段 3 首轮）：原实现把 ``emit`` 写在
+   ``if elapsed > 0:``（``time.time()`` 的差值）**里面**，那层本意只是给"算速率"的除法防零，
+   副作用却是**一个时钟刻度内跑完的下载一次回调都不发**（Windows 上 ``time.time()`` 步长约
+   0.5 ms，内存/局域网的小文件很容易撞上）——界面进度条全程不动，而文件其实已经下好了。
+   现在只把"算速率"留在判断里（没跨过刻度给 ``0.0``），``emit`` **每块都发**。
+   这是本文件里**唯一一处故意与搬运前不一致的行为**，其余各点都保持逐字等价；
+   实证与钉子见 ``poc/_probe_tool_progress_tick.py`` 与
+   ``tests/test_tool_service.py::test_download_multi_reports_progress_even_without_a_clock_tick``。
 
 ----
 
@@ -1029,7 +1037,14 @@ def download_multi(
 ) -> DownloadOutcome:
     """多线程（HTTP Range 分段）下载到 ``dest``（阻塞式，应在工作线程调用）。
 
-    搬运自 ``_on_start_download`` 内 ``_task``，**逐字保留**：
+    搬运自 ``_on_start_download`` 内 ``_task``，**逐字保留**，只有一处**刻意偏离**：
+
+    * **进度回调不再被时钟刻度挡住**（缺陷 D-154）。原实现在 ``if elapsed > 0:`` 里同时
+      干"算速率"和"发进度"两件事，那层本意只是给除法防零，副作用却是**同一个时钟刻度内
+      下完的文件一次回调都不发**（界面进度条全程不动，而文件已经落盘）。
+      现在速率只在跨过刻度时才算（没跨过给 ``0.0``），``emit`` **每块都发**。
+
+    其余步骤：
 
     1. ``HEAD`` 取 ``Content-Length``（超时 15s）。
     2. 拿不到长度（``0``）时退化为**单流 GET** 一次性落盘（超时 30s）。
@@ -1047,7 +1062,8 @@ def download_multi(
         cancel_check: 返回是否已取消；默认永不取消。
         on_progress: ``(downloaded, total, speed) -> None``，在**分段下载的写锁内**
             按块触发（与原来 ``self.after(0, _update)`` 的位置一致）；
-            默认空实现。
+            **每块都发**（不因"没跨过时钟刻度"而跳过，见 D-154）；默认空实现。
+            单流回退分支（拿不到 ``Content-Length``）**不发**进度 —— 原实现如此。
 
     Raises:
         Exception: 底层 ``requests`` / 文件 IO 异常原样向上抛，由调用方决定怎么提示
@@ -1105,9 +1121,10 @@ def download_multi(
                         with lock:
                             downloaded += len(chunk)
                             elapsed = time.time() - start_time
-                            if elapsed > 0:
-                                speed = downloaded / elapsed
-                                emit(downloaded, total_size, speed)
+                            # D-154：`emit` 不许再被这个防除零的判断挡住 ——
+                            # 一个时钟刻度内下完的文件也要报进度（理由与实测见函数文档）。
+                            speed = downloaded / elapsed if elapsed > 0 else 0.0
+                            emit(downloaded, total_size, speed)
         except Exception as e:
             logger.error(f"分段下载 {idx} 失败: {e}")
             raise

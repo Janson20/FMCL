@@ -46,14 +46,18 @@ QML 侧 ``import FMCL 1.0`` 之后按驼峰名读：``Theme.bgDark`` / ``Theme.f
 ## FluTheme 注入与优雅降级
 
 - 取法：``engine.singletonInstance("FluentUI", "FluTheme")``（阶段 0 第 10.1 节实测可用）；
-  ``poc/theme_probe_2_8.py`` 另测出**不必等 ``engine.load()``**，所以桥在构造期就能写。
+  ``poc/theme_probe_2_8.py`` 另测出**不必等 ``engine.load()``**，所以桥一拿到引擎
+  （构造参数注入 = 构造期；``use_engine`` 注入 = 注入那一刻）就能写。
 - **先查导入路径再调 ``singletonInstance``**（:func:`_fluent_module_dir`）：模块解析不了时
   它不会优雅返回 ``None``，而是直接崩进程（全量测试里踩到，Windows access violation）。
 - 映射见 :data:`FLUENT_MAP`；``success`` / ``warning`` / ``error`` 在 FluTheme 里
   没有对应项，只留在我们这边给自研组件用。
 - **必须显式设 ``FluTheme.darkMode``**：实测 ``FluTheme.dark`` 只读（外部改不了），
   而 5 个预设主题全是深色（契约第六节决策 9）。
-- 取不到 FluTheme 时**只记 warning 并继续**：``fluentAvailable`` 变 False，界面照常起来。
+- 取不到 FluTheme 时**绝不抛异常**，``fluentAvailable`` 变 False、界面照常起来；
+  两种情形的日志级别不同（D-153 之后）：
+  **还没人注入引擎** = 装配过程中的正常中间态，只记 debug（每次同步重试，
+  注入那一刻就会成功）；**有引擎但导入路径里没有 FluentUI 模块** = 真降级，记一次 warning。
   注意 ``singletonInstance`` 在模块不可用时返回的是 **undefined 的 QJSValue** 而不是 None
   （``poc/theme_probe_engine_ref.py`` 实测），所以判据是"是不是 QObject"。
 
@@ -105,17 +109,26 @@ QML 侧**不许自己算颜色**（闸门 R8 禁颜色字面量，``Qt.rgba`` �
 （5 个预设主题全是深色），所以 ``itemHover`` / ``scrim`` 这类叠加色直接按
 "白 + alpha"给（浅色主题需要反过来，那是"支持亮色"时的事，见 ``05`` 的遗留项）。
 
-## 引擎从哪来（契约没规定注入方式，这里说清楚）
+## 引擎从哪来（**只认显式注入** —— 缺陷 D-153 的修法）
 
-``main_qml.register_bridges()`` 用 ``cls()`` **无参**实例化桥，而 ``singletonInstance``
-需要一个 ``QQmlEngine``。查找顺序：
+``main_qml.register_bridges()`` 用 ``cls()`` **无参**实例化桥，紧接着调 ``use_engine(engine)``
+把它**自己刚建的那个**引擎交进来。桥只认这两条**显式**通道：
 
 1. 构造参数 ``engine=``（调用方/测试显式注入，最确定）；
-2. 自动发现：``gc.get_objects()`` 里的 ``QQmlEngine`` 实例（实测能捞到入口建的那个；
-   ``QCoreApplication.instance().children()`` 里**没有** —— 引擎构造时没给 parent）；
-3. 都找不到 → 记一次 warning，之后每次同步重试（引擎可能晚于桥出现）。
+2. ``use_engine(engine)``（装配方在注册时注入；**注入那一刻立刻试着注一次 FluTheme**，
+   这样入口的行为与"构造期就拿到引擎"完全一致，不需要等下一次 ``refresh()``）。
 
-引擎用**弱引用**持有（``weakref.ref``）：桥不该拖住引擎的析构。
+**不允许猜**。这里早先还有第三条"兜底"：在 ``gc.get_objects()`` 里找进程里最后一个
+``QQmlEngine``。那是缺陷 D-153 —— 只要进程里**先**存在一个游离引擎（测试探针、
+别的模块建的），"最后一个"就可能落在它身上，于是 ``fluentAvailable`` 变 False。
+阶段 1 的证据脚本 ``poc/_verify_group_b_independent.py`` 第 5 节那条红灯就是它。
+根因是"取值路径在猜"，所以那条兜底是**整条删除**，不是换成更聪明的猜法。
+
+两条通道都还没来（桥先建、引擎后到）时：:meth:`ThemeBridge._resolve_fluent` 只记一条
+debug 日志并返回 None，之后每次同步都会重试 —— 见上面"两种情形的日志级别不同"。
+
+引擎用**强引用**持有（早期"自动发现"那条路用弱引用，随该路径一起删掉了）：
+显式注入意味着生命周期由注入方掌握，桥拖住引擎比"引擎先析构、桥还去写它"安全得多。
 
 ## 设计令牌（契约第六节决策 11：放在 Theme 里）
 
@@ -156,15 +169,12 @@ QML 侧**不许自己算颜色**（闸门 R8 禁颜色字面量，``Qt.rgba`` �
 
 from __future__ import annotations
 
-import gc
 import logging
-import weakref
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from PySide6.QtCore import Property, QCoreApplication, QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, Signal, Slot
 from PySide6.QtGui import QColor
-from PySide6.QtQml import QQmlEngine
 
 from services.font_service import FONT_FAMILY
 
@@ -516,7 +526,8 @@ class ThemeBridge(QObject):
     ) -> None:
         """
         Args:
-            engine: QML 引擎（取 FluTheme 用）。``None`` 时自动发现（见模块文档）。
+            engine: QML 引擎（取 FluTheme 用）。``None`` 时**不猜**：等装配方调
+                :meth:`use_engine`（见模块文档"引擎从哪来"）。
             theme_engine: ``services.theme_service.ThemeEngine``。``None`` 时懒取；
                 进程里没初始化过就按装配职责补一次 ``init_theme_engine``。
             config: 配置对象（读 ``theme_name`` / ``accent_color``，写回时调
@@ -526,7 +537,6 @@ class ThemeBridge(QObject):
         """
         super().__init__(parent)
         self._engine = engine
-        self._engine_ref: Optional[weakref.ReferenceType] = None
         self._theme_engine = theme_engine
         self._config = config
         self._config_checked = config is not None
@@ -1077,60 +1087,37 @@ class ThemeBridge(QObject):
     def use_engine(self, engine: Any) -> None:
         """由装配方**显式**注入 QML 引擎（`main_qml.register_bridges` 会调）。
 
-        为什么要有这条显式通道（任务 2.10 实测踩到）：自动发现是"在 `gc.get_objects()`
-        里找进程里最后建的那个 `QQmlEngine`"，于是**任何在入口装配之前创建过 QML 引擎的
-        代码**（例如某个测试里的 QML 探针）都会让它把 `FluTheme` 注到**错的引擎**上 ——
-        症状是入口的 `App.qml` 起不来，报一串跟主题毫无关系的 QML error。
-        显式注入之后，`gc` 扫描只在没人调用本方法时才作为兜底。
+        契约没规定注入方式，而 `register_bridges()` 用 `cls()` 无参实例化桥，
+        所以这条方法是入口把引擎交给桥的**唯一**通道（另一条是构造参数 `engine=`）。
+
+        **注入之后立刻试注一次 FluTheme**：入口的顺序是"建引擎 → 建桥并注册 → 注入 →
+        `engine.load()`"，中间**没有别的同步点**，不在这里注的话 `fluentAvailable`
+        会停在 False，直到下一次 `refresh()` / `setTheme()` 才变真 ——
+        那等于 FluentUI 控件在第一帧用的是它自己的默认色。
+
+        换引擎时把 FluTheme 缓存与降级告警一起复位：缓存里握的是**上一个引擎**里的那个
+        C++ 单例，引擎换了还往上写就是写到一个没人看的对象上（症状是"新窗口颜色不对，
+        而且没有任何报错"）。
+
+        本方法**不发 `changed`**：入口调它的时刻 QML 还没 `load()`，没有任何绑定需要重算
+        （`fluentAvailable` 的 NOTIFY 是 `changed`，但它在 QML 里目前没有消费者）。
         """
         if engine is None:
             return
+        if engine is not self._engine:
+            self._fluent = None
+            self._fluent_warned = False
         self._engine = engine
-        self._engine_ref = None
+        self._apply_to_fluent()
 
     def _current_engine(self) -> Optional[Any]:
-        """显式注入 → 缓存的弱引用 → 全堆扫描（顺序见模块文档）。"""
-        if self._engine is not None:
-            return self._engine
-        if self._engine_ref is not None:
-            found = self._engine_ref()
-            if found is not None:
-                return found
-            self._engine_ref = None
-        discovered = self._discover_engine()
-        if discovered is None:
-            return None
-        logger.debug("ThemeBridge 没拿到显式注入的引擎，退回 gc 扫描发现的那个")
-        try:
-            self._engine_ref = weakref.ref(discovered)
-        except TypeError:  # 极少数包装类型不支持弱引用 → 退化成强引用
-            self._engine = discovered
-        return discovered
+        """当前引擎：**只有显式注入**才会有值，没人注入就是 None。
 
-    @staticmethod
-    def _discover_engine() -> Optional[Any]:
-        """在进程里找 `QQmlEngine`。
-
-        为什么不用 `QCoreApplication.instance().children()`：入口是
-        `QQmlApplicationEngine()` **无 parent** 建的（`main_qml.build_engine`），
-        所以那里一个都没有（`poc/theme_probe_2_8.py` 实测：`app.children()` 里 0 个，
-        `gc.get_objects()` 里 1 个且正是入口那个）。先查 children 只是留个万一。
+        这里**刻意不做任何"找引擎"的尝试**（缺陷 D-153）：曾经的 `gc.get_objects()`
+        兜底会在"进程里先有游离引擎"时取错对象，把 `fluentAvailable` 变成 False
+        （阶段 1 证据脚本 `poc/_verify_group_b_independent.py` 第 5 节的红灯）。
         """
-        app = QCoreApplication.instance()
-        if app is not None:
-            children = [child for child in app.children() if isinstance(child, QQmlEngine)]
-            if children:
-                return children[-1]
-        try:
-            found = [obj for obj in gc.get_objects() if isinstance(obj, QQmlEngine)]
-        except Exception as e:  # noqa: BLE001 - 扫描失败按"没有引擎"处理
-            logger.debug("扫描 QQmlEngine 失败: %s", e)
-            return None
-        if not found:
-            return None
-        if len(found) > 1:
-            logger.warning("进程里有 %d 个 QQmlEngine，取最后一个用于 FluTheme 注入", len(found))
-        return found[-1]
+        return self._engine
 
     def _resolve_fluent(self) -> Optional[QObject]:
         """取 FluTheme 单例（取到就缓存）。"""
@@ -1138,7 +1125,10 @@ class ThemeBridge(QObject):
             return self._fluent
         engine = self._current_engine()
         if engine is None:
-            self._warn_fluent("进程里找不到 QQmlEngine")
+            # **不是降级**：这只是"桥建好了、引擎还没交进来"的中间态（入口的正常顺序）。
+            # 所以只记 debug、**不占** `_fluent_warned` 那次告警名额 —— 否则真正的
+            # 降级（模块没编译）会被这条无意义的告警挤掉。
+            logger.debug("还没有人显式注入引擎，本次跳过 FluTheme 注入（之后每次同步都会重试）")
             return None
         if _fluent_module_dir(engine) is None:
             self._warn_fluent("引擎的导入路径里没有 FluentUI 模块（先跑 scripts/build_fluentui.ps1）")

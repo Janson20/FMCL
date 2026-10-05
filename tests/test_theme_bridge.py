@@ -23,7 +23,9 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import gc
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Tuple
 
@@ -653,6 +655,97 @@ def test_bridge_survives_when_singleton_instance_returns_nothing(
     root = _fake_fluent_module(tmp_path)
     built = tb.ThemeBridge(engine=_FakeQmlEngine(None, root), theme_engine=theme_engine, config=config)
     assert built.fluentAvailable is False
+
+
+# ─── 6b. 引擎只认显式注入（缺陷 D-153） ─────────────────────────
+
+
+def test_engine_is_taken_only_from_explicit_injection(
+    theme_engine: ThemeEngine, config: _FakeConfig
+) -> None:
+    """**D-153 的反向判据**：进程里就算有别的引擎，没注入就是不注入 —— 桥不许去猜。
+
+    缺陷现象（阶段 1 证据脚本 `poc/_verify_group_b_independent.py` 第 5 节的红灯）：
+    早先这里有一条"在 `gc.get_objects()` 里取进程里**最后一个** `QQmlEngine`"的自动发现
+    兜底，于是**先**建过一个游离引擎（测试探针、别的模块）时取的往往是它 ——
+    `fluentAvailable` 变 False，而入口那个真引擎反而没接上。
+
+    判据要能真的抓住回归，所以先证"这个游离引擎确实躺在 `gc` 的跟踪表里"
+    （否则本用例就是空断言），再要求桥**看不见**它。
+    """
+    stray = QQmlApplicationEngine()  # 先造一个游离引擎（没挂 FluentUI 导入路径）
+    assert any(obj is stray for obj in gc.get_objects()), (
+        "游离引擎没被 gc 跟踪 —— 本用例模拟的『进程里有别的引擎』就不成立了，判据会退化成空断言"
+    )
+
+    built = tb.ThemeBridge(theme_engine=theme_engine, config=config)  # 刻意不传 engine=
+    assert built._current_engine() is None, "桥又去进程里猜引擎了（D-153 回归）"
+    assert built.fluentAvailable is False
+
+    # 显式注入之后才认，而且认的就是注入的那个
+    built.use_engine(stray)
+    assert built._current_engine() is stray
+    # 自动发现通道整条不存在（不是"被弱化"，是不许再长回来）
+    assert not hasattr(tb.ThemeBridge, "_discover_engine"), "自动发现通道又回来了（D-153 回归）"
+
+
+def test_injecting_the_engine_attaches_fluent_right_away(
+    theme_engine: ThemeEngine, config: _FakeConfig, tmp_path: Path
+) -> None:
+    """注入引擎的那一刻就要接上 FluTheme。
+
+    为什么必须"立刻"：入口的顺序是"建引擎 → 建桥并注册 → 注入 → `engine.load()`"，
+    中间没有别的同步点（下一次同步要等到用户切主题/改强调色才发生）。
+    不在这里真的注一次，FluentUI 控件在第一帧用的就是它自己的默认色 ——
+    正是返工 A 组修过的"白顶栏"那类症状，而且没有任何报错。
+    """
+    fake = _FakeFluTheme()
+    engine = _FakeQmlEngine(fake, _fake_fluent_module(tmp_path))
+    built = tb.ThemeBridge(theme_engine=theme_engine, config=config)  # 先建桥（入口就是这么干的）
+    assert built.fluentAvailable is False, "引擎都还没注入，不该已经接上 FluTheme"
+
+    built.use_engine(engine)
+    assert built.fluentAvailable is True, "注入引擎之后没有立刻接上 FluTheme"
+    assert fake.written[tb.FLUENT_DARK_MODE_PROP] == tb.FLUENT_DARK
+    assert fake.written["primaryColor"].name() == built._token("accent").name()
+
+
+def test_re_injecting_another_engine_moves_the_fluent_target(
+    theme_engine: ThemeEngine, config: _FakeConfig, tmp_path: Path
+) -> None:
+    """换引擎时要重新解析 FluTheme —— 缓存里握的是**上一个引擎**里的那个 C++ 单例。"""
+    first, second = _FakeFluTheme(), _FakeFluTheme()
+    built = tb.ThemeBridge(theme_engine=theme_engine, config=config)
+    built.use_engine(_FakeQmlEngine(first, _fake_fluent_module(tmp_path)))
+    assert built._fluent is first
+
+    built.use_engine(_FakeQmlEngine(second, _fake_fluent_module(tmp_path)))
+    assert built._fluent is second, "换了引擎还往上一个引擎的 FluTheme 写（写到一个没人看的对象上）"
+    assert second.written["primaryColor"].name() == built._token("accent").name()
+
+
+def test_fluent_log_levels_separate_the_middle_state_from_real_degradation(
+    theme_engine: ThemeEngine, config: _FakeConfig, bare_engine: QQmlApplicationEngine,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """两种"取不到 FluTheme"的日志级别不同（D-153 顺带定死的契约）。
+
+    * **还没人注入引擎**：装配过程中的正常中间态（入口每次都是"先建桥、后注入"），
+      报 warning 等于每次启动都留一条假的降级告警 —— 真正的降级会被它挤掉；
+    * **引擎在、导入路径里没有 FluentUI 模块**：这才是真降级，报 warning，且**只报一次**
+      （每次同步都会重试，不把这条告警锁住就会把日志刷爆）。
+    """
+    with caplog.at_level(logging.DEBUG, logger="app.bridges.theme_bridge"):
+        built = tb.ThemeBridge(theme_engine=theme_engine, config=config)
+        built.refresh()
+        quiet = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert quiet == [], f"还没注入引擎就报了降级告警（入口每次都走这条路）: {quiet}"
+
+        built.use_engine(bare_engine)  # 真引擎，但没有 FluentUI 导入路径
+        built.refresh()
+        built.refresh()
+        noisy = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(noisy) == 1, f"真降级要报一次、且只报一次: {noisy}"
 
 
 def test_fluent_theme_gets_the_keys_and_dark_mode(

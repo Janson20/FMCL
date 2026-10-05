@@ -19,10 +19,11 @@
 
 ## 覆盖范围（写清楚，免得被误读成"全部缺陷都在这里"）
 
-这张表覆盖的是**阶段 2 收尾时还挂着的 21 条**：18 条欠账（D-04~D-28）+ 本轮新登记的
-D-146 / D-147 / D-150。**不包含**更早那批已经是"已修"或"已由决策延后"的编号
-（D-01/02/03/12 与 D-06/07/14/15/77/101/102）—— 它们各自的判据要么已经被对应任务的
-测试覆盖，要么需要读 `docs/refactor/`（**未入库**，CI 里读不到，所以不能进这张表）。
+这张表覆盖的是**阶段 2 收尾时还挂着的 24 条**：18 条欠账（D-04~D-28），加上收口轮新登记的
+D-146 / D-147 / D-150 / D-151 / D-152，以及阶段 3 前置轮新登记的 D-153。**不包含**更早那批
+已经是"已修"或"已由决策延后"的编号（D-01/02/03/12 与 D-06/07/14/15/77/101/102）——
+它们各自的判据要么已经被对应任务的测试覆盖，要么需要读 `docs/refactor/`
+（**未入库**，CI 里读不到，所以不能进这张表）。
 这条边界是刻意的：**台账只依赖仓库里被跟踪的文件**，否则 CI 上必然红。
 
 ## 它与 `poc/_verify_defect_status.py` 的关系
@@ -39,12 +40,13 @@ D-146 / D-147 / D-150。**不包含**更早那批已经是"已修"或"已由决�
 
 from __future__ import annotations
 
+import ast
 import io
 import re
 import tokenize
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pytest
 
@@ -333,21 +335,143 @@ def _d150_product_disables_disk_cache(text: Optional[str] = None) -> Tuple[bool,
     return ordered, detail
 
 
-def _d153_fluent_lookup_still_scans_gc(text: Optional[str] = None) -> Tuple[bool, str]:
-    """D-153（挂账）：FluentUI 模块目录的查找仍走 `gc.get_objects()` 取"最后一个引擎"。
+def _d153_engine_comes_only_from_injection(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-153（已修）：QML 引擎**只认显式注入**，不再按 `gc` 的顺序猜。
 
-    现象（2026-09-27 定位）：进程里若先存在一个游离的 `QQmlApplicationEngine`（没有 FluentUI
-    导入路径），`fluentAvailable` 会去扫 `gc.get_objects()` 并取**最后一个**引擎 —— 取的正是那个
-    游离引擎，于是 FluTheme 取不到、`fluentAvailable=False`。阶段 1 的证据脚本
-    `poc/_verify_group_b_independent.py` 第 5 节（"没被游离引擎带偏"）就是因此报红的；
-    显式注入通道（`use_engine`）本身是好的（探针实测 `_engine is 入口引擎` 为真）。
-    用户已裁决方案 (a)：**下一轮**改掉 —— 模块目录查找只认显式注入的引擎，去掉 gc 顺序依赖。
-    修好之后这条钉子会先红，逼着回来把台账改成「已修」并补正向判据。
+    缺陷现象：解析 FluTheme 之前要先拿到引擎，而引擎早先是"在 `gc` 的跟踪表里取进程里
+    **最后一个** `QQmlEngine`"。只要进程里**先**存在一个游离引擎（测试探针、别的模块建的），
+    取到的就可能是它 —— `fluentAvailable` 变 False，入口那个真引擎反而没接上。
+    阶段 1 的证据脚本 `poc/_verify_group_b_independent.py` 第 5 节的红灯就是这条。
+
+    修法是**整条删掉那条取值路径**（不是换成更聪明的猜法）：只认构造参数 `engine=`
+    与装配方的 `use_engine(engine)`；注入那一刻立刻试解析一次 FluTheme，
+    否则 `fluentAvailable` 会停在 False 直到下一次同步（入口中间没有别的同步点）。
+
+    判据分三层，任何一层被改回去都会红：
+
+    1. **源码里没有堆扫描**：AST 里不许出现 `gc` 的导入，也不许出现 `*.get_objects()` 调用。
+       用 AST 而不是文本匹配：**docstring 里记述这段历史是本仓库的惯例**，不该因为
+       "文档提到过"就误报（反过来，改写成别的名字再扫也躲不过 AST）；
+    2. **自动发现通道整条不存在**：`ThemeBridge` 上不许再有 `_discover_engine`
+       （判据是"这个属性不存在"，不是"它的实现被削弱了"）；
+    3. **显式通道有效且立刻生效**：注入一个假引擎后 `_current_engine()` 必须就是它，
+       且桥**当场**就去解析 FluTheme（假引擎的 `importPathList()` 必须被问过）。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（把 gc 扫描加回去）；`None` = 读真实文件
+            并连第 2、3 层的行为判据一起跑。
     """
-    body = source("app/bridges/theme_bridge.py") if text is None else text
-    scans_gc = "gc.get_objects()" in body
-    return scans_gc, ("theme_bridge 里" + ("仍在用 gc 扫描挑引擎（现象仍在）" if scans_gc
-                                          else "已不再靠 gc 顺序挑引擎（可以改成「已修」了）"))
+    body = raw("app/bridges/theme_bridge.py") if text is None else text
+    problems: List[str] = []
+    try:
+        tree = ast.parse(body)
+    except SyntaxError as e:
+        return False, f"theme_bridge.py 不是合法 Python，形状审不了：{e}"
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(alias.name.split(".")[0] == "gc" for alias in node.names):
+            problems.append(f"第 {node.lineno} 行又导入了 gc 模块")
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get_objects":
+            problems.append(f"第 {node.lineno} 行又出现堆扫描调用（*.get_objects()）")
+    if text is None:
+        from app.bridges import theme_bridge as bridge
+
+        if hasattr(bridge.ThemeBridge, "_discover_engine"):
+            problems.append("ThemeBridge._discover_engine 又回来了（自动发现通道不该存在）")
+        injected = _LedgerFakeEngine()
+        built = bridge.ThemeBridge(theme_engine=_LedgerFakeThemeEngine(), config=_LedgerFakeConfig())
+        built.use_engine(injected)
+        if built._current_engine() is not injected:
+            problems.append("use_engine 注入的引擎没被认下来（显式通道失效）")
+        elif injected.asked == 0:
+            problems.append("注入引擎时没有立刻去解析 FluTheme（入口第一帧会用 FluentUI 默认色）")
+    if problems:
+        return False, "；".join(problems)
+    return True, "引擎只来自显式注入（无 gc 扫描、无自动发现；注入即解析 FluTheme）"
+
+
+class _LedgerFakeEngine:
+    """假 QML 引擎：只记 `importPathList()` 被问过几次（桥解析 FluTheme 的第一步）。
+
+    刻意**不给** FluentUI 导入路径：这条判据只关心"桥认不认注入的那个引擎、有没有当场
+    去解析"，不关心能不能真取到 FluTheme（那由 `tests/test_theme_bridge.py` 的正经用例覆盖）。
+    """
+
+    def __init__(self) -> None:
+        self.asked = 0
+
+    def importPathList(self) -> List[str]:  # noqa: N802 - Qt 命名
+        self.asked += 1
+        return []
+
+
+class _LedgerFakeThemeEngine:
+    """假主题引擎：`load_theme` 一律返回 None（连全局调色板都不碰）。"""
+
+    def load_theme(self, name: str) -> Any:
+        return None
+
+    def apply_theme(self, theme: Any, accent: Any = None) -> None:
+        return None
+
+
+class _LedgerFakeConfig:
+    """假配置：**既不读也不写**真实 `config.json`。"""
+
+    theme_name = "default"
+    accent_color = None
+
+    def save_config(self) -> None:
+        return None
+
+
+def _d154_progress_is_not_behind_the_clock_guard(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-154（已修）：进度回调不许再被"时钟刻度"那层判断挡住。
+
+    现象与实证：`_dl_part` 里 `emit()` 原写在 `if elapsed > 0:`（给"算速率"防除零的那层）
+    **里面**，于是一个时钟刻度内跑完的下载（Windows 上 `time.time()` 步长约 0.5 ms，
+    内存/局域网的小文件很容易撞上）**一次回调都不发** —— 界面进度条全程不动，而文件其实
+    已经下好了。它对外表现成**偶发红灯**：`poc/probe_tool_parity.py` 的
+    "进度回调被触发（0 次）"同一进程连跑 40 次红 2 次；**已入库**的
+    `tests/test_tool_service.py::test_download_multi_segmented` 连跑 400 次红 2 次（约 0.5%）。
+    机制的三组对照在 `poc/_probe_tool_progress_tick.py`（冻结时钟 → 恒 0 次；
+    时钟每次 +1 ms → 恒非 0；自然时钟 → 5000 B 负载 5/120 次、3 B 负载 3/120 次）。
+
+    判据只看**形状**，行为那半边交给 `tests/test_tool_service.py` 里那条**冻结时钟**的
+    确定性用例（`test_download_multi_reports_progress_even_without_a_clock_tick`）——
+    同一件事不写两份实现（本仓库反复强调的规矩）：
+
+    1. `emit(` 必须还在：把进度回调**整个删掉**同样算回归；
+    2. `emit(` 不许落在任何 `if ... elapsed ...` 的**语句体**里：把守卫加回去就红
+       （只看语句级 `if`，`speed = a / elapsed if elapsed > 0 else 0.0` 这种表达式不算）。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码；`None` = 读真实文件。
+    """
+    body = raw("services/tool_service.py") if text is None else text
+    try:
+        tree = ast.parse(body)
+    except SyntaxError as e:
+        return False, f"tool_service.py 不是合法 Python，形状审不了：{e}"
+
+    def calls_emit(node: ast.AST) -> bool:
+        return any(
+            isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) and sub.func.id == "emit"
+            for sub in ast.walk(node)
+        )
+
+    guarded = [
+        node.lineno for node in ast.walk(tree)
+        if isinstance(node, ast.If) and "elapsed" in ast.dump(node.test) and calls_emit(node)
+    ]
+    if guarded:
+        return False, f"第 {guarded} 行的 `if ... elapsed ...` 里又在发进度了（D-154 回归：emit 被时钟守卫挡住）"
+    inside = [
+        node.lineno for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "download_multi" and calls_emit(node)
+    ]
+    if not inside:
+        return False, "`download_multi` 里已经没有进度回调 `emit(` 了（这不是修法，是把功能删了）"
+    return True, "进度回调在时钟守卫之外（`emit` 每块都发；行为由冻结时钟用例钉住）"
 
 
 LEDGER: Dict[str, Entry] = {
@@ -413,6 +537,19 @@ LEDGER: Dict[str, Entry] = {
         summary="音效链依赖外部 ffmpeg 却没声明、失败被静默吞掉（设了没反应）",
         where="services/music_effects.py", check=_d147_ffmpeg_declared),
 
+    # ─── 阶段 3 首轮修好的（正向判据，用户裁决的方案 a） ────────────
+    "D-153": Entry(
+        defect="D-153", state="已修",
+        summary="FluentUI 模块目录的查找靠 `gc` 取「最后一个引擎」 —— 进程里有游离引擎时取错，"
+                "`fluentAvailable` 变 False（阶段 1 证据脚本第 5 节红灯的成因）",
+        where="app/bridges/theme_bridge.py", check=_d153_engine_comes_only_from_injection),
+    "D-154": Entry(
+        defect="D-154", state="已修",
+        summary="进度回调被 `if elapsed > 0:`（防除零那层）一起挡住 —— 一个时钟刻度内跑完的下载"
+                "一次回调都不发（界面进度条不动），并让 `probe_tool_parity.py` 与已入库的"
+                " `test_download_multi_segmented` 时红时绿（约 0.5%~5%）",
+        where="services/tool_service.py", check=_d154_progress_is_not_behind_the_clock_guard),
+
     # ─── 挂账（钉住现状 + 理由 + 排期） ─────────────────────────────
     "D-13": Entry(
         defect="D-13", state="挂账",
@@ -476,23 +613,13 @@ LEDGER: Dict[str, Entry] = {
         reason="QML 侧的收尾钩子属于**阶段 3** 的悬浮窗接线（Tk 版有 `init_gpu/shutdown_gpu` "
                "配对，QML 版只接了 init）。",
         files=("app/bridges/overlay_bridge.py",)),
-    "D-153": Entry(
-        defect="D-153", state="挂账",
-        summary="FluentUI 模块目录查找靠 `gc.get_objects()` 取最后一个引擎 —— 有游离引擎时取错，"
-                "`fluentAvailable` 变 False（阶段 1 证据脚本第 5 节红灯的成因）",
-        where="app/bridges/theme_bridge.py", check=_d153_fluent_lookup_still_scans_gc,
-        reason="用户已裁决方案 (a)：**阶段 3 的首轮**就修（下一轮即动手）—— 模块目录查找改为只认显式"
-               "注入的 `use_engine` 引擎（`main_qml.register_bridges` 已经会注入），去掉对 gc 对象"
-               "顺序的依赖；顺带让那条阶段 1 证据脚本重新转绿。显式通道本身没问题（探针实测注入的"
-               "是入口引擎），所以这是「取值路径选错」，不是「注入没生效」。",
-        files=("app/bridges/theme_bridge.py",)),
 }
 
-#: 台账必须覆盖的缺陷号（防"悄悄少一条"）：18 条欠账 + 本轮新登记的。
+#: 台账必须覆盖的缺陷号（防"悄悄少一条"）：18 条欠账 + 后续几轮新登记的。
 REQUIRED_IDS = (
     "D-04", "D-05", "D-10", "D-11", "D-13", "D-16", "D-17", "D-18", "D-19", "D-20",
     "D-21", "D-22", "D-23", "D-24", "D-25", "D-26", "D-27", "D-28",
-    "D-146", "D-147", "D-150", "D-151", "D-152", "D-153",
+    "D-146", "D-147", "D-150", "D-151", "D-152", "D-153", "D-154",
 )
 
 
@@ -583,6 +710,26 @@ def test_check_based_probes_are_not_empty_assertions() -> None:
         ("D-150", _d150_product_disables_disk_cache,
          source("main_qml.py").replace("QML_DISABLE_DISK_CACHE", "已删掉的开关"),
          "删掉关闭磁盘缓存那一行"),
+        ("D-153", _d153_engine_comes_only_from_injection,
+         'import gc\n'
+         '\n'
+         'from PySide6.QtQml import QQmlEngine\n'
+         '\n'
+         '\n'
+         'def _discover_engine():\n'
+         '    """在进程里找引擎。"""\n'
+         '    found = [obj for obj in gc.get_objects() if isinstance(obj, QQmlEngine)]\n'
+         '    return found[-1] if found else None\n',
+         "把 gc 堆扫描的引擎发现加回去"),
+        ("D-154", _d154_progress_is_not_behind_the_clock_guard,
+         'def download_multi():\n'
+         '    emit(1, 2, 3)\n'
+         '\n'
+         '\n'
+         'def _dl_part():\n'
+         '    if elapsed > 0:\n'
+         '        emit(downloaded, total_size, speed)\n',
+         "把进度回调挪回 `if elapsed > 0` 里面"),
     ]
     problems = []
     for defect, probe, mutated, note in cases:
