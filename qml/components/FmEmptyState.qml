@@ -5,8 +5,14 @@
 // 什么时候不要用：还在加载（用 FmLoadingState）；出错（用 FmErrorState）；
 //   一个字段为空（那用 `visible: text.length > 0`，不要摆一整个空状态块）。
 //
-// `actionText` 非空时右下出现一个次按钮并 `actionTriggered()`（"去安装一个"、
+// `actionText` 非空时右下出现一个按钮并 `actionTriggered()`（"去安装一个"、
 //   "清空筛选条件"、"打开目录"）。文案与按钮文案都由调用方给（`Tr.map[…]`）。
+//
+// `actionPrimary`（阶段 3 任务 3.1 新增）：把那个动作按钮变成**主按钮**（强调色）。
+//   默认是次按钮 —— 空态里的动作多数是"换条路走"，不该抢眼。但首页那种
+//   "首启什么都没有、唯一的下一步就是去装一个版本"的场景，动作就是页面的**主操作**，
+//   次按钮会让整页看不到一处强调色（视觉回归 `test_visual_regression.py` 正是按
+//   "每页至少有一处强调色"判的）。调用方按语义选，不按好看选。
 
 import QtQuick
 
@@ -18,6 +24,8 @@ Item {
     property string description: ""
     property string iconName: "folder-open"
     property string actionText: ""
+    //: 动作按钮是否用主按钮样式（默认次按钮，见文件头）
+    property bool actionPrimary: false
 
     signal actionTriggered()
 
@@ -64,7 +72,7 @@ Item {
             objectName: "fmEmptyStateAction"
             anchors.horizontalCenter: parent.horizontalCenter
             visible: block.actionText.length > 0
-            primary: false
+            primary: block.actionPrimary
             text: block.actionText
             onClicked: block.actionTriggered()
         }

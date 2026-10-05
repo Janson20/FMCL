@@ -86,6 +86,11 @@ def patch_startup_defaults() -> None:
     ctl._default_notice_fetcher = staticmethod(lambda: None)  # type: ignore[assignment]
     ctl._default_predownload_runner = lambda self: None  # type: ignore[assignment]
     ctl._check_agreement = lambda self: None  # type: ignore[assignment]
+    # 阶段 3 任务 3.1 新增的两条默认实现同样会碰真实数据，必须一起换掉：
+    # `_default_launcher_wiring` 会读/写真实 `accounts.json` 与 `.minecraft/options.txt`，
+    # `_check_update` 会**发 HTTP**。本探针只判"窗口可见性"，这两件事都无关且会拖慢时序。
+    ctl._default_launcher_wiring = lambda self, launcher: None  # type: ignore[assignment]
+    ctl._check_update = lambda self: None  # type: ignore[assignment]
 
 
 def window_state(startup: Any, splash: Any, root: Any, sink: Any) -> Dict[str, Any]:

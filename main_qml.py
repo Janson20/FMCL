@@ -71,6 +71,7 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Hotkeys", "app.bridges.hotkey_bridge", "HotkeyBridge"),
     ("Overlay", "app.bridges.overlay_bridge", "OverlayBridge"),
     ("Shell", "app.bridges.shell_bridge", "ShellBridge"),
+    ("Home", "app.bridges.home_bridge", "HomeBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -571,6 +572,14 @@ def assemble(
         engine._fmcl_bridges = getattr(engine, "_fmcl_bridges", {})
         engine._fmcl_bridges["Startup"] = startup
         result["registered"].append("Startup")
+        # 把桥表回填给启动流程：启动后置任务要把成就总览交给首页桥（它注册得比这里早，
+        # 构造期还看不到 Home）。见 `StartupController.set_bridges` 的说明。
+        set_bridges = getattr(startup, "set_bridges", None)
+        if callable(set_bridges):
+            try:
+                set_bridges(engine._fmcl_bridges)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("回填桥表给 Startup 失败: %s", e)
     except Exception as e:  # noqa: BLE001 - 启动流程起不来也要能进界面（宁可没有启动画面）
         logger.error("StartupController 不可用（%s）—— 跳过启动画面与启动链条", e)
 

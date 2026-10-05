@@ -4,7 +4,8 @@ RESTful-style internal API for achievement tracking and management.
 Data stored in SQLite at <base_dir>/achievements.db, structured for future cloud sync.
 """
 
-import contextlib, sqlite3  # contextlib.closing：D-113 的连接关闭，理由见 services/achievement_db.py
+import contextlib  # contextlib.closing：D-113 的连接关闭，理由见 services/achievement_db.py
+import sqlite3
 import threading
 import time
 from dataclasses import dataclass
@@ -285,6 +286,33 @@ class AchievementEngine:
                 return None
             except (ValueError, TypeError):
                 return None
+            finally:
+                conn.close()
+
+    def get_checkin_streak(self) -> int:
+        """获取当前连续签到天数（阶段 3 任务 3.1 新增的只读接口）。
+
+        为什么需要它：``checkin()`` 的返回值是 ``update_progress("advanced_checkin", …)``
+        的产物，里面**没有** ``streak`` 字段（它只有 ``progress_current`` /
+        ``progress_stage`` 之类的成就条目字段）。旧入口却按
+        ``result.get("streak", 0)`` 取值 —— 于是"签到成功! 连续 N 天"
+        这句提示**永远不会显示**（对照表 F-09 的"连续天数提示"是死代码）。
+
+        正本清源的做法不是猜 ``checkin()`` 的返回值，而是**把真正的事实读回来**：
+        ``checkin()`` 写的就是 ``achievement_state.checkin_streak`` 这一行。
+
+        Returns:
+            连续天数；从未签到过（或值坏了）返回 0。
+        """
+        with self._lock:
+            conn = self._get_conn()
+            try:
+                row = conn.execute("SELECT value FROM achievement_state WHERE key = 'checkin_streak'").fetchone()
+                if row:
+                    return int(row["value"])
+                return 0
+            except (ValueError, TypeError):
+                return 0
             finally:
                 conn.close()
 

@@ -176,6 +176,39 @@ FluWindow {
         }
     }
 
+    // ── 首页（阶段 3 任务 3.1）──────────────────────────────────────
+    // 首页桥把"游戏进程那边发生的事"转成信号发过来，这里负责**落到壳层**：
+    // 状态条文案、窗口最小化、崩溃提示、公告重看。
+    //
+    // 为什么不让 `Home` 直接调 `Shell` / 自己弹 Toast：桥里已经有一份"哪个键翻成哪句话"
+    // 的表（`home_bridge._status_text`），但"这句话显示在状态条上还是弹成 Toast"是
+    // **壳层的决定**（状态条 10 秒自动清空、Toast 要排队）。分开之后首页桥不用知道壳层长什么样。
+    Connections {
+        target: (typeof Home !== "undefined" && Home) ? Home : null
+
+        function onStatusMessage(text, level) {
+            if (Shell)
+                Shell.setStatus(text, level)
+        }
+
+        function onMinimizeWindowRequested() {
+            // B-03 的最小化开关：游戏窗口出现后才最小化（旧实现 `self.iconify()`）
+            app.showMinimized()
+        }
+
+        function onCrashDetected(exitCode, message) {
+            if (Shell)
+                Shell.setStatus(message, "error")
+            if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.available)
+                Dialogs.notify({"level": "error", "message": message, "icon": "error"})
+        }
+
+        function onNoticeRequested() {
+            if (typeof Startup !== "undefined" && Startup)
+                Startup.replayNotice()
+        }
+    }
+
     // ── 启动画面（任务 2.14）────────────────────────────────────────
     // 单独的顶层窗口，显示/隐藏在 Python 侧决定（app/startup.py 的 4 条竞争退出路径）。
     Splash {}

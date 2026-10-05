@@ -20,8 +20,10 @@
 ## 覆盖范围（写清楚，免得被误读成"全部缺陷都在这里"）
 
 这张表覆盖的是**阶段 2 收尾时还挂着的 24 条**：18 条欠账（D-04~D-28），加上收口轮新登记的
-D-146 / D-147 / D-150 / D-151 / D-152，以及阶段 3 前置轮新登记的 D-153。**不包含**更早那批
-已经是"已修"或"已由决策延后"的编号（D-01/02/03/12 与 D-06/07/14/15/77/101/102）——
+D-146 / D-147 / D-150 / D-151 / D-152，阶段 3 前置轮新登记的 D-153 / D-154，
+以及**阶段 3 任务 3.1 新登记的 5 条**（D-155 ~ D-157 已修：签到提示是死代码 / 云同步不看返回值 /
+强杀后又报"正常退出"；D-158 / D-159 挂账：旧 Tk 启动流程并存、启动前备份与启动并发）。
+**不包含**更早那批已经是"已修"或"已由决策延后"的编号（D-01/02/03/12 与 D-06/07/14/15/77/101/102）——
 它们各自的判据要么已经被对应任务的测试覆盖，要么需要读 `docs/refactor/`
 （**未入库**，CI 里读不到，所以不能进这张表）。
 这条边界是刻意的：**台账只依赖仓库里被跟踪的文件**，否则 CI 上必然红。
@@ -474,6 +476,80 @@ def _d154_progress_is_not_behind_the_clock_guard(text: Optional[str] = None) -> 
     return True, "进度回调在时钟守卫之外（`emit` 每块都发；行为由冻结时钟用例钉住）"
 
 
+# ─── 阶段 3 首轮（3.1）的反馈链路判据 ──────────────────────────
+
+
+def _d155_checkin_streak_is_really_read(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-155（已修）：每日签到的"连续 N 天"必须**真的读回来**。
+
+    旧写法（`main.py:328-334`）：`result = ach_engine.checkin()` 之后
+    `if result and result.get("success")` 才提示 —— 而 `result` 是引擎
+    `update_progress()` 的返回值（`_build_item` 的成就条目，键是
+    `progress_current` / `progress_stage` 那一套），**既没有 `success` 也没有 `streak`**。
+    于是对照表 F-09 写着的"连续天数提示"是**死代码**：一次都没显示过，
+    即使分支成立天数也恒为 0。
+
+    修法不是猜返回值，而是把事实读回来：引擎新增只读接口 `get_checkin_streak()`，
+    `AchievementService.checkin()` 如实返回 `{checked_in, already, streak}`。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`services/achievement_service.py`）。
+    """
+    service = source("services/achievement_service.py") if text is None else strip_python_comments(text)
+    problems: List[str] = []
+    if '"checked_in"' not in service:
+        problems.append("AchievementService.checkin() 没返回 checked_in")
+    if "get_checkin_streak()" not in service:
+        problems.append("checkin() 没把连续天数读回来（旧实现读的键不存在）")
+    if "def get_checkin_streak" not in source("services/achievement_engine.py"):
+        problems.append("引擎没有提供只读接口 get_checkin_streak()")
+    if "startup_checkin_ok" not in source("app/startup.py"):
+        problems.append("启动流程没把签到结果报给用户")
+    return (not problems, "；".join(problems) or "签到结果有真实来源，且启动流程会提示")
+
+
+def _d156_cloud_sync_result_is_checked(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-156（已修）：成就云同步的**返回值**必须被看。
+
+    旧写法（`main.py:317-327`）：`run_sync(...)` 之后无条件
+    `app.set_status("成就云存档同步完成", "success")` —— 它压根没接返回值，
+    于是同步失败也会告诉用户"同步完成"。现在成功走 `startup_ach_synced`、
+    失败走 `startup_ach_sync_failed`（warning）。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`app/startup.py`）。
+    """
+    startup = source("app/startup.py") if text is None else strip_python_comments(text)
+    problems: List[str] = []
+    if "if ok:" not in startup:
+        problems.append("没有按返回值分流")
+    if "startup_ach_synced" not in startup:
+        problems.append("成功那条提示没了")
+    if 'self._set_status("startup_ach_sync_failed", "warning")' not in startup:
+        problems.append("失败那条提示没了（旧实现正是「无论成败都报成功」）")
+    return (not problems, "；".join(problems) or "云同步按返回值分流成两条提示")
+
+
+def _d157_killed_game_is_not_reported_as_normal_exit(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-157（已修）：强杀之后不许再补一句"游戏已正常退出"。
+
+    旧实现在 `ui/app_handlers.py:356-367` 与 `1299-1308` 上：用户点强杀 → 状态栏
+    "游戏进程已强制结束"；紧接着退出监控线程看到 `_killed_by_user` 已置真，
+    走 `game_exited` 分支 → 状态栏又写"游戏已正常退出"。两句话前后矛盾，
+    而真实原因是用户自己杀的。
+
+    判据同时钉住"两句都发"这种半修法：`not crashed and not killed` 必须**同时**
+    要求没崩溃且不是强杀。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`app/bridges/home_bridge.py`）。
+    """
+    bridge = source("app/bridges/home_bridge.py") if text is None else strip_python_comments(text)
+    if "if not crashed and not killed:" not in bridge:
+        return False, "强杀那一路又会去报「游戏已正常退出」了（D-157 回归）"
+    return True, "强杀/崩溃都不再走「正常退出」那句"
+
+
 LEDGER: Dict[str, Entry] = {
     # ─── 返工 E 组本轮修好的（正向断言） ───────────────────────────
     "D-04": Entry(
@@ -613,6 +689,43 @@ LEDGER: Dict[str, Entry] = {
         reason="QML 侧的收尾钩子属于**阶段 3** 的悬浮窗接线（Tk 版有 `init_gpu/shutdown_gpu` "
                "配对，QML 版只接了 init）。",
         files=("app/bridges/overlay_bridge.py",)),
+
+    # ─── 阶段 3 首轮（3.1 首页与启动流程）新登记的 ─────────────────
+    "D-155": Entry(
+        defect="D-155", state="已修",
+        summary="每日签到的「连续 N 天」提示是死代码（`result.get(\"success\")` 的键根本不存在）",
+        where="services/achievement_service.py", check=_d155_checkin_streak_is_really_read,
+        files=("services/achievement_service.py", "services/achievement_engine.py", "app/startup.py")),
+    "D-156": Entry(
+        defect="D-156", state="已修",
+        summary="成就云同步不看返回值：同步失败也提示「同步完成」",
+        where="app/startup.py", check=_d156_cloud_sync_result_is_checked),
+    "D-157": Entry(
+        defect="D-157", state="已修",
+        summary="用户强杀游戏后紧跟着又显示「游戏已正常退出」（两句话自相矛盾）",
+        where="app/bridges/home_bridge.py", check=_d157_killed_game_is_not_reported_as_normal_exit),
+    "D-158": Entry(
+        defect="D-158", state="挂账",
+        summary="旧 Tk 启动流程（`ui/app_handlers.py`）与 `services/game_service.py` 并存 —— "
+                "同一件事有两份实现（红线 2 的分叉）",
+        where="ui/app_handlers.py",
+        markers=("def _watch_game_stdout", "def _collect_crash_info"),
+        reason="随旧界面一起消失：排期**阶段 4** 的 4.2（删除 CustomTkinter 模块）。"
+               "现在把它改成调服务，等于在「当前唯一发布的界面」上做一次无收益的重构 —— "
+               "风险落在用户手里，收益只有 4.2 之前的那几周。**本轮新增的规则只写在新服务上**，"
+               "旧界面一行不改（`docs/refactor/16-phase3-execution-log.md` 记了这条裁决）。",
+        files=("ui/app_handlers.py", "services/game_service.py")),
+    "D-159": Entry(
+        defect="D-159", state="挂账",
+        summary="「启动前自动备份」与启动**并发**（备份可能还没写完，游戏已经起来了）",
+        where="services/game_service.py",
+        markers=('self._auto_backup("launch")',
+                 "self.tasks.submit(self.auto_backup_sync"),
+        reason="**保持旧行为**是刻意的：旧实现（`ui/app_handlers.py:944` + "
+               "`ui/app_backup.py:646`）就是「再开一个线程去备份、不等它」，改成串行会让"
+               "大存档的启动明显变慢。两种取舍都说得通，属**待裁决**（用户要选「启动快但备份可能不完整」"
+               "还是「备份完整但启动变慢」）；在裁决之前按红线 1 保持原样。",
+        files=("services/game_service.py", "ui/app_backup.py")),
 }
 
 #: 台账必须覆盖的缺陷号（防"悄悄少一条"）：18 条欠账 + 后续几轮新登记的。
@@ -620,6 +733,7 @@ REQUIRED_IDS = (
     "D-04", "D-05", "D-10", "D-11", "D-13", "D-16", "D-17", "D-18", "D-19", "D-20",
     "D-21", "D-22", "D-23", "D-24", "D-25", "D-26", "D-27", "D-28",
     "D-146", "D-147", "D-150", "D-151", "D-152", "D-153", "D-154",
+    "D-155", "D-156", "D-157", "D-158", "D-159",
 )
 
 
@@ -730,6 +844,17 @@ def test_check_based_probes_are_not_empty_assertions() -> None:
          '    if elapsed > 0:\n'
          '        emit(downloaded, total_size, speed)\n',
          "把进度回调挪回 `if elapsed > 0` 里面"),
+        ("D-155", _d155_checkin_streak_is_really_read,
+         'def checkin(self):\n'
+         '    engine = self.engine()\n'
+         '    return engine.checkin()\n',
+         "退回到「直接返回引擎结果」那种读不到天数的写法"),
+        ("D-156", _d156_cloud_sync_result_is_checked,
+         source("app/startup.py").replace("startup_ach_sync_failed", "startup_ach_synced"),
+         "把失败那条提示改回成功"),
+        ("D-157", _d157_killed_game_is_not_reported_as_normal_exit,
+         source("app/bridges/home_bridge.py").replace("if not crashed and not killed:", "if not crashed:"),
+         "让强杀也走「正常退出」那句"),
     ]
     problems = []
     for defect, probe, mutated, note in cases:

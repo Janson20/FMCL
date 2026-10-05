@@ -65,6 +65,8 @@ Item {
     property string emptyDetail: ""
     //: 空状态的行动按钮文案（非空才出现；点了发 `emptyActionTriggered()`）
     property string emptyActionText: ""
+    //: 空状态的行动按钮是否用主按钮样式（默认次；首页那种"唯一动作"的场景设为 true）
+    property bool emptyActionPrimary: false
     property string errorText: Tr?.map["plugin_state_error"] ?? "plugin_state_error"
     property string errorDetail: ""
     //: 错误态的重试按钮文案（非空才出现；点了发 `retried()`）
@@ -198,6 +200,7 @@ Item {
             title: page.emptyText
             description: page.emptyDetail
             actionText: page.emptyActionText
+            actionPrimary: page.emptyActionPrimary
             onActionTriggered: page.emptyActionTriggered()
         }
     }

@@ -467,6 +467,11 @@ def phase_pages(smoke: Smoke, built: Any) -> None:
         states: List[Dict[str, Any]] = []
         has_state = page is not None and page.property("contentState") is not None
         row["stateProperty"] = "contentState" if has_state else ""
+        # 阶段 3 的真实页面（3.1 首页是第一张）**关掉了演示按钮**：它们只是阶段 2 占位页
+        # 给验收人切三态用的。真实页面的三态由页面自己的桥驱动，所以：
+        #   * 三态渲染这件事照旧强制验（下面按 `contentState` 逐个切）；
+        #   * "点演示按钮"这条交互只在**还留着演示按钮**的页面上验（见下面的 clickStates）。
+        row["demoControlsVisible"] = bool(page.property("demoControlsVisible")) if has_state else False
         if has_state:
             for state in STATES:
                 page.setProperty("contentState", state)
@@ -490,10 +495,15 @@ def phase_pages(smoke: Smoke, built: Any) -> None:
                         f"三态图标应各不相同，实际 {sorted(icons)}")
             smoke.check(f"page.{route}.stateLabels", labels_ok,
                         f"{[e['label'] for e in states]}")
-            # 三个演示按钮必须在（阶段 3 换成真实交互之前，它们是"三态可点"的证据）
-            buttons = [item(page, f"demo{state.capitalize()}Button") for state in STATES]
-            smoke.check(f"page.{route}.stateButtons", all(b is not None for b in buttons),
-                        f"{[b is not None for b in buttons]}")
+            # 三个演示按钮必须在**还开着演示的页面**上（阶段 3 的真实页面关掉了它们，
+            # 那种页面改用下面 clickStates 之外的判据：三态渲染已经在本条上面强制验过）
+            if row["demoControlsVisible"]:
+                buttons = [item(page, f"demo{state.capitalize()}Button") for state in STATES]
+                smoke.check(f"page.{route}.stateButtons", all(b is not None for b in buttons),
+                            f"{[b is not None for b in buttons]}")
+            else:
+                smoke.check(f"page.{route}.stateButtons", True,
+                            "真实页面（阶段 3）没有演示按钮，本次跳过 —— 三态渲染已在 stateShown 里验过")
         else:
             smoke.check(f"page.{route}.states", True, "页面没有 contentState（阶段 3 的真实页），本次跳过")
         row["states"] = states
@@ -511,11 +521,15 @@ def phase_pages(smoke: Smoke, built: Any) -> None:
     smoke.payload["pages"] = rows
     smoke.check("pages.count", len(rows) == len(routes), f"{len(rows)}/{len(routes)}")
 
-    # 交互路径单独验一次：真的点一下三态按钮（合成鼠标事件），证明按钮是接上的
-    if rows:
-        first = rows[0]["route"]
+    # 交互路径单独验一次：真的点一下三态按钮（合成鼠标事件），证明按钮是接上的。
+    # 阶段 3 起，一级页面会**逐页**换成真实页面（3.1 的首页是第一张），它们不再有演示按钮 ——
+    # 所以这里挑**第一个还留着演示按钮的页面**来点；一个都没有时明确记一笔"跳过"，
+    # 而不是留一条永远失败的红灯（那种红灯会让人习惯性忽略闸门）。
+    clickable = [row["route"] for row in rows if row["demoControlsVisible"]]
+    if clickable:
+        target = clickable[0]
         nav.reset()
-        nav.push(first)
+        nav.push(target)
         settle(root)
         QTest.qWait(SETTLE_MS)
         page = stack.property("currentItem")
@@ -525,8 +539,14 @@ def phase_pages(smoke: Smoke, built: Any) -> None:
             if click(root, button):
                 clicked.append(str(page.property("contentState")))
         smoke.payload["clickStates"] = clicked
+        smoke.payload["clickStatesRoute"] = target
         smoke.check("pages.clickStates", clicked == ["empty", "error", "loading"],
-                    f"点按钮后 contentState = {clicked}")
+                    f"在 {target} 上点按钮后 contentState = {clicked}")
+    else:
+        smoke.payload["clickStates"] = []
+        smoke.payload["clickStatesRoute"] = ""
+        smoke.check("pages.clickStates", True,
+                    "所有一级页面都已是阶段 3 的真实页面（没有演示按钮），本次跳过")
 
 
 def phase_theme_language(smoke: Smoke, built: Any) -> None:

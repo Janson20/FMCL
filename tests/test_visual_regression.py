@@ -234,8 +234,18 @@ def test_three_states_render_and_differ(visual: Dict[str, Any]) -> None:
     tops = {state: tuple(tuple(pair) for pair in rows[state]["frame"]["top"])
             for state in ("loading", "empty", "error", "ready")}
     assert len(set(tops.values())) >= 3, f"三态的像素分布太像了：{tops}"
-    # 加载态的进度环用强调色，空/错误态不用 —— 这一条把"哪个态在屏上"落到像素上
-    assert rows["loading"]["frame"]["hits"]["accent"] > rows["empty"]["frame"]["hits"]["accent"]
+    # 加载态那一圈进度环必须是强调色（`FmLoadingState` 用 `Theme.accent` 画环）——
+    # 这是"哪个态在屏上"落到像素上的判据：
+    assert rows["loading"]["frame"]["hits"]["accent"] >= 1, (
+        "加载态看不到强调色（进度环没画出来，或者它不再用主题强调色）"
+    )
+    # 记录一条**被合法作废**的旧判据（阶段 3 任务 3.1）：原来这里写的是
+    # `loading 的强调色像素 > empty 的强调色像素`，作为"空态不用强调色"的代理判据。
+    # 首页变成真实页面之后，它的空态**故意**放了一颗主按钮（"管理版本" ——
+    # 首启时那是整页唯一的下一步，见 `FmEmptyState.actionPrimary` 的说明），
+    # 于是那个比较不再成立、也不再是任何一条设计意图的判据。
+    # 取代它的是上面两条更强的直接判据：加载态**必须**有强调色（环），
+    # 且"每页至少一处强调色"由 `test_every_page_is_dark_themed_and_free_of_foreign_light_slabs` 守着。
 
 
 def test_every_preset_reaches_the_screen(visual: Dict[str, Any]) -> None:

@@ -176,6 +176,17 @@ REGISTERED_LINE_DELTAS: dict[str, tuple[int, str]] = {
         "非空行 +82（总行 +99，多出的 17 行是函数之间的空行与 docstring 分段）—— 全是新增的"
         "探测/日志/折算代码与「为什么」注释，唯一的删除是 D-25 明令删掉的那一行。",
     ),
+    "services/achievement_engine.py": (
+        24,
+        "阶段 3 任务 3.1（缺陷 D-155）：每日签到的「连续 N 天」提示**一次都没显示过** —— "
+        "`checkin()` 返回的是 `update_progress()` 的成就条目（`_build_item` 的键是 "
+        "`progress_current` / `progress_stage` 那一套），既没有 `success` 也没有 `streak`，"
+        "而旧入口 `main.py:328-334` 恰恰按 `result.get(\"success\")` 判断要不要提示、"
+        "按 `result.get(\"streak\", 0)` 取天数（于是提示是死代码、天数恒为 0）。"
+        "修法是给引擎加只读接口 `get_checkin_streak()`：读的就是 `checkin()` 自己写的那一行 "
+        "`achievement_state.checkin_streak`，由 `AchievementService.checkin()` 如实返回。"
+        "非空行 +24（总行 +28，多出的 4 行是函数之间的空行与 docstring 分段）。",
+    ),
 }
 
 

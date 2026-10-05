@@ -104,6 +104,11 @@ def make(
         achievements_factory=achievements or (lambda: object()),
         notice_fetcher=notice or (lambda: None),
         predownload_runner=predownload or (lambda: None),
+        # 阶段 3 任务 3.1 新增的两条注入点：默认实现会碰真实账号文件、并**发 HTTP
+        # 检查更新** —— 本文件全是毫秒级时序断言，一次网络往返就能让它们全红
+        # （实测：`test_minimum_duration_is_what_makes_the_difference` 因此超时）。
+        launcher_wiring=lambda _launcher: None,
+        update_checker=lambda: None,
     )
     return ctl, ctx
 

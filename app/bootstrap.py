@@ -39,10 +39,12 @@ logger = logging.getLogger("app.bootstrap")
 #: 服务名 → ``"模块:类名"``。名字必须与各服务类里的 ``name`` 一致
 #: （`AppContext.register` 也用这个名字做键，界面侧 `try_get(Service.name)` 才对得上）。
 SERVICE_FACTORIES: Tuple[Tuple[str, str], ...] = (
+    ("account", "services.account_service:AccountService"),
     ("achievement", "services.achievement_service:AchievementService"),
     ("agent", "services.agent_service:AgentService"),
     ("bedrock", "services.bedrock_service:BedrockService"),
     ("crash", "services.crash_service:CrashService"),
+    ("game", "services.game_service:GameService"),
     ("mod_browser", "services.mod_browser_service:ModBrowserService"),
     ("modpack", "services.modpack_service:ModpackService"),
     ("music_player", "services.music_player:MusicPlayerService"),

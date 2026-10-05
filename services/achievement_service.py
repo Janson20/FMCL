@@ -405,6 +405,51 @@ class AchievementService(Service):
             return
         engine.batch_mark_notified(unlock_ids)
 
+    def checkin_streak(self) -> int:
+        """当前连续签到天数（引擎未初始化时为 0）。
+
+        与 :meth:`checkin` 的分工：那个负责"签"，这个只负责"读"。
+        首页要**任何时候**都能显示连续天数（不只是刚签完那一瞬间），
+        所以必须有一个不产生副作用的读法。
+        """
+        engine = self.engine()
+        if engine is None:
+            return 0
+        return engine.get_checkin_streak()
+
+    # ─── 每日签到（对照表 F-09 的后半句："连续天数提示"）────
+
+    def checkin(self) -> Dict[str, Any]:
+        """每日签到。返回 ``{checked_in, already, streak}``。
+
+        旧实现在 ``main.py:328-334``：先 ``ach_engine.checkin()``，再
+        ``if result and result.get("success")`` 决定要不要写状态栏"签到成功!
+        连续 N 天"。**那句话永远不会显示** —— ``checkin()`` 返回的是
+        ``update_progress("advanced_checkin", …)`` 的条目（``_build_item``），
+        键是 ``progress_current`` / ``progress_stage`` 那一套，既没有
+        ``success`` 也没有 ``streak``。于是：
+
+        * ``result.get("success")`` → None → 分支不成立（**提示是死代码**）；
+        * ``result.get("streak", 0)`` → 0（即使分支成立，天数也永远是 0）。
+
+        本方法是**如实**版本：签到与否看引擎自己的返回值（当天已签到时
+        ``checkin()`` 返回 None），连续天数从引擎状态里读回来
+        （:meth:`AchievementEngine.get_checkin_streak`）。修的是"提示永不显示"
+        这个缺陷，**签到本身的写库行为一字未改**（还是引擎那个 ``checkin()``）。
+
+        **必须在 worker 线程里调用**（引擎会开 SQLite 连接并写盘）。
+        引擎未初始化时返回 ``{checked_in: False, already: True, streak: 0}``
+        —— 与旧实现"引擎不在就直接 return"等价（都不发提示）。
+        """
+        engine = self.engine()
+        if engine is None:
+            return {"checked_in": False, "already": True, "streak": 0}
+        result = engine.checkin()
+        if result is None:
+            # 今天已经签过（引擎按 last_checkin_date == today 直接返回 None）
+            return {"checked_in": False, "already": True, "streak": engine.get_checkin_streak()}
+        return {"checked_in": True, "already": False, "streak": engine.get_checkin_streak()}
+
 
 __all__ = [
     "AchievementService",

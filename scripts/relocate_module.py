@@ -518,6 +518,19 @@ REGISTERED_LINE_DELTAS: Dict[str, Tuple[int, str]] = {
         "tests/test_agent_service.py 的 REGISTERED_LINE_DELTAS 里** —— "
         "它不在这张表的文件清单里（本表只覆盖 `scripts/relocate_module.py::MOVES` 里的条目）。",
     ),
+    "services/achievement_engine.py": (
+        28,
+        "阶段 3 任务 3.1（缺陷 D-155）：每日签到的「连续 N 天」提示**一次都没显示过** —— "
+        "`checkin()` 返回的是 `update_progress()` 的成就条目（`_build_item` 的键是 "
+        "`progress_current` / `progress_stage` 那一套），既没有 `success` 也没有 `streak`，"
+        "而旧入口 `main.py:328-334` 恰恰按 `result.get(\"success\")` 判断要不要提示、"
+        "按 `result.get(\"streak\", 0)` 取天数。修法不是猜返回值，而是给引擎加一个只读接口 "
+        "`get_checkin_streak()`：它读的就是 `checkin()` 自己写的那一行 "
+        "`achievement_state.checkin_streak`，于是「签到成功! 连续 N 天」终于有真实来源。"
+        "总行数 +28（非空行 +24，多出的 4 行是函数之间的空行与 docstring 分段）。"
+        "同一条偏差也登记在 tests/test_services_relocation.py 的 REGISTERED_LINE_DELTAS 里"
+        "（那里按**非空行**算，所以登记的是 +24）。",
+    ),
 }
 
 
