@@ -60,6 +60,22 @@ def locales_dir() -> Optional[Path]:
     return None
 
 
+def _root_config() -> Any:
+    """根模块的 `config` 单例；**取不到就返回 None**（测试环境可能没有 config.json）。
+
+    为什么单独一个函数：`TrBridge` 是本仓库唯一在**没有 AppContext** 的情况下被构造的
+    桥（`main_qml` 里 `qmlRegisterSingletonType`/`setContextProperty` 都是无参造它），
+    所以它得自己去找那份"进程级唯一配置"，而不是指望装配方注入。
+    """
+    try:
+        from config import config as root_config
+
+        return root_config
+    except Exception as e:  # noqa: BLE001 - 配置缺席时退回"系统语言"（旧行为）
+        logger.warning("取根模块 config 失败（语言将按系统语言决定）: %s", e)
+        return None
+
+
 class TrBridge(QObject):
     """上下文属性 `Tr` —— QML 里唯一的取文案入口。"""
 
@@ -72,10 +88,14 @@ class TrBridge(QObject):
         """
         Args:
             config: 注入的配置对象（测试用；注入后只读写它，不碰真实的 `config.json`）。
+                **不注入时**用根模块的 `config` 单例 —— 生产路径就是这条：
+                `main_qml._instantiate` 是 `TrBridge()` 无参构造，而"配置里选的语言"
+                必须生效（阶段 3.1 人工验收报的缺陷 D-160：`config.json` 改成 en_US
+                之后界面还是中文，因为这里拿到的是 None）。
             locales: 覆盖语言文件目录（测试用）。
         """
         super().__init__(parent)
-        self._config = config
+        self._config = config if config is not None else _root_config()
         self._map: Dict[str, str] = {}
         self._language = ""
         self._available: List[Dict[str, str]] = []

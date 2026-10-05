@@ -71,8 +71,14 @@ Item {
         anchors.fill: parent
         radius: Theme?.radiusMd ?? 0
         border.width: 1
-        border.color: control.borderColor()
-        color: control.faceColor()
+        // 为什么要判 `control.borderColor` 这个函数**在不在**（阶段 3 任务 3.1 的缺陷 D-163）：
+        // 对象被销毁（`StackView` 弹页、进程退出）时，QML 会先把元对象拆掉、绑定却还排在
+        // 求值队列里 —— 那一刻 `control` 还在、`control.borderColor` 已经不是函数了，
+        // 绑定一求值就是 `TypeError: Property 'borderColor' … is not a function`。
+        // 这与全局那条"上下文属性析构时先被清空，所以一律 `Theme?.x ?? 兜底`"是同一类问题，
+        // 兜底写法也一致；不兜的话视觉回归的"整轮零 TypeError"判据会偶发变红（实测稳定复现）。
+        border.color: control.borderColor ? control.borderColor() : (Theme?.cardBorder ?? "transparent")
+        color: control.faceColor ? control.faceColor() : (Theme?.bgMedium ?? "transparent")
     }
 
     Row {

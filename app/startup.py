@@ -90,6 +90,7 @@ class StartupController(QObject):
         achievements_factory: Optional[Callable[[], Any]] = None,
         notice_fetcher: Optional[Callable[[], Optional[str]]] = None,
         predownload_runner: Optional[Callable[[], Any]] = None,
+        terms_loader: Optional[Callable[[], str]] = None,
         launcher_wiring: Optional[Callable[[Any], None]] = None,
         update_checker: Optional[Callable[[], Any]] = None,
         clock: Callable[[], float] = time.monotonic,
@@ -119,6 +120,11 @@ class StartupController(QObject):
         self._achievements_factory = achievements_factory or self._default_achievements_factory
         self._notice_fetcher = notice_fetcher or self._default_notice_fetcher
         self._predownload_runner = predownload_runner or self._default_predownload_runner
+        #: 协议全文的读取器（默认 `services.legal_service.load_terms_text`）。**测试注入点**：
+        #: 默认实现读仓库根的 `TERMS_OF_USE.md`（16 KB），测试没必要真读盘。
+        self._terms_loader = terms_loader or self._default_terms_loader
+        #: 懒加载缓存（协议全文只读一次；`termsText` 是 constant 属性）
+        self._terms_cache: Optional[str] = None
         #: 核心接线（端口/账号系统/游戏语言）。**测试注入点**：默认实现会碰真实
         #: `config.json` / `accounts.json`，单元测试必须能把它换掉（见 `_wire_launcher`）。
         self._launcher_wiring = launcher_wiring
@@ -187,6 +193,25 @@ class StartupController(QObject):
     def hasNotice(self) -> bool:  # noqa: N802
         """本次会话是否拉到过公告（首页据此决定"查看公告"入口是否可用）。"""
         return bool(self._last_notice)
+
+    @Property(str, constant=True)
+    def termsText(self) -> str:  # noqa: N802
+        """用户协议**全文**（`TERMS_OF_USE.md` 的 Markdown 原文）。
+
+        为什么是 Markdown 原文而不是 HTML：QML 的 `Text { textFormat: Text.MarkdownText }`
+        自带渲染，而且颜色/字号来自 `Theme.*`（旧实现把 `_TERMS_DARK_CSS` 塞进 `<style>`，
+        Qt 的富文本引擎根本不认 `<style>`，照搬会得到黑字黑底）。
+        读不到时返回空串 —— `StartupDialogs.qml` 会退回语言文件里的摘要
+        （旧实现在读不到时也是给一句提示，语义一致）。
+        """
+        if self._terms_cache is None:
+            try:
+                self._terms_cache = str(self._terms_loader() or "")
+            except Exception as e:  # noqa: BLE001 - 协议读不出来不该让弹窗打不开
+                logger.error("读取用户协议失败: %s", e)
+                self._terms_cache = ""
+            logger.info("用户协议全文：%d 字符", len(self._terms_cache))
+        return self._terms_cache
 
     @Property(bool, notify=phaseChanged)
     def splashExpected(self) -> bool:  # noqa: N802
@@ -736,6 +761,13 @@ class StartupController(QObject):
         from services.notice_service import fetch_notice
 
         return fetch_notice()
+
+    @staticmethod
+    def _default_terms_loader() -> str:
+        """生产路径：读仓库根 / `_MEIPASS` 下的 `TERMS_OF_USE.md`（见 `services/legal_service`）。"""
+        from services.legal_service import load_terms_text
+
+        return load_terms_text()
 
     def _default_predownload_runner(self) -> Any:
         from config import config

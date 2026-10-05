@@ -173,6 +173,34 @@ def test_home_bridge_is_registered() -> None:
     assert report["bridges_missing"] == []
 
 
+def test_content_area_fills_the_page_card() -> None:
+    """D-161（用户 3.1 验收报的）：正文区必须撑满内容卡，不能被页脚抢走一半高度。
+
+    实测过的坏值：`bodyHeight == 322`（卡片 699 高，页脚 `FmCard` 的 `fmCardFooter`
+    与正文平分了 659 的可用高度），于是滚动视图只有 322px 可视区 —— 后两张卡被裁掉。
+    """
+    layout = probe()["layout"]
+    assert layout["bodyHeight"] > 500, (
+        f"正文区只有 {layout['bodyHeight']}px 高（页脚又把高度抢走了？）"
+    )
+    assert layout["bodyHeight"] == layout["scrollerHeight"], "滚动视图没有跟着正文区"
+
+
+def test_every_card_spans_the_available_width() -> None:
+    """卡片要占满可用宽度（原来停在 `FmCard.implicitWidth` 的 320px，全挤在左边）。"""
+    widths = probe()["layout"]["cardWidths"]
+    assert len(widths) == 4
+    assert all(w > 900 for w in widths), f"卡片宽度没有铺开：{widths}"
+
+
+def test_all_four_cards_are_inside_the_viewport() -> None:
+    """四张卡必须都在可视区内 —— 这条就是"第二次进来少两张卡"的判据。"""
+    layout = probe()["layout"]
+    assert layout["cardBottom"] <= layout["scrollerHeight"] + 1, (
+        f"最后一张卡到 {layout['cardBottom']}px，超出可视区 {layout['scrollerHeight']}px"
+    )
+
+
 @pytest.mark.parametrize("name", ["homeLaunchButton", "homeKillButton"])
 def test_action_buttons_are_clickable_targets(name: str) -> None:
     """两个动作按钮必须是**真的命中区**（点击测试已经证明；这里钉住它们存在）。"""

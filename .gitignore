@@ -12,6 +12,7 @@ local/
 *.xml
 pos.txt
 config.json
+config.bak.json
 .fmcl_key
 
 # Virtual environments

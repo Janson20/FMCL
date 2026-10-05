@@ -132,6 +132,9 @@ def make(**kwargs: Any) -> tuple[StartupController, FakeContext, Dict[str, Any]]
     kwargs.setdefault("update_checker", lambda: None)
     kwargs.setdefault("notice_fetcher", lambda: None)
     kwargs.setdefault("predownload_runner", lambda: None)
+    # 协议全文默认也换成空实现：默认实现要读 16 KB 的 `TERMS_OF_USE.md`，
+    # 而"默认实现确实读到了全文"由 `test_default_terms_loader_reads_the_real_document` 单独验。
+    kwargs.setdefault("terms_loader", lambda: "")
 
     controller = StartupController(
         ctx,
@@ -283,6 +286,48 @@ def test_achievement_publishing_survives_a_broken_bridge() -> None:
 def test_missing_home_bridge_is_not_an_error() -> None:
     controller, _ctx, _parts = make()
     controller.start_post_ready_tasks()
+
+
+# ─── D-162：协议**全文**（旧弹窗显示 TERMS_OF_USE.md，QML 版一度只显示摘要）──
+
+
+def test_terms_text_comes_from_the_loader() -> None:
+    controller, _ctx, _parts = make(terms_loader=lambda: "# 标题\n正文")
+    assert controller.property("termsText") == "# 标题\n正文"
+
+
+def test_terms_text_is_read_once() -> None:
+    """`termsText` 是常量属性 —— 读盘只该发生一次（弹窗可能被打开多次）。"""
+    calls: List[int] = []
+
+    def loader() -> str:
+        calls.append(1)
+        return "全文"
+
+    controller, _ctx, _parts = make(terms_loader=loader)
+    assert controller.property("termsText") == "全文"
+    assert controller.property("termsText") == "全文"
+    assert len(calls) == 1
+
+
+def test_terms_text_is_empty_when_the_loader_fails() -> None:
+    """读不到时返回空串（QML 侧退回语言文件里的摘要），不抛异常。"""
+    def boom() -> str:
+        raise RuntimeError("磁盘坏了")
+
+    controller, _ctx, _parts = make(terms_loader=boom)
+    assert controller.property("termsText") == ""
+
+
+def test_default_terms_loader_reads_the_real_document() -> None:
+    """默认实现（生产路径）读的就是仓库根的 `TERMS_OF_USE.md`。"""
+    controller, _ctx, _parts = make(terms_loader=None)
+    # `make()` 默认注入了空实现，这里显式还原成生产实现
+    controller._terms_loader = StartupController._default_terms_loader
+    controller._terms_cache = None
+    text = controller.property("termsText")
+    assert text.startswith("#"), "默认实现没有读到协议全文"
+    assert len(text) > 5000, f"只读到 {len(text)} 字符，像是摘要而不是全文"
 
 
 # ─── A-22 公告重看 ─────────────────────────────────────────────

@@ -21,8 +21,10 @@
 
 这张表覆盖的是**阶段 2 收尾时还挂着的 24 条**：18 条欠账（D-04~D-28），加上收口轮新登记的
 D-146 / D-147 / D-150 / D-151 / D-152，阶段 3 前置轮新登记的 D-153 / D-154，
-以及**阶段 3 任务 3.1 新登记的 5 条**（D-155 ~ D-157 已修：签到提示是死代码 / 云同步不看返回值 /
-强杀后又报"正常退出"；D-158 / D-159 挂账：旧 Tk 启动流程并存、启动前备份与启动并发）。
+**阶段 3 任务 3.1 开发中登记的 5 条**（D-155 ~ D-157 已修：签到提示是死代码 / 云同步不看返回值 /
+强杀后又报"正常退出"；D-158 / D-159 挂账：旧 Tk 启动流程并存、启动前备份与启动并发），
+以及 **3.1 人工验收当场发现的 4 条**（D-160 语言不跟配置 / D-161 卡片页脚抢高度 /
+D-162 协议只显示摘要 / D-163 析构期 TypeError，全部已修）。
 **不包含**更早那批已经是"已修"或"已由决策延后"的编号（D-01/02/03/12 与 D-06/07/14/15/77/101/102）——
 它们各自的判据要么已经被对应任务的测试覆盖，要么需要读 `docs/refactor/`
 （**未入库**，CI 里读不到，所以不能进这张表）。
@@ -479,6 +481,88 @@ def _d154_progress_is_not_behind_the_clock_guard(text: Optional[str] = None) -> 
 # ─── 阶段 3 首轮（3.1）的反馈链路判据 ──────────────────────────
 
 
+def _d160_language_comes_from_the_config() -> Tuple[bool, str]:
+    """D-160（已修）：界面语言必须来自 `config.json`。
+
+    根因：`main_qml` 里 `TrBridge()` 是**无参**构造的，而构造函数当年写的是
+    `self._config = config`（形参默认 None）—— 于是 `_boot()` 拿不到"首选语言"，
+    直接退回系统语言（中文系统 = zh_CN），配置里选的 en_US 被彻底忽略。
+    修法：不注入时取根模块的 `config` 单例（与 `AppContext.config` 同一条思路）。
+    """
+    bridge = source("app/bridges/tr_bridge.py")
+    problems: List[str] = []
+    if "_root_config()" not in bridge:
+        problems.append("没有取根模块 config 的兜底")
+    if "self._config = config if config is not None else _root_config()" not in bridge:
+        problems.append("构造期仍是 `self._config = config`（None 就没人管）")
+    if "def _root_config" not in bridge:
+        problems.append("没有 _root_config() 这个取配置的小函数")
+    return (not problems, "；".join(problems) or "不注入时取根模块 config，语言跟着配置走")
+
+
+def _d161_card_footer_does_not_steal_height(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-161（已修）：`FmCard` 的页脚不许跟着卡片一起被拉伸。
+
+    在 `ColumnLayout` 里只写 `Layout.alignment: Qt.AlignRight`（只有水平分量）时，
+    Qt Quick Layouts 认为纵向没有约束，把它也算成"可拉伸项"，**与正文平分**多出来的
+    高度。实测：`FmPage` 的内容卡 699 高 → `fmCardBody` 322 / `fmCardFooter` 322，
+    正文只有一半可视区，首页四张卡只看得见前两张（用户 3.1 验收报的"皮肤与成就总览消失"）。
+    页面侧的配套判据在 `tests/test_home_page_qml.py`（正文要撑满、四张卡都要在可视区内）。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`qml/components/FmCard.qml`）。
+    """
+    card = (REPO_ROOT / "qml/components/FmCard.qml").read_text(encoding="utf-8") if text is None else text
+    if "Layout.fillHeight: false" not in card:
+        return False, "页脚又只靠 alignment 约束了（会与正文平分高度）"
+    return True, "页脚显式 fillHeight: false"
+
+
+def _d162_terms_full_text_is_wired() -> Tuple[bool, str]:
+    """D-162（已修）：协议弹窗要显示 `TERMS_OF_USE.md` **全文**。
+
+    旧弹窗（`ui/app_handlers.py:747-861`）渲染的是全文（110 行 / 16 KB）；
+    QML 版一度只显示语言文件里那句摘要（`terms_content`）—— 功能丢失（红线 1）。
+    """
+    service = REPO_ROOT / "services/legal_service.py"
+    startup = source("app/startup.py")
+    dialogs = (REPO_ROOT / "qml/StartupDialogs.qml").read_text(encoding="utf-8")
+    problems: List[str] = []
+    if not service.is_file():
+        problems.append("没有 services/legal_service.py")
+    if "def termsText" not in startup:
+        problems.append("启动流程没有把协议全文暴露给 QML")
+    if "Startup.termsText" not in dialogs:
+        problems.append("协议弹窗没有读 Startup.termsText")
+    if "Text.MarkdownText" not in dialogs:
+        problems.append("全文没有按 Markdown 渲染（会看到一堆 # 与 **）")
+    if "terms_content" not in dialogs:
+        problems.append("读不到文件时的摘要兜底没了")
+    return (not problems, "；".join(problems) or "协议全文经 services/legal_service 读到 QML 并渲染")
+
+
+def _d163_component_bindings_survive_teardown(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-163（已修）：`FmButton` 的绑定要在**对象被销毁那一刻**活下来。
+
+    现象（视觉回归的"整轮零 TypeError"判据实测稳定复现）：`StackView` 弹页 / 进程退出时，
+    QML 会先拆掉对象的元对象，而绑定还排在求值队列里 —— 那一刻 `control` 还在、
+    `control.borderColor` 已经**不是函数**了，于是每销毁一个按钮就刷两条
+    `TypeError: Property 'borderColor' … is not a function`（探针一轮 10 条）。
+    与全局那条"上下文属性析构时先被清空，所以一律 `Theme?.x ?? 兜底`"是同一类问题，
+    兜底写法也一致：**先判函数在不在，再调**。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`qml/components/FmButton.qml`）。
+    """
+    button = (REPO_ROOT / "qml/components/FmButton.qml").read_text(encoding="utf-8") if text is None else text
+    problems: List[str] = []
+    if "control.borderColor ? control.borderColor()" not in button:
+        problems.append("border.color 又是裸调 `control.borderColor()` 了")
+    if "control.faceColor ? control.faceColor()" not in button:
+        problems.append("color 又是裸调 `control.faceColor()` 了")
+    return (not problems, "；".join(problems) or "两个绑定都先判函数在不在")
+
+
 def _d155_checkin_streak_is_really_read(text: Optional[str] = None) -> Tuple[bool, str]:
     """D-155（已修）：每日签到的"连续 N 天"必须**真的读回来**。
 
@@ -726,6 +810,29 @@ LEDGER: Dict[str, Entry] = {
                "大存档的启动明显变慢。两种取舍都说得通，属**待裁决**（用户要选「启动快但备份可能不完整」"
                "还是「备份完整但启动变慢」）；在裁决之前按红线 1 保持原样。",
         files=("services/game_service.py", "ui/app_backup.py")),
+
+    # ─── 3.1 人工验收（用户实测）发现并当场修掉的三条 ──────────────
+    "D-160": Entry(
+        defect="D-160", state="已修",
+        summary="`config.json` 里选的语言不生效（QML 界面永远跟着系统语言走）",
+        where="app/bridges/tr_bridge.py", check=_d160_language_comes_from_the_config,
+        files=("app/bridges/tr_bridge.py", "tests/test_tr_bridge.py")),
+    "D-161": Entry(
+        defect="D-161", state="已修",
+        summary="`FmCard` 的页脚被当成可拉伸项，与正文**平分**卡片高度 —— 首页四张卡只看得见前两张",
+        where="qml/components/FmCard.qml", check=_d161_card_footer_does_not_steal_height,
+        files=("qml/components/FmCard.qml", "qml/pages/home/HomePage.qml",
+               "tests/test_home_page_qml.py")),
+    "D-162": Entry(
+        defect="D-162", state="已修",
+        summary="协议弹窗只显示语言文件里的一句摘要，没有显示 `TERMS_OF_USE.md` 全文（旧弹窗显示全文）",
+        where="services/legal_service.py", check=_d162_terms_full_text_is_wired,
+        files=("services/legal_service.py", "app/startup.py", "qml/StartupDialogs.qml")),
+    "D-163": Entry(
+        defect="D-163", state="已修",
+        summary="`FmButton` 的绑定在对象销毁那一刻会抛 `TypeError: Property 'borderColor' … is not a function`",
+        where="qml/components/FmButton.qml", check=_d163_component_bindings_survive_teardown,
+        files=("qml/components/FmButton.qml", "tests/test_visual_regression.py")),
 }
 
 #: 台账必须覆盖的缺陷号（防"悄悄少一条"）：18 条欠账 + 后续几轮新登记的。
@@ -734,6 +841,7 @@ REQUIRED_IDS = (
     "D-21", "D-22", "D-23", "D-24", "D-25", "D-26", "D-27", "D-28",
     "D-146", "D-147", "D-150", "D-151", "D-152", "D-153", "D-154",
     "D-155", "D-156", "D-157", "D-158", "D-159",
+    "D-160", "D-161", "D-162", "D-163",
 )
 
 
@@ -855,6 +963,14 @@ def test_check_based_probes_are_not_empty_assertions() -> None:
         ("D-157", _d157_killed_game_is_not_reported_as_normal_exit,
          source("app/bridges/home_bridge.py").replace("if not crashed and not killed:", "if not crashed:"),
          "让强杀也走「正常退出」那句"),
+        ("D-161", _d161_card_footer_does_not_steal_height,
+         (REPO_ROOT / "qml/components/FmCard.qml").read_text(encoding="utf-8")
+         .replace("Layout.fillHeight: false", ""),
+         "把页脚的 fillHeight: false 删掉（退回与正文平分高度）"),
+        ("D-163", _d163_component_bindings_survive_teardown,
+         (REPO_ROOT / "qml/components/FmButton.qml").read_text(encoding="utf-8")
+         .replace("control.borderColor ? control.borderColor()", "control.borderColor()"),
+         "把 border.color 的兜底去掉（退回析构期裸调）"),
     ]
     problems = []
     for defect, probe, mutated, note in cases:

@@ -70,6 +70,44 @@ def bridge():
     yield b
 
 
+# ─── 0. 不注入配置时取根模块的那份（缺陷 D-160）────────────────
+
+
+def test_without_injection_it_reads_the_root_config(monkeypatch):
+    """**用户 3.1 验收报的缺陷 D-160**：`config.json` 改成 en_US 之后界面还是中文。
+
+    根因：`main_qml` 里 `TrBridge()` 是**无参**构造的，而构造函数当时写的是
+    `self._config = config`（默认 None）→ `_boot()` 拿不到首选语言 → 退回系统语言
+    （中文系统 = zh_CN），配置文件里的选择被彻底忽略。
+    修法：不注入时取根模块的 `config` 单例（`AppContext.config` 的同一条思路）。
+    """
+    from app.bridges import tr_bridge
+    from app.bridges.tr_bridge import TrBridge
+
+    _app()
+    real = tr_bridge._root_config()
+    assert real is not None, "根模块 config 取不到，这条判据无从谈起"
+    saved = real.language
+    try:
+        real.language = "en_US"
+        fresh = TrBridge(locales=LOCALES)
+        assert fresh.property("language") == "en_US", "配置文件里的语言没有生效"
+        assert fresh.property("map").get("tab_game") == "Game"
+    finally:
+        real.language = saved
+
+
+def test_root_config_failure_falls_back_to_system_language(monkeypatch):
+    """根配置拿不到时退回系统语言（旧行为），不抛异常。"""
+    from app.bridges import tr_bridge
+    from app.bridges.tr_bridge import TrBridge
+
+    _app()
+    monkeypatch.setattr(tr_bridge, "_root_config", lambda: None)
+    fresh = TrBridge(locales=LOCALES)
+    assert fresh.property("language") in ("zh_CN", "en_US", "zh_TW", "ja_JP")
+
+
 # ─── 1. 整表 map ───────────────────────────────────────────────
 
 

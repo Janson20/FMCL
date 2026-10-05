@@ -293,6 +293,14 @@ def enabled(name: str) -> bool:
     return bool(target is not None and target.property("enabled"))
 
 
+def rect(name: str) -> Dict[str, float]:
+    """控件的几何（y / height / width）；找不到时全 -1。"""
+    target = item(name)
+    if target is None:
+        return {"y": -1.0, "height": -1.0, "width": -1.0}
+    return {"y": float(target.y()), "height": float(target.height()), "width": float(target.width())}
+
+
 def settle(timeout_ms: int = 2000) -> None:
     stack = item("pageStack")
     if stack is None:
@@ -377,6 +385,20 @@ def main() -> int:
     report["killEnabled"] = enabled("homeKillButton")
     report["noticeEnabled"] = enabled("homeNoticeButton")
     report["launchText"] = text_of("homeLaunchButton")
+
+    # ── 2b. 布局（D-161 的判据：正文要撑满内容卡、卡片要占满宽度、四张卡都在可视区内）──
+    card_names = ("homeAccountCard", "homeGameCard", "homeSkinCard", "homeProgressCard")
+    body = rect("pageContentBody")
+    scroller = rect("fmScrollView")
+    cards = [rect(name) for name in card_names]
+    report["layout"] = {
+        "bodyHeight": body["height"],
+        "bodyWidth": body["width"],
+        "scrollerHeight": scroller["height"],
+        "cardWidths": [c["width"] for c in cards],
+        "cardHeights": [c["height"] for c in cards],
+        "cardBottom": max(c["y"] + c["height"] for c in cards),
+    }
 
     # ── 3. 点启动 → 桥 → 假服务（版本号取自"最近使用版本"）──
     click(item("homeLaunchButton"))

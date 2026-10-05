@@ -13,6 +13,12 @@
 //
 // 留待阶段 3 的（已登记、不是遗漏）：`TERMS_OF_USE.md` **全文**的富文本渲染归
 // 3.26（关于 / 链接 / 协议）；这里显示的是语言文件里那段正式声明（与旧弹窗的正文一致）。
+//
+// 上面那句已经**作废**（用户 3.1 人工验收报的缺陷 D-162：旧弹窗显示的是
+// `TERMS_OF_USE.md` 全文 110 行，QML 版只显示了一句摘要 = 功能丢失）。现在协议区
+// 优先渲染 `Startup.termsText`（Markdown 全文，`Text.MarkdownText`），只有在读不到
+// 文件时才退回语言文件里的 `terms_content` 摘要 —— 与旧实现"读不到就给提示"等价。
+// AI 隐私声明仍单独一段（它是**另一份**同意，旧弹窗里由同一个勾选框覆盖）。
 
 import QtQuick
 import QtQuick.Layouts
@@ -25,6 +31,14 @@ Item {
     property bool agreementOpen: false
     property bool noticeOpen: false
     property string noticeText: ""
+
+    //: 协议全文（`Startup.termsText`，Markdown 原文）。**做成根上的只读属性**而不是
+    //: 内联在滚动视图里：`typeof Startup !== "undefined"` 的判空只写一处，
+    //: 也让下面那句 `textFormat` 有单一的真值来源。读不到时为空串 → 用摘要兜底。
+    readonly property bool hasTermsText: (typeof Startup !== "undefined" && Startup)
+                                         ? (String(Startup.termsText ?? "").length > 0) : false
+    readonly property string termsBody: hasTermsText ? String(Startup.termsText)
+                                                     : (Tr?.map["terms_content"] ?? "terms_content")
 
     function openAgreement() {
         agreementOpen = true
@@ -110,7 +124,10 @@ Item {
                         Text {
                             objectName: "termsContentText"
                             Layout.fillWidth: true
-                            text: root.t("terms_content")
+                            //: 协议**全文**（`TERMS_OF_USE.md` 的 Markdown）；读不到时用摘要兜底
+                            text: root.termsBody
+                            //: Markdown 原文由 Qt 自己渲染；颜色/字号来自 Theme，所以深色主题下可读
+                            textFormat: root.hasTermsText ? Text.MarkdownText : Text.PlainText
                             color: Theme?.textPrimary ?? "transparent"
                             font.pixelSize: Theme?.fontSizeBase ?? 12
                             wrapMode: Text.WordWrap

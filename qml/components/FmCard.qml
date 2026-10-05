@@ -81,6 +81,14 @@ Rectangle {
             id: foot
             objectName: "fmCardFooter"
             Layout.fillWidth: true
+            // **必须显式写 `Layout.fillHeight: false`**（阶段 3 任务 3.1 人工验收的缺陷 D-161）：
+            // 在 ColumnLayout 里只给 `Layout.alignment: Qt.AlignRight`（只有水平分量）时，
+            // Qt Quick Layouts 会认为**纵向没有对齐约束**，于是把它也当成"可拉伸项"，
+            // 与 `fmCardBody`（fillHeight: true）**平分**多出来的高度。后果是：
+            // 卡片被拉伸时（`FmPage` 的内容卡就是），页脚拿走一半高度，正文只剩一半 ——
+            // 首页四张卡因此只有前两张看得见（滚动视图的可视区被压到 322px）。
+            // 页脚本来就该是"内容多高就多高"，显式写死 false 才是本意。
+            Layout.fillHeight: false
             Layout.alignment: Qt.AlignRight
             spacing: Theme?.spacingSm ?? 0
         }
