@@ -254,6 +254,18 @@ class MicrosoftLoginManager:
     def __init__(self):
         self.client_id = MICROSOFT_CLIENT_ID
         self._redirect_port: int = MICROSOFT_REDIRECT_PORTS[0]
+        #: 最后一次失败的原因（中文，给界面显示）。
+        #: 失败路径原先只 `logger.error(…)`，界面拿不到任何东西，只能显示一句
+        #: "登录失败，请重试" —— 而"DNS 解析不了 xsts.auth.xboxlive.com"这类
+        #: 与账号自身无关的失败，用户根本看不出该做什么（阶段 3.5 验收反馈）。
+        #: 每次登录/刷新开始时清空，任何一条失败分支都会写它。
+        self.last_error: str = ""
+
+    def _fail(self, message: str) -> str:
+        """记下失败原因（原样写日志）+ 返回空串，供 `return self._fail(...)` 那种收尾。"""
+        self.last_error = str(message)
+        logger.error("%s", message)
+        return ""
 
     def _find_available_port(self) -> int:
         import socket
@@ -277,9 +289,10 @@ class MicrosoftLoginManager:
         token_resp = microsoft.get_authorization_token(client_id, None, redirect_uri, auth_code, code_verifier)
         if "access_token" not in token_resp:
             error_msg = token_resp.get("error_description") or token_resp.get("error") or str(token_resp)
-            logger.error(f"微软 OAuth Token 交换失败: {error_msg}")
+            self.last_error = f"Token 交换失败: {error_msg}"
+            logger.error("微软 OAuth Token 交换失败: %s", error_msg)
             if status_callback:
-                status_callback(f"Token 交换失败: {error_msg}")
+                status_callback(self.last_error)
             return None
 
         return self._do_minecraft_auth(token_resp["access_token"], token_resp["refresh_token"], status_callback)
@@ -296,18 +309,20 @@ class MicrosoftLoginManager:
             xbl_uhs = xbl_resp["DisplayClaims"]["xui"][0]["uhs"]
             mc_resp = microsoft.authenticate_with_minecraft(xbl_uhs, xsts_resp["Token"])
         except mcll_exceptions.AccountNotOwnMinecraft:
-            logger.error("该微软账号未拥有 Minecraft")
+            self._fail("该微软账号未拥有 Minecraft")
             if status_callback:
                 status_callback("该微软账号未拥有 Minecraft")
             return None
         except Exception as e:
-            logger.error(f"微软 XBL/XSTS/Minecraft 认证失败: {e}")
+            #: 这条分支最常见的是网络/DNS 失败（`getaddrinfo failed`）—— 与账号本身无关，
+            #: 界面必须把原文给出来，否则用户会以为"账号坏了"（2026-10-06 验收反馈）。
+            self._fail(f"认证失败: {e}")
             if status_callback:
-                status_callback(f"认证失败: {e}")
+                status_callback(self.last_error)
             return None
 
         if "access_token" not in mc_resp:
-            logger.error("Azure 应用未获得 Minecraft API 权限，请使用已授权的 Client ID")
+            self._fail("Azure 应用未获得 Minecraft API 权限，请使用已授权的 Client ID")
             if status_callback:
                 status_callback("Azure 应用未获得 Minecraft API 权限")
             return None
@@ -315,13 +330,13 @@ class MicrosoftLoginManager:
         try:
             profile = microsoft.get_profile(mc_resp["access_token"])
         except Exception as e:
-            logger.error(f"获取 Minecraft 档案失败: {e}")
+            self._fail(f"获取 Minecraft 档案失败: {e}")
             if status_callback:
-                status_callback(f"获取档案失败: {e}")
+                status_callback(self.last_error)
             return None
 
         if "error" in profile and profile["error"] == "NOT_FOUND":
-            logger.error("该账号未拥有 Minecraft")
+            self._fail("该账号未拥有 Minecraft")
             if status_callback:
                 status_callback("该账号未拥有 Minecraft")
             return None
@@ -348,6 +363,7 @@ class MicrosoftLoginManager:
         if is_cancelled(cancel_event):
             return None
 
+        self.last_error = ""  # 新一轮开始：清掉上一次的原因
         self._redirect_port = self._find_available_port()
         redirect_uri = f"http://localhost:{self._redirect_port}"
 
@@ -357,7 +373,7 @@ class MicrosoftLoginManager:
         try:
             login_url, state, code_verifier = microsoft.get_secure_login_data(self.client_id, redirect_uri)
         except Exception as e:
-            logger.error(f"\u83b7\u53d6\u5fae\u8f6f\u767b\u5f55\u6570\u636e\u5931\u8d25: {e}")
+            self._fail(f"获取微软登录数据失败: {e}")
             return None
 
         if is_cancelled(cancel_event):
@@ -409,13 +425,13 @@ class MicrosoftLoginManager:
             return None
 
         if server.auth_code is None:
-            logger.error("\u5fae\u8f6f\u767b\u5f55\u8d85\u65f6")
+            self._fail("登录超时，请重试")
             if status_callback:
-                status_callback("\u767b\u5f55\u8d85\u65f6\uff0c\u8bf7\u91cd\u8bd5")
+                status_callback("登录超时，请重试")
             return None
 
         if server.auth_state != state:
-            logger.error(f"OAuth state \u4e0d\u5339\u914d: expected={state}, got={server.auth_state}")
+            self._fail(f"OAuth state 不匹配: expected={state}, got={server.auth_state}")
             return None
 
         if status_callback:
@@ -428,9 +444,9 @@ class MicrosoftLoginManager:
             if login_data is None:
                 return None
         except Exception as e:
-            logger.error(f"\u5b8c\u6210\u5fae\u8f6f\u767b\u5f55\u5931\u8d25: {e}")
+            self._fail(f"登录失败: {e}")
             if status_callback:
-                status_callback(f"登录失败: {e}")
+                status_callback(self.last_error)
             return None
 
         if is_cancelled(cancel_event):

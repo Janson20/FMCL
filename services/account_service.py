@@ -388,6 +388,29 @@ class AccountService(Service):
         result.setdefault("current", 1)
         result.setdefault("total", 1)
         self._emit(**result)
+
+    def login_error_detail(self, kind: str = "microsoft") -> str:
+        """上一次登录失败的**真实原因**（核心层记的中文句子）；没有就返回空串。
+
+        为什么要它：核心层失败时只 `logger.error(…)` 然后返回 `None`，界面只能显示
+        "微软登录失败，请重试" —— 用户 2026-10-06 实测报的就是这种情形（DNS 解析不了
+        `xsts.auth.xboxlive.com`，而**该表现等价于"这个微软账号没有买 Minecraft"**，
+        两种完全不同的处置却看到同一句话）。
+
+        取法：核心层的 `MicrosoftLoginManager` 把最后一次失败原因存在 `last_error`
+        上（本轮新增），这里原样取出来 —— **不在这里判断、不改写**（界面负责显示）。
+        """
+        system = self.system
+        if system is None:
+            return ""
+        getter = getattr(system, "login_error_detail", None)
+        if callable(getter):
+            try:
+                return str(getter() or "")
+            except Exception as e:  # noqa: BLE001 - 取不到原因不影响主流程
+                self.log.debug("取登录失败原因失败: %s", e)
+        return ""
+
     def _call_login(self, kind: str, params: Dict[str, Any]) -> Any:
         """按方式调核心层（三种登录都带同一套取消语义）。"""
         system = self.system

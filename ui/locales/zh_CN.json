@@ -1171,6 +1171,7 @@
   "account_refresh_token_failed": "Token 刷新失败，请重新登录",
   "account_refresh_token_confirm": "确定要刷新账号 {name} 的 Token 吗？",
   "account_login_failed": "{type} 登录失败，请重试",
+  "account_login_failed_hint": "请检查网络连接或账号状态后重试（详细原因见启动器日志）",
   "account_login_cancelled": "已取消登录",
   "account_name_required": "请输入角色名",
   "account_name_duplicate": "已存在同名账号「{name}」，仍可继续创建",

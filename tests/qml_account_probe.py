@@ -121,6 +121,11 @@ class FakeAccountSystem:
         #: 抢在窗口里读一次"：整仓 `-n 8` 并行时主线程可能整段错过这个窗口，
         #: 实测偶发假红（子进程测试为此还加过"只对这一条重跑"的兜底）。
         self.refresh_all_gate: Optional[threading.Event] = None
+        #: 微软登录"失败"的开关（用户 2026-10-06 实测的那种：DNS 解析不了
+        #: `xsts.auth.xboxlive.com`，表现与"这个微软账号没买 Minecraft"一样）
+        self.ms_login_fails = False
+        #: 核心层记下的最后一次失败原因（给 `login_error_detail()` 读）
+        self.last_login_error = ""
 
     # 读侧
     @property
@@ -182,10 +187,22 @@ class FakeAccountSystem:
             status_callback("正在打开浏览器...")
         if self._wait_cancel(cancel_event):
             return None
+        if self.ms_login_fails:
+            #: 用户 2026-10-06 真机撞到的那种失败：核心层只记日志、界面拿不到原因。
+            #: 假系统照核心层的新语义把原因放进 `last_login_error`。
+            self.last_login_error = ("认证失败: HTTPSConnectionPool(host='xsts.auth.xboxlive.com', "
+                                     "port=443): Failed to resolve 'xsts.auth.xboxlive.com'")
+            if status_callback:
+                status_callback(self.last_login_error)
+            return None
         account = make_account("MS-NEW", "MSPlayer", "microsoft")
         self.add_account(account)
         self.set_current_account(account.id)
         return account
+
+    def login_error_detail(self) -> str:
+        """核心层新增的口子（`MicrosoftLoginManager.last_error` 的转发）。"""
+        return self.last_login_error
 
     def offline_login(self, username: str) -> Optional[Account]:
         self.calls.append(f"offline_login:{username}")
@@ -260,6 +277,11 @@ SYSTEM.current_account_id = "MS-A"
 
 SYSTEM.login_delay = 0.4
 SERVICE = AccountService(system=SYSTEM)
+#: 只传 `system=` 还不够：`AccountService.system` 在 `_system` 为空时会去取
+#: `launcher.account.get_account_system()` 那个全局单例（探针里是 None）——
+#: 显式 `use_system()` 才是"把假系统钉上"的正规入口（第一版没钉，于是
+#: `login_error_detail()` 恒返回空串，失败提示条只能显示兜底文案）。
+SERVICE.use_system(SYSTEM)
 
 from config_isolation import isolate_config_writes  # noqa: E402
 
@@ -588,6 +610,90 @@ check("当前账号那行没有「设为当前」按钮",
       "当前行不该有设为当前")
 check("非当前账号那行有「设为当前」按钮", item("accountSetCurrent-OFF-B") is not None)
 
+#: **按钮文字自适应的结构判据**（用户 2026-10-06 报"按钮文字看不清"）。
+#: 实测过的两个坏值：错误色红字配深色底 3.91:1；若"浅底白字"则更低。
+#: 判据：正文文字的亮度必须**明显高于**它所在按钮的面板（亮面板则反过来），
+#: 即"文字与面板至少差 0.4 的 WCAG 对比度"——比 4.5:1 宽松（不锁死主题色），
+#: 但足以抓住"白字白底 / 红字深底"这类看不清。
+def _relative_luminance(qcolor: Any) -> float:
+    """WCAG 相对亮度。
+
+    PySide 把 QML 的 `property color` 拿回来是 **`QColor`**，而 `str(QColor)` 是
+    `PySide6.QtGui.QColor.fromRgbF(0.90, 0.29, 0.23, 1.00)` 这种**不是颜色字面量**的写法
+    （`QColor.name()` 才是 `#rrggbb`）—— 第一版直接 `str()` 然后解析 `#`，
+    于是每个按钮都算不出对比度、判据空转（探针报 `{}`，正好被自己抓到）。
+    """
+    if isinstance(qcolor, str):
+        return -1.0  # 字符串一定不是我们想要的形状（探针只从属性里取，见上面的说明）
+    getter = getattr(qcolor, "getRgb", None)
+    if not callable(getter):
+        return -1.0
+    try:
+        r, g, b, _alpha = getter()
+    except Exception:  # noqa: BLE001
+        return -1.0
+
+    def channel(value: int) -> float:
+        value = float(value) / 255.0
+        return value / 12.92 if value <= 0.03928 else ((value + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+def _contrast(a: float, b: float) -> float:
+    hi, lo = max(a, b), min(a, b)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def label_color_of(button_name: str) -> Any:
+    """按钮的文字色（`FmButton.labelColor` —— 生产代码里 `Text` 用的就是它）。"""
+    button = item(button_name)
+    return None if button is None else button.property("labelColor")
+
+
+def best_label_contrast(button_name: str) -> Any:
+    """文字色对"该主题下可能的面板底色"里**最好**的那个对比度。
+
+    面板色的真值只在 `faceColor()` 这个 QML 函数里，而 PySide6 **取不到 QML 函数的返回值**
+    （`Q_RETURN_ARG` 只接受一个参数、回调槽那条路也不被接受 —— `tmp/diag_invoke_return*.py`
+    两轮实测），所以这里拿主题令牌当候选底：`bgMedium`（次按钮/危险按钮未悬停）、
+    `accent`（主按钮）、`error`（危险按钮悬停）。自适应要挑的就是**这三者里的某一边**，
+    只要有一种达到 4.5:1 就说明挑对了 —— 实测过的坏值（错误色红字配深色底）三种都不到。
+    """
+    label = label_color_of(button_name)
+    theme = ENGINE._fmcl_bridges.get("Theme")
+    if label is None or theme is None:
+        return None
+    label_l = _relative_luminance(label)
+    if label_l < 0:
+        return None
+    values = []
+    for token in ("bgMedium", "accent", "error"):
+        surface = theme.property(token)
+        surface_l = _relative_luminance(surface)
+        if surface_l >= 0:
+            values.append(_contrast(label_l, surface_l))
+    if not values:
+        return None
+    return (max(values), str(label.name()) if hasattr(label, "name") else str(label))
+
+
+#: **按钮文字自适应的判据**（用户 2026-10-06 报"按钮文字看不清"）。
+#: 直接量生产代码里 `Text` 用的那个颜色（`FmButton.labelColor`）与候选底色的对比度：
+#: **至少一种达到 WCAG AA 的 4.5:1** 才算挑对了边 —— 自适应调的就是"挑哪一边"。
+button_contrasts = {}
+for _name in ("accountDelete-OFF-B", "accountSetCurrent-OFF-B", "accountAddMicrosoft"):
+    _best = best_label_contrast(_name)
+    if _best is not None:
+        button_contrasts[_name] = {"best_contrast": round(_best[0], 2), "label": _best[1]}
+REPORT["button_contrasts"] = button_contrasts
+check("按钮文字与候选底色的最好对比度 >= 4.5:1（自适应生效）",
+      len(button_contrasts) >= 2
+      and all(row["best_contrast"] >= 4.5 for row in button_contrasts.values()),
+      json.dumps(button_contrasts, ensure_ascii=False))
+
+#: 自适应方向由"最佳对比度 >= 4.5:1"那一条保证（配错边时三种候选底色**全都**不够）。
+#: 深色文字/浅色文字各出现在哪边，见下面浅色强调色那一档的断言。
 shot("account_list")
 
 # ══ 3. 切换当前账号（M-28 + M-13 的首页同步）══════════════════
@@ -769,6 +875,45 @@ ok = wait_until(lambda: item("accountName-MS-NEW") is not None, 4000)
 check("微软登录成功后新账号进列表", ok, str(row_names()))
 check("登录成功后进度卡收回", not bool(item("accountProgressCard").property("visible")))
 
+# ══ 7.6 微软：**失败**——不许静默 + 必须给出真实原因（用户 2026-10-06 实测）══
+#
+# 用户真机撞到的情形：DNS 解析不了 `xsts.auth.xboxlive.com`，核心层只写日志、
+# 界面什么都不显示（"登录失败不要静默"）。而且这个表现**与"该微软账号没买 Minecraft"等价**,
+# 用户必须看到那句原文才能判断该做什么。
+
+SYSTEM.ms_login_fails = True
+SYSTEM.last_login_error = ""
+SYSTEM.login_delay = 0.0
+rows_before_fail = row_count()
+click_named("accountAddMicrosoft")
+QTest.qWait(120)
+dialog = item("accountAddDialog")
+invoke(dialog, "submit")
+section_root = item("accountSection")
+failed = wait_until(
+    lambda: section_root is not None and bool(section_root.property("failureTitle")), 4000)
+failure_bar = item("accountFailureBar")
+REPORT["failure_bar"] = {
+    "visible": bool(failure_bar.property("visible")) if failure_bar is not None else None,
+    "text": text_of("accountFailureBar"),
+}
+shot("account_login_failed")
+check("登录失败**不再静默**：出现常驻提示条", failed and failure_bar is not None
+      and bool(failure_bar.property("visible")), json.dumps(REPORT["failure_bar"], ensure_ascii=False))
+check("提示条里带真实原因（不只是「登录失败，请重试」）",
+      "xsts" in REPORT["failure_bar"]["text"], REPORT["failure_bar"]["text"])
+check("失败后没有建账号", row_count() == rows_before_fail, f"{rows_before_fail} → {row_count()}")
+check("失败后进度卡收回", not bool(item("accountProgressCard").property("visible")))
+check("状态栏也有一条错误提示", status_level() == "error" and status_text() != "",
+      f"{status_level()} / {status_text()}")
+
+# 关掉提示条（`FmInfoBar` 的 closable）+ 复位
+if failure_bar is not None:
+    failure_bar.closed.emit()   # `closed` 是信号（不是槽）：`invokeMethod` 调不到它
+QTest.qWait(150)
+check("提示条可关闭，关掉后不残留", not bool(item("accountFailureBar").property("visible")))
+SYSTEM.ms_login_fails = False
+
 # ══ 8. 导入 / 导出（M-29）═════════════════════════════════════
 
 click_named("accountExport")
@@ -886,6 +1031,8 @@ shot("account_empty")
 from services.palette import COLORS  # noqa: E402
 
 theme_results: Dict[str, bool] = {}
+#: 每个主题下、每颗按钮的（对比度, 文字色, 面板色）—— D-194 的跨主题判据
+theme_contrasts: Dict[str, Dict[str, Dict[str, Any]]] = {}
 from services.theme_service import get_theme_engine  # noqa: E402
 
 theme_engine = get_theme_engine()
@@ -906,9 +1053,58 @@ for theme_name in ("default", "ocean", "forest", "lavender", "sunset"):
         theme_engine.apply_theme(theme)
         QTest.qWait(80)
         theme_results[theme_name] = bool(item("accountTitle") is not None)
+        #: **每个主题下都量一遍按钮对比度**（D-194 的判据不能在"只有 default 好看"时通过）：
+        #: 面板色随主题/自定义强调色变亮变暗，文字色必须跟着翻。
+        #: 这几行按钮在前面的用例里被删掉了，所以先种回两条账号再量。
+        SYSTEM.accounts[:] = [make_account("MS-A", "MainAccount", "microsoft"),
+                              make_account("OFF-B", "OfflineGuy", "offline")]
+        SYSTEM.current_account_id = "MS-A"
+        ACCOUNTS.refresh()
+        QTest.qWait(120)
+        theme_contrasts[theme_name] = {}
+        for probe_name in ("accountDelete-OFF-B", "accountSetCurrent-OFF-B", "accountAddMicrosoft"):
+            best = best_label_contrast(probe_name)
+            if best is not None:
+                theme_contrasts[theme_name][probe_name] = {
+                    "best_contrast": round(best[0], 2), "label": best[1]}
     except Exception as e:  # noqa: BLE001
         theme_results[theme_name] = False
         REPORT["notes"].append(f"主题 {theme_name} 异常: {e}")
+REPORT["theme_button_contrasts"] = theme_contrasts
+check("5 个预设主题下按钮对比度都 >= 4.5:1（每主题至少量到两颗）",
+      len(theme_contrasts) == 5
+      and all(len(group) >= 2 and all(row["best_contrast"] >= 4.5 for row in group.values())
+              for group in theme_contrasts.values()),
+      json.dumps(theme_contrasts, ensure_ascii=False))
+
+#: **浅色强调色专项**：用户报的"按钮文字看不清"就出在浅底上。5 个预设 + 用户自定义强调色
+#: 都可能给出浅底（本机 `config.json` 的 `accent_color` 就是 `#abcdef`），所以这里再钉一遍
+#: "浅底必须翻成深色文字"：把强调色直接改成近白，量主按钮（强调色底）的文字色。
+_original_accent = str(COLORS.get("accent", ""))
+try:
+    COLORS["accent"] = "#f5f5f5"
+    COLORS["accent_hover"] = "#ffffff"
+    theme_bridge_obj = ENGINE._fmcl_bridges.get("Theme")
+    if theme_bridge_obj is not None and callable(getattr(theme_bridge_obj, "refresh", None)):
+        theme_bridge_obj.refresh()
+    QTest.qWait(200)
+    light_best = best_label_contrast("accountAddMicrosoft")
+    REPORT["light_accent_contrast"] = None if light_best is None else {
+        "best_contrast": round(light_best[0], 2), "label": light_best[1]}
+    #: 深色主题下 `textPrimary` 是**近白**（#ffffff / #e0e0e0），所以"浅底时不再是近白"
+    #: 就是"翻成深色文字"的可观测判据（近白配近白底 = 用户报的"看不清"）。
+    _whiteish = ("#ffffff", "#e0e0e0", "#f0f0f0")
+    check("浅色强调色下按钮文字翻成深色（不是白字白底）",
+          light_best is not None and str(light_best[1]).lower() not in _whiteish
+          and light_best[0] >= 4.5,
+          json.dumps(REPORT["light_accent_contrast"], ensure_ascii=False))
+    shot("account_light_accent")
+finally:
+    COLORS["accent"] = _original_accent
+    COLORS["accent_hover"] = "#ff6b81"
+    if theme_bridge_obj is not None and callable(getattr(theme_bridge_obj, "refresh", None)):
+        theme_bridge_obj.refresh()
+    QTest.qWait(120)
 REPORT["themes"] = theme_results
 check("5 个预设主题下账号页都在", all(theme_results.values()), str(theme_results))
 check("主题色来自 Theme（强调色存在）", str(COLORS.get("accent", "")) != "", str(COLORS.get("accent")))

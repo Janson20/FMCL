@@ -1171,6 +1171,7 @@
   "account_refresh_token_failed": "トークンの更新に失敗しました。再ログインしてください",
   "account_refresh_token_confirm": "アカウント {name} のトークンを更新しますか？",
   "account_login_failed": "{type}ログインに失敗しました。再試行してください",
+  "account_login_failed_hint": "ネットワーク接続またはアカウントの状態を確認して再試行してください（詳細はランチャーログ参照）",
   "account_login_cancelled": "ログインをキャンセルしました",
   "account_name_required": "ユーザー名を入力してください",
   "account_name_duplicate": "同名のアカウント「{name}」が既に存在します（作成は可能です）",

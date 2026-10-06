@@ -1342,6 +1342,11 @@ FmPage {
             //: 导出密码的**第 2 步**（再输一遍核对）标记 + 不一致时的错误文案（旧键的译文）
             property bool exportConfirmStep: false
             property string exportPasswordError: ""
+            //: **登录失败**的常驻提示（标题 + 原因）；标题非空就显示那条提示条。
+            //: 用户 2026-10-06 反馈"登录失败不要静默"：Toast 会自己消失、状态栏 10 秒就清，
+            //: 而登录失败要等一两分钟才出结果 —— 回来时两条都没了，用户只看到"什么都没发生"。
+            property string failureTitle: ""
+            property string failureDetail: ""
 
             // ── 文案工具：只在函数里调 ────────────────────────────────
 
@@ -1533,13 +1538,23 @@ FmPage {
                     section.exportResultVisible = true
                 }
 
-                function onNoticeRequested(message, level) {
+                //: 一条提示。`title` 非空 = **常驻提示条**（登录失败那条：用户 2026-10-06
+                //: 反馈"登录失败不要静默"—— Toast 会自己消失、状态栏 10 秒就清，
+                //: 而登录失败往往要等一两分钟才出结果，回来时那两句都没了）。
+                //: 其余情况仍是右下角 Toast（导入成功、重名提醒这类"顺手告知"）。
+                function onNoticeRequested(message, level, title) {
+                    var text = String(message)
+                    var kind = (String(level) === "error") ? "error" : "info"
+                    if (String(title).length > 0) {
+                        //: 旧实现这里就是 `messagebox.showwarning(_("warning"), …)` —— 一个
+                        //: **看得见、不会自己消失**的提示；本分区用一条可关闭的 `FmInfoBar`
+                        //: 落地（QML 里没有"阻塞式弹窗"这种形态，详见 §二十一）。
+                        section.failureTitle = String(title)
+                        section.failureDetail = text
+                        return
+                    }
                     if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.available)
-                        Dialogs.notify({
-                            "level": (String(level) === "error") ? "error" : "info",
-                            "message": String(message),
-                            "icon": "account"
-                        })
+                        Dialogs.notify({"level": kind, "message": text, "icon": "account"})
                 }
 
                 function onStatusMessage(text, level) {
@@ -1676,7 +1691,32 @@ FmPage {
                     }
                 }
 
-                // ══ 二、进度（登录 / 批量刷新进行中）═══════════════════
+                // ══ 二、登录失败的常驻提示（用户 2026-10-06 反馈"不要静默"）══
+                //
+                // 旧实现是 `messagebox.showwarning(_("warning"), _("account_login_failed", type=…))`
+                // —— 一个**看得见、不会自己消失**的提示，正文只有"X 登录失败，请重试"。
+                // 新界面把它做成一条可关闭的 `FmInfoBar`（QML 里没有"阻塞式弹窗"这种形态），
+                // 并把**真实原因**（核心层最后一条错误，例如
+                // "认证失败: … Failed to resolve 'xsts.auth.xboxlive.com'"）放进正文 ——
+                // 那句话才是用户判断"是网络问题还是账号没买游戏"的依据。
+
+                FmInfoBar {
+                    objectName: "accountFailureBar"
+                    Layout.fillWidth: true
+                    visible: section.failureTitle.length > 0
+                    level: "error"
+                    closable: true
+                    text: section.failureTitle
+                          + (section.failureDetail.length > 0 ? "\n" + section.failureDetail : "")
+                    onClosed: {
+                        if (section) {
+                            section.failureTitle = ""
+                            section.failureDetail = ""
+                        }
+                    }
+                }
+
+                // ══ 三、进度（登录 / 批量刷新进行中）═══════════════════
 
                 FmCard {
                     objectName: "accountProgressCard"

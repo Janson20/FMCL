@@ -548,19 +548,33 @@ def _d163_component_bindings_survive_teardown(text: Optional[str] = None) -> Tup
     QML 会先拆掉对象的元对象，而绑定还排在求值队列里 —— 那一刻 `control` 还在、
     `control.borderColor` 已经**不是函数**了，于是每销毁一个按钮就刷两条
     `TypeError: Property 'borderColor' … is not a function`（探针一轮 10 条）。
-    与全局那条"上下文属性析构时先被清空，所以一律 `Theme?.x ?? 兜底`"是同一类问题，
-    兜底写法也一致：**先判函数在不在，再调**。
+    与全局那条"上下文属性析构时先被清空，所以一律 `Theme?.x ?? 兜底`"是同一类问题。
+
+    两种写法都算修好（阶段 3.5 的 D-194 之后，`FmButton` 走的是后者 —— 更彻底）：
+
+    1. **先判函数在不在再调**（原修法）：`control.borderColor ? control.borderColor() : …`；
+    2. **根本不在绑定里调函数**：把配色算成 `readonly property`（属性读在销毁瞬间
+       只会拿到旧值，不会抛）。D-194 把三个配色都改成了只读属性，这一条因此也接受它。
+
+    判据只拒绝一件事：**绑定里裸调函数**（那才是当年刷屏的写法）。
 
     Args:
         text: 负例自检喂进来的**故意改坏**的源码（`qml/components/FmButton.qml`）。
     """
     button = (REPO_ROOT / "qml/components/FmButton.qml").read_text(encoding="utf-8") if text is None else text
     problems: List[str] = []
-    if "control.borderColor ? control.borderColor()" not in button:
+    #: 判据只看**真绑定那两行**：注释里提到旧写法不算（本组件的注释就写过它，
+    #: 第一版没去注释，于是正例被自己的说明文字判红）
+    code = chr(10).join(line for line in button.split(chr(10)) if not line.strip().startswith("//"))
+    if "border.color: control.borderColor()" in code:
         problems.append("border.color 又是裸调 `control.borderColor()` 了")
-    if "control.faceColor ? control.faceColor()" not in button:
+    if "color: control.faceColor()" in code:
         problems.append("color 又是裸调 `control.faceColor()` 了")
-    return (not problems, "；".join(problems) or "两个绑定都先判函数在不在")
+    #: 正例：两种修法至少要有一种 —— 只读属性，或"先判函数在不在"
+    if not problems and "property color borderColor" not in button \
+            and "control.borderColor ?" not in button:
+        problems.append("既没有只读属性、也没有函数兜底 —— 绑定会在析构期抛错")
+    return (not problems, "；".join(problems) or "配色的绑定在析构期不会抛（只读属性或函数兜底）")
 
 
 def _d164_scan_survives_a_missing_core(text: Optional[str] = None) -> Tuple[bool, str]:
@@ -1590,6 +1604,109 @@ def _d193_progress_keys_are_not_shown_as_text() -> Tuple[bool, str]:
     return True, "占位键走 message_key、桥翻好再上屏；四条语言文件里键都在且 zh_CN 有译文"
 
 
+def _d194_button_label_adapts_to_its_face() -> Tuple[bool, str]:
+    """D-194（已修）：按钮的文字色必须**按面板底色自适应**。
+
+    用户 2026-10-06 实测："按钮文字看不清"。像素取证（`docs/refactor/evidence/3.5/account_list.png`）：
+    危险按钮在未悬停态的面板是 `bgMedium`，而标签用的是**错误色红字** —— 实测对比度只有 **3.91:1**
+    （低于 WCAG AA 正文的 4.5:1）；改自适应后同一块面板量到 **9.08:1**。
+
+    判据（语义层）：`FmButton.labelColor` 是拿**相对亮度**跟阈值比出来的，且两个候选色都来自
+    `Theme.*`；数字 0.17905… 必须是"白/黑对比度相等"那个解，不是拍脑袋的 0.5。
+    形态层的约束在 D-196。
+    """
+    button = source("qml/components/FmButton.qml")
+    problems: List[str] = []
+    if "readonly property color labelColor" not in button:
+        problems.append("没有导出 `labelColor`（测试与探针都靠它观测文字色）")
+    if "0.17905004914115914" not in button:
+        problems.append("找不到白/黑对比度相等的亮度阈值（0.17905…）")
+    if "function faceLuminance(" not in button:
+        problems.append("没有相对亮度实现")
+    if "Theme?.bgDark" not in button or "Theme?.textPrimary" not in button:
+        problems.append("两个候选文字色必须来自 Theme（深色 / 浅色两档）")
+    if "Theme?.error" not in button:
+        problems.append("危险按钮那一档没有参与判断")
+    #: `color: control.labelColor` 必须真的被 Text/FmIcon 用上（不然自适应算完也没人用）
+    if button.count("color: control.labelColor") < 2:
+        problems.append("Text / FmIcon 没有绑到 `labelColor`")
+    if problems:
+        return False, "；".join(problems[:3])
+    return True, "labelColor 按 0.17905… 阈值在 Theme 的深/浅两档之间选，Text 与图标都用它"
+
+
+def _d196_button_binding_form_is_safe() -> Tuple[bool, str]:
+    """D-196（已修）：`FmButton` 的配色**不许**再用那两类形态（实测会刷探针警告）。
+
+    阶段 3.5 反馈轮实测（真冒烟，默认关闭 QML 磁盘缓存，逐条对照）：
+
+    | 形态 | `Cannot find member data` |
+    |------|---------------------------|
+    | committed：`faceColor()` / `borderColor()` 普通函数 + 内联文字色 | **0** |
+    | 只把三处改成 `readonly property`（文字色用极简三元） | **15** |
+    | 再引入 `import "Contrast.js" as Contrast` + 跨文件调用 | **15~21** |
+    | 最终形态：面板/描边仍是普通函数，文字色是 `readonly property color labelColor` | **0** |
+
+    具体是哪条语法触发那个警告，六组对照仍未收敛 —— 所以判据钉的是**已证实安全的那两件事**：
+
+    1. 面板色 / 描边色是**普通函数**（`function faceColor()` / `function borderColor()`）；
+    2. 不引入 `X.js` 这类 JS 模块 import。
+    """
+    button = source("qml/components/FmButton.qml")
+    problems: List[str] = []
+    if "function faceColor()" not in button:
+        problems.append("面板色不再是普通函数（实测这条会引出 Cannot find member data）")
+    if "function borderColor()" not in button:
+        problems.append("描边色不再是普通函数")
+    if "import \"Contrast.js\"" in button or "as Contrast" in button:
+        problems.append("又引入了 JS 模块 import（实测会引出 Cannot find member data）")
+    if "color: control.faceColor ? control.faceColor()" not in button:
+        problems.append("面板色的绑定没有走 D-163 的「先判函数在不在」兜底")
+    if problems:
+        return False, "；".join(problems[:3])
+    return True, "配色仍是两个普通函数 + 内联/属性文字色，没有 JS 模块 import"
+
+
+def _d195_login_failure_is_not_silent() -> Tuple[bool, str]:
+    """D-195（已修）：登录失败不许静默，而且要给出**真实原因**。
+
+    用户 2026-10-06 实测（原话"登录失败不要静默"）：微软登录失败后界面什么都不显示，
+    只在日志里留一条 `[E] 微软 XBL/XSTS/Minecraft 认证失败: … Failed to resolve
+    'xsts.auth.xboxlive.com'` —— 而**这个表现与"该微软账号没有购买 Minecraft"等价**，
+    两者处置完全不同，用户却只能看到"什么都没发生"。
+
+    判据四条：① 核心层把最后一次失败原因记在 `last_error` 上；
+    ② 服务层能把它取出来给界面；③ 桥在失败时**先**发状态、再取原因、最后发一条带原因的提示；
+    ④ QML 有一条**常驻可关闭**的提示条（Toast 会自己消失、状态栏 10 秒就清，都不够）。
+    """
+    core = source("launcher/account.py")
+    service = source("services/account_service.py")
+    bridge = source("app/bridges/accounts_bridge.py")
+    page = source("qml/pages/settings/SettingsPage.qml")
+    problems: List[str] = []
+    if "self.last_error: str = \"\"" not in core:
+        problems.append("核心层没有 last_error（界面拿不到失败原因）")
+    if "def login_error_detail(" not in service:
+        problems.append("服务层没有 login_error_detail()")
+    if "def _fail(" not in bridge:
+        problems.append("桥没有登录失败的专用收尾（状态 + 带原因的提示）")
+    else:
+        fail_block = bridge[bridge.index("def _fail("):]
+        fail_block = fail_block[: fail_block.index("def _status(")]
+        #: 顺序：先发状态栏那句（它只是 emit，绝不会被后面的取原因/刷首页弄丢）
+        if fail_block.index("self._status(title") > fail_block.index("login_error_detail"):
+            problems.append("先取原因再发状态：取原因一旦抛错，用户就什么都看不到")
+        if "_notify(" not in fail_block:
+            problems.append("失败时没有发常驻提示")
+    if "accountFailureBar" not in page:
+        problems.append("页面没有常驻提示条（失败提示会自己消失）")
+    if "account_login_failed_hint" not in page and "account_login_failed_hint" not in bridge:
+        problems.append("没有兜底文案键（核心层给不出原因时提示条会空着）")
+    if problems:
+        return False, "；".join(problems[:3])
+    return True, "失败原因从核心层一路传到界面的常驻提示条；顺序与兜底都在"
+
+
 def _d187_window_detection_has_one_owner() -> Tuple[bool, str]:
     """D-187（已修）：游戏窗口检测只能有一个读取方（核心层），界面侧只轮询。
 
@@ -2142,6 +2259,32 @@ LEDGER: Dict[str, Entry] = {
         files=("services/account_service.py", "app/bridges/accounts_bridge.py",
                "qml/pages/settings/SettingsPage.qml", "tests/test_account_manager_service.py",
                "tests/test_account_bridge.py", "tests/qml_account_probe.py")),
+    "D-194": Entry(
+        defect="D-194", state="已修",
+        summary="按钮文字看不清（用户 2026-10-06 实测）：危险按钮未悬停态的面板是 `bgMedium`、"
+                "标签却是**错误色红字**，像素实测对比度 **3.91:1**（低于 WCAG AA 的 4.5:1）；"
+                "浅色面板配白字则更低",
+        where="qml/components/FmButton.qml", check=_d194_button_label_adapts_to_its_face,
+        files=("qml/components/FmButton.qml",
+               "tests/qml_account_probe.py")),
+    "D-195": Entry(
+        defect="D-195", state="已修",
+        summary="登录失败**静默**（用户 2026-10-06 实测，原话「登录失败不要静默」）：核心层只写日志"
+                "（`Failed to resolve 'xsts.auth.xboxlive.com'`），界面什么都不显示；"
+                "而这个表现与「该微软账号没有购买 Minecraft」等价，两者处置完全不同",
+        where="launcher/account.py", check=_d195_login_failure_is_not_silent,
+        files=("launcher/account.py", "services/account_service.py", "app/bridges/accounts_bridge.py",
+               "qml/pages/settings/SettingsPage.qml", "tests/qml_account_probe.py")),
+    "D-196": Entry(
+        defect="D-196", state="已修",
+        summary="`FmButton` 的两种写法会让**真 App.qml** 里新建的按钮刷 "
+                "`QML FmButton: Cannot find member data`：① 把三处配色都做成 `readonly property`；"
+                "② 再引入 JS 模块（`import \"Contrast.js\" as Contrast`）跨文件调用。真冒烟逐条对照过"
+                "（committed 0 命中 / 只读属性 15 / 加 JS 模块 15~21），最终回到"
+                "「两个普通函数 + 文字色只读属性」= **0**；QML 磁盘缓存只是掩盖了它",
+        where="qml/components/FmButton.qml", check=_d196_button_binding_form_is_safe,
+        files=("qml/components/FmButton.qml", "tests/qml_account_probe.py",
+               "tests/test_visual_regression.py")),
 }
 
 #: 台账必须覆盖的缺陷号（防"悄悄少一条"）：18 条欠账 + 后续几轮新登记的。
@@ -2155,7 +2298,7 @@ REQUIRED_IDS = (
     "D-169", "D-170", "D-171",
     "D-177", "D-178", "D-179", "D-180", "D-181", "D-182", "D-183", "D-184", "D-185",
     "D-186", "D-187", "D-188", "D-189",
-    "D-190", "D-191", "D-192", "D-193",
+    "D-190", "D-191", "D-192", "D-193", "D-194", "D-195", "D-196",
 )
 
 
@@ -2283,8 +2426,9 @@ def test_check_based_probes_are_not_empty_assertions() -> None:
          "把页脚的 fillHeight: false 删掉（退回与正文平分高度）"),
         ("D-163", _d163_component_bindings_survive_teardown,
          (REPO_ROOT / "qml/components/FmButton.qml").read_text(encoding="utf-8")
-         .replace("control.borderColor ? control.borderColor()", "control.borderColor()"),
-         "把 border.color 的兜底去掉（退回析构期裸调）"),
+         .replace("color: control.face", "color: control.faceColor()")
+         .replace("border.color: control.borderColor", "border.color: control.borderColor()"),
+         "把配色改回绑定里裸调函数（析构期会抛 TypeError 的那个写法）"),
         ("D-164", _d164_scan_survives_a_missing_core,
          source("services/version_service.py").replace("rows = self._scan_folders()", "rows = []"),
          "核心缺席时不再降级列目录"),

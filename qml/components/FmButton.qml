@@ -13,6 +13,12 @@
 //   * 状态     `enabled` / `!enabled`（禁用）/ `loading: true`（进行中，点击被吞掉）。
 // 文案由调用方给（`text:` 写 `Tr.map[…]`，别在组件里判语义）。
 //
+// **文字与图标颜色按面板底色自适应**：底色随 5 个预设主题与用户自定义强调色变亮变暗，
+//   写死白字在浅底上会糊（用户 2026-10-06 反馈「按钮文字看不清」：错误色底配白字 3.3:1、
+//   配深色字 6.1:1）。算法是 WCAG 相对亮度 + 0.17905… 阈值（白/黑对比度相等的点），
+//   浅底给深色文字、深底给浅色文字 —— 实现形态刻意与 committed 版的两个配色函数同构，
+//   原因见缺陷 D-196。
+//
 // 为什么用两个布尔量而不是 `kind: "primary"` 字符串：2.13 的对话框临时件
 //   （`dialogs/DialogButton.qml`）用的就是 `primary: bool`，而 `tests/test_dialogs_qml.py`
 //   直接断言 `okButton.primary === true` —— 那条测试不在 2.16 的可改范围，所以
@@ -46,6 +52,53 @@ Item {
                    ? (Theme?.iconSize ?? 0) + 2 * (Theme?.spacingSm ?? 0)
                    : Math.max(88, content.implicitWidth + 2 * (Theme?.spacingLg ?? 0))
     implicitHeight: 34
+
+    //: WCAG 相对亮度（`#rgb` / `#rrggbb` / `#aarrggbb`；解析不了返回 0）。
+    //: **刻意做成普通函数、也刻意不放进单独的 JS 模块**：阶段 3.5 反馈轮实测，
+    //: 把它组合成"只读属性 + 组件自己的函数"会让真 `App.qml` 里三态演示按钮刷
+    //: `QML FmButton: Cannot find member data`（缺陷 D-196，二分记录见 `16` §二十一）。
+    //: 这里的形态与 committed 版里那两个配色函数**同构**，是实测 0 命中的写法。
+    function faceLuminance(color) {
+        var text = String(color)
+        if (text.charAt(0) !== "#")
+            return 0
+        var hex = text.substring(1)
+        if (hex.length === 8)
+            hex = hex.substring(2)
+        var r = 0
+        var g = 0
+        var b = 0
+        if (hex.length === 3) {
+            r = parseInt(hex.charAt(0) + hex.charAt(0), 16)
+            g = parseInt(hex.charAt(1) + hex.charAt(1), 16)
+            b = parseInt(hex.charAt(2) + hex.charAt(2), 16)
+        } else if (hex.length === 6) {
+            r = parseInt(hex.substring(0, 2), 16)
+            g = parseInt(hex.substring(2, 4), 16)
+            b = parseInt(hex.substring(4, 6), 16)
+        } else {
+            return 0
+        }
+        if (isNaN(r) || isNaN(g) || isNaN(b))
+            return 0
+        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+    }
+
+    function channel(value) {
+        var v = Number(value) / 255.0
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
+    }
+
+    //: 文字/图标颜色：**按面板底色自适应**（浅底深字、深底浅字）。
+    //: 形态说明见 D-196：这种"读 `control.hovered` 的多数值三元"是实测 0 命中的写法。
+    readonly property color labelColor: control.enabled
+                   ? (((control.danger && !control.hovered)
+                       ? (control.faceLuminance(Theme?.error) > 0.17905004914115914
+                          ? control.faceLuminance(Theme?.bgMedium) : 0)
+                       : control.faceLuminance(control.faceColor())) > 0.17905004914115914
+                      ? (Theme?.bgDark ?? "transparent")
+                      : (Theme?.textPrimary ?? "transparent"))
+                   : (Theme?.textSecondary ?? "transparent")
 
     function faceColor() {
         if (!control.enabled)
@@ -90,10 +143,7 @@ Item {
             objectName: "fmButtonIcon"
             visible: control.loading || control.iconName.length > 0
             name: control.loading ? "loading" : control.iconName
-            color: control.primary && control.enabled && !control.danger
-                   ? Theme?.textPrimary ?? "transparent"
-                   : (control.danger && control.enabled ? Theme?.error ?? "transparent"
-                                                        : Theme?.textPrimary ?? "transparent")
+            color: control.labelColor
             size: Math.round((Theme?.fontSizeBase ?? 12) * 1.2)
             anchors.verticalCenter: parent.verticalCenter
         }
@@ -102,7 +152,7 @@ Item {
             objectName: "fmButtonLabel"
             anchors.verticalCenter: parent.verticalCenter
             text: control.text
-            color: control.enabled ? Theme?.textPrimary ?? "transparent" : Theme?.textSecondary ?? "transparent"
+            color: control.labelColor
             font.pixelSize: Theme?.fontSizeBase ?? 12
             elide: Text.ElideRight
         }

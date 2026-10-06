@@ -95,8 +95,9 @@ class AccountsBridge(QObject):
     refreshTokenRequested = Signal(str, str)
     #: 状态条文案（**已翻译**；页面转给 `Shell.setStatus`）。
     statusMessage = Signal(str, str)
-    #: 一条提示（导入成功/失败、重名提醒…）—— 页面用 `Dialogs.notify` 弹 Toast。
-    noticeRequested = Signal(str, str)
+    #: 一条提示（导入成功/失败、重名提醒、登录失败…）—— 页面按 level 转成 Toast；
+    #: **第三个参数非空 = 常驻对话框的标题**（登录失败：会自己消失的提示不够）。
+    noticeRequested = Signal(str, str, str)
     #: 导出成功的结果对话框（参数 = 文件路径；页面弹 `ExportResultDialog`）。
     exported = Signal(str)
     #: **内部投递信号**（见 `_on_progress`）：worker 线程只排队并 emit 它，
@@ -362,11 +363,39 @@ class AccountsBridge(QObject):
 
     # ─── 报告 ───────────────────────────────────────────────
 
-    def _notify(self, message: str, level: str) -> None:
-        """记一条提示并广播（页面转成 Toast）。"""
-        self._last_notice = {"message": str(message), "level": str(level)}
+    def _notify(self, message: str, level: str, title: str = "") -> None:
+        """记一条提示并广播（页面按 level 转成 Toast / 常驻对话框 / 状态栏快照）。
+
+        `title` 非空 = **常驻对话框**（不是 Toast）：登录失败这类"必须让用户知道原因"
+        的提示走这条路 —— 2026-10-06 用户反馈"登录失败不要静默"，
+        Toast 会自己消失、状态栏 10 秒就清了，都不够。
+        """
+        self._last_notice = {"message": str(message), "level": str(level), "title": str(title)}
         self.noticeChanged.emit()
-        self.noticeRequested.emit(str(message), str(level))
+        self.noticeRequested.emit(str(message), str(level), str(title))
+
+    def _status_and_notice(self, message: str, level: str, title: str = "") -> None:
+        """状态栏 + 提示一次发（登录失败用；状态栏那句可能 10 秒就没了）。"""
+        self._status(message, level)
+        self._notify(message, level, title)
+
+    def _fail(self, record: Dict[str, Any]) -> None:
+        """登录失败：**状态栏 +（带原因的）常驻对话框**都要有。
+
+        顺序有意：`_status` 在最前 —— 它只是 emit，绝不会因为后面的取原因/刷首页抛错
+        而丢掉那句提示（"失败却什么都不显示"正是用户报的毛病）。
+        """
+        kind = str(record.get("kind", ""))
+        title = _("account_login_failed", type=kind)
+        self._status(title, "error")
+        detail = ""
+        if self._service is not None:
+            try:
+                detail = str(self._service.login_error_detail(kind) or "")
+            except Exception as e:  # noqa: BLE001 - 取不到原因不该把提示也弄没
+                logger.debug("取登录失败原因失败: %s", e)
+        self._notify(detail or _("account_login_failed_hint"), "error", title)
+        self._refresh_home()
 
     def _status(self, text: str, level: str) -> None:
         self.statusMessage.emit(str(text), str(level))
@@ -389,7 +418,6 @@ class AccountsBridge(QObject):
         return data
 
     def _report_login(self, record: Dict[str, Any]) -> None:
-        kind = str(record.get("kind", ""))
         if record.get("cancelled"):
             self._status(_("account_login_cancelled"), "warning")
             self._refresh_home()  # 取消也可能已经写进了账号（核心层先落盘再回报）
@@ -398,9 +426,9 @@ class AccountsBridge(QObject):
             self._status(_("logging_in") + " " + str(record.get("name", "")), "success")
             self._refresh_home()
             return
-        # 失败：旧实现是 messagebox.showwarning(_("warning"), _("account_login_failed", type=...))
-        self._status(_("account_login_failed", type=kind), "error")
-        self._refresh_home()
+        # 失败：旧实现是 `messagebox.showwarning(_("warning"), _("account_login_failed", type=…))`
+        # —— 一个**看得见、不会自己消失**的提示；本轮照做，并补上真实原因（用户 2026-10-06 反馈）。
+        self._fail(record)
 
     def _report_refresh_all(self, record: Dict[str, Any]) -> None:
         if record.get("cancelled"):
