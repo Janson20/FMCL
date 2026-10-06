@@ -65,7 +65,25 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `TextInputDialog` | 单行文本输入框（`ask_text`） | `request` `fieldText` `accept()` `cancel()` |
 | `ChoiceDialog` | 选项框（选项即按钮，点了立即作答） | `request` `options` `primaryIndex` `select(value)` |
 | `ProgressDialog` | 进度面板（确定进度 / 不确定转圈 / 可取消） | `request` `report` `cancellable` `requestCancel()` |
-| `LogView` | 通用日志面板 / 控制台（任务 2.18，`qml/pages/dev/LogDemo.qml` 是它的自查页）：ListModel + ListView 虚拟化、按块裁剪（内存硬上界 `maxLines + trimChunk`）、用户上滚后不再抢滚动位置；日志内容由调用方喂进来，组件不读文件、不碰服务 | `maxLines` `trimChunk` `lineCount` `autoScroll` `searchText` `title` `emptyText` `showToolbar` `append(line,level)` `appendLines(list)` `clear()` `copyAll()` `cleared()` `copied(n)` |
+| `LogView` | 通用日志面板 / 控制台（任务 2.18，`qml/pages/dev/LogDemo.qml` 是它的自查页）：ListModel + ListView 虚拟化、按块裁剪（内存硬上限 `maxLines + trimChunk`）、用户上滚后不再抢滚动位置；日志内容由调用方喂进来，组件不读文件、不碰服务 | `maxLines` `trimChunk` `lineCount` `autoScroll` `searchText` `title` `emptyText` `showToolbar` `append(line,level)` `appendLines(list)` `clear()` `copyAll()` `cleared()` `copied(n)` |
+
+### 3.2 页面内联的表单对话框（阶段 3 任务 3.5 新增的三个件）
+
+`DialogHost.qml` 那套是**桥的对话框队列**的视图：请求来自对话框桥，答案按请求 id
+回填。有些场景是页面**自己发起**的问答（账号页的"填密码 → 选文件 → 导出"就是一条三步链），
+没有桥那边的 id —— 这类用下面三个件，答案走各自的信号就地回到调用方（同 `ConfirmDialog`
+在 3.4 为"QML 自己发起的确认"加的 `answered(bool)` 口子）。
+
+| 组件 | 用途 | 关键属性 |
+|------|------|----------|
+| `AddAccountDialog` | 添加账号表单（微软说明+按钮 / 离线角色名 / 外置三格）；校验只做"空则报错"，业务校验在服务层 | `kind` `errorText` `hintText` `reset()` `submitted(payload)` `cancelled()` |
+| `PasswordDialog` | 密码输入（可选"再输一次"核对）；`password: true` 走掩码 | `title` `prompt` `confirmPrompt` `needConfirm` `value` `reset()` `submitted(value)` `cancelled()` |
+| `ExportResultDialog` | 导出结果（成功文案 + 文件路径 + 「打开目录」） | `exportPath` `closed()` `openFolderRequested()` |
+
+> 三个件都是"页内浮层"（普通 Item + 遮罩，没有独立窗口），所以**必须用 `Loader.active`
+> 控制存在性**而不是 `visible` —— 留着的不可见实例会继续吃键盘焦点。
+> 它们的文案键由调用方给（件里不写业务键），当前唯一调用点是
+> `qml/pages/settings/AccountSection.qml`。
 
 ## 四、新增一个组件要走完的四步
 

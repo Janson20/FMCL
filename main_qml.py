@@ -79,6 +79,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Settings", "app.bridges.settings_bridge", "SettingsBridge"),
     ("Logs", "app.bridges.log_bridge", "LogBridge"),
     ("About", "app.bridges.about_bridge", "AboutBridge"),
+    # 账号页（阶段 3 任务 3.5）：登录 / 切换 / 删除 / 刷新 / 导入导出。
+    ("Accounts", "app.bridges.accounts_bridge", "AccountsBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -691,6 +693,16 @@ def assemble(
                         slot()
                     except Exception as e:  # noqa: BLE001
                         logger.warning("%s 失败: %s", slot_name, e)
+        # 账号桥：注销服务层进度监听（阶段 3.5）。不做的话"登录线程回调打到已销毁的
+        # QObject"会在退出时刷一串告警 —— 3.4 的日志桥是同一类收尾。
+        accounts = bridges.get("Accounts")
+        if accounts is not None:
+            detach = getattr(accounts, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("注销账号进度监听失败: %s", e)
         if overlay is not None:
             shutdown = getattr(overlay, "shutdown", None)
             if callable(shutdown):

@@ -156,6 +156,8 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "app.bridges.settings_bridge",
     "app.bridges.log_bridge",
     "app.bridges.about_bridge",
+    # 阶段 3 任务 3.5 的账号桥
+    "app.bridges.accounts_bridge",
     # app.bootstrap 的服务表（`_make_factory` 按 "模块:类名" 导入）
     "services.about_service",
     "services.account_service",

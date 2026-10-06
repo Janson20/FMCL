@@ -818,19 +818,31 @@ REPORT["opened_urls"] = list(URLS)
 check("外链打开了第一条鸣谢的 url",
       URLS[:1] == ["https://github.com/PCL-community/PCL-CE"], str(URLS))
 
-# ══ 10. 三个占位分区（3.4 的范围裁决：账户 / AI / 插件归 3.5 / 3.22 / 3.23）══
+# ══ 10. 分区六~八（阶段 3.5 起账户分区是真的内容，AI / 插件仍是占位）══
+#
+# 3.4 时三个都是占位（账户 / AI / 插件）。3.5 把账户分区做成了真页面，所以这里改成：
+#   * `settings/account` —— 断言**不再**是占位，而且账号页的控件真的在树里；
+#   * `settings/ai` / `settings/plugin` —— 仍按 3.4 的裁决断言占位（随 3.22 / 3.23 迁）。
+
+goto("settings/account")
+_account_placeholder = item("settingsPlaceholder")
+check("账户分区不再是占位（3.5 已交付）", _account_placeholder is None,
+      "settingsPlaceholder 还在 —— 分区可能没接上")
+check("账户分区的标题在树里", item("accountTitle") is not None, "accountTitle")
+check("账户分区的动作条在树里", item("accountActionRow") is not None, "accountActionRow")
+check("账户分区的账号列表在树里", item("accountListView") is not None, "accountListView")
 
 placeholder_titles = []
 placeholder_hints = []
-for _route in ("settings/account", "settings/ai", "settings/plugin"):
+for _route in ("settings/ai", "settings/plugin"):
     goto(_route)
     _placeholder = item("settingsPlaceholder")
     placeholder_titles.append("" if _placeholder is None else str(_placeholder.property("title")))
     placeholder_hints.append("" if _placeholder is None else str(_placeholder.property("description")))
 REPORT["placeholder_titles"] = placeholder_titles
 REPORT["placeholder_hints"] = placeholder_hints
-check("三个占位分区都显示占位内容", all(title for title in placeholder_titles), str(placeholder_titles))
-check("占位分区三者标题各不相同", len(set(placeholder_titles)) == 3, str(placeholder_titles))
+check("AI / 插件两个占位分区都显示占位内容", all(title for title in placeholder_titles), str(placeholder_titles))
+check("两个占位分区标题各不相同", len(set(placeholder_titles)) == 2, str(placeholder_titles))
 check("占位分区带说明文案（不是白屏）", all(hint for hint in placeholder_hints), str(placeholder_hints))
 shot("settings_placeholder")
 

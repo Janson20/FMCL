@@ -265,6 +265,28 @@ def test_every_preset_reaches_the_screen(visual: Dict[str, Any]) -> None:
         )
 
 
+def test_account_sub_route_renders_with_accent_pixels(visual: Dict[str, Any]) -> None:
+    """二级路由 `settings/account`（阶段 3 任务 3.5）：渲染出来、有强调色、无 QML 报错。
+
+    一级页面清单来自 `Shell.navItems()`，**二级路由从来不在里面** —— 冒烟测试的 12 页
+    走查与上面的逐页像素判据都不会经过设置页里的账号分区。这一条按用户 2026-10-06
+    的裁决补上（"以深链方式单独遍历 settings/account 并加视觉回归断言"）。
+
+    账号页静止时唯一的主色是"当前账号"那根强调色指示条（`accountCurrentIndicator`），
+    所以 `hits.accent >= 1` 这条判据同时也在证明"当前账号标记真的画出来了"。
+    """
+    rows = visual["subRoutes"]
+    assert len(rows) == 1, f"二级路由应有一条：{len(rows)}"
+    row = rows[0]
+    assert row["route"] == "settings/account", row["route"]
+    assert row["rendered"] is True, f"账号分区没渲染（找不到可见的 {row['marker']}）"
+    assert row["frame"]["foreignSlabs"] == [], "账号分区有浅色外来件"
+    assert row["frame"]["meanLuma"] <= MAX_MEAN_LUMA, row["frame"]["meanLuma"]
+    assert row["frame"]["distinct"] >= 100, f"颜色太少，像是没渲染：{row['frame']['distinct']}"
+    assert row["frame"]["hits"]["accent"] >= 1, "账号页上看不到强调色（当前账号指示条没画出来）"
+    assert row["messages"] == [], f"账号分区报了 QML 消息：{row['messages'][:5]}"
+
+
 def test_gallery_renders_cleanly(visual: Dict[str, Any]) -> None:
     """画廊（26 个组件同时在场）：没有外来件，而且这一段**一条 QML 报错都没有**。
 

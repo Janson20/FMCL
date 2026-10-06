@@ -41,6 +41,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import "../../components"
+import "../../components/dialogs"
 
 FmPage {
     id: page
@@ -149,6 +150,9 @@ FmPage {
             return logSection
         if (name === "about")
             return aboutSection
+        //: 账户分区在阶段 3.5 落地（M-13 / M-26 ~ M-29），其余两个仍是占位
+        if (name === "account")
+            return accountSection
         return placeholderSection
     }
 
@@ -1272,11 +1276,845 @@ FmPage {
         }
     }
 
-    // ══ 分区六~八：账户 / AI / 插件（占位，随 3.5 / 3.22 / 3.23 迁）══
+    // ══ 分区六：账户（阶段 3 任务 3.5 落地；M-13 / M-26 ~ M-29）══
+    //
+    // 旧界面是一个**独立窗口**（`ui/windows/account_manager.py` 的 `AccountManagerWindow`，
+    // 580x650 的 `CTkToplevel` + `grab_set`）；新架构里它是 `settings/account` 这条路由的
+    // 内容，所以本分区**没有关闭按钮**（离开 = 点别的分区 / 面包屑返回），
+    // 标题与说明仍按旧窗口那两行文案保留。
+    //
+    // ## 三块内容
+    //
+    // 1. **标题 + 说明 + 动作条**（旧 `account_manager.py:219-298`，同一批 i18n 键）；
+    //    「全部刷新 Token」是 3.5 按 A-25 补的（旧界面只在启动时静默刷一遍）；
+    // 2. **进度**：旧窗口登录期间只把三个按钮置灰，`_update_status()` 是个**空函数**
+    //    （`account_manager.py:589-590`），一个字都不显示；新界面给一句状态 + 进度 + 「取消」
+    //    （用户 2026-10-06 裁决"后台任务 + 进度 + 可取消"，取消口在 `launcher/account.py`）；
+    // 3. **账号列表**：`ListView` + 每行一张卡片（类型徽标 / 名字 / 当前标记 / UUID / 三个按钮），
+    //    空列表走 `FmEmptyState`（旧实现是一行灰色文字 `_("account_no_accounts")`）。
+    //
+    // ## 状态从哪来
+    //
+    // 全部来自 `Accounts` 桥（`app/bridges/accounts_bridge.py`）—— 本分区**没有业务规则**：
+    // 参数校验、重名判断、删除后的落盘、导入导出、取消，都在服务层。
+    //
+    // ## 写法纪律（3.2~3.4 踩过的坑）
+    //
+    // * 绑定里只读 `Tr?.map[…]` 与本分区属性；动态状态（行、进度文案、值）一律在
+    //   `refreshUi()` 里算好，函数第一行判活（`if (!section) return`）。
+    // * 不在绑定里调组件自己的 JS 函数（3.4 的 FmTag 教训）—— 类型徽标档位在
+    //   `refreshUi()` 里算成 `type_level`。
+    // * 确认框不传 JS 回调（D-183）：桥只发 `deleteRequested(id, name)` 这样的信号，
+    //   本分区据此填 `confirmRequest` 属性。
+    // * 对话框是分区 `Item` 的子节点，靠 `visible` 开关；分区各有自己的 Item 作用域，
+    //   id 不会与别的分区撞名，所以这里不需要 `Loader` 那层间接。
+    //
+    // 纪律：颜色只来自 `Theme.*`（R8）、图标走 `FmIcon`（R2）、文案走 `Tr.map[…]`（R3/R4）、
+    // 只用 `qml/components` 里的件（R9）。
+
+    Component {
+        id: accountSection
+
+        Item {
+            id: section
+            objectName: "accountSection"
+
+            //: 桥缺席（注册失败）时整块走错误态，而不是绑一堆 `undefined` 报错
+            readonly property bool live: (typeof Accounts !== "undefined" && Accounts) ? true : false
+
+            //: 列表行（含 `refreshUi()` 算好的派生字段：`type_label` / `type_level` / `uuid_short`…）
+            property var rows: []
+            //: 进度（在函数里算，绑定只读属性）
+            property bool progressActive: false
+            property string progressText: ""
+            property bool progressCancellable: false
+            property real progressValue: 0
+
+            //: 添加账号对话框：非空 = 显示（值就是 microsoft / offline / yggdrasil）
+            property string addKind: ""
+            property string addError: ""
+
+            //: 确认框请求（`kind` = delete / refresh_token；空对象 = 不显示）
+            property var confirmRequest: ({})
+            //: 导出结果对话框要不要显示 + 导出到哪了
+            property bool exportResultVisible: false
+            property string exportPath: ""
+            //: 导出密码的**第 2 步**（再输一遍核对）标记 + 不一致时的错误文案（旧键的译文）
+            property bool exportConfirmStep: false
+            property string exportPasswordError: ""
+
+            // ── 文案工具：只在函数里调 ────────────────────────────────
+
+            function t(key) {
+                return Tr ? (Tr.map[key] ?? key) : key
+            }
+
+            function format(key, params) {
+                if (!key)
+                    return ""
+                var text = section.t(key)
+                if (!params)
+                    return text
+                for (var name in params)
+                    text = text.replace("{" + name + "}", String(params[name]))
+                return text
+            }
+
+            //: `file:///D:/a b/c.fmcl_accounts` → `D:/a b/c.fmcl_accounts`
+            //: （与 `HomePage.localPath` / `SettingsPage.localPath` 同一实现）
+            function localPath(url) {
+                var text = String(url)
+                text = text.replace(/^file:\/{2,3}/, "")
+                try {
+                    return decodeURIComponent(text)
+                } catch (e) {
+                    return text
+                }
+            }
+
+            //: 类型徽标档位：旧窗口的配色表（`account_manager.py:339`）
+            //: microsoft=success / offline=warning / yggdrasil=accent
+            function tagLevel(type) {
+                if (type === "microsoft")
+                    return "success"
+                if (type === "offline")
+                    return "warning"
+                if (type === "yggdrasil")
+                    return "accent"
+                return "neutral"
+            }
+
+            // ── 刷新（全部在函数里赋值）──────────────────────────────
+
+            function refreshUi() {
+                if (!section)
+                    return
+                var source = (typeof Accounts !== "undefined" && Accounts) ? Accounts.accounts : []
+                var rows = []
+                for (var i = 0; i < source.length; i++) {
+                    var row = source[i]
+                    rows.push({
+                        "id": String(row.id || ""),
+                        "name": String(row.name || ""),
+                        "display_name": String(row.display_name || row.name || ""),
+                        "type": String(row.type || ""),
+                        "type_label": section.t(String(row.type_key || "")),
+                        "type_level": section.tagLevel(String(row.type || "")),
+                        "uuid_short": String(row.uuid_short || "-"),
+                        "current": !!row.current,
+                        "is_microsoft": String(row.type || "") === "microsoft"
+                    })
+                }
+                section.rows = rows
+
+                if (!section.live) {
+                    section.progressActive = false
+                    section.progressText = ""
+                    section.progressValue = 0
+                    section.progressCancellable = false
+                    return
+                }
+
+                var progress = Accounts.progress
+                var total = Number(Accounts.progressTotal)
+                var current = Number(Accounts.progressCurrent)
+                section.progressActive = !!Accounts.busy
+                section.progressCancellable = !!Accounts.cancellable
+                section.progressValue = (total > 0) ? Math.max(0, Math.min(1, current / total)) : 0
+
+                var message = String((progress && progress.message) ? progress.message : "")
+                if (message.length > 0) {
+                    //: 核心层的中文状态串**原样透出**（与 `16` §17.3 对 settings 那批硬编码中文
+                    //: 同一处置：不在这里二次包装，挂账阶段 4 统一收口 i18n）
+                    section.progressText = message
+                } else {
+                    var name = String((progress && progress.name) ? progress.name : "")
+                    var base = section.t(String((progress && progress.kind === "refresh_all")
+                                                ? "account_refresh_all" : "logging_in"))
+                    section.progressText = (total > 1) ? (base + "  " + current + "/" + total)
+                                                       : ((name.length > 0) ? (base + "  " + name) : base)
+                }
+            }
+
+            Component.onCompleted: {
+                if (section.live)
+                    Accounts.refresh()
+                section.refreshUi()
+            }
+
+            // ── 桥的信号 ─────────────────────────────────────────────
+
+            Connections {
+                target: (typeof Accounts !== "undefined" && Accounts) ? Accounts : null
+
+                function onAccountsChanged() {
+                    if (section)
+                        section.refreshUi()
+                }
+
+                function onBusyChanged() {
+                    if (section)
+                        section.refreshUi()
+                }
+
+                function onProgressChanged() {
+                    if (section)
+                        section.refreshUi()
+                }
+
+                function onDeleteRequested(accountId, name) {
+                    if (!section)
+                        return
+                    section.confirmRequest = {
+                        "kind": "delete",
+                        "id": String(accountId),
+                        "title": section.t("confirm_delete"),
+                        "message": section.format("account_delete_confirm", {"name": String(name)})
+                    }
+                }
+
+                function onRefreshTokenRequested(accountId, name) {
+                    if (!section)
+                        return
+                    section.confirmRequest = {
+                        "kind": "refresh_token",
+                        "id": String(accountId),
+                        "title": section.t("account_refresh_token"),
+                        "message": section.format("account_refresh_token_confirm", {"name": String(name)})
+                    }
+                }
+
+                function onExportPasswordRequested() {
+                    if (!section)
+                        return
+                    //: 进第 1 步。**错误文案不在这里清** —— 桥在"两次不一致"时是
+                    //: `passwordMismatch` → `exportPasswordRequested` 连着发的，同一轮里清掉
+                    //: 就会把刚到的文案抹没（推迟一轮也试过：那会让用户根本看不到提示）。
+                    //: 正确的清理点是**用户重新点「导出」**时（`section.requestExport()`）
+                    //: 与**取消**时 —— 见那两处。
+                    section.exportConfirmStep = false
+                    exportPasswordLoader.active = true
+                }
+
+                //: 导出第 2 步（再输一遍核对）—— 旧实现的第二个 `CTkInputDialog`
+                function onExportPasswordConfirmRequested() {
+                    if (!section)
+                        return
+                    section.exportConfirmStep = true
+                    exportPasswordLoader.active = true
+                }
+
+                //: 两次不一致：桥把旧文案**随信号**送来（不再让页面去问"这次是不是重试"），
+                //: 存下来，紧接着的 `exportPasswordRequested` 会把第 1 步重开。
+                function onPasswordMismatch(message) {
+                    if (section)
+                        section.exportPasswordError = String(message)
+                }
+
+                function onExportFileRequested() {
+                    if (section)
+                        exportFileDialog.open()
+                }
+
+                function onImportPasswordRequested() {
+                    if (section)
+                        importPasswordLoader.active = true
+                }
+
+                function onImportFileRequested() {
+                    if (section)
+                        importFileDialog.open()
+                }
+
+                function onExported(path) {
+                    if (!section)
+                        return
+                    section.exportPath = String(path)
+                    section.exportResultVisible = true
+                }
+
+                function onNoticeRequested(message, level) {
+                    if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.available)
+                        Dialogs.notify({
+                            "level": (String(level) === "error") ? "error" : "info",
+                            "message": String(message),
+                            "icon": "account"
+                        })
+                }
+
+                function onStatusMessage(text, level) {
+                    if (typeof Shell !== "undefined" && Shell)
+                        Shell.setStatus(String(text), String(level))
+                }
+            }
+
+            // ══ 一、标题 + 说明 + 动作条 ═══════════════════════════════
+
+            ColumnLayout {
+                objectName: "accountLayout"
+                anchors.fill: parent
+                spacing: Theme?.spacingMd ?? 12
+
+                FmCard {
+                    objectName: "accountHeaderCard"
+                    Layout.fillWidth: true
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme?.spacingSm ?? 8
+
+                        Text {
+                            objectName: "accountTitle"
+                            Layout.fillWidth: true
+                            text: Tr?.map["account_manager_title"] ?? "account_manager_title"
+                            color: Theme?.textPrimary ?? "transparent"
+                            font.pixelSize: Theme?.fontSizeTitle ?? 18
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+
+                        Text {
+                            objectName: "accountDescription"
+                            Layout.fillWidth: true
+                            text: Tr?.map["account_manager_desc"] ?? "account_manager_desc"
+                            color: Theme?.textSecondary ?? "transparent"
+                            font.pixelSize: Theme?.fontSizeBase ?? 12
+                            wrapMode: Text.WordWrap
+                        }
+
+                        //: 动作条（旧窗口的按钮栏）。**配色差异**：旧窗口把微软那颗涂成
+                        //: `COLORS["success"]`、离线/外置用 `bg_light`；FmButton 只有 primary / danger
+                        //: 两档，所以微软用 primary（强调色）、另两个用次按钮（已记在对照表 M-26 备注）。
+                        RowLayout {
+                            objectName: "accountActionRow"
+                            Layout.fillWidth: true
+                            Layout.topMargin: Theme?.spacingXs ?? 4
+                            spacing: Theme?.spacingSm ?? 8
+
+                            FmButton {
+                                objectName: "accountAddMicrosoft"
+                                Layout.preferredWidth: 110
+                                text: Tr?.map["account_add_microsoft"] ?? "account_add_microsoft"
+                                enabled: section.live && !section.progressActive
+                                onClicked: {
+                                    if (!section)
+                                        return
+                                    section.addError = ""
+                                    section.addKind = "microsoft"
+                                }
+                            }
+
+                            FmButton {
+                                objectName: "accountAddOffline"
+                                Layout.preferredWidth: 90
+                                primary: false
+                                text: Tr?.map["account_add_offline"] ?? "account_add_offline"
+                                enabled: section.live && !section.progressActive
+                                onClicked: {
+                                    if (!section)
+                                        return
+                                    section.addError = ""
+                                    section.addKind = "offline"
+                                }
+                            }
+
+                            FmButton {
+                                objectName: "accountAddYggdrasil"
+                                Layout.preferredWidth: 100
+                                primary: false
+                                text: Tr?.map["account_add_yggdrasil"] ?? "account_add_yggdrasil"
+                                enabled: section.live && !section.progressActive
+                                onClicked: {
+                                    if (!section)
+                                        return
+                                    section.addError = ""
+                                    section.addKind = "yggdrasil"
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            //: A-25 在账号页的落点（3.5 新增）：**强制**刷新每个微软账号的 Token，
+                            //: 不判是否过期（启动时那次静默刷新仍会判过期，语义分工见服务文档）。
+                            FmButton {
+                                objectName: "accountRefreshAll"
+                                primary: false
+                                iconName: "refresh"
+                                text: Tr?.map["account_refresh_all"] ?? "account_refresh_all"
+                                enabled: section.live && !section.progressActive
+                                onClicked: {
+                                    if (section.live)
+                                        Accounts.refreshAll()
+                                }
+                            }
+
+                            FmButton {
+                                objectName: "accountImport"
+                                primary: false
+                                text: Tr?.map["account_import"] ?? "account_import"
+                                enabled: section.live && !section.progressActive
+                                onClicked: {
+                                    if (section.live)
+                                        Accounts.requestImport()
+                                }
+                            }
+
+                            FmButton {
+                                objectName: "accountExport"
+                                primary: false
+                                text: Tr?.map["account_export"] ?? "account_export"
+                                enabled: section.live && !section.progressActive
+                                onClicked: {
+                                    if (section.live) {
+                                        //: 用户重新点「导出」= 全新一轮，把上一轮的错误清掉
+                                        section.exportPasswordError = ""
+                                        Accounts.requestExport()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ══ 二、进度（登录 / 批量刷新进行中）═══════════════════
+
+                FmCard {
+                    objectName: "accountProgressCard"
+                    Layout.fillWidth: true
+                    visible: section.progressActive
+
+                    ColumnLayout {
+                        objectName: "accountProgressColumn"
+                        Layout.fillWidth: true
+                        spacing: Theme?.spacingXs ?? 4
+                        visible: section.progressActive
+
+                        RowLayout {
+                            objectName: "accountProgressRow"
+                            Layout.fillWidth: true
+                            spacing: Theme?.spacingSm ?? 8
+
+                            FmProgressRing {
+                                objectName: "accountProgressRing"
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                indeterminate: true
+                                visible: section.progressValue <= 0
+                            }
+
+                            Text {
+                                objectName: "accountProgressLabel"
+                                Layout.fillWidth: true
+                                text: section.progressText
+                                color: Theme?.textPrimary ?? "transparent"
+                                font.pixelSize: Theme?.fontSizeBase ?? 12
+                                elide: Text.ElideRight
+                            }
+
+                            FmButton {
+                                objectName: "accountCancel"
+                                primary: false
+                                danger: true
+                                visible: section.progressCancellable
+                                text: Tr?.map["cancel"] ?? "cancel"
+                                onClicked: {
+                                    if (section.live)
+                                        Accounts.cancel()
+                                }
+                            }
+                        }
+
+                        FmProgressBar {
+                            objectName: "accountProgressBar"
+                            Layout.fillWidth: true
+                            visible: section.progressActive && section.progressValue > 0
+                            value: section.progressValue
+                        }
+                    }
+                }
+
+                // ══ 三、账号列表 ═══════════════════════════════════════
+
+                FmCard {
+                    objectName: "accountListCard"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    padding: Theme?.spacingMd ?? 12
+
+                    FmEmptyState {
+                        objectName: "accountEmptyState"
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: section.rows.length === 0
+                        iconName: "account"
+                        title: Tr?.map["account_no_accounts"] ?? "account_no_accounts"
+                    }
+
+                    ListView {
+                        id: accountList
+                        objectName: "accountListView"
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: section.rows.length > 0
+                        clip: true
+                        spacing: Theme?.spacingSm ?? 8
+                        model: section.rows
+                        ScrollBar.vertical: FmScrollBar {}
+
+                        delegate: Item {
+                            id: accountRow
+                            objectName: "accountRow"
+                            width: accountList.width
+                            //: 委托高度 = 卡片自己的隐式高度（ListView 的委托不是布局托管的，
+                            //: 不会被拉伸；显式写高度是为了让 `clip` 与滚动条的 contentHeight 算得准）
+                            height: accountCard.implicitHeight
+
+                            readonly property var row: (modelData === undefined) ? ({}) : modelData
+
+                            FmCard {
+                                id: accountCard
+                                objectName: "accountCard"
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                padding: Theme?.spacingMd ?? 12
+
+                                RowLayout {
+                                    objectName: "accountRowLayout"
+                                    Layout.fillWidth: true
+                                    spacing: Theme?.spacingMd ?? 12
+
+                                    //: 当前账号的强调色指示条。旧实现用更亮的卡片底色标当前项
+                                    //: （`account_manager.py:345` 的 `bg_light`），新界面改成
+                                    //: 「指示条 + 名字前 ★ + 「当前」标签」三重表达，避免同一屏两种卡片底色。
+                                    //: 顺带满足视觉回归"每个页面至少一个 `Theme.accent` 像素"这条判据。
+                                    Rectangle {
+                                        objectName: "accountCurrentIndicator"
+                                        Layout.preferredWidth: 3
+                                        Layout.fillHeight: true
+                                        Layout.minimumHeight: 30
+                                        radius: 1.5
+                                        color: Theme?.accent ?? "transparent"
+                                        visible: accountRow.row.current === true
+                                    }
+
+                                    ColumnLayout {
+                                        objectName: "accountRowInfo"
+                                        Layout.fillWidth: true
+                                        spacing: Theme?.spacingXs ?? 4
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: Theme?.spacingSm ?? 8
+
+                                            FmTag {
+                                                objectName: "accountTypeTag-" + String(accountRow.row.id || "")
+                                                text: String(accountRow.row.type_label || "")
+                                                level: String(accountRow.row.type_level || "neutral")
+                                            }
+
+                                            Text {
+                                                objectName: "accountName-" + String(accountRow.row.id || "")
+                                                Layout.fillWidth: true
+                                                text: String(accountRow.row.display_name || "")
+                                                color: Theme?.textPrimary ?? "transparent"
+                                                font.pixelSize: Theme?.fontSizeBase ?? 12
+                                                font.bold: true
+                                                elide: Text.ElideRight
+                                            }
+
+                                            FmTag {
+                                                objectName: "accountCurrentTag"
+                                                visible: accountRow.row.current === true
+                                                level: "accent"
+                                                text: Tr?.map["account_current"] ?? "account_current"
+                                            }
+                                        }
+
+                                        Text {
+                                            objectName: "accountUuid-" + String(accountRow.row.id || "")
+                                            Layout.fillWidth: true
+                                            //: 旧界面写死 `UUID: {acc.uuid[:20]}...`（`account_manager.py:394-399`），
+                                            //: 截断规则搬进桥的 `uuid_short`，这里只负责显示
+                                            text: "UUID: " + String(accountRow.row.uuid_short || "-")
+                                            color: Theme?.textSecondary ?? "transparent"
+                                            font.pixelSize: Theme?.fontSizeSmall ?? 11
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+
+                                    RowLayout {
+                                        objectName: "accountRowActions"
+                                        spacing: Theme?.spacingXs ?? 4
+
+                                        FmButton {
+                                            //: 名字里带账号 id —— 探针要按 id 精确点到"某一行"的按钮
+                                            //: （同名按钮会有 N 个，`item()` 只能拿到第一个）
+                                            objectName: "accountSetCurrent-" + String(accountRow.row.id || "")
+                                            visible: accountRow.row.current !== true
+                                            Layout.preferredWidth: 90
+                                            text: Tr?.map["account_set_current"] ?? "account_set_current"
+                                            enabled: section.live && !section.progressActive
+                                            onClicked: {
+                                                if (section.live)
+                                                    Accounts.setCurrent(String(accountRow.row.id || ""))
+                                            }
+                                        }
+
+                                        FmButton {
+                                            objectName: "accountRefreshToken-" + String(accountRow.row.id || "")
+                                            //: 只有微软账号能刷 Token（旧实现同：`account_manager.py:425`）
+                                            visible: accountRow.row.is_microsoft === true
+                                            primary: false
+                                            Layout.preferredWidth: 90
+                                            text: Tr?.map["account_refresh_token"] ?? "account_refresh_token"
+                                            enabled: section.live && !section.progressActive
+                                            onClicked: {
+                                                if (section.live)
+                                                    Accounts.requestRefreshToken(String(accountRow.row.id || ""))
+                                            }
+                                        }
+
+                                        FmButton {
+                                            objectName: "accountDelete-" + String(accountRow.row.id || "")
+                                            danger: true
+                                            Layout.preferredWidth: 70
+                                            text: Tr?.map["account_delete"] ?? "account_delete"
+                                            enabled: section.live && !section.progressActive
+                                            onClicked: {
+                                                if (section.live)
+                                                    Accounts.requestDelete(String(accountRow.row.id || ""))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+        // ══ 四、对话框（全部声明式；见文件头纪律第 3、4 条）═════════
+
+        Loader {
+            id: confirmLoader
+            objectName: "accountConfirmLoader"
+            anchors.fill: parent
+            active: Object.keys(section.confirmRequest).length > 0
+            sourceComponent: confirmComponent
+        }
+
+        Component {
+            id: confirmComponent
+
+            ConfirmDialog {
+                objectName: "accountConfirmDialog"
+                request: ({"title": String((section.confirmRequest || {}).title || ""),
+                           "message": String((section.confirmRequest || {}).message || ""),
+                           "default": true})
+                onAnswered: function (value) {
+                    if (!section)
+                        return
+                    var request = section.confirmRequest || ({})
+                    section.confirmRequest = ({})
+                    if (!value)
+                        return
+                    if (request.kind === "delete")
+                        Accounts.confirmDelete(String(request.id || ""))
+                    else if (request.kind === "refresh_token")
+                        Accounts.confirmRefreshToken(String(request.id || ""))
+                }
+            }
+        }
+
+        Loader {
+            id: addLoader
+            objectName: "accountAddLoader"
+            anchors.fill: parent
+            active: section.addKind.length > 0
+            sourceComponent: addComponent
+            onLoaded: {
+                if (item) {
+                    item.reset()
+                    item.forceActiveFocus()
+                }
+            }
+        }
+
+        Component {
+            id: addComponent
+
+            AddAccountDialog {
+                objectName: "accountAddDialog"
+                kind: section.addKind
+                errorText: section.addError
+                onSubmitted: function (payload) {
+                    if (!section)
+                        return
+                    section.addError = ""
+                    section.addKind = ""
+                    if (section.live)
+                        Accounts.startLogin(String(payload.kind || ""), payload)
+                }
+                onCancelled: {
+                    if (section) {
+                        section.addError = ""
+                        section.addKind = ""
+                    }
+                }
+            }
+        }
+
+        Loader {
+            id: importPasswordLoader
+            objectName: "accountImportPasswordLoader"
+            anchors.fill: parent
+            active: false
+            sourceComponent: importPasswordComponent
+        }
+
+        Component {
+            id: importPasswordComponent
+
+            PasswordDialog {
+                objectName: "accountImportPasswordDialog"
+                title: section.t("account_import_title")
+                prompt: section.t("account_import_password_prompt")
+                password: true
+                onSubmitted: function (value) {
+                    if (!section)
+                        return
+                    importPasswordLoader.active = false
+                    if (section.live)
+                        Accounts.setImportPassword(String(value))
+                }
+                onCancelled: {
+                    if (!section)
+                        return
+                    importPasswordLoader.active = false
+                    if (section.live)
+                        Accounts.setImportPassword("")
+                }
+            }
+        }
+
+        Loader {
+            id: exportPasswordLoader
+            objectName: "accountExportPasswordLoader"
+            anchors.fill: parent
+            active: false
+            sourceComponent: exportPasswordComponent
+        }
+
+        Component {
+            id: exportPasswordComponent
+
+            //: 导出**两步问答**（旧实现 `account_manager.py:547-560` 的两个 `CTkInputDialog`）：
+            //: 第 1 步设密码、第 2 步再输一遍核对。两步共用这一个对话框实例 ——
+            //: 第 2 步只换提示语与标题（旧实现第二个框的标题也是同一个 `account_export_title`），
+            //: `PasswordDialog.onPromptChanged` 会在换步时清空上一格的输入。
+            PasswordDialog {
+                objectName: "accountExportPasswordDialog"
+                title: section.t("account_export_title")
+                prompt: section.exportConfirmStep
+                        ? section.t("account_export_password_confirm")
+                        : section.t("account_export_password_prompt")
+                //: 第 2 步的标题带一句"（再输一次）"，免得用户以为是同一个框卡住了
+                //: —— 旧实现是两个独立的框，靠新窗口区分。
+                password: true
+                errorText: section.exportPasswordError
+                onSubmitted: function (value) {
+                    if (!section)
+                        return
+                    if (section.exportConfirmStep) {
+                        section.exportConfirmStep = false
+                        //: 一致 → 桥会发 `exportFileRequested`；不一致 → 会发
+                        //: `passwordMismatch` 并重开第 1 步的框。两种情况下这个框都该先收起来，
+                        //: 由紧随其后的信号决定要不要再打开。
+                        exportPasswordLoader.active = false
+                        if (section.live)
+                            Accounts.confirmExportPassword(String(value))
+                    } else {
+                        exportPasswordLoader.active = false
+                        if (section.live)
+                            Accounts.setExportPassword(String(value))
+                    }
+                }
+                onCancelled: {
+                    if (!section)
+                        return
+                    section.exportConfirmStep = false
+                    section.exportPasswordError = ""
+                    exportPasswordLoader.active = false
+                    if (section.live)
+                        Accounts.setExportPassword("")
+                }
+            }
+        }
+
+        Loader {
+            id: exportResultLoader
+            objectName: "accountExportResultLoader"
+            anchors.fill: parent
+            active: section.exportResultVisible
+            sourceComponent: exportResultComponent
+        }
+
+        Component {
+            id: exportResultComponent
+
+            ExportResultDialog {
+                objectName: "accountExportResultDialog"
+                exportPath: section.exportPath
+                onOpenFolderRequested: {
+                    if (section.live)
+                        Accounts.openExportFolder()
+                }
+                onClosed: {
+                    if (section)
+                        section.exportResultVisible = false
+                }
+            }
+        }
+
+        //: 导入文件（旧 `filedialog.askopenfilename`：`("FMCL Accounts", "*.fmcl_accounts")` + 全部文件）
+        FileDialog {
+            id: importFileDialog
+            objectName: "accountImportFileDialog"
+            title: section.t("account_import_title")
+            nameFilters: ["*" + section.fileSuffix(), "*"]
+            onAccepted: {
+                if (section.live)
+                    Accounts.submitImport(section.localPath(selectedFile))
+            }
+        }
+
+        //: 导出文件（旧 `filedialog.asksaveasfilename`，`defaultextension=".fmcl_accounts"`）
+        FileDialog {
+            id: exportFileDialog
+            objectName: "accountExportFileDialog"
+            title: section.t("account_export_title")
+            fileMode: FileDialog.SaveFile
+            defaultSuffix: "fmcl_accounts"
+            nameFilters: ["*" + section.fileSuffix()]
+            onAccepted: {
+                if (section.live)
+                    Accounts.submitExportPath(section.localPath(selectedFile))
+            }
+        }
+
+        //: 桥上的后缀（`.fmcl_accounts`）；桥缺席时退回常量，保证文件框仍可用
+        function fileSuffix() {
+            return (typeof Accounts !== "undefined" && Accounts) ? String(Accounts.fileSuffix) : ".fmcl_accounts"
+        }
+        }
+    }
+
+    // ══ 分区七~八：AI / 插件（占位，随 3.22 / 3.23 迁）══
     //
     // 用户 2026-10-06 裁决 A：3.4 只做「启动器 / Java / 主题 / 日志 / 关于」。
-    // 这三个分区在旧界面里是同一个设置窗口的另外三个标签页（账户管理 / AI 模型 / 插件），
-    // 内容分别属于 3.5 / 3.22 / 3.23 —— 这里按 D-174 的先例给一个明确的占位，
+    // 这两块在旧界面里是同一个设置窗口的另外两个标签页（AI 模型 / 插件），
+    // 内容分别属于 3.22 / 3.23 —— 这里按 D-174 的先例给一个明确的占位，
     // **不留白屏**（"这个页面还没做好"比"点了没反应"强得多）。
 
     Component {
@@ -1290,8 +2128,7 @@ FmPage {
                 if (!page)
                     return
                 var name = page.section
-                sectionKey = name === "account" ? "account_manager_title"
-                           : (name === "ai" ? "settings_tab_ai" : "plugin_manager_title")
+                sectionKey = (name === "ai") ? "settings_tab_ai" : "plugin_manager_title"
                 title = page.t(sectionKey)
                 description = page.t("page_placeholder_hint")
             }

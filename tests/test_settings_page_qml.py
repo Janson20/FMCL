@@ -328,14 +328,33 @@ def test_acknowledgment_links_open_the_right_url() -> None:
     assert probe()["opened_urls"][:1] == ["https://github.com/PCL-community/PCL-CE"]
 
 
-# ─── 占位分区（3.4 的范围裁决） ────────────────────────────────
+# ─── 账户分区（阶段 3.5 落地：不再是占位） ─────────────────────
+
+
+def test_account_section_is_a_real_page_now() -> None:
+    """账户分区在阶段 3.5 落地：它**不再**是占位，账号页的控件真的在树里。
+
+    3.4 时这里断言的是"三个占位分区"；3.5 之后只剩 AI / 插件两个占位
+    （分别随 3.22 / 3.23 迁），账户分区改由 `tests/test_account_page_qml.py` 全面覆盖。
+    判据取自探针第 10 段（探针自己已经把"账户不再是占位"与三个控件在场都 check 过了）。
+    """
+    report = probe()
+    assert failures() == [], f"探针有失败项：{failures()}"
+    assert report["placeholder_titles"] == ["AI 模型", "插件管理"], report["placeholder_titles"]
+    names = {row["name"]: row for row in report["checks"]}
+    for name in ("账户分区不再是占位（3.5 已交付）", "账户分区的标题在树里",
+                 "账户分区的动作条在树里", "账户分区的账号列表在树里"):
+        assert name in names and names[name]["ok"] is True, f"{name}: {names.get(name)}"
+
+
+# ─── 占位分区（3.4 的范围裁决；3.5 之后只剩 AI / 插件）────────────
 
 
 def test_placeholder_sections_are_not_blank() -> None:
     report = probe()
     titles = report["placeholder_titles"]
-    assert all(titles), f"账户 / AI / 插件三个分区都要有占位内容：{titles}"
-    assert len(set(titles)) == 3, "三个占位分区标题不能一样"
+    assert all(titles), f"AI / 插件两个分区都要有占位内容：{titles}"
+    assert len(set(titles)) == 2, "两个占位分区标题不能一样"
 
 
 # ─── 保存并重启（M-24 / B5） ───────────────────────────────────

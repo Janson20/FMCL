@@ -43,7 +43,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
@@ -354,6 +354,43 @@ def section_gallery(probe: Probe, tokens: Dict[str, str]) -> List[Dict[str, Any]
     return rows
 
 
+#: 视觉回归里要额外走一遍的**二级路由**（阶段 3 任务 3.5）。
+#: 一级页面清单来自 `Shell.navItems()`，二级路由一律不在里面 —— 所以"设置页里的
+#: 账号分区"这种内容从来不会被像素级判据扫到。每个条目是
+#: `(路由, 用来确认分区真的渲染了的 objectName)`。
+SUB_ROUTES: Tuple[Tuple[str, str], ...] = (
+    ("settings/account", "accountTitle"),
+)
+
+
+def section_sub_routes(probe: Probe, tokens: Dict[str, str]) -> List[Dict[str, Any]]:
+    """二级路由各一帧 + 关键控件在场判据（`tests/test_visual_regression.py` 据此断言）。
+
+    顺带**数这一段的 QML 报错**：与 `section_gallery` 同一个理由 —— 这些路由不在
+    12 个一级页面里，冒烟测试走查从不经过它们。
+    """
+    before = len(SINK.messages)
+    rows: List[Dict[str, Any]] = []
+    for route, marker in SUB_ROUTES:
+        goto(route)
+        page = current_page()
+        node = item(marker, page)
+        row = {
+            "route": route,
+            "marker": marker,
+            "rendered": bool(node is not None and node.isVisible()),
+            "objectName": page.objectName() if page is not None else "",
+            "frame": grab(probe, f"sub_{route.replace('/', '_')}", tokens),
+        }
+        rows.append(row)
+        if not row["rendered"]:
+            probe.fail(f"subRoute.{route}", f"分区没渲染出来（找不到可见的 {marker}）")
+    messages = [str(text).splitlines()[0] for text in SINK.messages[before:]]
+    for row in rows:
+        row["messages"] = messages
+    return rows
+
+
 #: 突变对照的宿主 QML：同一块深色底，一个用自研件，一个用原生件（**故意的负例**）。
 MUTATION_BODY = """Window {
     objectName: "%(name)s"
@@ -468,7 +505,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="视觉回归探针（像素级）")
     parser.add_argument("--out", default=str(REPO_ROOT / "poc" / "review" / "d_group" / "visual"))
     parser.add_argument("--only", default="",
-                        help="只跑某几段（逗号分隔：pages,states,themes,gallery,mutation,determinism）")
+                        help="只跑某几段（逗号分隔：pages,states,themes,gallery,subroutes,mutation,determinism）")
     parser.add_argument("--json", default="", help="把 JSON 另存一份（UTF-8，无 BOM）")
     args = parser.parse_args(argv)
     only = {part.strip() for part in args.only.split(",") if part.strip()}
@@ -493,6 +530,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 probe.payload["themes"] = section_themes(probe)
             if wanted("gallery"):
                 probe.payload["gallery"] = section_gallery(probe, tokens)
+            if wanted("subroutes"):
+                probe.payload["subRoutes"] = section_sub_routes(probe, tokens)
             if wanted("mutation"):
                 probe.payload["mutation"] = section_mutation(probe, tokens)
             if wanted("determinism"):

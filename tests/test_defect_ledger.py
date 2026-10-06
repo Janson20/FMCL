@@ -1422,6 +1422,174 @@ def _d186_log_service_resolves_from_the_context() -> Tuple[bool, str]:
     return True, "日志服务能被上下文取出来，且捕获 handler 挂得上"
 
 
+def _d190_account_page_theme_is_reactive() -> Tuple[bool, str]:
+    """D-190（已修）：账号页（含三个通用对话框）的颜色**只能**走 `Theme.*`。
+
+    旧实现是"子窗口在构造时取一次色"：`account_manager.py:191,197` 建了 `_theme_refs`
+    却**从来没有被消费过**（对照表 M-Q3 原文："账号窗口的 `_theme_refs` 从未被消费"）。
+    新架构下 QML 的属性绑定天然响应主题，所以这一条不是"要不要修"而是"有没有退回去"：
+    只要账号相关的 QML 里出现一个字面量颜色，或者把颜色在装配期算死存进 property，
+    就等于把 M-Q3 的旧毛病搬了回来。
+    """
+    files = (
+        "qml/pages/settings/SettingsPage.qml",
+        "qml/components/dialogs/AddAccountDialog.qml",
+        "qml/components/dialogs/PasswordDialog.qml",
+        "qml/components/dialogs/ExportResultDialog.qml",
+    )
+    import re
+
+    color_literal = re.compile(r"color\s*:\s*[\"'](#[0-9a-fA-F]{3,8}|red|blue|green|black|white|gray|grey)[\"']")
+    problems: List[str] = []
+    for rel in files:
+        text = source(rel)
+        for match in color_literal.finditer(text):
+            problems.append(f"{rel}: 出现字面量颜色 {match.group(0)!r}")
+    page = source("qml/pages/settings/SettingsPage.qml")
+    if "color: Theme?." not in page:
+        problems.append("账号分区没有任何 `Theme.*` 的颜色绑定")
+    #: 对话框必须挂在分区自己的 Item 里（`Loader` 那层间接在 3.5 被去掉：多了就多一份
+    #: 生命周期要管）；这条同时守住"三个件都用上、没被悄悄删掉"。
+    for name in ("AddAccountDialog {", "PasswordDialog {", "ExportResultDialog {"):
+        if name not in page:
+            problems.append(f"账号分区里没有用到 {name}")
+    if "id: accountSection" not in page or "Component {\n        id: accountSection" not in page:
+        problems.append("找不到 `Component { id: accountSection }`（分区被改名或结构被改）")
+    if problems:
+        return False, "；".join(problems[:3])
+    return True, f"检查了 {len(files)} 个 QML 文件：无字面量颜色、三个通用件都在用"
+
+
+def _d191_account_section_is_wired_once() -> Tuple[bool, str]:
+    """D-191（已修）：账户分区在 `SettingsPage.qml` 里**只能装配一次**。
+
+    3.5 内联账户分区时踩过一次：`Component { id: accountSection }` 里多留了一个
+    `id: section`（原根节点的 id），QML 报 `Property value set multiple times` ——
+    **整个 SettingsPage 建不出来**，而现象只是"点设置没反应 + 页面树是空的"
+    （`PageStack: component not ready: …:1328`）。后来又从备份搬尾部时把
+    "分区七~八"的占位块复制成了两份，同样是这一类。判据就是"这些名字各只出现一次"。
+    """
+    page = source("qml/pages/settings/SettingsPage.qml")
+    problems: List[str] = []
+    for token, expected in (
+        ("Component {\n        id: accountSection", 1),
+        ("id: placeholderSection", 1),
+        ("objectName: \"accountSection\"", 1),
+        ("function componentFor(name)", 1),
+    ):
+        count = page.count(token)
+        if count != expected:
+            problems.append(f"{token.strip()[:40]!r} 出现 {count} 次（应为 {expected}）")
+    #: 括号配平（QML 编译失败的头号原因就是少一个 `}`）
+    depth = 0
+    for line in page.split("\n"):
+        if line.strip().startswith("//"):
+            continue
+        depth += line.count("{") - line.count("}")
+    if depth != 0:
+        problems.append(f"花括号不配平（净差 {depth}）")
+    if problems:
+        return False, "；".join(problems[:3])
+    return True, "账户分区只装配一次，占位分区与 componentFor 各一份，括号配平"
+
+
+def _d192_core_layer_login_accepts_cancel() -> Tuple[bool, str]:
+    """D-192（已修）：核心层三种登录都要**真的**认协作式取消，且默认行为不变。
+
+    3.5 新增「取消」按钮时要动 `launcher/account.py` 的等待循环（浏览器回调最长 180 秒）。
+    这里钉三件事：① 三个入口都带 `cancel_event` 关键字参数；② 默认 `None` 时与旧实现
+    逐字一致（`_sleep_or_cancel(None)` 就是普通 sleep，不抛不提前返回）；③ 置位的
+    `Event` 会让等待立刻结束 —— 这是"取消真的能中断等待"的最小证据。
+    """
+    import threading
+    import time
+
+    from launcher.account import MicrosoftLoginManager, YggdrasilLoginManager, _sleep_or_cancel, is_cancelled
+
+    core = source("launcher/account.py")
+    problems: List[str] = []
+    for signature in (
+        "def login(\n        self,\n        status_callback: Optional[Callable[[str], None]] = None,\n"
+        "        *,\n        cancel_event: Optional[threading.Event] = None,\n    ) -> Optional[Account]:",
+    ):
+        if signature not in core:
+            problems.append("浏览器登录的签名没带 cancel_event（关键字参数）")
+    if "def refresh_all_account_tokens(" not in core:
+        problems.append("核心层没有 `refresh_all_account_tokens`（账号页的「全部刷新」没有落点）")
+    for klass in (MicrosoftLoginManager, YggdrasilLoginManager):
+        if not hasattr(klass, "login"):
+            problems.append(f"{klass.__name__} 没有 login")
+
+    if is_cancelled(None):
+        problems.append("`is_cancelled(None)` 应为 False（没传事件 = 不可取消）")
+    started = time.time()
+    if _sleep_or_cancel(0.05, None):
+        problems.append("没传事件时 `_sleep_or_cancel` 不该报告被取消")
+    if time.time() - started < 0.04:
+        problems.append("没传事件时睡眠被跳过了（超时语义变了）")
+
+    event = threading.Event()
+    event.set()
+    started = time.time()
+    cancelled = _sleep_or_cancel(5.0, event)
+    elapsed = time.time() - started
+    if not cancelled or elapsed > 1.0:
+        problems.append(f"置位的取消事件没有立刻中断等待（elapsed={elapsed:.2f}s）")
+    if not is_cancelled(event):
+        problems.append("`is_cancelled(event)` 没认出已置位的事件")
+    if problems:
+        return False, "；".join(problems[:3])
+    return True, "三种登录都认 cancel_event；默认 None 时行为不变；置位后等待立刻结束"
+
+
+def _d193_progress_keys_are_not_shown_as_text() -> Tuple[bool, str]:
+    """D-193（已修）：进度记录里"要翻译的键"与"已经成句的文案"必须分开走。
+
+    2026-10-06 用户验收当场报的：微软登录的进度条上直接显示出 `account_ms_verifying`
+    这个键名。根因是服务层把"界面要翻的键"塞进了 `message` 字段（那本该放**已经成句的
+    中文**，见 `services/account_service.py` 模块文档第 3 条取舍），而页面把 `message`
+    原样当文案印了出来 —— 键名就这样上了屏。
+
+    修法：键走 `message_key`（桥翻好再给 QML）、中文走 `message`（原样透出）。
+    判据三条：① 服务层不再把键写进 `message`；② 桥会翻 `message_key`；
+    ③ 占位键在四个语言文件里都存在（否则翻出来还是键名，等于没修）。
+    """
+    import json
+    from pathlib import Path
+
+    service = source("services/account_service.py")
+    problems: List[str] = []
+    if "message_key=self._status_key(kind)" not in service:
+        problems.append("服务层没有把占位键放进 message_key")
+    if 'if kind == "microsoft":\n            return "account_ms_verifying"' not in service:
+        problems.append("微软登录的占位键不是 account_ms_verifying（可能被改回 message 了）")
+    if 'message=self._status_key(kind)' in service:
+        problems.append("服务层又把占位键写进 message 了（键名会上屏）")
+
+    bridge = source("app/bridges/accounts_bridge.py")
+    if 'data["message"] = _(key)' not in bridge:
+        problems.append("桥没有把 message_key 翻成 message")
+
+    locales = Path(_d193_progress_keys_are_not_shown_as_text.__globals__["REPO_ROOT"]) / "ui" / "locales"
+    for code in ("zh_CN", "en_US", "zh_TW", "ja_JP"):
+        table = json.loads((locales / f"{code}.json").read_text(encoding="utf-8"))
+        for key in ("account_ms_verifying", "logging_in"):
+            if key not in table:
+                problems.append(f"{code} 缺占位键 {key}")
+
+    #: 桥的 `_()` 在**没有配置**时会把键原样返回（`_translate` 的兜底），所以这里
+    #: 不能用进程级翻译去判"翻出来了"—— 改为确认**中文表里有键、且 zh_CN 下拿得到句**。
+    zh = json.loads((locales / "zh_CN.json").read_text(encoding="utf-8"))
+    for key in ("account_ms_verifying", "logging_in"):
+        value = str(zh.get(key, ""))
+        if not value or value == key:
+            problems.append(f"zh_CN 的 {key} 不是一句人话：{value!r}")
+
+    if problems:
+        return False, "；".join(problems[:3])
+    return True, "占位键走 message_key、桥翻好再上屏；四条语言文件里键都在且 zh_CN 有译文"
+
+
 def _d187_window_detection_has_one_owner() -> Tuple[bool, str]:
     """D-187（已修）：游戏窗口检测只能有一个读取方（核心层），界面侧只轮询。
 
@@ -1942,6 +2110,38 @@ LEDGER: Dict[str, Entry] = {
         where="services/settings_service.py", check=_d189_settings_draft_is_rebased,
         files=("services/settings_service.py", "app/bridges/settings_bridge.py",
                "qml/pages/settings/SettingsPage.qml", "tests/test_settings_service.py")),
+    "D-190": Entry(
+        defect="D-190", state="已修",
+        summary="旧账号窗口的主题**从来不跟随切换**：`account_manager.py:191,197` 建了 `_theme_refs` "
+                "却从未被消费（对照表 M-Q3 的原文）。新界面按新架构天然响应式 —— 本条钉住"
+                "「不许退回去」：账号页与三个通用对话框里出现任何一个字面量颜色即失败",
+        where="qml/pages/settings/SettingsPage.qml", check=_d190_account_page_theme_is_reactive,
+        files=("qml/pages/settings/SettingsPage.qml", "qml/components/dialogs/AddAccountDialog.qml",
+               "qml/components/dialogs/PasswordDialog.qml", "qml/components/dialogs/ExportResultDialog.qml")),
+    "D-191": Entry(
+        defect="D-191", state="已修",
+        summary="账户分区内联进 `SettingsPage.qml` 时**装配了两次 id**（`Component { id: accountSection }` "
+                "里还留着原根节点的 `id: section`）→ QML 报 `Property value set multiple times`，"
+                "**整个设置页建不出来**，现象却只是「点设置没反应」；后来搬尾部时又复制出第二份占位分区",
+        where="qml/pages/settings/SettingsPage.qml", check=_d191_account_section_is_wired_once,
+        files=("qml/pages/settings/SettingsPage.qml", "tests/qml_account_probe.py")),
+    "D-192": Entry(
+        defect="D-192", state="已修",
+        summary="账号页要「取消」就必须动核心层的等待循环（微软浏览器回调最长 180 秒，旧实现只能干等）；"
+                "本轮给它加了**可选**的协作式取消口，本条钉住「三种登录都认它、且默认 None 时与旧实现逐字一致」",
+        where="launcher/account.py", check=_d192_core_layer_login_accepts_cancel,
+        files=("launcher/account.py", "services/account_service.py", "app/bridges/accounts_bridge.py",
+               "tests/test_account_manager_service.py", "tests/test_account_bridge.py",
+               "tests/qml_account_probe.py")),
+    "D-193": Entry(
+        defect="D-193", state="已修",
+        summary="微软登录的**进度条上直接显示出 i18n 键名** `account_ms_verifying`（用户 2026-10-06 "
+                "验收当场报的）：服务层把\"界面要翻的键\"塞进了 `message` 字段（那本该放已经成句的中文），"
+                "页面又把 `message` 原样当文案印",
+        where="services/account_service.py", check=_d193_progress_keys_are_not_shown_as_text,
+        files=("services/account_service.py", "app/bridges/accounts_bridge.py",
+               "qml/pages/settings/SettingsPage.qml", "tests/test_account_manager_service.py",
+               "tests/test_account_bridge.py", "tests/qml_account_probe.py")),
 }
 
 #: 台账必须覆盖的缺陷号（防"悄悄少一条"）：18 条欠账 + 后续几轮新登记的。
@@ -1955,6 +2155,7 @@ REQUIRED_IDS = (
     "D-169", "D-170", "D-171",
     "D-177", "D-178", "D-179", "D-180", "D-181", "D-182", "D-183", "D-184", "D-185",
     "D-186", "D-187", "D-188", "D-189",
+    "D-190", "D-191", "D-192", "D-193",
 )
 
 

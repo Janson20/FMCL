@@ -26,7 +26,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import requests
 from logzero import logger
@@ -45,6 +45,40 @@ def set_ui_port(port: UIPort) -> None:
     """注入 UI 能力端口（由 main.py 在 TkUIPort 启动后调用）。"""
     global _ui_port
     _ui_port = port if port is not None else NullUIPort()
+
+
+# ─── 协作式取消（阶段 3 任务 3.5 新增，**可选**）──────────────
+#
+# 背景：微软浏览器登录与设备码登录都是"等用户 + 轮询"的长流程（前者最长
+# `OAUTH_TIMEOUT_SECONDS`，后者最长设备码有效期 900 秒）。QML 界面要能在页面上
+# 给一颗「取消」按钮，而核心层原先只能干等到超时。
+#
+# 取舍：**只用 `threading.Event` 这个标准库原语**，不引入任何新的线程/回调机制，
+# 也不改变默认行为 —— 所有 `cancel_event` 参数都默认 `None`，旧 Tk 调用点一个字不改，
+# 行为与之前逐字一致。取消只在**安全点**生效（每次 sleep 之后、每次网络请求之前），
+# 也就是说：正在进行的那个 HTTP 请求会跑完（各自的 timeout 是 15~30 秒），
+# 之后立刻返回 None。调用方用 `is_cancelled()` 区分"被取消"与"失败"。
+
+
+def is_cancelled(cancel_event: Optional[threading.Event]) -> bool:
+    """取消事件是否已置位（`None` 恒为 False：没传就是不可取消）。"""
+    return bool(cancel_event is not None and cancel_event.is_set())
+
+
+def _sleep_or_cancel(seconds: float, cancel_event: Optional[threading.Event], step: float = 0.1) -> bool:
+    """睡 `seconds` 秒，期间每 `step` 秒查一次取消。返回 True 表示被取消。
+
+    分段轮询（而不是一次 `time.sleep(seconds)`）是为了让"取消"在一百毫秒量级内生效；
+    总睡眠时长与旧实现一致，因此**超时语义没有变化**。
+    """
+    remaining = max(0.0, float(seconds))
+    while remaining > 0:
+        if is_cancelled(cancel_event):
+            return True
+        chunk = min(step, remaining)
+        time.sleep(chunk)
+        remaining -= chunk
+    return is_cancelled(cancel_event)
 
 
 def get_ui_port() -> UIPort:
@@ -296,8 +330,23 @@ class MicrosoftLoginManager:
         profile["refresh_token"] = ms_refresh_token
         return profile
 
-    def login(self, status_callback: Optional[Callable[[str], None]] = None) -> Optional[Account]:
+    def login(
+        self,
+        status_callback: Optional[Callable[[str], None]] = None,
+        *,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> Optional[Account]:
+        """浏览器 OAuth 登录（PKCE + localhost 回调）。取消时返回 None。
+
+        Args:
+            status_callback: 逐句状态回调（**硬编码中文**，原样保留；见 `docs/refactor/16` §17.3）。
+            cancel_event: 可选协作式取消事件（阶段 3.5 新增）。置位后：不再等回调、
+                立刻关掉本地 HTTP 服务并返回 None。`None` = 行为与旧实现逐字一致。
+        """
         import minecraft_launcher_lib.microsoft_account as microsoft
+
+        if is_cancelled(cancel_event):
+            return None
 
         self._redirect_port = self._find_available_port()
         redirect_uri = f"http://localhost:{self._redirect_port}"
@@ -311,7 +360,14 @@ class MicrosoftLoginManager:
             logger.error(f"\u83b7\u53d6\u5fae\u8f6f\u767b\u5f55\u6570\u636e\u5931\u8d25: {e}")
             return None
 
+        if is_cancelled(cancel_event):
+            return None
+
         server = HTTPServer(("localhost", self._redirect_port), OAuthCallbackHandler)
+        #: 让等待循环能每一小段就轮询一次 `shutdown_flag`（`BaseHTTPRequestHandler`
+        #: 用 `self.timeout` 设套接字超时，`handle_one_request` 会捕获 `socket.timeout`
+        #: 并正常返回）。副作用还有一个：取消后本地回调服务最多再多活半秒。
+        server.timeout = 0.5
         server.auth_code = None
         server.auth_state = None
         server.shutdown_flag = False
@@ -329,14 +385,28 @@ class MicrosoftLoginManager:
 
         timeout = OAUTH_TIMEOUT_SECONDS
         start_time = time.time()
+
+        # 等待回调（阶段 3.5：切成 0.1 秒一格的分段等待，总时长仍是 `timeout`）。
+        # 取消时 `while` 条件为假 → 直接往下走到收尾段，关服务、返回 None。
+        cancelled = False
         while server.auth_code is None and (time.time() - start_time) < timeout:
-            time.sleep(0.5)
+            if _sleep_or_cancel(0.1, cancel_event):
+                cancelled = True
+                break
 
         server.shutdown_flag = True
         try:
             server.server_close()
         except Exception:
             pass
+        try:
+            server_thread.join(timeout=1.0)  # handle_request 最长阻塞 1 秒（已设 timeout）
+        except Exception:  # pragma: no cover - join 不抛，防御性
+            pass
+
+        if cancelled or is_cancelled(cancel_event):
+            logger.info("\u5fae\u8f6f\u767b\u5f55\u5df2\u53d6\u6d88")
+            return None
 
         if server.auth_code is None:
             logger.error("\u5fae\u8f6f\u767b\u5f55\u8d85\u65f6")
@@ -363,6 +433,9 @@ class MicrosoftLoginManager:
                 status_callback(f"登录失败: {e}")
             return None
 
+        if is_cancelled(cancel_event):
+            return None
+
         account_id = str(uuid_mod.uuid4())
         now = datetime.now(timezone.utc).isoformat()
 
@@ -378,9 +451,12 @@ class MicrosoftLoginManager:
             last_login=now,
         )
 
-    def refresh_token(self, account: Account) -> bool:
+    def refresh_token(self, account: Account, *, cancel_event: Optional[threading.Event] = None) -> bool:
+        """刷新微软 Token。取消时返回 False（与失败同值，调用方用 `is_cancelled()` 区分）。"""
         if not account.refresh_token:
             logger.warning(f"\u5fae\u8f6f\u8d26\u53f7 {account.name} \u6ca1\u6709 refresh_token")
+            return False
+        if is_cancelled(cancel_event):
             return False
 
         logger.info(f"\u6b63\u5728\u5237\u65b0\u5fae\u8f6f\u8d26\u53f7 {account.name} \u7684 Token...")
@@ -403,7 +479,18 @@ class MicrosoftLoginManager:
             logger.warning(f"\u5fae\u8f6f\u8d26\u53f7 {account.name} Token \u5237\u65b0\u5931\u8d25: {e}")
             return False
 
-    def login_device_code(self, status_callback: Optional[Callable[[str], None]] = None) -> Optional[Account]:
+    def login_device_code(
+        self,
+        status_callback: Optional[Callable[[str], None]] = None,
+        *,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> Optional[Account]:
+        """设备码登录（微软 /devicelogin 页面）。
+
+        阶段 3.5 **不改脚本界面**（用户裁决：微软登录照旧走浏览器 OAuth），但把这个方法
+        也接上同一套协作式取消 —— 它是"暴露在外的能力"，将来（`docs/refactor/03` 的 E-05
+        基岩版微软绑定）会用到，接口两侧保持一致才不会有第二个取消语义。
+        """
         DEVICE_CODE_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode"
         TOKEN_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
         SCOPE = "XboxLive.signin offline_access"
@@ -411,6 +498,9 @@ class MicrosoftLoginManager:
 
         headers = _build_ua_header()
         headers["Content-Type"] = "application/x-www-form-urlencoded"
+
+        if is_cancelled(cancel_event):
+            return None
 
         if status_callback:
             status_callback("正在获取设备代码...")
@@ -468,13 +558,20 @@ class MicrosoftLoginManager:
 
         start_time = time.time()
         while (time.time() - start_time) < expires_in:
-            time.sleep(interval)
+            # 轮询间隔本身也切成可取消的等待（设备码流程最长 900 秒）
+            if _sleep_or_cancel(interval, cancel_event):
+                logger.info("设备代码登录已取消")
+                return None
             try:
                 resp = requests.post(TOKEN_URL, data=poll_payload, headers=headers, timeout=30)
                 token_data = resp.json()
             except Exception as e:
                 logger.warning(f"轮询 Token 网络错误: {e}")
                 continue
+
+            if is_cancelled(cancel_event):
+                logger.info("设备代码登录已取消")
+                return None
 
             if "access_token" in token_data:
                 ms_access_token = token_data["access_token"]
@@ -528,9 +625,17 @@ class MicrosoftLoginManager:
 
 class YggdrasilLoginManager:
     def login(
-        self, server_url: str, username: str, password: str, status_callback: Optional[Callable[[str], None]] = None
+        self,
+        server_url: str,
+        username: str,
+        password: str,
+        status_callback: Optional[Callable[[str], None]] = None,
+        *,
+        cancel_event: Optional[threading.Event] = None,
     ) -> Optional[Account]:
         if not server_url or not username or not password:
+            return None
+        if is_cancelled(cancel_event):
             return None
 
         server_url = server_url.rstrip("/")
@@ -562,6 +667,9 @@ class YggdrasilLoginManager:
             return None
         except Exception as e:
             logger.error(f"Yggdrasil \u89e3\u6790\u5931\u8d25: {e}")
+            return None
+
+        if is_cancelled(cancel_event):
             return None
 
         selected = data.get("selectedProfile")
@@ -836,24 +944,42 @@ class GlobalAccountSystem:
         logger.info(f"\u5df2\u5207\u6362\u5f53\u524d\u8d26\u53f7: {account_id}")
         return True
 
-    def microsoft_login(self, status_callback: Optional[Callable[[str], None]] = None) -> Optional[Account]:
-        account = self._microsoft_login.login(status_callback=status_callback)
+    def microsoft_login(
+        self,
+        status_callback: Optional[Callable[[str], None]] = None,
+        *,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> Optional[Account]:
+        account = self._microsoft_login.login(status_callback=status_callback, cancel_event=cancel_event)
         if account:
             self.add_account(account)
             self.set_current_account(account.id)
         return account
 
-    def microsoft_device_code_login(self, status_callback: Optional[Callable[[str], None]] = None) -> Optional[Account]:
-        account = self._microsoft_login.login_device_code(status_callback=status_callback)
+    def microsoft_device_code_login(
+        self,
+        status_callback: Optional[Callable[[str], None]] = None,
+        *,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> Optional[Account]:
+        account = self._microsoft_login.login_device_code(status_callback=status_callback, cancel_event=cancel_event)
         if account:
             self.add_account(account)
             self.set_current_account(account.id)
         return account
 
     def yggdrasil_login(
-        self, server_url: str, username: str, password: str, status_callback: Optional[Callable[[str], None]] = None
+        self,
+        server_url: str,
+        username: str,
+        password: str,
+        status_callback: Optional[Callable[[str], None]] = None,
+        *,
+        cancel_event: Optional[threading.Event] = None,
     ) -> Optional[Account]:
-        account = self._yggdrasil_login.login(server_url, username, password, status_callback=status_callback)
+        account = self._yggdrasil_login.login(
+            server_url, username, password, status_callback=status_callback, cancel_event=cancel_event
+        )
         if account:
             self.add_account(account)
             self.set_current_account(account.id)
@@ -865,10 +991,12 @@ class GlobalAccountSystem:
         self.set_current_account(account.id)
         return account
 
-    def refresh_account_token(self, account: Account) -> bool:
+    def refresh_account_token(
+        self, account: Account, *, cancel_event: Optional[threading.Event] = None
+    ) -> bool:
         if account.account_type != AccountType.MICROSOFT:
             return True
-        success = self._microsoft_login.refresh_token(account)
+        success = self._microsoft_login.refresh_token(account, cancel_event=cancel_event)
         if success:
             self._save()
         return success
@@ -907,6 +1035,51 @@ class GlobalAccountSystem:
             self._save()
             logger.info(f"\u81ea\u52a8\u5237\u65b0\u5b8c\u6210: {count} \u4e2a\u8d26\u53f7 Token \u5df2\u66f4\u65b0")
         return count
+
+    def refresh_all_account_tokens(
+        self,
+        on_account: Optional[Callable[[str, int, int], None]] = None,
+        *,
+        cancel_event: Optional[threading.Event] = None,
+    ) -> Dict[str, Any]:
+        """**强制**刷新每一个微软账号的 Token（不判是否过期）—— 界面上「全部刷新 Token」的落点。
+
+        与 `auto_refresh_all_tokens()`（启动时的静默批量刷新）的三点差别，都是有意的：
+
+        1. 不筛 `is_token_expired()`：用户点了按钮就刷，哪怕看着还没过期；
+        2. 逐账号回报进度：`on_account(name, 已完成序号, 参与总数)`；
+        3. 可取消：`cancel_event` 置位后不再开始下一个账号。
+
+        Returns:
+            ``{"ok", "total", "success", "failed", "skipped", "cancelled"}``。
+            `total` 是参与刷新的账号数（微软且有 refresh_token），`skipped` 是不参与的。
+        """
+        targets = [a for a in self._accounts if a.account_type == AccountType.MICROSOFT and a.refresh_token]
+        result: Dict[str, Any] = {
+            "ok": True,
+            "total": len(targets),
+            "success": 0,
+            "failed": 0,
+            "skipped": len(self._accounts) - len(targets),
+            "cancelled": False,
+        }
+        for index, acc in enumerate(targets, start=1):
+            if is_cancelled(cancel_event):
+                result["cancelled"] = True
+                break
+            if on_account is not None:
+                try:
+                    on_account(acc.name, index, len(targets))
+                except Exception as e:  # noqa: BLE001 - 回调是界面的，坏掉不该打断刷新
+                    logger.debug("刷新进度回调失败: %s", e)
+            if self.refresh_account_token(acc, cancel_event=cancel_event):
+                result["success"] += 1
+            elif is_cancelled(cancel_event):
+                result["cancelled"] = True
+                break
+            else:
+                result["failed"] += 1
+        return result
 
     def build_launch_options(self, account: Optional[Account] = None) -> dict:
         target = account or self.current_account
