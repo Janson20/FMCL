@@ -223,7 +223,22 @@ class TrBridge(QObject):
 
     @Slot()
     def refresh(self) -> None:
-        """重新抓一次当前语言的键值表（语言文件在运行期被改过时用）。"""
+        """重新抓一次"当前语言"的键值表与语言代码（语言在别处被改过时用）。
+
+        两种调用方：
+        1. 语言文件在运行期被改过（原来的唯一用途）；
+        2. **设置页的语言预览**（阶段 3 任务 3.4）——`SettingsService` 直接调
+           `i18n_service.set_language()` 改内存（不落盘），本桥必须跟着同步
+           `language` 属性，否则界面上文字变了、`Tr.language` 还停在旧值
+           （下拉框的选中项与"当前语言"就会对不上）。
+        所以这里连 `_language` 一起重读 —— 只读字典不读语言代码是原来的疏漏。
+        """
+        try:
+            current = str(self._i18n.get_current_language() or "")
+        except Exception as e:  # noqa: BLE001 - 取不到就保持原值，别把界面搞成空语言
+            logger.warning("读取当前语言失败: %s", e)
+            current = self._language
+        self._language = current or self._language
         self._refresh_snapshot()
         self.languageChanged.emit()
 

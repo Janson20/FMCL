@@ -35,6 +35,60 @@ from version_utils import (
     resolve_version_jar_path,
 )
 
+#: 游戏窗口出现的判据串（原版客户端 "Datafixer optimizations took N ms" 那行日志）。
+#:
+#: **它是全进程唯一的一份**：核心层用它检测（stdout 管道归核心层所有），
+#: `services/game_service.py` 从这里 import 同一个常量 —— 两份字符串常量
+#: 一旦漂移，症状是"窗口检测永远不触发"而没有任何报错。
+WINDOW_MARKER = "Datafixer optimizations took"
+
+
+def pump_game_output(
+    process: Any,
+    on_line: Callable[[str], None],
+    on_window_detected: Optional[Callable[[], None]] = None,
+    marker: str = WINDOW_MARKER,
+) -> bool:
+    """消费游戏进程的 stdout：逐行回调，见到窗口标记就回调一次并**跳出**。
+
+    返回是否检测到窗口标记。
+
+    为什么抽成模块级函数（阶段 3 任务 3.4 验收修复）：这段逻辑原来是 `launch_game`
+    里的一个闭包，**没法单测** —— 而它恰恰是"游戏窗口出现后没有检测到并最小化"
+    那个缺陷的现场。抽出来之后 `tests/test_game_window_detection.py` 能直接喂一个
+    假进程验它：标记行触发回调、之后不再读、并且把管道关掉（管道不关会把游戏的
+    stdout 缓冲填满，那是旧实现当年加这段的原因）。
+
+    调用方（`_read_subprocess_output`）负责"要不要转写到终端"，本函数只管读与判定。
+    """
+    stdout = getattr(process, "stdout", None)
+    if stdout is None:
+        return False
+    seen = False
+    try:
+        for line_bytes in stdout:
+            line = line_bytes.decode("utf-8", errors="replace").rstrip() if isinstance(line_bytes, bytes) \
+                else str(line_bytes).rstrip()
+            if not line:
+                continue
+            on_line(line)
+            if not seen and marker in line:
+                seen = True
+                if on_window_detected is not None:
+                    on_window_detected()
+                break
+    except (ValueError, OSError):
+        pass
+    except Exception:  # noqa: BLE001 - 读管道出任何问题都不该掀翻调用方
+        pass
+    finally:
+        if seen:
+            try:
+                stdout.close()
+            except Exception:  # noqa: BLE001 - 关不掉管道不是错误
+                pass
+    return seen
+
 
 def concurrent_file_verify(
     file_hash_pairs: List[Tuple[Path, str, str]],
@@ -154,6 +208,19 @@ class MinecraftLauncher:
 
         # UI回调 (可选,用于进度更新)
         self.on_progress: Optional[Callable[[int, int, str], None]] = None
+
+        # 游戏窗口出现的**唯一**检测点（阶段 3 任务 3.4 验收修复）。
+        #
+        # 为什么必须在核心层：游戏进程的 stdout 管道是这里建的
+        # （`subprocess.Popen(..., stdout=PIPE)`），下面那个读取线程已经在消费它。
+        # 界面侧再开一个读取线程去抢同一根管道**不可靠** —— 两个读取方各自
+        # `for line in stdout`，marker 那一行只会被其中一方读到（旧 Tk 实现
+        # `ui/app_handlers.py:_watch_game_stdout` 与新的 `GameService._watch_stdout`
+        # 都是这个写法，用户 2026-10-06 验收报的"游戏窗口出现后没有检测到并最小化"
+        # 就是这么来的）。现在由核心层检测并置位，界面侧只**轮询**这一个事件。
+        self._window_detected = threading.Event()
+        #: 检测到窗口出现时的回调（可选；界面侧也可以直接轮询 `window_detected()`）
+        self.on_window_detected: Optional[Callable[[], None]] = None
 
         # 初始化镜像源
         logger.info("MinecraftLauncher.__init__: 6. 正在初始化 MirrorSource...")
@@ -1512,19 +1579,26 @@ class MinecraftLauncher:
                     _sys.stdout.flush()
 
             def _read_subprocess_output():
-                try:
-                    stdout = self._game_process.stdout
-                    if stdout is None:
-                        return
-                    for line_bytes in stdout:
-                        line = line_bytes.decode("utf-8", errors="replace").rstrip()
-                        if line:
-                            _early_output_lines.append(line)
-                            _write_stdout(line + "\n")
-                except (ValueError, OSError):
-                    pass
-                except Exception:
-                    pass
+                """消费游戏 stdout：转写终端 + **检测窗口出现**（唯一的检测点）。
+
+                检测与"检测到就关管道"都在 `pump_game_output` 里（可单测），
+                这里只负责把回调接到本实例的事件与钩子上。
+                """
+                def _on_line(line: str) -> None:
+                    _early_output_lines.append(line)
+                    _write_stdout(line + "\n")
+
+                def _on_window_detected() -> None:
+                    self._window_detected.set()
+                    logger.info("检测到游戏窗口出现 (%s)", WINDOW_MARKER)
+                    hook = getattr(self, "on_window_detected", None)
+                    if callable(hook):
+                        try:
+                            hook()
+                        except Exception as e:  # noqa: BLE001 - 回调坏了不该影响读线程
+                            logger.warning("on_window_detected 回调失败: %s", e)
+
+                pump_game_output(self._game_process, _on_line, _on_window_detected)
 
             _reader_thread = threading.Thread(target=_read_subprocess_output, daemon=True)
             _reader_thread.start()
@@ -2546,6 +2620,11 @@ class MinecraftLauncher:
             "get_game_process": self.get_game_process,
             "kill_game_process": self.kill_game_process,
             "is_game_running": self.is_game_running,
+            # 游戏窗口出现的**唯一**检测结果（阶段 3 任务 3.4 验收修复）：
+            # 界面侧（Tk 的 `_watch_game_stdout` 与 QML 的 `GameService._watch_stdout`）
+            # 都只轮询它，不再各自去抢 stdout 管道。
+            "window_detected": self.window_detected,
+            "clear_window_detected": self.clear_window_detected,
             "get_player_name": self.get_player_name,
             "set_player_name": self.set_player_name,
             "get_skin_path": self.get_skin_path,
@@ -3184,6 +3263,21 @@ class MinecraftLauncher:
     def get_game_process(self) -> Optional[subprocess.Popen]:
         """获取当前游戏进程对象（用于监控 stdout）"""
         return getattr(self, "_game_process", None)
+
+    def window_detected(self) -> bool:
+        """游戏窗口是否已经出现（阶段 3 任务 3.4 验收修复新增）。
+
+        这是**唯一**的窗口检测结果：由核心层那个消费 stdout 的读取线程置位
+        （见 `_read_subprocess_output`），界面侧只轮询它，不再各自去抢管道。
+        """
+        return bool(getattr(self, "_window_detected", None) is not None
+                    and self._window_detected.is_set())
+
+    def clear_window_detected(self) -> None:
+        """清掉窗口检测标志（每次启动游戏之前调一次，否则第二次启动会立刻"已检测"）。"""
+        event = getattr(self, "_window_detected", None)
+        if event is not None:
+            event.clear()
 
     def kill_game_process(self) -> bool:
         """强制结束游戏进程"""

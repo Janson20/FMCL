@@ -487,3 +487,123 @@ def test_nav_bridge_has_no_business_rule_imports() -> None:
     source = Path(nb.__file__).read_text(encoding="utf-8")
     assert "from services" not in source and "import services" not in source
     assert "PySide6.QtWidgets" not in source
+
+
+# ─── 离开守卫（阶段 3 任务 3.4；M-Q1 的 B6）─────────────────────
+#
+# 守卫是"有未保存改动时，跨域导航要先问一次"的机制。设置页是第一个用户
+# （草稿范式），3.11 的服务器配置编辑器（对照表写明"未保存提示"）会用同一个机制。
+# 这几条钉住四件事：**默认不拦**、**跨域才拦**、**域内不拦**、**裁决后只走一次**。
+
+
+class TestLeaveGuard:
+    @pytest.fixture()
+    def guarded(self, nav: NavBridge) -> NavBridge:
+        nav.push("home")
+        nav.push("settings")
+        return nav
+
+    def test_no_guard_means_no_change_of_behaviour(self, nav: NavBridge) -> None:
+        """没登记守卫时，导航行为与 3.3 之前**逐字一致**（这条是回归保险）。"""
+        nav.push("home")
+        nav.push("settings/java")
+        assert nav.guardedDomains() == []
+        assert nav.push("home") is True
+        assert nav.currentRoute == "home"
+
+    def test_in_domain_navigation_is_never_blocked(self, guarded: NavBridge) -> None:
+        """B1：草稿是**整域**一份，在设置里换分区不该被问"要不要保存"。"""
+        guarded.setLeaveGuard("settings", True)
+        assert guarded.push("settings/java") is True
+        assert guarded.push("settings/theme") is True
+        assert guarded.currentRoute == "settings/theme"
+        assert guarded.property("pendingLeaveRoute") == ""
+
+    def test_cross_domain_navigation_is_blocked_once(self, guarded: NavBridge) -> None:
+        events: List[Tuple[str, str]] = []
+        guarded.leaveBlocked.connect(lambda domain, route: events.append((domain, route)))
+        guarded.setLeaveGuard("settings", True)
+        # 返回 False = 这次导航**没有**发生（页面没换）
+        assert guarded.push("home") is False
+        assert guarded.currentRoute == "settings"
+        assert events == [("settings", "home")]
+        assert guarded.property("pendingLeaveRoute") == "home"
+
+    def test_second_request_does_not_stack_up(self, guarded: NavBridge) -> None:
+        """已经在等裁决时再点别的导航项，不该把待裁决目标换掉（否则用户答的是另一个问题）。"""
+        events: List[Tuple[str, str]] = []
+        guarded.leaveBlocked.connect(lambda domain, route: events.append((domain, route)))
+        guarded.setLeaveGuard("settings", True)
+        guarded.push("home")
+        guarded.push("versions")
+        assert events == [("settings", "home")], "第二次请求应当被忽略"
+        assert guarded.property("pendingLeaveRoute") == "home"
+
+    def test_cancel_keeps_the_page_and_clears_the_request(self, guarded: NavBridge) -> None:
+        cancelled: List[str] = []
+        guarded.leaveCancelled.connect(cancelled.append)
+        guarded.setLeaveGuard("settings", True)
+        guarded.push("home")
+        assert guarded.confirmLeave(False) is False
+        assert guarded.currentRoute == "settings"
+        assert cancelled == ["settings"]
+        assert guarded.property("pendingLeaveRoute") == ""
+        # 取消之后守卫还在（用户留下了，草稿也没丢）
+        assert guarded.guardedDomains() == ["settings"]
+
+    def test_confirm_navigates_even_if_the_page_discards_first(self, guarded: NavBridge) -> None:
+        """**这是 3.4 的一个真缺陷的回归钉**（探针先红的）：
+
+        确认流程是"先 `discardDraft()`（→ `setLeaveGuard(False)`）再 `confirmLeave(True)`"。
+        第一版让 `setLeaveGuard(False)` 顺手把待裁决导航作废了（本意是防幽灵跳转），
+        于是那次导航在到达 `confirmLeave` 之前就被清掉 —— 用户点了「确定」却留在原地。
+        """
+        confirmed: List[str] = []
+        guarded.leaveConfirmed.connect(
+            lambda domain: (confirmed.append(domain), guarded.setLeaveGuard(domain, False))
+        )
+        guarded.setLeaveGuard("settings", True)
+        guarded.push("home")
+        assert guarded.confirmLeave(True) is True
+        assert guarded.currentRoute == "home"
+        assert confirmed == ["settings"]
+        assert guarded.guardedDomains() == [], "丢弃之后守卫要撤销"
+
+    def test_confirm_without_a_request_does_nothing(self, guarded: NavBridge) -> None:
+        assert guarded.confirmLeave(True) is False
+        assert guarded.currentRoute == "settings"
+
+    def test_guard_applies_to_back_and_home_and_reset(self, guarded: NavBridge) -> None:
+        guarded.push("settings/java")
+        guarded.setLeaveGuard("settings", True)
+        assert guarded.goBack() is True, "域内返回不拦（settings/java → settings）"
+        assert guarded.currentRoute == "settings"
+        assert guarded.goHome() is False, "回首页是跨域，要问"
+        assert guarded.reset() is False, "重置栈同样是离开设置域"
+        assert guarded.goBackTo(1) is False, "退到 home 也要问（栈里只剩 [home, settings]）"
+        assert guarded.currentRoute == "settings"
+        assert guarded.property("pendingLeaveRoute") == "home"
+
+    def test_deep_link_is_blocked_too(self, guarded: NavBridge) -> None:
+        guarded.setLeaveGuard("settings", True)
+        assert guarded.openDeepLink("fmcl://versions/detail?version=1.20.4") is False
+        assert guarded.property("pendingLeaveRoute") == "versions/detail"
+
+    def test_guard_is_domain_scoped(self, nav: NavBridge) -> None:
+        nav.push("home")
+        nav.push("versions")
+        nav.setLeaveGuard("settings", True)
+        assert nav.push("home") is True, "守卫登记在设置域，不该拦住版本页的导航"
+        assert nav.guardedDomains() == ["settings"]
+
+    def test_set_leave_guard_normalizes_domain(self, guarded: NavBridge) -> None:
+        guarded.setLeaveGuard("settings/java", True)
+        assert guarded.guardedDomains() == ["settings"], "域 id 取路由 id 的第一段"
+
+    def test_unknown_route_still_fails_loudly(self, guarded: NavBridge) -> None:
+        """守卫不拦"未知路由"这条错：那是错误，不是"要不要保存"的问题。"""
+        errors: List[str] = []
+        guarded.navFailed.connect(errors.append)
+        guarded.setLeaveGuard("settings", True)
+        assert guarded.push("no/such/route") is False
+        assert errors and guarded.property("pendingLeaveRoute") == ""

@@ -504,54 +504,54 @@ class EventHandlerMixin(object):
         return files
 
     def _watch_game_stdout(self):
-        """监控游戏进程 stdout，检测到游戏窗口出现后关闭管道以避免缓冲区满导致游戏卡顿（后台线程）"""
+        """等"游戏窗口出现"这一个时机（后台线程）。
+
+        ## 阶段 3 任务 3.4 验收修复：不再自己抢 stdout 管道
+
+        原实现自己开一个读取线程去 `for raw_line in proc.stdout`，可那根管道
+        **已经是核心层在读**（`launcher/core.py` 的 `_read_subprocess_output`）——
+        两个读取方各自迭代同一个 `BufferedReader`，marker 那一行只会落到其中一方手里。
+        用户 2026-10-06 在 QML 版上报"游戏窗口出现后没有检测到并最小化"，
+        根因就是这个竞态；**旧 Tk 版走的是同一段逻辑，同样不可靠**。
+
+        现在检测点在核心层（管道的主人），这里只轮询 `window_detected`。
+        超时（120 秒）与"检测到/超时都关管道"两个边界照旧。
+        """
         if "get_game_process" not in self.callbacks:
+            return
+        if "window_detected" not in self.callbacks:
             return
 
         proc = self.callbacks["get_game_process"]()
-        if proc is None or proc.stdout is None:
-            logger.warning("无法获取游戏进程 stdout")
+        if proc is None:
+            logger.warning("无法获取游戏进程")
             return
 
-        marker = "Datafixer optimizations took"
         timeout = 120
+        deadline = time.time() + timeout
 
-        import threading
-        import time
+        logger.info("开始监控游戏窗口出现")
 
-        logger.info("开始监控游戏进程 stdout")
-
-        result = {"detected": False}
-
-        def _reader():
+        while time.time() < deadline and self._running:
             try:
-                for raw_line in proc.stdout:
-                    line = raw_line.decode("utf-8", errors="ignore")
-                    if not result["detected"] and marker in line:
-                        result["detected"] = True
-                        return
-            except Exception:
-                pass
-
-        reader_thread = threading.Thread(target=_reader, daemon=True)
-        reader_thread.start()
-
-        # 等待检测到标记或超时
-        start = time.time()
-        while time.time() - start < timeout and self._running:
-            if result["detected"]:
+                detected = bool(self.callbacks["window_detected"]())
+            except Exception as e:
+                logger.warning(f"查询窗口检测状态失败: {e}")
+                detected = False
+            if detected:
                 logger.info("检测到游戏窗口出现 (Datafixer Bootstrap)，关闭 stdout 管道")
                 try:
-                    proc.stdout.close()
+                    if proc.stdout is not None:
+                        proc.stdout.close()
                 except Exception:
                     pass
                 self._task_queue.put(("game_window_detected", None))
                 return
-            if not reader_thread.is_alive() and not result["detected"]:
-                # 读线程退出但没检测到标记（进程可能已退出），关闭管道
-                logger.info("游戏 stdout 已关闭，释放管道")
+            if proc.poll() is not None:
+                logger.info("游戏进程已退出，停止窗口检测")
                 try:
-                    proc.stdout.close()
+                    if proc.stdout is not None:
+                        proc.stdout.close()
                 except Exception:
                     pass
                 return
@@ -560,7 +560,8 @@ class EventHandlerMixin(object):
         # 超时：关闭管道避免缓冲区问题
         logger.info(f"游戏 stdout 监控超时 ({timeout}s)，关闭管道")
         try:
-            proc.stdout.close()
+            if proc.stdout is not None:
+                proc.stdout.close()
         except Exception:
             pass
 

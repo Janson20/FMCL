@@ -186,9 +186,13 @@ def test_clicking_a_version_fills_the_input() -> None:
 
 
 def test_install_registers_as_a_background_task() -> None:
-    """安装必须经 `Tasks` 桥提交：状态栏的后台任务指示（`Shell.busy`）只认它。"""
+    """安装必须经 `Tasks` 桥提交：状态栏的后台任务指示（`Shell.busy`）只认它。
+
+    断言用**成员包含**而不是全等：同一次装配里别的桥也会登记自己的任务种类
+    （3.4 的 `settings.java_scan` 就是），全等会把"别人加了一种任务"当成回归。
+    """
     report = probe()
-    assert report["task_kinds"] == ["version.install"]
+    assert "version.install" in report["task_kinds"]
     assert report["active_tasks"] == 1
     assert report["shell_busy"] is True
 

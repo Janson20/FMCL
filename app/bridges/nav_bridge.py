@@ -311,6 +311,18 @@ def qml_url(relative: str) -> str:
 _current: Optional["NavBridge"] = None
 
 
+def _domain_of(route_id: str) -> str:
+    """路由 id → 域 id（第一段）。`settings/java` → `settings`，`home` → `home`。
+
+    离开守卫按**域**而不是按页面判定：设置域下 8 条路由共用一份草稿，
+    在它们之间跳来跳去不该被拦（M-Q1 的 B1）。
+    """
+    text = str(route_id or "").strip()
+    if not text:
+        return ""
+    return text.split("/", 1)[0]
+
+
 def current_nav() -> Optional["NavBridge"]:
     """当前进程里的 Nav 实例（没有则 None）。"""
     return _current
@@ -327,6 +339,15 @@ class NavBridge(QObject):
     navFailed = Signal(str)
     #: 插件路由登记成功。
     pluginRouteAdded = Signal(str)
+    #: **离开守卫**挡下了一次导航（阶段 3 任务 3.4 新增）。
+    #: 参数 = `(被守卫的域 id, 想去但没去成的路由 id)`；界面据此弹一次确认框，
+    #: 再用 `confirmLeave(ok)` 裁决。
+    leaveBlocked = Signal(str, str)
+    #: 用户在确认框里选了"丢弃并离开"（参数 = 域 id）。**在真正压栈之前**发出，
+    #: 页面据此清掉草稿/还原预览 —— 顺序反了的话守卫会再拦一次。
+    leaveConfirmed = Signal(str)
+    #: 用户在确认框里选了"留下"（参数 = 域 id）。导航被取消，什么都不会发生。
+    leaveCancelled = Signal(str)
 
     def __init__(
         self,
@@ -353,6 +374,15 @@ class NavBridge(QObject):
 
         #: 栈：`[(route_id, params), …]`，最后一项是前台页面。
         self._stack: List[Tuple[str, Dict[str, Any]]] = []
+
+        #: 离开守卫：域 id → 该域有未保存改动（阶段 3 任务 3.4）。
+        #: **默认空**：没有页面登记守卫时，导航行为与 3.3 之前**逐字一致**。
+        self._leave_guards: Dict[str, bool] = {}
+        #: 被守卫挡下的那次导航（等 `confirmLeave` 裁决）
+        self._pending_push: Optional[Tuple[str, Dict[str, Any]]] = None
+        self._pending_domain = ""
+        #: 正在执行"用户已确认"的那次压栈 —— 期间不再问守卫（见 `confirmLeave`）
+        self._bypass_guard = False
 
         global _current
         _current = self
@@ -447,6 +477,9 @@ class NavBridge(QObject):
         if len(self._stack) <= 1:
             logger.debug("已在栈底，goBack 无事可做（当前栈深 %d）", len(self._stack))
             return False
+        target = self._stack[-2][0]
+        if self._guard_blocks(target):
+            return self._block_for_guard(target, dict(self._stack[-2][1]))
         self._stack.pop()
         self._announce()
         return True
@@ -464,6 +497,9 @@ class NavBridge(QObject):
         count = min(count, len(self._stack) - 1)
         if count <= 0:
             return False
+        target = self._stack[len(self._stack) - 1 - count][0]
+        if self._guard_blocks(target):
+            return self._block_for_guard(target, dict(self._stack[len(self._stack) - 1 - count][1]))
         del self._stack[len(self._stack) - count:]
         self._announce()
         return True
@@ -483,9 +519,101 @@ class NavBridge(QObject):
         """
         if len(self._stack) == 1 and self._stack[0][0] == HOME_ROUTE:
             return False
+        if self._guard_blocks(HOME_ROUTE):
+            return self._block_for_guard(HOME_ROUTE, {})
         self._stack = [(HOME_ROUTE, {})]
         self._announce()
         return True
+
+    # ─── 离开守卫（阶段 3 任务 3.4 / M-Q1 的 B6） ───────────
+
+    @Slot(str, bool)
+    def setLeaveGuard(self, domain: str, dirty: bool) -> None:  # noqa: N802
+        """登记/撤销某个域的"有未保存改动"标记。
+
+        `domain` 是路由 id 的第一段（`settings/java` 属于 `settings` 域）。
+        标记为真时，**跨域导航**会被挡下一次并发出 `leaveBlocked`，由界面弹确认框；
+        域内导航（`settings/launcher` → `settings/java`）**不拦** —— 草稿本来就是
+        整域一份（M-Q1 的 B1），在设置里换分区不该被问"要不要保存"。
+        """
+        name = _domain_of(domain)
+        if not name:
+            return
+        if dirty:
+            self._leave_guards[name] = True
+        else:
+            self._leave_guards.pop(name, None)
+        # **刻意不动 `_pending_push`**：它只归 `confirmLeave()` 管。
+        # 第一版在这里"顺手"把等待裁决的导航作废了（怕出现幽灵跳转），结果把
+        # "确定 = 丢弃草稿并离开"整条路堵死 —— 确认流程本身就是
+        # `discardDraft()`（→ 守卫撤销）**紧接着** `confirmLeave(true)`,
+        # 于是那次导航在到达 `confirmLeave` 之前就被清掉了（探针实测：
+        # `invoke_accept=True`、提示框收起了、路由却停在原地）。
+
+    @Slot(result="QVariantList")
+    def guardedDomains(self) -> List[str]:  # noqa: N802
+        """当前处于守卫状态的域（自检与测试用）。"""
+        return sorted(self._leave_guards)
+
+    @Property(str, notify=routeChanged)
+    def pendingLeaveRoute(self) -> str:  # noqa: N802
+        """被守卫挡下、正在等裁决的目标路由（没有则为空串）。"""
+        return self._pending_push[0] if self._pending_push else ""
+
+    @Slot(bool, result=bool)
+    def confirmLeave(self, ok: bool) -> bool:  # noqa: N802
+        """裁决那次被挡下的导航：`True` = 丢弃改动并离开，`False` = 留下。
+
+        返回是否真的完成了导航。没有待裁决的导航时返回 `False`（重复点确认框
+        不该凭空跳一页）。
+        """
+        pending = self._pending_push
+        domain = self._pending_domain
+        self._pending_push = None
+        self._pending_domain = ""
+        if pending is None:
+            logger.debug("没有待裁决的离开请求，confirmLeave 无事可做")
+            return False
+        if not ok:
+            self.leaveCancelled.emit(domain)
+            logger.info("用户选择留在 %s 域，导航取消", domain)
+            return False
+        # 先让页面把草稿清掉、预览还原（直连信号，处理完才继续）；
+        # 再**绕过守卫**压栈 —— 用户已经点头了，这里不该再问第二次。
+        self.leaveConfirmed.emit(domain)
+        self._bypass_guard = True
+        try:
+            return self._push(pending[0], pending[1], announce=True)
+        finally:
+            self._bypass_guard = False
+
+    def _guard_blocks(self, target_route_id: str) -> bool:
+        """这次导航该不该被守卫挡下。"""
+        if self._bypass_guard or not self._leave_guards:
+            return False
+        current = _domain_of(self.currentRoute) if self._stack else ""
+        if not current or not self._leave_guards.get(current):
+            return False
+        target = _domain_of(target_route_id)
+        return target != current
+
+    def _block_for_guard(self, route_id: str, params: Dict[str, Any]) -> bool:
+        """挡下导航并请界面确认。返回值恒为 **False**（= 这次导航**没有**发生）。
+
+        为什么不是 True：`push`/`goBack` 的返回值语义是"页面真的换了吗"，
+        被守卫挡下时页面没换。调用方（深链、插件的 `Nav.push`）据此能分辨
+        "被问了"和"走成了"，而 `navFailed`**不发** —— 这不是错误。
+        **已经在等裁决时不叠加第二次请求**。
+        """
+        domain = _domain_of(self.currentRoute) if self._stack else ""
+        if self._pending_push is not None:
+            logger.debug("已有待裁决的离开请求（%s），忽略新的导航请求 %s", self._pending_push[0], route_id)
+            return False
+        self._pending_push = (route_id, params)
+        self._pending_domain = domain
+        logger.info("离开 %s 域被守卫挡下：目标 %s 有未保存改动", domain, route_id)
+        self.leaveBlocked.emit(domain, route_id)
+        return False
 
     # ─── 查询槽 ─────────────────────────────────────────────
 
@@ -650,6 +778,10 @@ class NavBridge(QObject):
         if self._stack and self._stack[-1] == (route_id, clean):
             logger.debug("重复 push 同一路由与同一参数，忽略：%s", route_id)
             return True
+
+        # 离开守卫：跨域且有未保存改动 → 挡下并请界面确认（3.4 的 M-Q1 B6）
+        if self._guard_blocks(route_id):
+            return self._block_for_guard(route_id, clean)
 
         if len(self._stack) >= MAX_DEPTH:
             dropped = self._stack.pop(0)

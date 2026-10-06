@@ -29,9 +29,16 @@ Rectangle {
     radius: height / 2
     color: Theme?.bgLight ?? "transparent"
     border.width: 1
-    border.color: tag.levelColor()
+    border.color: tag.levelColor
 
-    function levelColor() {
+    //: 语义色。**是只读属性而不是"在绑定里调 JS 函数"**（阶段 3 任务 3.4 验收修复）：
+    //: 本组件现在会出现在顶栏（`AppBar.qml` 的未保存标记），而顶栏是
+    //: `FluWindow` 的 C++ 属性 —— 引擎销毁时它的 QML 作用域比这些绑定先没，
+    //: 于是原来那句 `tag.levelColor` 会在销毁瞬间抛
+    //: `TypeError: Property 'levelColor' … is not a function`（视觉回归探针实测，
+    //: 而同一个组件放在页面里就不会）。属性读在同样时刻只会拿到 undefined，
+    //: 被 `??` 兜住 —— 界面上一个像素都不会变。
+    readonly property color levelColor: {
         if (level === "accent")
             return Theme?.accent ?? "transparent"
         if (level === "success")
@@ -52,7 +59,7 @@ Rectangle {
             objectName: "fmTagIcon"
             visible: tag.iconName.length > 0
             name: tag.iconName
-            color: tag.enabled ? tag.levelColor() : Theme?.textSecondary ?? "transparent"
+            color: tag.enabled ? tag.levelColor : Theme?.textSecondary ?? "transparent"
             size: Math.round((Theme?.fontSizeSmall ?? 10) * 1.2)
             anchors.verticalCenter: parent.verticalCenter
         }
@@ -61,7 +68,7 @@ Rectangle {
             objectName: "fmTagText"
             anchors.verticalCenter: parent.verticalCenter
             text: tag.text
-            color: tag.enabled ? tag.levelColor() : Theme?.textSecondary ?? "transparent"
+            color: tag.enabled ? tag.levelColor : Theme?.textSecondary ?? "transparent"
             font.pixelSize: Theme?.fontSizeSmall ?? 10
         }
 

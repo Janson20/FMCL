@@ -74,6 +74,11 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Home", "app.bridges.home_bridge", "HomeBridge"),
     ("Versions", "app.bridges.version_bridge", "VersionsBridge"),
     ("Install", "app.bridges.install_bridge", "InstallBridge"),
+    # 设置域（阶段 3 任务 3.4）：三个桥对应设置页的三块能力 ——
+    # 草稿/主题/Java/语言（`Settings`）、日志（`Logs`）、关于（`About`）。
+    ("Settings", "app.bridges.settings_bridge", "SettingsBridge"),
+    ("Logs", "app.bridges.log_bridge", "LogBridge"),
+    ("About", "app.bridges.about_bridge", "AboutBridge"),
 )
 
 QML_MODULE_URI = "FMCL"

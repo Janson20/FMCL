@@ -27,6 +27,12 @@ Item {
 
     readonly property bool defaultIsConfirm: !!(request && request.default === true)
 
+    //: 本组件自己的作答信号（阶段 3 任务 3.4 新增）。
+    //: 为什么需要它：`DialogHost` 现在也支持**QML 自己发起**的确认框（设置页的
+    //: "有未保存改动"提示走的就是这条路）。那类请求没有桥那边的 id，
+    //: 答案只能靠信号回到发起方；有 id 的请求照旧走 `Dialogs.submitDialog(…)`。
+    signal answered(bool value)
+
     // ─── 供 QML 内部与测试驱动 ───
 
     function accept() {
@@ -38,7 +44,11 @@ Item {
     }
 
     function submit(value) {
-        if (typeof Dialogs !== "undefined" && Dialogs && request && request.id !== undefined)
+        answered(value)
+        // 本地（QML 发起）的确认框用**负数 id**（见 DialogHost.askConfirm），
+        // 那种 id 在桥里不存在，不该往桥上问一遍（否则每次都留一条"找不到待答请求"）。
+        if (typeof Dialogs !== "undefined" && Dialogs && request && request.id !== undefined
+                && Number(request.id) >= 0)
             Dialogs.submitDialog(request.id, value)
     }
 

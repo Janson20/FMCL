@@ -145,6 +145,38 @@ FluWindow {
             if (Shell)
                 Shell.setStatus(reason, "error")
         }
+
+        // ── 离开守卫（阶段 3 任务 3.4；M-Q1 的 B6）──────────────────────
+        // 设置域里有未保存改动时跨域导航会被挡下（`app/bridges/nav_bridge.py`
+        // 的 `setLeaveGuard`），这里弹**一次**确认框：
+        //   * 「确定」= 丢弃草稿并离开 —— 先让设置桥还原预览，再 `confirmLeave(true)`；
+        //   * 「取消」= 留下，`confirmLeave(false)` 取消那次导航。
+        // 顺序不能反：先压栈再丢弃的话，用户会看到设置页一闪而过。
+        function onLeaveBlocked(domain, routeId) {
+            var count = (typeof Settings !== "undefined" && Settings) ? Settings.changeCount : 0
+            var title = Tr?.map["settings_title"] ?? "settings_title"
+            var message = (typeof Tr !== "undefined" && Tr)
+                    ? Tr.tf("settings_unsaved_confirm", {"count": count})
+                    : "settings_unsaved_confirm"
+            dialogHost.showPrompt({"title": title, "message": message, "default": false})
+        }
+    }
+
+    //: 壳层提示的答案（上面那个确认框）：只有设置域的离开守卫会用到它。
+    Connections {
+        target: dialogHost
+
+        function onPromptAnswered(ok) {
+            if (!ok) {
+                if (Nav)
+                    Nav.confirmLeave(false)
+                return
+            }
+            if (typeof Settings !== "undefined" && Settings)
+                Settings.discardDraft()
+            if (Nav)
+                Nav.confirmLeave(true)
+        }
     }
 
     // ── 启动流程 → 界面（返工 A 组补上的接线）────────────────────────
@@ -252,6 +284,7 @@ FluWindow {
     // 两者在 Component.onCompleted 里调 Dialogs.markReady() —— 这是 QtUIPort 从
     // "整体退化为 NullUIPort" 切到"真的把请求送到 QML"的那一步（见 dialogs/README.md）。
     DialogHost {
+        id: dialogHost
         anchors.fill: parent
         z: 100
     }

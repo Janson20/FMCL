@@ -43,6 +43,37 @@ Item {
     //: 当前进度快照（progressChanged 写入，progressClosed 清空）
     property var progressData: null
 
+    // ─── 壳层自己发起的确认框（阶段 3 任务 3.4） ─────────────
+    //
+    // 用途：壳层要问一句"确定吗"，而**答案只在 QML 里用** —— 设置页的
+    // "有未保存改动，确定要离开吗？"就是它（离开守卫由 `Nav` 发起，确认走这里）。
+    //
+    // 为什么是**声明式的一对属性 + 一个信号**，而不是"传一个回调函数进来"：
+    // 第一版把回调塞进一个 `property var` 的映射表里，实测**答案根本没回到发起方**
+    // （函数跨 QML→C++ 属性存储时不可靠），表现为"点了确定什么都没发生、也不报错"。
+    // 现在发起方写 `prompt` + 置 `promptVisible`，答案经 `promptAnswered(ok)` 信号回去 ——
+    // 全程只有普通数据，没有函数过境。
+    //
+    // 为什么不直接 `ConfirmDialog { }`：那样要自己复刻遮罩与焦点
+    // （03 的纪律：不得私自新增一次性控件），而且会和桥的对话框**同时**显示。
+    property bool promptVisible: false
+    property var prompt: ({})
+    signal promptAnswered(bool ok)
+
+    function showPrompt(request) {
+        var payload = request || ({})
+        host.prompt = {
+            "title": payload.title !== undefined ? String(payload.title) : "",
+            "message": payload.message !== undefined ? String(payload.message) : "",
+            "default": payload.default === true
+        }
+        host.promptVisible = true
+    }
+
+    function closePrompt() {
+        host.promptVisible = false
+    }
+
     readonly property var head: (queue.length > 0) ? queue[0] : null
     readonly property var currentDialog: dialogLoader.item
 
@@ -105,6 +136,13 @@ Item {
         queue = []
     }
 
+    //: 壳层提示作答：先收起，再把答案发给发起方（顺序反了的话
+    //: 处理器里读 `promptVisible` 会看到 true，重入一次显示）。
+    function _onPromptAnswered(value) {
+        host.promptVisible = false
+        host.promptAnswered(value === true)
+    }
+
     // ─── 与桥接线 ───────────────────────────────────────────
 
     Connections {
@@ -148,7 +186,7 @@ Item {
         // 遮罩走派生令牌 `Theme.scrim`（黑 55% 透明）——返工 A 组加的它就是为了
         // "同一个语义只有一处取值"：以前是 `bgDark` + 本地 `opacity: 0.55` 两个来源。
         color: Theme?.scrim ?? "transparent"
-        visible: host.head !== null || host.progressData !== null
+        visible: host.head !== null || host.progressData !== null || host.promptVisible
         z: 1
 
         MouseArea {
@@ -195,6 +233,27 @@ Item {
             // 组件编译/加载失败同样必须有交代（不能把调用方挂在那儿）
             if (dialogLoader.status === Loader.Error && host.head !== null)
                 host.failRequest(host.head, "component load error")
+        }
+    }
+
+    // ─── 壳层提示（与上面的队列**互不干扰**，所以另开一个 Loader） ───
+    //
+    // z 比队列高一位：守卫提示是"当前这一步必须回答"的问题，
+    // 万一此刻正好有个桥的对话框在显示，它应该压在上面而不是被压住。
+
+    Loader {
+        id: promptLoader
+        objectName: "promptLoader"
+        anchors.fill: parent
+        z: 4
+        active: host.promptVisible
+        sourceComponent: confirmComponent
+
+        onLoaded: {
+            item.objectName = "promptConfirmDialog"
+            item.request = host.prompt
+            item.answered.connect(host._onPromptAnswered)
+            item.forceActiveFocus()
         }
     }
 

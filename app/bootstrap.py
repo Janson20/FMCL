@@ -39,6 +39,7 @@ logger = logging.getLogger("app.bootstrap")
 #: 服务名 → ``"模块:类名"``。名字必须与各服务类里的 ``name`` 一致
 #: （`AppContext.register` 也用这个名字做键，界面侧 `try_get(Service.name)` 才对得上）。
 SERVICE_FACTORIES: Tuple[Tuple[str, str], ...] = (
+    ("about", "services.about_service:AboutService"),
     ("account", "services.account_service:AccountService"),
     ("achievement", "services.achievement_service:AchievementService"),
     ("agent", "services.agent_service:AgentService"),
@@ -46,6 +47,7 @@ SERVICE_FACTORIES: Tuple[Tuple[str, str], ...] = (
     ("crash", "services.crash_service:CrashService"),
     ("game", "services.game_service:GameService"),
     ("install", "services.install_service:InstallService"),
+    ("log", "services.log_service:LogService"),
     ("mod_browser", "services.mod_browser_service:ModBrowserService"),
     ("modpack", "services.modpack_service:ModpackService"),
     ("music_player", "services.music_player:MusicPlayerService"),
@@ -53,6 +55,7 @@ SERVICE_FACTORIES: Tuple[Tuple[str, str], ...] = (
     ("plugin_browser", "services.plugin_browser_service:PluginBrowserService"),
     ("resource", "services.resource_service:ResourceService"),
     ("server", "services.server_service:ServerService"),
+    ("settings", "services.settings_service:SettingsService"),
     ("tool", "services.tool_service:ToolService"),
     ("version", "services.version_service:VersionService"),
     ("voice", "services.voice_service:VoiceService"),

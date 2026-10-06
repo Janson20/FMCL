@@ -1080,6 +1080,488 @@ def _d157_killed_game_is_not_reported_as_normal_exit(text: Optional[str] = None)
     return True, "强杀/崩溃都不再走「正常退出」那句"
 
 
+# ─── 3.4（设置页）的九条：三条行为变更 + 五条实施中自查出来的 + 一条挂账 ──
+
+
+class _LedgerFakeConfig:
+    """D-177 ~ D-179 用：配置替身（只保留设置页读写的那几个属性 + 写盘计数）。"""
+
+    def __init__(self) -> None:
+        self.language = "zh_CN"
+        self.theme_name = "default"
+        self.accent_color = None
+        self.dynamic_version_theme = False
+        self.minimize_on_game_launch = False
+        self.mirror_enabled = True
+        self.download_threads = 4
+        self.java_mode = "auto"
+        self.java_custom_path = None
+        self.saves = 0
+
+    def save_config(self) -> bool:
+        self.saves += 1
+        return True
+
+
+class _LedgerFakeLauncher:
+    """D-177 ~ D-179 用：核心层替身（setter 记账 + 落盘）。"""
+
+    def __init__(self, config: _LedgerFakeConfig) -> None:
+        self.config = config
+        self.writes: List[Tuple[str, Any]] = []
+
+    def get_minimize_on_game_launch(self) -> bool:
+        return bool(self.config.minimize_on_game_launch)
+
+    def get_mirror_enabled(self) -> bool:
+        return bool(self.config.mirror_enabled)
+
+    def get_download_threads(self) -> int:
+        return int(self.config.download_threads)
+
+    def get_language(self) -> str:
+        return str(self.config.language)
+
+    def get_theme_name(self) -> str:
+        return str(self.config.theme_name)
+
+    def get_accent_color(self) -> Any:
+        return self.config.accent_color
+
+    def get_dynamic_version_theme(self) -> bool:
+        return bool(self.config.dynamic_version_theme)
+
+    def get_java_mode(self) -> str:
+        return str(self.config.java_mode)
+
+    def get_java_custom_path(self) -> Any:
+        return self.config.java_custom_path
+
+    def _write(self, key: str, value: Any) -> None:
+        setattr(self.config, key, value)
+        self.writes.append((key, value))
+        self.config.save_config()
+
+    def set_minimize_on_game_launch(self, enabled: bool) -> None:
+        self._write("minimize_on_game_launch", bool(enabled))
+
+    def set_mirror_enabled(self, enabled: bool) -> None:
+        self._write("mirror_enabled", bool(enabled))
+
+    def set_download_threads(self, threads: int) -> None:
+        self._write("download_threads", int(threads))
+
+    def set_language(self, code: str) -> None:
+        self._write("language", str(code))
+
+    def set_theme_name(self, name: str) -> None:
+        self._write("theme_name", str(name))
+
+    def set_accent_color(self, color: Any) -> None:
+        self._write("accent_color", color)
+
+    def set_dynamic_version_theme(self, enabled: bool) -> None:
+        self._write("dynamic_version_theme", bool(enabled))
+
+    def set_java_mode(self, mode: str) -> None:
+        self._write("java_mode", str(mode))
+
+    def set_java_custom_path(self, path: Any) -> None:
+        self._write("java_custom_path", path)
+
+
+def _d177_settings_are_a_draft_until_saved() -> Tuple[bool, str]:
+    """D-177（行为变更，已实现）：设置项改动**只进草稿**，点「保存」才写盘。
+
+    用户 2026-10-06 裁决 M-Q1 = B（草稿范式）。旧实现是"控件即写盘、无取消"
+    （`ui/windows/launcher_settings.py:989-1125`），这条行为变更必须能从代码里验出来：
+    改控件之后核心层的 setter **一次都不许被调**，`commit()` 之后才按
+    `DRAFT_KEYS` 顺序只写改动过的键。
+    """
+    from services.settings_service import SettingsService
+
+    config = _LedgerFakeConfig()
+    launcher = _LedgerFakeLauncher(config)
+    service = SettingsService(launcher=launcher, config=config)
+    service.begin_draft()
+    service.set_draft("mirror_enabled", False)
+    service.set_draft("download_threads", 16)
+    if launcher.writes:
+        return False, f"改控件就写盘了（旧行为回归）：{launcher.writes}"
+    if config.saves:
+        return False, "改控件就存配置了（旧行为回归）"
+    result = service.commit()
+    keys = [row[0] for row in launcher.writes]
+    if keys != ["mirror_enabled", "download_threads"]:
+        return False, f"提交时的写盘清单不对：{keys}"
+    if result["ok"] is not True or service.dirty():
+        return False, "提交之后草稿没清干净"
+    return True, f"草稿语义成立：改动期间 0 次写盘，提交后写 {keys}"
+
+
+def _d178_language_and_achievements_land_on_commit() -> Tuple[bool, str]:
+    """D-178（行为变更，已实现）：语言热切换 + 成就改到「保存」时统一触发。
+
+    * M-Q2：旧实现切语言后提示"重启启动器后生效"；新界面**当场生效**，
+      提示语也换成 `settings_language_hint`（那条旧提示现在是错的）。
+    * B3：旧实现在改动瞬间就 `_trigger_ach`；新实现改到提交时触发、同类一次会话一次。
+    """
+    from services.settings_service import COMMIT_ACHIEVEMENTS, SettingsService
+
+    page = source("qml/pages/settings/SettingsPage.qml")
+    # 判据看**用法**而不是提到过这个名字：注释里正好写着"旧实现用的是 settings_restart_hint"
+    if 'map["settings_language_hint"]' not in page:
+        return False, "语言区没有换成「立即生效」那句提示"
+    if 'map["settings_restart_hint"]' in page:
+        return False, "语言区还挂着「重启启动器后生效」（热切换之后那句是错的）"
+    config = _LedgerFakeConfig()
+    launcher = _LedgerFakeLauncher(config)
+    fired: List[str] = []
+
+    class FakeAchievements:
+        def update_progress(self, achievement_id: str, value: int = 1, trigger_type: Any = None) -> None:
+            fired.append(achievement_id)
+
+        def check_and_unlock(self, achievement_id: str, condition_met: bool) -> None:
+            if condition_met:
+                fired.append(achievement_id)
+
+    service = SettingsService(launcher=launcher, config=config)
+    service._achievement_engine = staticmethod(lambda: FakeAchievements())  # type: ignore[assignment]
+    service.begin_draft()
+    service.set_draft("mirror_enabled", False)
+    if fired:
+        return False, f"改动瞬间就触发成就了（旧行为回归）：{fired}"
+    service.commit()
+    expected = COMMIT_ACHIEVEMENTS["mirror_enabled"]
+    if fired != [expected]:
+        return False, f"提交后应当只触发 {expected}，实际 {fired}"
+    return True, "语言提示已改、成就在提交时触发一次"
+
+
+def _d179_restart_keeps_the_app_alive_on_failure() -> Tuple[bool, str]:
+    """D-179（行为变更，已实现）：拉不起新进程时**不退出**启动器。
+
+    旧实现（`launcher_settings.py:54-73`）spawn 失败弹一个错误框、然后照样
+    `parent.quit()`：用户看到一句话，启动器就关门了 —— 什么都没启动起来。
+    新实现改成"失败就留在原地"，把原因交给状态栏。
+    """
+    from services.settings_service import SettingsService
+
+    config = _LedgerFakeConfig()
+    launcher = _LedgerFakeLauncher(config)
+    quits: List[bool] = []
+
+    def boom(argv: Any, **kwargs: Any) -> None:
+        raise OSError("进程创建失败")
+
+    service = SettingsService(
+        launcher=launcher, config=config, spawn=boom, request_quit=lambda: quits.append(True)
+    )
+    service.begin_draft()
+    service.set_draft("mirror_enabled", False)
+    result = service.save_and_restart()
+    if result["stage"] != "spawn" or result["ok"] is not False:
+        return False, f"失败阶段应当是 spawn，实际 {result}"
+    if quits:
+        return False, "拉不起新进程还是退出了（旧行为回归：用户被关在门外）"
+    if config.mirror_enabled is not False:
+        return False, "草稿没有先落盘"
+    return True, "spawn 失败时留在原地，且草稿已落盘"
+
+
+def _d180_confirm_leave_actually_navigates() -> Tuple[bool, str]:
+    """D-180（本次修正）：离开守卫里点「确定」要真的离开。
+
+    确认流程是"先 `discardDraft()`（→ `setLeaveGuard(False)`）再 `confirmLeave(True)`"。
+    第一版让 `setLeaveGuard(False)` 顺手把待裁决的导航作废了（本意是防幽灵跳转），
+    于是那次导航在到达 `confirmLeave` 之前就被清掉 —— 用户点了「确定」留在原地
+    （设置页探针先红：`invoke_accept=True`、提示框收起了、路由没动）。
+    """
+    from app.bridges.nav_bridge import NavBridge
+
+    nav = NavBridge()
+    nav.push("home")
+    nav.push("settings")
+    confirmed: List[str] = []
+    nav.leaveConfirmed.connect(lambda domain: (confirmed.append(domain), nav.setLeaveGuard(domain, False)))
+    nav.setLeaveGuard("settings", True)
+    if nav.push("home") is not False:
+        return False, "守卫没拦住跨域导航"
+    if nav.confirmLeave(True) is not True:
+        return False, "点「确定」之后那次导航没有补上（D-180 回归）"
+    if nav.currentRoute != "home":
+        return False, f"点了确定却停在 {nav.currentRoute}"
+    if confirmed != ["settings"]:
+        return False, f"没有发出 leaveConfirmed：{confirmed}"
+    return True, "确定 → 丢弃 → 真的离开了设置域"
+
+
+def _d181_section_survives_the_stackview_property_write() -> Tuple[bool, str]:
+    """D-181（本次修正）：分区不能再靠"依赖 routeId 的只读绑定"。
+
+    `PageStack.pushFrame()` 是 `createObject()` 之后用 `StackView.push(item, {routeId: …})`
+    写属性的。实测：那一刻 `routeIdChanged` 处理器看得到新值（探针日志
+    `[settings/theme→launcher]`），而依赖它的**只读绑定**还是旧值 —— 于是点
+    「主题」分区，页面停在启动器分区（右侧内容永远不换）。
+    修法：`section` 改成普通属性，由 `refreshUi()` 现算现赋。
+    """
+    page = source("qml/pages/settings/SettingsPage.qml")
+    if "readonly property string section" in page:
+        return False, "section 又变回只读绑定了（D-181 回归）"
+    if "page.section = page.sectionName(page.routeId)" not in page:
+        return False, "refreshUi() 里没有现算 section"
+    if "onRouteIdChanged: page.refreshUi()" not in page:
+        return False, "路由变化没有触发 refreshUi()"
+    return True, "section 由 refreshUi() 现算现赋，路由变化会重刷"
+
+
+def _d182_tr_refresh_syncs_the_language_code() -> Tuple[bool, str]:
+    """D-182（本次修正）：`Tr.refresh()` 必须连语言代码一起同步。
+
+    设置页的语言**预览**是"只改内存、不落盘"（`SettingsService` 直接调
+    `i18n_service.set_language()`），桥这边靠 `Tr.refresh()` 跟上。旧写法只重抓
+    键值表、不重读语言代码 → 界面上文字变了、`Tr.language` 还停在旧值
+    （下拉框选中项与"当前语言"对不上，探针里表现为"语言没切"）。
+    """
+    bridge = source("app/bridges/tr_bridge.py")
+    if "current = str(self._i18n.get_current_language() or \"\")" not in bridge:
+        return False, "refresh() 没有重读语言代码（D-182 回归）"
+    if "self._language = current or self._language" not in bridge:
+        return False, "refresh() 读到空值时没有兜底"
+    return True, "refresh() 同步语言代码与键值表"
+
+
+def _d183_prompt_dialog_answers_back() -> Tuple[bool, str]:
+    """D-183（本次修正）：壳层确认框的答案要回得来。
+
+    第一版把"答案回调"塞进 `DialogHost` 的 `property var` 映射表里，实测**回不来**
+    （函数跨 QML→C++ 属性存储不可靠），表现为"点了确定什么都没发生、也不报错"。
+    现在改成声明式的一对属性 + 一个信号（`promptVisible` / `prompt` / `promptAnswered`），
+    全程只有普通数据过境。
+    """
+    host = source("qml/components/dialogs/DialogHost.qml")
+    dialog = source("qml/components/dialogs/ConfirmDialog.qml")
+    app = source("qml/App.qml")
+    problems: List[str] = []
+    if "signal promptAnswered(bool ok)" not in host:
+        problems.append("DialogHost 没有 promptAnswered 信号")
+    if "function showPrompt(" not in host:
+        problems.append("DialogHost 没有 showPrompt()")
+    if "localHandlers" in host:
+        problems.append("回调映射表又回来了（D-183 的根因）")
+    if "signal answered(bool value)" not in dialog:
+        problems.append("ConfirmDialog 没有答案解析信号")
+    if "onPromptAnswered" not in app:
+        problems.append("App.qml 没有接 promptAnswered")
+    return (not problems, "；".join(problems) or "声明式提示框接通了")
+
+
+def _d184_export_survives_a_bad_path() -> Tuple[bool, str]:
+    """D-184（本次修正）：日志导出遇到**非法路径**只报错，不许抛穿到界面。
+
+    路径里带非法字符（例如 `\\0`）时 `open()` 抛的是 `ValueError`，不是 `OSError` ——
+    第一版只接 `OSError`，于是"导出到一个坏路径"会直接把异常抛给 QML 调用方。
+    """
+    import tempfile
+    from pathlib import Path
+
+    from services.log_service import LogService
+
+    with tempfile.TemporaryDirectory() as tmp:
+        service = LogService(config=type("C", (), {"log_file": Path(tmp) / "a.log"})())
+        service.append("one line")
+        result = service.export(str(Path(tmp) / "bad" / "\0x.log"))
+    if result["ok"] is not False or not result["error"]:
+        return False, f"坏路径应当返回失败与原因，实际 {result}"
+    return True, f"坏路径被接住：{result['error'][:40]}"
+
+
+def _d185_theme_engine_messages_are_still_chinese() -> Tuple[bool, str]:
+    """D-185（挂账）：主题导入的结果文案是**引擎里的中文句子**，非中文界面会露中文。
+
+    旧实现把 `import_theme_from_file()` 的返回值直接丢进状态栏
+    （`launcher_settings.py:1055-1076`），3.4 保持同一语义（`SettingsBridge.importTheme`
+    原样透出）。改成 i18n 键要动 `ThemeEngine` 的返回契约（Tk 界面也在用同一份），
+    排在**阶段 4** 的 i18n 收尾一起做。
+    """
+    engine = source("services/theme_service.py")
+    bridge = source("app/bridges/settings_bridge.py")
+    markers = ('return False, "主题文件中没有颜色定义"', 'return False, "JSON 格式无效"')
+    if not has(engine, *markers):
+        return False, "引擎里的中文文案变了（这条挂账的判据要跟着改）"
+    if "self.statusMessage.emit(message, \"success\" if ok else \"error\")" not in bridge:
+        return False, "桥不再原样透出引擎消息了（挂账的理由要重新评估）"
+    return True, "引擎消息仍是中文、桥仍原样透出（阶段 4 一起改）"
+
+
+def _d186_log_service_resolves_from_the_context() -> Tuple[bool, str]:
+    """D-186（已修）：`LogService` 不许再把 `Service.attach(context)` 覆盖成别的签名。
+
+    `AppContext._resolve()` 取出懒注册的服务后会调 `obj.attach(self)`。第一版把
+    `LogService.attach` 写成了 `attach(logger=None)`，于是那句调用抛
+    `TypeError: attach() takes 1 positional argument but 2 were given` —— 被
+    `_resolve` 的 `except` 吞成"这个服务不存在"，日志页永远"已捕获 0 / 0 行"，
+    而且**没有任何报错**（用户 2026-10-06 真机验收报的"日志没捕获"）。
+    """
+    from app.bootstrap import build_context
+
+    service_source = source("services/log_service.py")
+    if "def attach_logger(" not in service_source or "def detach_logger(" not in service_source:
+        return False, "捕获 handler 的挂/摘方法改名字了（要避开 Service.attach）"
+    ctx = build_context(config=None, register=True, set_current=False)
+    resolved = ctx.try_get("log")
+    if resolved is None:
+        return False, "`AppContext.try_get('log')` 取不到服务（attach 撞名又回来了）"
+    resolved.attach_logger()
+    try:
+        if not resolved.attached:
+            return False, "挂载之后 attached 不为真"
+    finally:
+        resolved.detach_logger()
+    return True, "日志服务能被上下文取出来，且捕获 handler 挂得上"
+
+
+def _d187_window_detection_has_one_owner() -> Tuple[bool, str]:
+    """D-187（已修）：游戏窗口检测只能有一个读取方（核心层），界面侧只轮询。
+
+    两个读取方各自 `for line in proc.stdout` 会**抢**同一根 `BufferedReader`，
+    marker 那一行只会落到其中一方手里 —— 检测是否发生取决于调度运气
+    （用户 2026-10-06 报的"游戏窗口出现后没有检测到并最小化"）。
+    """
+    from launcher.core import pump_game_output
+
+    lines: List[str] = []
+    detected: List[int] = []
+
+    class FakeStdout:
+        def __init__(self) -> None:
+            self.closed = False
+            self._rows = ["hello", "x Datafixer optimizations took 12 ms", "should-not-be-read"]
+
+        def __iter__(self):
+            for row in self._rows:
+                yield (row + "\n").encode("utf-8")
+
+        def close(self) -> None:
+            self.closed = True
+
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.stdout = FakeStdout()
+
+    process = FakeProcess()
+    seen = pump_game_output(process, lines.append, lambda: detected.append(1))
+    if seen is not True or detected != [1]:
+        return False, f"marker 没有触发检测：seen={seen} detected={detected}"
+    if len(lines) != 2:
+        return False, "见到 marker 之后还在继续读管道"
+    if not process.stdout.closed:
+        return False, "检测到之后没有关管道（会把游戏的 stdout 缓冲填满）"
+    service = source("services/game_service.py")
+    if "launcher.window_detected()" not in service:
+        return False, "服务侧没有轮询核心层的检测结果（又回去抢管道了）"
+    if f'WINDOW_MARKER = "{WINDOW_MARKER_TEXT}"' in service:
+        return False, "服务侧又写了一份 marker 常量（两份会漂移）"
+    core = source("launcher/core.py")
+    if '"window_detected": self.window_detected' not in core:
+        return False, "核心层没有把检测结果暴露给界面侧"
+    return True, "检测点在核心层，界面侧只轮询；marker 常量只有一份"
+
+
+#: `_d187` 用（与 `launcher/core.py` 的常量同值；判据只查"服务侧不许再写一份"）
+WINDOW_MARKER_TEXT = "Datafixer optimizations took"
+
+
+def _d189_settings_draft_is_rebased() -> Tuple[bool, str]:
+    """D-189（已修）：设置草稿要**重定基线**，否则"改个主题，语言自己变回英文"。
+
+    用户 2026-10-06 第二次验收报的"语言还是会自动变英文"，根因是**过期草稿**：
+    草稿在装配期就建好了（那时 `language` 是 en_US）→ 用户用顶栏地球切到中文
+    （写的是 `config.language` = 已保存值）→ 草稿里那一项没人动过，却还停在 en_US →
+    用户在设置页改**任意**会走预览的项（主题/强调色）时，预览把整份草稿应用一遍，
+    **把过期的 en_US 按回内存** → 界面当场变英文（而 config.json 还是 zh_CN）。
+
+    判据（行为）：把"已保存语言"改成 en_US → 建草稿 → 在草稿外把已保存语言改成 zh_CN
+    → 再 `begin_draft()`（进设置页）→ 草稿里必须是 zh_CN；接着做一次主题预览，
+    语言不许被按回 en_US。
+    """
+    from services.settings_service import SettingsService
+
+    config = _LedgerFakeConfig()
+    launcher = _LedgerFakeLauncher(config)
+
+    class FakeI18n:
+        def __init__(self) -> None:
+            self.current = "en_US"
+
+        def get_available_languages(self) -> Dict[str, str]:
+            return {"zh_CN": "简体中文", "en_US": "English"}
+
+        def get_current_language(self) -> str:
+            return self.current
+
+        def set_language(self, code: str) -> bool:
+            if code not in self.get_available_languages():
+                return False
+            self.current = code
+            return True
+
+    i18n = FakeI18n()
+    config.language = "en_US"
+    service = SettingsService(launcher=launcher, config=config, i18n=i18n)
+    service.begin_draft()
+    service.set_draft("theme_name", "ocean")     # 草稿里 language 仍是 en_US
+    launcher.set_language("zh_CN")               # 顶栏地球切到中文（改的是已保存值）
+    i18n.current = "zh_CN"
+    service.begin_draft()                        # 进设置页 → 重定基线
+    if service.current_draft().get("language") != "zh_CN":
+        return False, f"草稿没有重定基线：{service.current_draft().get('language')!r}"
+    service.set_draft("theme_name", "forest")    # 任意一次主题预览
+    if i18n.current != "zh_CN":
+        return False, f"预览把过期的语言按回了内存：{i18n.current!r}"
+    result = service.commit()
+    assert isinstance(result, dict)
+    if config.language != "zh_CN":
+        return False, f"提交把语言写成了 {config.language!r}"
+    return True, "草稿重定基线后，改主题不会再动语言"
+
+
+def _d188_locale_values_have_no_decorative_emoji() -> Tuple[bool, str]:
+    """D-188（已修）：语言文件的值里不许再留**装饰性 emoji**（用户 2026-10-06 裁决）。
+
+    判据**直接 import 闸门**（`scripts/check_qml_rules.py` 的 `_emoji_desc()`），
+    与 `poc/_inventory_emoji.py` 同一个做法 —— 抄一份判据就会漂移。
+    行文箭头（`→`）与列表点（`•`）**不算**：它们是正文标点，不是图标。
+    """
+    import importlib.util
+    import json
+    import sys as _sys
+
+    gate_path = REPO_ROOT / "scripts" / "check_qml_rules.py"
+    spec = importlib.util.spec_from_file_location("_ledger_qml_gate", gate_path)
+    assert spec is not None and spec.loader is not None
+    gate = importlib.util.module_from_spec(spec)
+    _sys.modules[spec.name] = gate
+    spec.loader.exec_module(gate)
+
+    keep = set("←↑→↓↔↕") | {"\u2022"}
+    extra_icons = set("▶◀●▪▫↺⏹⏱⏸⏯⏭⏮")
+    problems: List[str] = []
+    for code in ("zh_CN", "en_US", "zh_TW", "ja_JP"):
+        data = json.loads((REPO_ROOT / "ui" / "locales" / f"{code}.json").read_text(encoding="utf-8"))
+        for key, value in data.items():
+            for char in str(value):
+                if char in keep:
+                    continue
+                if gate._emoji_desc(ord(char)) or char in extra_icons:  # noqa: SLF001
+                    problems.append(f"{code}:{key} 还有 {char!r}")
+                    break
+    if problems:
+        return False, f"还有装饰 emoji：{problems[:5]}（共 {len(problems)}）"
+    return True, "四个语言文件里没有装饰 emoji（箭头与列表点保留）"
+
+
 LEDGER: Dict[str, Entry] = {
     # ─── 返工 E 组本轮修好的（正向断言） ───────────────────────────
     "D-04": Entry(
@@ -1372,6 +1854,94 @@ LEDGER: Dict[str, Entry] = {
         where="main_qml.py", check=_d171_late_bridges_get_the_startup_controller,
         files=("main_qml.py", "app/bridges/shell_bridge.py", "qml/shell/AppBar.qml",
                "qml/App.qml", "tests/test_main_qml_entry.py")),
+
+    # ─── 3.4（设置页）的九条 ────────────────────────────────────
+    "D-177": Entry(
+        defect="D-177", state="已修",
+        summary="**行为变更**（M-Q1 选项 B）：设置项从\"改即写盘、无取消\"改成\"草稿 + 保存/取消\""
+                "（旧实现 `ui/windows/launcher_settings.py:989-1125`）",
+        where="services/settings_service.py", check=_d177_settings_are_a_draft_until_saved,
+        files=("services/settings_service.py", "app/bridges/settings_bridge.py",
+               "qml/pages/settings/SettingsPage.qml")),
+    "D-178": Entry(
+        defect="D-178", state="已修",
+        summary="**行为变更**：语言切换当场生效（旧提示\"重启启动器后生效\"已删）+ 成就改到"
+                "「保存」时统一触发（旧实现是改动瞬间触发，M-Q2 / M-Q1 的 B3）",
+        where="qml/pages/settings/SettingsPage.qml", check=_d178_language_and_achievements_land_on_commit,
+        files=("qml/pages/settings/SettingsPage.qml", "services/settings_service.py")),
+    "D-179": Entry(
+        defect="D-179", state="已修",
+        summary="**行为变更**：「保存并重启」拉不起新进程时**不再退出**启动器"
+                "（旧实现 spawn 失败照样 `parent.quit()`，用户被关在门外）",
+        where="services/settings_service.py", check=_d179_restart_keeps_the_app_alive_on_failure,
+        files=("services/settings_service.py", "app/bridges/settings_bridge.py")),
+    "D-180": Entry(
+        defect="D-180", state="已修",
+        summary="离开守卫里点「确定」不导航（撤销守卫时把待裁决的那次导航一起清掉了）",
+        where="app/bridges/nav_bridge.py", check=_d180_confirm_leave_actually_navigates,
+        files=("app/bridges/nav_bridge.py", "qml/App.qml", "tests/test_nav_bridge.py")),
+    "D-181": Entry(
+        defect="D-181", state="已修",
+        summary="`StackView.push(item, {routeId: …})` 写属性时依赖它的**只读绑定不失效** → "
+                "点「主题」分区页面停在启动器分区",
+        where="qml/pages/settings/SettingsPage.qml", check=_d181_section_survives_the_stackview_property_write,
+        files=("qml/pages/settings/SettingsPage.qml", "tests/qml_settings_probe.py")),
+    "D-182": Entry(
+        defect="D-182", state="已修",
+        summary="`Tr.refresh()` 只重抓键值表、不重读语言代码 → 语言预览后 `Tr.language` 停在旧值",
+        where="app/bridges/tr_bridge.py", check=_d182_tr_refresh_syncs_the_language_code,
+        files=("app/bridges/tr_bridge.py", "app/bridges/settings_bridge.py")),
+    "D-183": Entry(
+        defect="D-183", state="已修",
+        summary="壳层确认框的回调式答案回不来（函数跨 `property var` 存储不可靠）→ 点「确定」毫无反应",
+        where="qml/components/dialogs/DialogHost.qml", check=_d183_prompt_dialog_answers_back,
+        files=("qml/components/dialogs/DialogHost.qml", "qml/components/dialogs/ConfirmDialog.qml",
+               "qml/App.qml")),
+    "D-184": Entry(
+        defect="D-184", state="已修",
+        summary="日志导出遇到非法路径抛 `ValueError`（只接了 `OSError`）→ 异常穿到界面调用方",
+        where="services/log_service.py", check=_d184_export_survives_a_bad_path,
+        files=("services/log_service.py", "app/bridges/log_bridge.py")),
+    "D-185": Entry(
+        defect="D-185", state="挂账",
+        summary="主题导入的结果文案是 `ThemeEngine` 里的**中文句子**（桥原样透出），"
+                "非中文界面下会露中文 —— 与 D-168 同一类（原样保留旧实现）",
+        where="services/theme_service.py", check=_d185_theme_engine_messages_are_still_chinese,
+        reason="旧界面就是这么显示的（`launcher_settings.py:1055-1076` 把引擎消息直接丢进状态栏），"
+               "属**原样保留**（红线 1）。改成 i18n 键要动 `ThemeEngine.import_theme_from_file` 的"
+               "返回契约（Tk 界面与 QML 界面共用同一份），排在**阶段 4** 的 i18n 收尾一起做："
+               "那时让引擎返回键名 + 参数，界面侧映射成新键。",
+        files=("services/theme_service.py", "app/bridges/settings_bridge.py")),
+
+    # ─── 3.4 人工验收当场发现的三条（D-186 ~ D-188，2026-10-06）────
+    "D-186": Entry(
+        defect="D-186", state="已修",
+        summary="日志页/日志服务**取不到**：`LogService` 把 `Service.attach(context)` 覆盖成了 "
+                "`attach(logger=None)` → `AppContext` 解析时抛 TypeError 被吞 → 界面永远「已捕获 0 / 0 行」",
+        where="services/log_service.py", check=_d186_log_service_resolves_from_the_context,
+        files=("services/log_service.py", "app/bridges/log_bridge.py",
+               "tests/test_app_context_wiring.py")),
+    "D-187": Entry(
+        defect="D-187", state="已修",
+        summary="游戏窗口出现**检测不到**（因此「启动后最小化」不生效）：核心层与界面侧各开一个 "
+                "读取线程抢同一根 stdout 管道，marker 那一行只会落到其中一方手里",
+        where="launcher/core.py", check=_d187_window_detection_has_one_owner,
+        files=("launcher/core.py", "services/game_service.py", "ui/app_handlers.py",
+               "tests/test_game_window_detection.py")),
+    "D-188": Entry(
+        defect="D-188", state="已修",
+        summary="语言文件的值里带**装饰性 emoji**（266 个键/语言），新界面把它们当图标显示 —— "
+                "用户 2026-10-06 裁决「emoji 删」",
+        where="ui/locales/zh_CN.json", check=_d188_locale_values_have_no_decorative_emoji,
+        files=("ui/locales/zh_CN.json", "ui/locales/en_US.json", "ui/locales/zh_TW.json",
+               "ui/locales/ja_JP.json")),
+    "D-189": Entry(
+        defect="D-189", state="已修",
+        summary="设置草稿用的是**装配期**的基线且从不重定 → 用户在别处改了设置（顶栏地球切语言）之后，"
+                "在设置页改个**主题**就会把过期的语言按回内存：界面自己变英文",
+        where="services/settings_service.py", check=_d189_settings_draft_is_rebased,
+        files=("services/settings_service.py", "app/bridges/settings_bridge.py",
+               "qml/pages/settings/SettingsPage.qml", "tests/test_settings_service.py")),
 }
 
 #: 台账必须覆盖的缺陷号（防"悄悄少一条"）：18 条欠账 + 后续几轮新登记的。
@@ -1383,6 +1953,8 @@ REQUIRED_IDS = (
     "D-160", "D-161", "D-162", "D-163",
     "D-164", "D-165", "D-166", "D-167", "D-168",
     "D-169", "D-170", "D-171",
+    "D-177", "D-178", "D-179", "D-180", "D-181", "D-182", "D-183", "D-184", "D-185",
+    "D-186", "D-187", "D-188", "D-189",
 )
 
 

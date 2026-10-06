@@ -97,6 +97,18 @@ FluAppBar {
             }
         }
 
+        //: 未保存标记（阶段 3 任务 3.4 / M-Q1 的 B6）：设置域里还有没落盘的改动时
+        //: 露一个标签。它是**提示**不是按钮 —— 保存/取消在设置页底部的动作条上。
+        //: 判空写法与全仓一致：上下文属性在引擎析构时先被清成 null。
+        FmTag {
+            objectName: "unsavedTag"
+            Layout.alignment: Qt.AlignVCenter
+            visible: (typeof Settings !== "undefined" && Settings) ? Settings.dirty : false
+            level: "warning"
+            iconName: "warning"
+            text: Tr?.map["settings_unsaved_tag"] ?? "settings_unsaved_tag"
+        }
+
         FmToolButton {
             id: notifyButton
             objectName: "notificationButton"

@@ -55,14 +55,18 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from launcher.core import WINDOW_MARKER as CORE_WINDOW_MARKER
 from services.base import Service
 from services.i18n_service import _
 
 # ─── 数值常量（全部抄自旧实现；改动要同步对照表 B-05/B-06/B-07 的备注）───
 
-#: 游戏窗口出现的判据：Minecraft 输出这行就说明 Bootstrap 已经跑完
-#: （旧 `ui/app_handlers.py:516`）。
-WINDOW_MARKER = "Datafixer optimizations took"
+#: 游戏窗口出现的判据：Minecraft 输出这行就说明 Bootstrap 已经跑完。
+#:
+#: **取值来自核心层**（`launcher/core.py` 的 `WINDOW_MARKER`）：检测点现在在那边
+#: （它是 stdout 管道的主人，见 `_watch_stdout` 的说明），这里只是转出同一个常量，
+#: 免得两份字符串悄悄漂移成"永远检测不到"。
+WINDOW_MARKER = CORE_WINDOW_MARKER
 
 #: 窗口检测超时（秒，旧 `ui/app_handlers.py:517`）。
 WINDOW_TIMEOUT_S = 120.0
@@ -255,6 +259,11 @@ class GameService(Service):
             self._on_launch_error(version, "launcher 不可用")
             return False, None
         try:
+            # 先清掉上一次的窗口检测标志：不清的话第二次启动会立刻"已检测到窗口"
+            # （事件是核心层持有的，跨启动复用同一个对象）。
+            clear = getattr(launcher, "clear_window_detected", None)
+            if callable(clear):
+                clear()
             success, target_version = launcher.launch_game(
                 version, minimize_after=minimize, server_ip=server_ip, server_port=server_port
             )
@@ -359,9 +368,54 @@ class GameService(Service):
     # ─── B-06 窗口出现检测 ──────────────────────────────────
 
     def _watch_stdout(self) -> None:
-        """读游戏 stdout，见到特征串就关掉管道（避免缓冲区打满让游戏卡顿）。"""
+        """等"游戏窗口出现"这一个时机（B-06）。
+
+        ## 为什么**不**自己读 stdout（阶段 3 任务 3.4 验收修复）
+
+        原实现照着旧 Tk 界面（`ui/app_handlers.py:506-565`）又开了一个读取线程去
+        `for line in proc.stdout` —— 可那根管道**已经是核心层在读**
+        （`launcher/core.py` 的 `_read_subprocess_output`）。两个读取方各自迭代
+        同一个 `BufferedReader`，marker 那一行只会落到其中一方手里：实测用户
+        2026-10-06 报的"游戏窗口出现后没有检测到并最小化"就是这个竞态。
+
+        现在检测点在核心层（它是管道的主人），这里只**轮询** `launcher.window_detected()`。
+        超时与"提前关管道"两个边界照旧保留：检测到了就关（免得缓冲区填满把游戏卡住），
+        超时也关（旧实现的 120 秒语义）。
+        """
         proc = self._game_process()
-        if proc is None or getattr(proc, "stdout", None) is None:
+        if proc is None:
+            self.log.warning("拿不到游戏进程，跳过窗口检测")
+            return
+        launcher = self._resolve_launcher()
+        if launcher is None or not hasattr(launcher, "window_detected"):
+            # 没有核心层（单元测试里的替身）时退回"直接读管道"的老路 ——
+            # 生产路径不会走到这里，而测试用的假进程只有一个读取方。
+            self._watch_stdout_directly(proc)
+            return
+
+        deadline = self._clock() + WINDOW_TIMEOUT_S
+        while not self._stopping and self._clock() < deadline:
+            try:
+                if launcher.window_detected():
+                    self.log.info("检测到游戏窗口出现 (%s)，关闭 stdout 管道", WINDOW_MARKER)
+                    self._close_stdout(proc)
+                    self._set_state(STATE_RUNNING)
+                    self._emit("on_window_detected")
+                    return
+            except Exception as e:  # noqa: BLE001 - 查询失败不该让监控线程崩掉
+                self.log.warning("查询窗口检测状态失败: %s", e)
+            if proc.poll() is not None:
+                self.log.info("游戏进程已退出，停止窗口检测")
+                self._close_stdout(proc)
+                return
+            time.sleep(POLL_INTERVAL_S)
+
+        self.log.info("游戏窗口检测超时 (%.0fs)，关闭管道", WINDOW_TIMEOUT_S)
+        self._close_stdout(proc)
+
+    def _watch_stdout_directly(self, proc: Any) -> None:
+        """没有核心层时的退路：自己读管道（**只有单元测试会走到**）。"""
+        if getattr(proc, "stdout", None) is None:
             self.log.warning("无法获取游戏进程 stdout，跳过窗口检测")
             return
 
@@ -383,7 +437,7 @@ class GameService(Service):
         deadline = self._clock() + WINDOW_TIMEOUT_S
         while not self._stopping and self._clock() < deadline:
             if detected.is_set():
-                self.log.info("检测到游戏窗口出现 (Datafixer Bootstrap)，关闭 stdout 管道")
+                self.log.info("检测到游戏窗口出现 (%s)，关闭 stdout 管道", WINDOW_MARKER)
                 self._close_stdout(proc)
                 self._set_state(STATE_RUNNING)
                 self._emit("on_window_detected")

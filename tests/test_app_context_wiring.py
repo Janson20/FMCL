@@ -163,6 +163,64 @@ def test_not_registered_entries_have_reasons() -> None:
         assert reason.strip(), f"{cls_name} 的理由是空的"
 
 
+def test_every_registered_service_resolves_from_a_context() -> None:
+    """**每个**登记在表里的服务都要能被 `try_get(name)` 真的取出来。
+
+    这条是用户 2026-10-06 真机验收报的"日志没捕获"的钉子：`LogService` 当时把
+    `Service.attach(context)` 覆盖成了 `attach(logger=None)`，于是
+    `AppContext._resolve()` 里那句 `obj.attach(self)` 抛
+    `TypeError: attach() takes 1 positional argument but 2 were given`，
+    被 `_resolve` 的 `except` 吞成"这个服务不存在" → 日志页永远"已捕获 0 / 0 行"，
+    而**没有任何报错**（桥只记一条 warning）。
+
+    判据刻意做成"普遍检查"而不是"给 LogService 补一条"：凡是新服务覆盖了基类的
+    生命周期方法（`attach` / `start` / `stop`），这条都会立刻红。
+    """
+    from app.bootstrap import build_context
+
+    ctx = build_context(config=None, register=True, set_current=False)
+    failures: list[str] = []
+    for name, _spec in SERVICE_FACTORIES:
+        try:
+            service = ctx.try_get(name)
+        except Exception as e:  # noqa: BLE001 - 取不出来就是失败
+            failures.append(f"{name}: try_get 抛 {type(e).__name__}: {e}")
+            continue
+        if service is None:
+            failures.append(f"{name}: try_get 返回 None（实例化或 attach 失败，日志里有 exc_info）")
+    assert failures == [], "这些服务取不出来：\n" + "\n".join(f"  {row}" for row in failures)
+
+
+def test_services_do_not_shadow_lifecycle_hooks() -> None:
+    """服务类不许把 `Service` 的生命周期方法改成**不兼容的签名**。
+
+    上一条是行为判据（真的取一遍），这一条是结构判据（签名对不上就报红）——
+    两条一起才拦得住"取出来是 None，但谁也不知道为什么"。
+    """
+    import importlib
+    import inspect
+
+    from services.base import Service
+
+    problems: list[str] = []
+    for _name, spec in SERVICE_FACTORIES:
+        module_name, _, class_name = spec.partition(":")
+        cls = getattr(importlib.import_module(module_name), class_name)
+        for method in ("attach", "start", "stop"):
+            base = getattr(Service, method)
+            own = cls.__dict__.get(method)
+            if own is None:
+                continue
+            base_params = list(inspect.signature(base).parameters)
+            own_params = list(inspect.signature(own).parameters)
+            if own_params != base_params:
+                problems.append(
+                    f"{class_name}.{method}{inspect.signature(own)} 与 "
+                    f"Service.{method}{inspect.signature(base)} 不一致"
+                )
+    assert problems == [], "这些服务覆盖了生命周期方法却换了签名：\n" + "\n".join(problems)
+
+
 # ── 3) main.py 真的接线了 ─────────────────────────────────────
 
 
