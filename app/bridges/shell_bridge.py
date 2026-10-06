@@ -71,6 +71,10 @@ class ShellBridge(QObject):
     notificationCenterToggled = Signal()
     #: 请求"查看公告"（顶栏铃铛；由 `App.qml` 转给 `Startup.replayNotice()`）。
     noticeRequested = Signal()
+    #: 请求"切换界面语言"（顶栏的地球图标；由 `StartupDialogs.qml` 打开那个语言浮层）。
+    #: 为什么壳层只发一个信号、不自己弹窗：语言浮层**只有一份实现**（A-27 的首次启动
+    #: 那一个），两个入口共用它，免得"首次启动"与"随时切换"两套界面各自漂移。
+    languageRequested = Signal()
 
     def __init__(
         self,
@@ -280,6 +284,17 @@ class ShellBridge(QObject):
         没有时提示什么，也在那一层决定。
         """
         self.noticeRequested.emit()
+
+    @Slot()
+    def requestLanguage(self) -> None:  # noqa: N802
+        """请求"切换界面语言"（顶栏地球图标的落点）。
+
+        2026-10-06 人工验收：用户只能靠**手改 `config.json`** 换语言 —— A-27 那个语言浮层
+        只在首次启动出现一次，而设置页要到 3.4 才有。这里补一个随时可用的入口：
+        壳层只发信号，浮层与"切完怎么落盘"仍在 `StartupDialogs.qml` + `Tr.setLanguage()`
+        （一份实现，两个入口）。
+        """
+        self.languageRequested.emit()
 
     # ─── 内部 ───────────────────────────────────────────────
 

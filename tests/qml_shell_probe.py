@@ -40,6 +40,12 @@ from app.bridges.shell_bridge import ShellBridge  # noqa: E402
 MARKER = "PROBE_JSON:"
 APP = QGuiApplication.instance() or QGuiApplication([])
 SINK = main_qml.install_message_handler()
+#: 真配置的写盘也要挡住：本探针走生产桥装配路径，手里那份 `config` 就是根模块单例 ——
+#: 不挡的话跑一轮探针就会把开发机的 `config.json` 改写掉（语言/强调色都中过招）。
+from config_isolation import isolate_config_writes  # noqa: E402
+
+isolate_config_writes("shell-probe")
+
 ENGINE = main_qml.build_engine()
 
 # 图标上色 provider 必须注册（生产路径在 `main_qml.assemble()` 里做）：
@@ -309,7 +315,8 @@ def main() -> int:
     # 顶栏把"可交互项"声明成一个列表，App.qml 在完成时逐个登记进 FluFrameless 的命中测试
     # 白名单（不登记的话点击会被系统当成拖窗口吃掉：不报错、只是按钮没反应）。
     # `_hitTestList` 是 C++ 侧私有成员，离屏下也观察不到 —— 这里记录**声明**本身，
-    # 由测试断言"声明的名字恰好是那四个、且界面上都真的存在"（漏一个就是漏一个）。
+    # 由测试断言"声明的名字恰好是那几个、且界面上都真的存在"（漏一个就是漏一个）。
+    # `languageButton` 是 2026-10-06 人工验收补的（顶栏地球图标 → 复用 A-27 的语言浮层）。
     app_bar = ROOT.property("appBar")
     declared = []
     if app_bar is not None:
@@ -319,7 +326,8 @@ def main() -> int:
     report["hitTest"] = {
         "declared": sorted(name for name in declared if name),
         "present": sorted(
-            name for name in ("backButton", "globalSearchBox", "notificationButton", "accountButton")
+            name for name in ("backButton", "globalSearchBox", "notificationButton",
+                              "languageButton", "accountButton")
             if item(name) is not None
         ),
     }

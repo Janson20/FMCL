@@ -190,7 +190,9 @@ def test_appbar_declares_every_interactive_item_for_hit_testing() -> None:
     漏登记的后果是"那个按钮点了没反应"，而且不报错、不打日志。
     """
     hit = probe()["hitTest"]
-    assert hit["declared"] == ["accountButton", "backButton", "globalSearchBox", "notificationButton"], (
+    assert hit["declared"] == [
+        "accountButton", "backButton", "globalSearchBox", "languageButton", "notificationButton",
+    ], (
         f"顶栏声明的可交互项不对：{hit['declared']}"
     )
     assert hit["present"] == hit["declared"], (
@@ -461,6 +463,21 @@ def test_request_notice_fires_a_signal() -> None:
     shell.noticeRequested.connect(lambda: requested.append(1))
     shell.requestNotice()
     shell.requestNotice()
+    assert len(requested) == 2, "每次调用发一次"
+
+
+def test_request_language_fires_a_signal() -> None:
+    """顶栏地球图标 = "切换界面语言"：壳层只发请求，浮层与落盘仍归 `StartupDialogs` + `Tr`。
+
+    为什么补这个入口（2026-10-06 人工验收）：A-27 的语言浮层只在**首次启动**出现一次，
+    设置页要到 3.4 才有 —— 在那之前用户想换语言只能去手改 `config.json`，
+    而手改的内容会随下一次 `save_config()` 被整份覆盖回去。
+    """
+    shell = ShellBridge(nav=nb.NavBridge())
+    requested: List[int] = []
+    shell.languageRequested.connect(lambda: requested.append(1))
+    shell.requestLanguage()
+    shell.requestLanguage()
     assert len(requested) == 2, "每次调用发一次"
 
 

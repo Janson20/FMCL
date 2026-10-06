@@ -66,16 +66,10 @@ FADE_MS = 600
 
 
 def isolate_single_instance() -> None:
-    """单实例守卫的键里带上 PID —— 与本仓库其它探针同一套隔离（见 _smoke_driver.py）。"""
-    from app.bridges import single_instance
+    """单实例守卫的键里带上 PID —— 与全仓共用的一份实现（`tests/single_instance_isolation.py`）。"""
+    from single_instance_isolation import isolate_single_instance as _isolate
 
-    original = single_instance.default_key
-    marker = f"-startup-probe-{os.getpid()}"
-
-    def patched(app_name: str, data_dir: str) -> str:
-        return original(app_name, data_dir) + marker
-
-    single_instance.default_key = patched  # type: ignore[assignment]
+    _isolate("startup-probe")
 
 
 def patch_startup_defaults() -> None:
@@ -126,6 +120,10 @@ def main() -> int:
     del app  # noqa: F841 - 只是确保实例存在
     sink = main_qml.install_message_handler()
     isolate_single_instance()
+    #: 真配置也不许被本探针改写（它走生产装配路径，见 `tests/config_isolation.py`）
+    from config_isolation import isolate_config_writes
+
+    isolate_config_writes("startup-probe")
     patch_startup_defaults()
 
     report: Dict[str, Any] = {"ok": False, "observations": [], "errors": []}

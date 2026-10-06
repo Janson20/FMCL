@@ -390,6 +390,29 @@ class VersionsBridge(QObject):
             return
         self._game.kill()
 
+    @Slot(str)
+    def repair(self, versionId: str) -> None:  # noqa: N802
+        """修复版本文件（B-22 的后半，D-167）。"""
+        vid = str(versionId or "").strip() or self._current_id
+        if not vid:
+            self.statusMessage.emit(_("version_select_first"), "error")
+            return
+        if self._service is None:
+            return
+        if self._busy:
+            self.statusMessage.emit(_("version_select_first"), "error")
+            return
+        self._busy = True
+        self.busyChanged.emit()
+        self._submit(self._service.repair(vid))
+
+    @Slot()
+    def cancelRepair(self) -> None:  # noqa: N802
+        """请求取消正在跑的修复（**请求**：核心下一次查标志时才停）。"""
+        if self._service is None:
+            return
+        self._service.cancel_repair()
+
     @Property(bool, notify=busyChanged)
     def busy(self) -> bool:  # noqa: N802
         """有后台操作在跑（行按钮据此禁用，防止重复提交）。"""
@@ -404,8 +427,21 @@ class VersionsBridge(QObject):
         else:
             self._set_load_state(STATE_EMPTY if not self._rows else STATE_READY, "")
         self._rebuild()
+        # 装完一个版本之后（3.3）：列表重扫完要**自动选中新装的那个** ——
+        # 这是用户 2026-10-06 裁决的"装完自动回列表并选中"，也是旧界面
+        # "清空输入框 + 刷新列表"的等价物。待选中的 id 由 `VersionService` 记着，
+        # 取走即清（只用一次）。
+        pending = ""
+        consume = getattr(self._service, "consume_pending_selection", None)
+        if callable(consume):
+            try:
+                pending = str(consume() or "")
+            except Exception as e:  # noqa: BLE001 - 自动选中失败不该影响列表
+                logger.warning("取待选中版本失败: %s", e)
+        if pending and self._row(pending):
+            self.select(pending)
         # 选中的版本可能已经不在了（被删/被改名）—— 详情跟着校正，别显示陈旧内容
-        if self._current_id and not self._row(self._current_id):
+        elif self._current_id and not self._row(self._current_id):
             self._clear_selection()
 
     def on_status(self, key: str, level: str, params: Dict[str, Any]) -> None:
@@ -545,6 +581,18 @@ class VersionsBridge(QObject):
             return _("version_detail_missing")
         if key == "version_open_folder_failed":
             return _("version_open_folder_failed", error=data.get("error", ""))
+        if key == "version_repairing":
+            return _("version_repairing", version=data.get("version", ""))
+        if key == "version_repair_ok":
+            return _("version_repair_ok", repaired=data.get("repaired", 0))
+        if key == "version_repair_none":
+            return _("version_repair_none")
+        if key == "version_repair_failed":
+            return _("version_repair_failed", remaining=data.get("remaining", 0))
+        if key == "version_repair_error":
+            return _("version_repair_error", error=data.get("error", ""))
+        if key == "version_repair_cancelled":
+            return _("version_repair_cancelled", version=data.get("version", ""))
         if key == "rename_instance_success":
             return _("rename_instance_success", old=data.get("old", ""), new=data.get("new", ""))
         if key == "rename_instance_invalid":

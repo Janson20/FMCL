@@ -73,6 +73,7 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Shell", "app.bridges.shell_bridge", "ShellBridge"),
     ("Home", "app.bridges.home_bridge", "HomeBridge"),
     ("Versions", "app.bridges.version_bridge", "VersionsBridge"),
+    ("Install", "app.bridges.install_bridge", "InstallBridge"),
 )
 
 QML_MODULE_URI = "FMCL"

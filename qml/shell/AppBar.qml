@@ -52,7 +52,7 @@ FluAppBar {
 
     // 顶栏上用到的可交互项，供 `App.qml` 登记进 FluFrameless 的命中测试白名单。
     // **顺序无关**，但必须齐全：漏一个，那个按钮就点不动（见文件头）。
-    readonly property var interactiveItems: [backButton, searchField, notifyButton, accountButton]
+    readonly property var interactiveItems: [backButton, searchField, notifyButton, languageButton, accountButton]
 
     RowLayout {
         objectName: "appBarContent"
@@ -109,6 +109,21 @@ FluAppBar {
                 // 现在发 `Shell.requestNotice()`，由 `App.qml` 决定重看公告还是提示"暂无公告"。
                 if (Shell)
                     Shell.requestNotice()
+            }
+        }
+
+        //: 语言：随时可切（2026-10-06 验收反馈补的入口）。
+        //: A-27 的语言浮层只在首次启动出现一次，设置页要到 3.4 才有 —— 在那之前
+        //: 用户想换语言只能去手改 `config.json`。这个按钮复用**同一个浮层**
+        //: （`StartupDialogs.qml` 里那份，一份实现两个入口）。
+        FmToolButton {
+            id: languageButton
+            objectName: "languageButton"
+
+            iconName: "language"
+            onClicked: {
+                if (Shell)
+                    Shell.requestLanguage()
             }
         }
 

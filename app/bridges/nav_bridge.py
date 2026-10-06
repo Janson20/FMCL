@@ -132,10 +132,16 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("versions/detail/mods", "resource_mods", "mods", "versions/detail", "pages/versions/VersionsPage.qml", ""),
     ("versions/detail/launch", "version_launch_title", "slider", "versions/detail",
      "pages/versions/VersionsPage.qml", ""),
-    ("versions/install", "install_new_version", "download", "versions", "pages/versions/VersionsPage.qml", ""),
+    #: 安装向导**自成一页**（阶段 3 任务 3.3）：旧界面把它做成版本页右侧的同栏面板，
+    #: 新界面按信息架构（`02` §4.2）给它一条二级路由与独立的页面文件 —— 一个文件
+    #: 承载四五条路由（`VersionsPage.qml` 那样）只适合"同一屏的不同形态"，
+    #: 向导是有自己状态机的独立流程，塞进去只会让两个状态机互相打架。
+    ("versions/install", "install_new_version", "download", "versions",
+     "pages/versions/InstallVersionPage.qml", "version_install_desc"),
     ("versions/install/progress", "mp_install_progress_title", "pending", "versions/install",
-     "pages/versions/VersionsPage.qml", ""),
-    ("versions/modpack", "modpack_info", "modpack", "versions", "pages/versions/VersionsPage.qml", ""),
+     "pages/versions/InstallVersionPage.qml", ""),
+    ("versions/modpack", "modpack_info", "modpack", "versions",
+     "pages/versions/ModpackPage.qml", ""),
     ("versions/predownload", "predownload_title", "download", "versions", "pages/versions/VersionsPage.qml", ""),
     # ── 4.3 资源 ───────────────────────────────────────────────
     ("resources", "mod_browser_title_all", "mods", "", "pages/resources/ResourcesPage.qml", ""),

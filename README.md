@@ -147,10 +147,10 @@ uv run python main.py -A              # 交互模式
 #### UI 依赖组（PySide6）
 
 `ui` 组（PySide6 6.7.3）已经写进 `pyproject.toml` 的 `[tool.uv] default-groups`，
-所以 `uv sync` / `uv run` 会一并装上、也不会把它卸掉 —— 这是刻意的取舍：迁移期旧 Tk 界面与
-新的 QML 界面并存，而"一次 `uv sync` 悄悄卸掉 Qt"比"多占约 460 MB 磁盘"危险得多
+所以 `uv sync` / `uv run` 会一并装上、也不会把它卸掉 —— 这是刻意的取舍：Qt 是 QML 界面
+（以及部分组件）的运行依赖，而"一次 `uv sync` 悄悄卸掉 Qt"比"多占约 460 MB 磁盘"危险得多
 （`ui` 若不是默认组，`uv sync` 默认会卸载 `pyside6-essentials/addons` 与 `shiboken6`，
-让 QML 侧的 POC 与打包突然失效）。
+让 QML 侧的功能与打包突然失效）。
 
 ```bash
 uv sync                       # dev + ui 全部就位
@@ -187,10 +187,10 @@ uv sync --no-default-groups   # 只要最小运行集（不含 pytest 与 Qt，�
 
 ## 项目结构
 
-> **分层约定（阶段 1 起）**：`界面 → app（服务定位/任务调度/UI 端口/事件总线） → services（业务逻辑，零界面依赖） → launcher 与根模块`。
-> `services/` 里**不允许**出现 `tkinter` / `customtkinter` / `PySide6` / `ui.*` 的导入，由
-> `python scripts/check_services_purity.py` 在 CI 里固化。这条约束的目的是：正在进行中的
-> PySide6 + QML 界面重构可以与现有 Tk 界面**共用同一份业务逻辑**，而不是分叉出两套实现。
+> **分层约定**：`界面 → app（服务定位/任务调度/UI 端口/事件总线） → services（业务逻辑，零界面依赖） → launcher 与根模块`。
+> `services/` 里**不允许**出现 `tkinter` / `customtkinter` / `PySide6` / `ui.*` 的导入，
+> 由 `python scripts/check_services_purity.py` 在 CI 里固化 —— 业务逻辑与界面解耦，
+> 换界面（或同时支持两套界面）时不必分叉出两套实现。
 
 ```
 FMCL/
@@ -204,13 +204,13 @@ FMCL/
 │   ├── base.py            # Service 基类（生命周期 / 依赖查找 / 事件）
 │   ├── errors.py          # 统一异常
 │   ├── music_source/      # 5 个在线音源的检索与解析
-│   ├── music_audio.py     # 音频元数据/时长校验/文件头魔数/m4a 转码（任务 1.4-A）
+│   ├── music_audio.py     # 音频元数据/时长校验/文件头魔数/m4a 转码
 │   ├── music_smtc.py      # Windows SMTC 系统媒体控制（零控件，主线程契约）
 │   ├── music_player.py    # 播放引擎状态机：淡入淡出/预取/进度/播放模式/目录扫描
 │   ├── music_state.py     # 音乐状态读写规则（键名/默认值/容错/周期参数）
-│   ├── music_online.py    # 在线搜索编排/自动音质/取流完成判定/正在播放取值（任务 1.4-B）
-│   ├── music_download.py  # 多源回退下载编排、临时文件规则、B站风控重试编排（任务 1.4-B）
-│   ├── music_wy_remote.py # 网易云远程歌单同步编排与分页（只读、不落盘，任务 1.4-B）
+│   ├── music_online.py    # 在线搜索编排/自动音质/取流完成判定/正在播放取值
+│   ├── music_download.py  # 多源回退下载编排、临时文件规则、B站风控重试编排
+│   ├── music_wy_remote.py # 网易云远程歌单同步编排与分页（只读、不落盘）
 │   ├── desktop_lyric.py   # 桌面歌词的零界面逻辑（位置/当前行/透明度/锁定）
 │   ├── agent/             # AI 智能助手（供应商 / 工具 / 权限 / 技能 / 会话）
 │   ├── voice/             # 语音输入
@@ -226,9 +226,9 @@ FMCL/
 │   ├── multimc_types.py    # MultiMC 数据模型定义
 │   ├── predownload.py      # 资源包预下载
 │   └── verify.py          # 并发文件校验
-├── ui/                    # 当前界面（CustomTkinter；正在迁移到 PySide6 + QML）
+├── ui/                    # 经典界面（CustomTkinter）
 │   ├── app.py             # 主窗口（12 Mixin 组合模式）
-│   ├── agent/             # AI 助手界面部分（业务实现已搬进 services/agent/）
+│   ├── agent/             # AI 助手界面部分（业务实现在 services/agent/）
 │   ├── windows/           # 15 个独立子窗口
 │   ├── static/            # 静态资源（等待小游戏等）
 │   ├── theme_engine.py    # 动态主题引擎
@@ -248,6 +248,8 @@ FMCL/
 ├── version_utils.py       # 版本工具（SemVer/正则/YY.D.H）
 ├── cli_agent.py           # Agent CLI 核心逻辑
 ├── agent_cli.py           # 独立控制台入口
+├── qml/                   # QML 界面（PySide6）：pages / components / shell / assets
+│                          # 与 ui/ 并存，见 docs/ARCHITECTURE.md
 ├── scripts/               # 构建/发布/安装脚本 + 分层与契约静态检查器
 ├── tests/                 # 测试
 └── docs/                  # 文档
@@ -256,32 +258,13 @@ FMCL/
     ├── ARCHITECTURE.md    # 项目架构与技术栈
     ├── CONFIGURATION.md   # 配置说明
     ├── PLUGIN_DEV.md      # 插件开发指南
-    ├── refactor/          # 界面重构的过程文档（决策、对照表、缺陷清单、执行日志）
     └── ...
 ```
 
-> 迁移期间，被搬进 `services/` 的模块会**在原路径留下兼容别名**（例如 `ui/music_lyrics.py`
-> 实际是 `services/music_lyrics.py` 的别名），因此插件与第三方代码按旧路径导入仍然有效。
-> 音乐播放这一域（任务 1.4-A）是**按能力切分**而不是整文件搬家：`ui/app_music.py` 仍是
-> `MusicPlayerMixin` 的宿主（183 个方法名与签名一个都没变），但音频解析、SMTC、播放状态机、
-> 状态持久化与桌面歌词的零界面逻辑分别住进了上表的 `services/music_*.py` 与
-> `services/desktop_lyric.py`，旧私有名（`_extract_audio_metadata` 等）在 `ui/app_music.py`
-> 里保留为**指向同一实现**的别名。
-> 音乐播放域的**在线侧**（任务 1.4-B）沿用同一套切缝：在线检索与分页、自动音质解析与
-> 音质信息补齐、取流完成判定与正在播放取值住进 `services/music_online.py`，多源回退下载、
-> 临时文件的命名/裁剪/清理与 B站风控重试编排住进 `services/music_download.py`，
-> 网易云账号歌单的同步状态机与分页住进 `services/music_wy_remote.py`（远程歌单只读、
-> 不进 `PlaylistManager`、不落盘）。服务侧把这些值当参数收进来、把新值放在返回值里
-> （`SearchOutcome` / `PagerPlan` / `SyncApplyPlan` 等数据类），**控件、线程、`after`
-> 与全部文案仍留在界面**；网络入口（`requests.get`、音源表、网易云后端）都有注入缝，
-> 默认值就是真实实现，因此在线侧整套逻辑可以离线单测。
-> 基岩版与成就这两域（任务 1.11 / 1.12）也是**按能力切分**：`ui/app_bedrock.py` 与
-> `ui/app_achievements.py` 仍是 `BedrockMixin`（28 个方法）/ `AchievementTabMixin`
-> （19 个方法）的宿主，方法名与签名一个都没变，但版本过滤与分页、安装/启动/删除编排、
-> GDK 的 .NET 10 与闭源认证组件前置检查、微软账户设备码登录流程住进了
-> `services/bedrock_service.py`，进度统计、同步/重置编排、解锁载荷归一化住进了
-> `services/achievement_service.py`；两个界面文件里的每个方法都退化成对服务的薄委托，
-> 弹窗、控件、线程调度与**全部文案**仍留在界面。
+> `services/` 下的模块若原先是 `ui/` 里的实现，会**在原路径留下兼容别名**
+> （例如 `ui/music_lyrics.py` 实际是 `services/music_lyrics.py` 的别名），
+> 因此插件与第三方代码按旧路径导入仍然有效。界面文件里保留下来的方法一律退化成
+> **对服务的薄委托**（方法名与签名不变），弹窗、控件、线程调度与全部文案仍住在界面。
 > 完整项目结构与模块依赖关系详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
@@ -294,16 +277,11 @@ FMCL/
 # 安装全部依赖（含 dev 组）到 .venv，使用锁文件里的精确版本
 uv sync
 
-# 需要做 QML 界面开发时，额外装 ui 依赖组（PySide6 6.7.3）
+# 需要 Qt/QML 界面依赖时（PySide6）：
 uv sync --group ui
 
-# 运行 QML 版界面（阶段 2 的骨架：入口装配 / 主题 / i18n / 导航 / 对话框 / 悬浮窗）
-# 注意：需要先编译 FluentUI 插件（阶段 0 的产物，不入库）：scripts/build_fluentui.ps1
-uv run python main_qml.py
-
-# 迁移期两套界面并存，同一个入口用 --ui 选择（默认仍是经典界面，见下节）
-uv run python main.py              # 经典（Tk）界面 —— 默认
-uv run python main.py --ui qml     # QML 界面（与在 config.json 里设 "ui_backend": "qml" 等价）
+# 运行启动器
+uv run python main.py
 
 # 新增依赖（会同时更新 pyproject.toml 与 uv.lock）
 uv add 包名
@@ -312,42 +290,6 @@ uv add --group dev 开发期包名
 # 安装 Git hooks (Husky + Commitlint)
 npm install
 npm run prepare
-```
-
-### 静态检查（迁移期间新增，CI 固化）
-
-```bash
-# services/ 层不得依赖任何界面栈（tkinter / customtkinter / PySide6 / ui.*）
-uv run python scripts/check_services_purity.py
-
-# 界面注入给业务逻辑的回调键必须齐全（防止"按钮点了没反应"）
-uv run python scripts/check_callback_keys.py --fail-on-soft
-
-# i18n：4 语言键集合一致、无缺失键、占位符跨语言一致、调用点参数齐全
-#      （检查 6 扫 QML 侧的字面量键、检查 7 扫路由表登记的键 —— 这两处以前没有检查）
-uv run python scripts/check_i18n.py
-uv run python scripts/check_i18n.py --only qml     # 只跑 QML 侧那一项
-uv run python scripts/check_i18n.py --only route   # 只跑路由表那一项
-
-# 模块搬家的完整性（主体逐节点一致 / 行数一致 / 旧路径别名同一对象）
-uv run python scripts/relocate_module.py --check
-
-# QML 规则闸门（阶段 2 新增，R1~R9）：禁渐变与亚克力材质、禁 emoji、禁硬编码中文、
-# 绑定必须走 Tr.map、页面不得越界 import、悬浮窗不得用 color: "transparent"、
-# 桥的线程红线、QML 里不得出现颜色字面量（颜色只能来自 Theme.*）、
-# 界面里不得出现 Qt 原生视觉控件（一律用 qml/components 里的 Fm*）
-uv run python scripts/check_qml_rules.py
-
-# 缺陷台账的期望状态表（返工 E 组新增，已进 CI）：已修项做**正向断言**、
-# 挂账项**钉住现状**并写明理由与排期 —— 谁把挂账项修好了，那条断言会先红，
-# 逼着他把台账改成「已修」并补上正向判据
-uv run python -m pytest tests/test_defect_ledger.py -q
-uv run python poc/_verify_defect_status.py        # 同一张表的命令行总览（读同一份数据）
-
-# 打包计划与界面后端（阶段 3 前置）：默认后端必须是 tk、QML 侧的桥与服务（全是按字符串
-# 动态导入，静态分析看不见）必须全在 hiddenimports 里、tk 产物与迁移前逐条一致、
-# build.spec 真的把计划用上了（用假 PyInstaller 符号 exec 一遍 spec 再断言）
-uv run python -m pytest tests/test_build_plan.py tests/test_ui_backend.py -q
 ```
 
 ### 常用命令
@@ -366,265 +308,9 @@ make clean            # 清理构建文件
 uv run pytest -q
 ```
 
-### QML 组件库（阶段 2 任务 2.16 / 2.17；返工 B/C 组各补过件）
-
-阶段 2 之后的界面**一律用 `qml/components/` 里的通用件拼**，页面里不再出现"一次性控件"
-（`03` 的 3.0 SOP 第 3 条），也**不再出现 Qt 原生控件**（闸门 **R9**，返工 C 组新增）。
-清单与用法在 **[qml/components/COMPONENTS.md](qml/components/COMPONENTS.md)**（26 个件），
-它同时是闸门 R5 的白名单数据源（页面用了白名单外的自研件即违规）。
-
-**每个页面的根节点都是 `FmPage`**（返工 C 组新增）：它承担路由帧五件套、页头与内容区三态
-（`contentState` = ready / loading / empty / error），12 个内置领域页因此各自只剩 22 行。
-一个页面现在长这样：
-
-```qml
-import "../../components"
-
-FmPage {
-    objectName: "versionsPage"          // 冒烟测试与探针按它找页面，不能改
-    contentState: versionsModel.state   // ready 时显示页面内容，其余显示三态块
-    emptyText: Tr?.map["versions_none"] ?? "versions_none"
-    retryText: Tr?.map["refresh"] ?? "refresh"
-    onRetried: versionsModel.reload()
-
-    FmTable { anchors.fill: parent; columns: page.cols; rows: page.rows }
-}
-```
-
-```qml
-import QtQuick
-import "../../components"          // 相对当前 QML 文件；阶段 2 不引入 qmldir 模块声明
-
-Item {
-    FmCard {
-        title: Tr?.map["account_manager_title"] ?? "account_manager_title"
-
-        FmTextField { label: "ID"; text: page.versionId; errorText: page.idError }
-
-        FmButton {                       // 主按钮：一个界面里最多一个
-            text: Tr?.map["confirm"] ?? "confirm"
-            loading: page.installing      // 三态：enabled / disabled / loading
-            onClicked: page.install()
-        }
-
-        footer: [
-            FmButton { primary: false; text: Tr?.map["cancel"] ?? "cancel"; onClicked: page.close() }
-        ]
-    }
-}
-```
-
-**四条纪律**（都由 `scripts/check_qml_rules.py` 静态拦，别只靠自觉）：
-
-1. **颜色**：只来自 `Theme.*` 的 12 个语义色键、15 个派生令牌与设计令牌
-   （`bgDark/bgMedium/bgLight/accent/accentHover/success/warning/error/textPrimary/textSecondary/cardBg/cardBorder`
-   ＋ `windowBg/windowBgInactive/navBg/barBg/cardHover/divider/overlayBg/scrim/textTertiary/accentSoft/accentPressed/accentText/itemHover/itemPress/itemCheck`
-   ＋ `fontSizeSmall/Base/Large/Title`、`spacingXs/Sm/Md/Lg/Xl`、`radiusSm/Md/Lg`、`iconSize`、`fontFamily`、
-   `durationFast/Normal/Slow`、`navWidth/titleBarHeight/statusBarHeight`）。
-   派生令牌由 **Python 侧**从 12 个主题色算出来（`app/bridges/theme_bridge.py: derive_tokens`）——
-   QML 里不许自己调 `Qt.rgba` / `Qt.lighter`，出现 `#e94560` 这类字面量即 **R8** 违规；
-   渐变与亚克力材质是 **R1**（项目 UI 红线 5）。
-   界面的明暗**锁深色**（5 个预设主题全是深色）：`FluTheme.darkMode` 被显式设成
-   `FluThemeType::DarkMode::Dark`（**值 2**，不是 `Qt::ColorScheme` 的 1 —— 写成 1 是浅色，
-   会让 FluentUI 控件与我们的壳层撞色）。
-2. **文案**：绑定写 `Tr.map["键"] ?? "键"`，**不要**在绑定里写 `Tr.t("键")`——QML 只跟踪属性读取，
-   语言切换时函数返回值不会重算（契约第六节决策 1，闸门 **R4**）；字符串里写死中文是 **R3**。
-3. **图标**：一律 `FmIcon { name: "check"; color: Theme.accent }`，名字取自 `qml/assets/icons/*.svg`
-   （小写 + 连字符、语义命名，见该目录的 [README](qml/assets/icons/README.md)）。**界面禁用 emoji**（**R2**）。
-4. **控件**：从 `COMPONENTS.md` 第二节里挑，**不许直接用 Qt 原生控件**（**R9**，返工 C 组新增）。
-   理由是实测出来的：本项目跑的是 QtQuick Controls 的 **Basic** 样式
-   （`main_qml.py: create_application()` 设的 `QT_QUICK_CONTROLS_STYLE`），原生控件的底色与
-   文字色来自**系统调色板** —— 锁深色的界面里必然是浅色的外来件，而且不跟随 `Theme.*`。
-   三条边界：**同名包装器**放行（`FmSwitch.qml` 的根节点本来就是 `Switch`，白名单在闸门的
-   `NATIVE_CONTROL_WRAPPERS` 里）；**附着属性的名字**不算（`ScrollBar.vertical:` 来自 Qt，
-   换的是值那个实例）；**零依赖兜底窗** `qml/FatalError.qml` 豁免（它连 `Theme`/`Tr` 都没有，
-   由测试钉住"确实不读任何上下文属性"）。FluentUI 自己的控件还没拦，登记为候选 R10。
-
-**新增一个组件**：加 `qml/components/FmXxx.qml`（文件头写清"什么时候用它 / 什么时候不要用"、
-根节点给稳定的 `objectName`）→ 在 `COMPONENTS.md` 的白名单表里登记一行 → 跑
-`python scripts/check_qml_rules.py` 与 `python -m pytest tests/test_components_qml.py -q`
-（后者会实例化**每一个** `Fm*.qml` 并核对 Gallery 里有没有对应实例）。
-
-**图标上色（`image://fmcl-icon`）**：QtSvg 把 SVG 里的 `currentColor` 解析成**不透明黑**，
-而 `ColorOverlay` / `MultiEffect` 在 `offscreen`（本仓库所有测试的跑法）下**静默失效**
-（实测对比表见 `qml/assets/icons/README.md` 第三节）。所以上色在 **Python 侧**做：
-`app/bridges/icon_provider.py` 把 SVG 文本里的 `currentColor` 换成目标色后用 `QSvgRenderer`
-渲成 `QImage`，QML 侧按 `image://fmcl-icon/<名字>?color=%23RRGGBB` 取图（`FmIcon` 已经封装好）。
-装配期需要在 `engine.load()` **之前**注册一次：
-
-```python
-from app.bridges.icon_provider import install as install_icon_provider
-install_icon_provider(engine)          # 见 main_qml.assemble()
-```
-
-**组件画廊（开发自查页）**：`qml/pages/dev/Gallery.qml`，一页展示每个组件的"名字 + 说明 + 活的实例"。
-它**刻意不在 12 个一级导航里露出**，进入方式是深链 `fmcl://dev/gallery` 或
-`Nav.push("dev/gallery")`（路由定义在 `app/bridges/nav_bridge.py`，`parent` 挂 `settings`）。
-跑一次自查并留下截图证据：
-
-```bash
-uv run python tests/test_components_qml.py     # 截图写到 poc/gallery_2_16/，清单写到 poc/components_2_16.txt
-```
-
-**当前组件清单是 21 个**（返工 B 组加了 `FmToolButton`：顶栏与行尾的纯图标命中区，
-带选中/角标/禁用三态）。
-
-### 启动画面与主题底座（界面返工 A 组）
-
-启动流程的**时序**在 Python 侧（`app/startup.py` 的 `StartupController`，复刻旧 `main.py` 的
-4 条互相竞争的退出路径：≥1 秒显示 / 30 秒硬超时 / 初始化失败仍显示主窗口 / 关画面失败也继续），
-QML 只负责按 `Startup.startupActive` 显示：
-
-* `startupActive === true` → 启动画面显示、**主窗口藏起来**（不再是"两层窗口叠在一起"）；
-* 变成 false → 启动画面淡出后隐藏、主窗口显示，并由 `main_qml.raise_main_window()`
-  把主窗口提到前面（对照旧实现的 `app.lift() + app.focus_force()`）。
-
-启动流程**没开跑**时（测试装配、探针、`assemble(start_startup=False)`）这个属性恒为 false ——
-不会出现"一个没人去关的加载窗"，那条路径以前正是"加载完不消失"的来源。
-
-界面返工 A 组同时修掉了三处会让界面看起来"配色打架"的缺陷：
-FluentUI 的暗色取值（原来写成了浅色）、注入 FluTheme 的写序（`darkMode` 必须先写，
-否则它触发的 `refreshColors()` 会把刚注入的颜色全部冲掉）、以及图标默认色（原来是黑，
-深色底上几乎看不见）。
-
-```bash
-# 真机启动时序的可见性走查（子进程跑真 QML：启动画面出现 → 消失 → 主窗口出现）
-uv run python -m pytest tests/test_startup_visibility.py -q
-uv run python tests/qml_startup_probe.py          # 直接看 JSON 观察结果
-```
-
-### 壳层（返工 B 组：一条顶栏 + 分组导航）
-
-窗口顶部现在是**一条** 40px 的顶栏（`qml/shell/AppBar.qml`，`FluAppBar` 的子类）：
-左边「返回 + 面包屑」、右边「搜索 + 通知 + 账号」，最右侧 120px 是窗口按钮 ——
-返工前这里是**两条**横条（`FluWindow` 内置的 appBar + 自绘的 `TitleBar`），
-颜色还各走一套来源，观感上就是"上下分裂"。
-
-左侧导航按**分组**排（游戏 / 资源与联机 / 工具与扩展），选中项是
-`accentSoft` 底 + 3px 强调色指示条 + 强调色图标与文字；分组数据来自桥
-（`app/bridges/nav_bridge.py` 的 `NAV_GROUPS`），不在 QML 里写死。
-
-> **顶栏上的按钮必须登记进命中测试白名单**：无边框窗口的拖动由 Win32 命中测试实现，
-> 光标落在顶栏里且不在白名单项上时返回 `HTCAPTION`，QML 侧**收不到事件**（不报错、只是没反应）。
-> 登记处是 `qml/App.qml` 的 `Component.onCompleted`（遍历 `AppBar.interactiveItems`），
-> `tests/test_shell_qml.py` 会断言"声明的项恰好是界面上那四个"。
-
-```bash
-# 骨架走查（子进程跑真 QML：四层结构、分组顺序、选中态、点导航切页）
-uv run python -m pytest tests/test_shell_qml.py -q
-uv run python tests/qml_shell_probe.py            # 直接看 JSON 观察结果
-```
-
-### 页面骨架与原生控件清零（返工 C 组）
-
-页面那一层做了两件事：**把 12 份重复收敛成一份**、**把 Qt 原生控件清零**。
-
-- 12 个内置领域页原来是同一份 145 行代码各抄一遍（只有 `objectName` 与领域名不同，
-  合计 1740 行）。现在每页 22 行，页头、路由帧与三态渲染都在 `qml/components/FmPage.qml` 里
-  （合计 264 行）；重复度实测见 `poc/_gen_placeholder_pages.py`（归一化领域名/节号/objectName
-  后比 SHA256，12 个文件全等）。
-- 页面里的开发噪声（那行 `route: … params: …`）删掉了。深链与跳转的取证方式随之改成读页面的
-  `routeId` / `routeParams` 属性（`tests/qml_shell_probe.py` 的 `page_frame()`）——
-  断言的东西没变：参数必须真的落到页面上。
-- 原生控件清零后新增闸门 **R9**：`qml/**` 里出现 Qt 原生控件（`Button` / `TextField` /
-  `ScrollBar` / `CheckBox` / `SpinBox` / `ScrollView` …）即违规。为此补了五个自研件：
-  `FmPage`、`FmScrollView`、`FmScrollBar`、`FmSpinBox`、`FmCheckBox`。
-  一并换掉的还有 `LogView` 的工具栏与滚动条、`StartupDialogs` 的勾选框与滚动区、
-  `TextInputDialog` 的输入框、`ProgressDialog` 的进度件。
-
-```bash
-# 闸门（R9 会拦住原生控件漏进界面；负例与变异证明在 tests/test_qml_rules_gate.py）
-uv run python scripts/check_qml_rules.py
-# 12 个占位页的重复度实测（归一化后比 SHA256）
-uv run python poc/_gen_placeholder_pages.py
-```
-
-> **`FmIcon` 的一个坑（返工 C 组实测并修好）**：`Image.source` **不能**读一个"自身也依赖
-> `name` 的派生属性"（原来是 `name.length > 0 ? providerUrl : ""`）—— 名字从空变成非空时，
-> Qt 会先拿**上一次的缓存值**求值一次，于是每次新建页面都刷一对
-> 「图标名不合法：`'?color=…'`」+「`QQuickImage: Failed to get image from provider`」。
-> URL 直接拼在 `source:` 表达式上就没有这条多余请求；最小复现见
-> `poc/_probe_fmicon_empty_request.py`，回归用例见
-> `tests/test_icon_provider.py::test_icon_name_becoming_non_empty_never_requests_an_empty_name`。
-
-### 像素级视觉回归（返工 D 组）
-
-上面所有判据都停在**属性层**（`Theme.bgDark` 的值、截图非空、12 张图两两不同）。
-D 组补的是**渲染结果本身**：把窗口帧降采样成 4x4 的块，数"主题令牌有没有落到屏幕上"、
-"有没有一块浅色的外来件"、"页头图标那块像素是不是主题文字色"。
-
-- 判据定义在 `tests/visual_metrics.py`（纯函数，喂一张 `QImage` 就能单测），
-  采集在 `tests/visual_probe.py`（子进程起真引擎，17 s 采 25 帧），
-  断言在 `tests/test_visual_regression.py`（14 例），统计基线在 `tests/visual_baseline.json`。
-- 核心判据是**浅色外来成片 == 0**：颜色"浅"（相对亮度 ≥ 0.5）**且不属于任何主题令牌**，
-  并聚成一个近似矩形（≥ 8 个 4x4 块、填充率 ≥ 0.5）才算"一件东西"。
-  文字与图标都在令牌表里，所以不会误报 —— 这条判据就是 **R9（禁原生控件）的像素级依据**：
-  同一块深色底上，原生 `Button` 刷出 1 片 `#e0e0e0`（270 个块），自研 `FmButton` 是 0 片。
-- 12 个一级页 + 5 个预设主题 + 画廊顶/底两帧，实测**成片数全为 0**、浅色像素占比 ≤ 0.03%、
-  页头图标的近黑像素全为 0（D-141 / D-144 的像素级证据）。真机（DPR=1.25）也量过一遍：
-  `poc/_capture_gallery_native.py` → `poc/review/d_group/native_gallery.png`（成片数同样为 0）。
-  真机与 offscreen 的**浅色占比**能差 20 倍（0.62% vs 0.03%，真机字形抗锯齿更多），
-  **成片数**两边都是 0 —— 所以判据用成片数，不用占比。
-
-同时补了 i18n 闸门的两项盲区（**检查 6** 扫 QML 里的字面量键、**检查 7** 扫路由表
-`nav_bridge._ROUTE_TABLE` 登记的标题键），一次报出 **51 个从来没有词条的键**
-（32 个 `dev_gallery_*` 一类 + 19 个详情页标题），四种语言各补齐（1542 → 1593 键）。
-第二批是**真机截图逐字读**才发现的：组件画廊的页头写着 `dev_gallery_title` ——
-路由标题是 QML 动态解析的键，静态检查两条都够不着。
-
-```bash
-# 跑一遍视觉回归（约 17 s 采集 + 断言；模块标了 slow）
-uv run pytest tests/test_visual_regression.py -q
-
-# 单独采集一批（人复查用，PNG 落在 --out；JSON 里是全部像素统计）
-uv run python tests/visual_probe.py --out poc/review/d_group/visual
-uv run python tests/visual_probe.py --only gallery --json poc/_visual_probe.json
-
-# 有意改了布局/配色之后重生成基线（diff 要看一眼再提交）
-uv run python poc/_update_visual_baseline.py            # 只打印 diff
-uv run python poc/_update_visual_baseline.py --write    # 真的写盘
-```
-
-> **判据自己也要有变异证据**：`poc/_verify_rework_d.py` 会把 R9 与 D-143 / D-144 / D-145
-> 的修复**各撤一次**，确认对应的钉子真的变红，然后**逐字节还原**（SHA256 比对）。
-> 判据型改动最容易出的问题是"钉子其实是空断言"，这是唯一能证明它有牙齿的办法。
-
-### 界面后端：两套界面与切换（阶段 3 前置）
-
-迁移期**两套界面并存**：经典界面（`ui/` + Tk，`main.py`）与 QML 界面（`qml/` +
-`main_qml.py`）。它们共用零界面依赖的 `services/` 层，所以切换只是"换一层皮"。
-
-| 事项 | 取值 |
-| --- | --- |
-| 配置项 | `config.json` 的 `ui_backend`，取值 `tk`（默认）/ `qml` |
-| 命令行 | `--ui tk` / `--ui qml`（**压过配置**） |
-| 优先级 | 命令行 > 配置 > 默认 |
-| 默认值 | **`tk`** —— 阶段 3 期间 QML 侧的页面还是占位壳，阶段 4.1 才切默认 |
-| 回退 | 要求 `qml` 但**装配前**就判定起不来（没装 PySide6 / 没有 FluentUI 模块 / 没有 `qml/App.qml`）→ 记日志 + 退回经典界面；命令行显式要求时额外弹一次提示。配置里的非法值一律回落 `tk`（手改配置文件不会让入口起不来） |
-
-**阶段 3 进度**（逐页迁移，每页交付到「待验收」后由人工并排比对）：
-
-| 页 | 状态 | 说明 |
-| --- | --- | --- |
-| 3.1 首页 + 完整启动流程 | **已验收** | 首页（账号卡片 / 皮肤 / 最近版本一键启动 / 进程状态与强杀 / 签到与成就摘要 / 公告入口）已可用；启动链路补齐了"刷新微软 Token、静默检查更新、成就云同步 + 每日签到、把游戏语言设为 zh_cn"，并修掉了账号系统没注入核心导致**启动游戏不带账号**的接线缺口。人工验收反馈的 4 条也已修（语言跟随 `config.json`、首页卡片被页脚挤掉、协议弹窗只显示摘要、析构期 `FmButton` 报错）。**另新增 A-27：首次启动选择界面语言**（旧 Tk 版没有这个功能；选项来自语言文件，选完当场热切换，选择结果记在 `config.language_chosen`） |
-| 3.2 版本列表与详情 | **待验收** | 已安装版本列表（显示文本与旧界面逐字一致）+ 计数、行操作（选中 / 模组 / 资源管理 / 重命名 / 删除）、刷新、启动与强杀（与首页共用同一个游戏服务）、工具条上常驻的「安装新版本」入口。**新增四项**（用户 2026-10-06 裁决）：搜索与排序、版本详情（路径 / 所需 Java / 模组数量 / 加载器）、打开目录、校验文件完整性（接核心那个从未被调用的 `verify_installed_version`）。"校验修复"里的**修复**没做（核心没有重下入口），挂账 D-167 排到 3.3。人工验收反馈的三条（重命名必崩、校验说"版本 JSON 不存在"、两个公告按钮点不了）与两条体验问题（面包屑只留最近 3 页、状态条补回"进行中"档）已修，见 `docs/refactor/07-known-defects.md` 第二十四节 |
-| 其余 10 个一级页面 | 占位页 | 见 `docs/refactor/03-phases.md` 的 3.3 ~ 3.24 |
-
-> 3.1 / 3.2 的执行记录（裁决、与旧实现的逐条差异、验收清单）在
-> `docs/refactor/16-phase3-execution-log.md`；该目录**不入库**，随迁移过程一起消失。
-
-打包（详细前置见「构建」一节）：
-
-```powershell
-$env:UI_BACKEND='qml'; .\.venv\Scripts\python.exe -m PyInstaller build.spec --noconfirm   # → dist\FMCL-QML\
-```
-
-* 经典产物是**单文件** `dist\FMCL.exe`（与迁移前逐条一致）；
-* QML 产物是**目录** `dist\FMCL-QML\`（`COLLECT`）。理由：onefile 每次启动都要把 Qt 运行时
-  （约 200 MB）解到临时目录，启动器的冷启动体验不可接受；`updater.py` 只认
-  `FMCL-Setup-*.exe` 安装包，装目录**不影响自动更新链路**。
-* 安装包带 `/DQML_BUILD` 时装成 `FMCL-QML`（`%LOCALAPPDATA%\Programs\FMCL-QML`，快捷方式与
-  注册表键都带 `-QML` 后缀），**可与经典版并存**、装卸互不影响；不带该开关时脚本行为与迁移前一致。
+> **测试默认并行**（`pytest-xdist`，见 `pyproject.toml` 的 `addopts`）：全量约 2.5 分钟，
+> 串行用 `pytest -n0`。写「会装配真应用」的测试时记得隔离两样东西：真配置的写盘
+> （`tests/config_isolation.py`）与单实例守卫（`tests/single_instance_isolation.py`）。
 
 ### 构建
 

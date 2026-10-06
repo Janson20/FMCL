@@ -630,6 +630,307 @@ def _d166_test_assembly_restores_the_language(text: Optional[str] = None) -> Tup
     return (not problems, "；".join(problems) or "真装配之后界面语言被还原")
 
 
+def _d167_repair_reuses_the_install_chain(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-167（已修）：修复要**真的把坏文件下回来**，而且与校验用**同一份文件清单**。
+
+    现象（3.2 交付时如实挂账）：对照表 B-22 写的是"校验修复"，而核心只有
+    `verify_installed_version()`（并发算哈希、返回无效清单）—— 一个重下入口都没有。
+    3.3 补上了 `MinecraftLauncher.repair_installed_version()`：它按版本 JSON 算出
+    应然清单（`expected_version_files()`，**校验与修复共用这一份**，两处各写一份必然分叉
+    —— D-170 就是那么来的），再把"缺失 + 哈希不符"的库与主 jar 交给安装器自己的下载原语
+    （`minecraft_launcher_lib._helper.download_file`，它按 sha1 跳过合格文件）重下。
+
+    默认分支是**行为**判据而不是"源码里有某个名字"：造一个版本（一个坏库 + 缺主 jar），
+    把下载函数换成会写正确字节的假件，真跑一遍修复，断言"只下了那两个、修完 remaining 为空"。
+    谁把修复改成空转（或让它自己另写一份清单），这里立刻红。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`launcher/core.py`）—— 那一支只查
+            "两处判据还在不在"（自检不能真去跑改坏的源码），与行为判据互补。
+    """
+    if text is not None:
+        core = strip_python_comments(text)
+        if "self.expected_version_files(version_data, versions_dir, version_id)" not in core:
+            return False, "修复不再用那份共用清单了（校验与修复会各说各话）"
+        if "_helper import download_file" in core:
+            return True, "修复仍然复用共用清单与安装器的下载原语"
+        return False, "修复不再走安装器的下载原语了"
+
+    import hashlib
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from launcher.core import MinecraftLauncher
+
+    class _Stub:
+        find_version_json = MinecraftLauncher.find_version_json
+        _find_version_jar = MinecraftLauncher._find_version_jar
+        _read_version_json_data = MinecraftLauncher._read_version_json_data
+        _sha1_of = staticmethod(MinecraftLauncher._sha1_of)
+        expected_version_files = MinecraftLauncher.expected_version_files
+        repair_installed_version = MinecraftLauncher.repair_installed_version
+        MAX_REPAIR_FILES = MinecraftLauncher.MAX_REPAIR_FILES
+        MAX_REPAIR_REPORTED = MinecraftLauncher.MAX_REPAIR_REPORTED
+        _get_callback = MinecraftLauncher._get_callback
+        _set_status = MinecraftLauncher._set_status
+        _set_progress = MinecraftLauncher._set_progress
+        _set_max = MinecraftLauncher._set_max
+        #: 3.3 起的「本次调用出口」三件套（D-172 之后 `_get_callback` 走它们）
+        _should_report_progress = MinecraftLauncher._should_report_progress
+        _emit_status = MinecraftLauncher._emit_status
+        _emit_progress = MinecraftLauncher._emit_progress
+
+        def __init__(self, root: Path) -> None:
+            #: `minecraft_dir` 必须是 **Path**：核心的 `expected_version_files()`
+            #: 要拿它做路径拼接（`config.minecraft_dir / "libraries" / rel`）。
+            self.minecraft_dir = root / ".minecraft"
+            self.config = self
+            self.on_progress = None
+            self.current_max = 0
+            self._instance_info_cache: Dict[str, Any] = {}
+            self._instance_cache_valid = False
+
+        def get_versions_dir(self) -> Path:
+            return self.minecraft_dir / "versions"
+
+        def invalidate_instance_cache(self) -> None:
+            return None
+
+    good = b"good library"
+    jar = b"client jar"
+    with tempfile.TemporaryDirectory() as raw:
+        root = Path(raw)
+        stub = _Stub(root)
+        version_dir = stub.get_versions_dir() / "1.20.4"
+        version_dir.mkdir(parents=True)
+        (version_dir / "1.20.4.json").write_text(json.dumps({
+            "id": "1.20.4",
+            "libraries": [{
+                "name": "g:b:1",
+                "downloads": {"artifact": {
+                    "path": "g/b/1/b-1.jar",
+                    "sha1": hashlib.sha1(good).hexdigest(),
+                    "url": "https://libs/b.jar",
+                }},
+            }],
+            "downloads": {"client": {
+                "sha1": hashlib.sha1(jar).hexdigest(),
+                "url": "https://x/client.jar",
+            }},
+        }), encoding="utf-8")
+        broken = stub.minecraft_dir / "libraries" / "g" / "b" / "1" / "b-1.jar"
+        broken.parent.mkdir(parents=True, exist_ok=True)
+        broken.write_bytes(b"tampered")
+
+        import minecraft_launcher_lib._helper as helper
+
+        original = helper.download_file
+        downloaded: List[str] = []
+
+        def fake_download(url: str, path: str, callback: Any = None, **kwargs: Any) -> bool:
+            downloaded.append(url)
+            target = Path(path)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(jar if url.endswith("client.jar") else good)
+            return True
+
+        helper.download_file = fake_download  # type: ignore[assignment]
+        try:
+            result = stub.repair_installed_version("1.20.4")
+        finally:
+            helper.download_file = original  # type: ignore[assignment]
+
+    if not result.get("ok"):
+        return False, f"修复没有把文件补齐：{result}"
+    if sorted(downloaded) != ["https://libs/b.jar", "https://x/client.jar"]:
+        return False, f"重下的文件不对（只该是坏的库 + 缺的主 jar）：{downloaded}"
+    if result.get("repaired") != 2 or result.get("remaining"):
+        return False, f"修复计数不对：{result}"
+    return True, "修复按校验清单重下了坏文件与缺失文件"
+
+
+def _d172_callbacks_survive_the_mro(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-172（已修）：进度回调**不许**给被混入类遮住的那两个方法加参数。
+
+    现象（用户 2026-10-06 实测，这一条是 3.3 自己引入的回归）：为了把进度喂给"本次调用的
+    出口"，`_get_callback()` 里写了 `self._set_status(status, sink)`。可
+    `MinecraftLauncher` 是**多继承**的，`MultiMCMixin` 排在核心前面并定义了同名的一元方法
+    (`launcher/multimc.py:921`)，于是真实类上直接
+    `TypeError: _set_status() takes 2 positional arguments but 3 were given` ——
+    表现是**装 Fabric/Forge 与"修复文件"全部失败**（日志里两条 `安装版本失败`）。
+    桩测试没抓住它，因为桩把核心的方法直接绑了过来（MRO 里没有那个混入类）。
+
+    判据是**行为 + 结构**两半：
+
+    * 结构：真类上的 `_set_status` 确实是混入类那一份（这个坑真实存在），且
+      `_get_callback` 里不许再出现"给 `_set_status` 传第二个实参"；
+    * 行为：与 `MinecraftLauncher` **同形状的 MRO**（混入类在前）跑一遍安装，
+      本次调用的出口要拿到状态与进度。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`launcher/core.py`）—— 那一支只查结构
+            （自检不能拿改坏的源码去跑真安装）。
+    """
+    from launcher import MinecraftLauncher
+    from launcher.multimc import MultiMCMixin
+
+    if text is not None:
+        mutated = strip_python_comments(text)
+        if "_set_status(status, sink)" in mutated or "_emit_status(status, sink)" not in mutated:
+            return False, "又给被遮住的方法传第二个实参了（真实类上会 TypeError）"
+        return True, "结构判据通过（负例自检分支）"
+
+    if MinecraftLauncher._set_status is not MultiMCMixin._set_status:
+        return False, "MRO 变了：`_set_status` 不再被混入类遮住，这条判据要重新评估"
+    core = strip_python_comments(source("launcher/core.py"))
+    if "_set_status(status, sink)" in core or "_set_progress(progress, sink)" in core:
+        return False, "又给被遮住的方法传第二个实参了（真实类上会 TypeError）"
+    if "def _emit_status" not in core or "def _emit_progress" not in core:
+        return False, "本次调用的进度出口没了（`_emit_status` / `_emit_progress`）"
+
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    root = str(REPO_ROOT)
+    if root not in _sys.path:
+        _sys.path.insert(0, root)
+    _sys.path.insert(0, str(REPO_ROOT / "tests"))
+    import tempfile
+
+    from test_version_paths import ShadowedInstallStub  # noqa: PLC0415
+
+    with tempfile.TemporaryDirectory() as raw:
+        stub = ShadowedInstallStub(_Path(raw))
+        seen: List[Tuple[int, int, str]] = []
+        ok, installed = stub.install_version(
+            "1.20.4", "无",
+            on_progress=lambda current, total, text: seen.append((current, total, text)),
+        )
+    if not ok or installed != "1.20.4":
+        return False, f"被遮住的 MRO 下安装没跑通：{ok} / {installed}"
+    if (0, 0, "Download file1.jar") not in seen:
+        return False, f"状态没走到本次调用出口：{seen}"
+    return True, "回调走 `_emit_*`，被混入类遮住的老方法只按一元调"
+
+
+def _d173_language_can_be_switched_in_app(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-173（已修）：QML 里要有一个**随时可用**的界面语言入口。
+
+    现象（用户 2026-10-06 实测）："每次把 config.json 改成 zh_CN，启动 qt 版直接就是英文，
+    config.json 也被改了"。根子有两条：
+
+    1. A-27 的语言浮层只在**首次启动**（`language_chosen=false`）出现一次，而设置页要到
+       3.4 才有 —— 中间这段用户想换语言只能手改配置文件；
+    2. 配置文件是**整份**写的（`save_config()`），任何一处保存都会把内存里的旧语言
+       一起写回去，于是手改的内容随时可能被覆盖。
+
+    修法：顶栏加一个地球图标 → `Shell.requestLanguage()` → **复用 A-27 那个语言浮层**
+    （一份实现两个入口），并且只有"首次启动"那一次才回去继续启动链条。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`qml/shell/AppBar.qml`）。
+    """
+    appbar = (REPO_ROOT / "qml/shell/AppBar.qml").read_text(encoding="utf-8") if text is None else text
+    if "languageButton" not in appbar or "Shell.requestLanguage()" not in appbar:
+        return False, "顶栏没有切语言的入口（用户又只能手改 config.json）"
+    shell = strip_python_comments(source("app/bridges/shell_bridge.py"))
+    if "def requestLanguage" not in shell or "languageRequested" not in shell:
+        return False, "壳层没有 requestLanguage 信号"
+    dialogs = (REPO_ROOT / "qml/StartupDialogs.qml").read_text(encoding="utf-8")
+    if "onLanguageRequested" not in dialogs or "languageIsFirstRun" not in dialogs:
+        return False, "浮层没有接壳层的请求，或没区分「首次启动 / 随时切」"
+    return True, "顶栏地球图标 → Shell.requestLanguage → 复用 A-27 的语言浮层"
+
+
+def _d175_startup_reads_the_pinned_config(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-175（已修）：`tests/test_startup.py` 必须**自带**配置，不许读开发机那份。
+
+    现象（2026-10-06 实测，代价是二十分钟的误判）：为了排查语言问题临时改了
+    `config.json` 的 `terms_consent` / `language_chosen`，`tests/test_startup.py`
+    立刻红了两条（公告相关的两条走不到预下载），而**代码一个字都没改**。
+    根因：`FakeContext` 没有 `config`，`StartupController._config_object()` 于是回退到
+    根模块那个真单例 —— "要不要问语言""协议同意没同意"这两件事由开发机决定。
+    修法：`FakeContext` 注入 `PinnedConfig`，并把两处直接 `monkeypatch` 真配置的用例
+    改成操作注入的那一份。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`tests/test_startup.py`）。
+    """
+    src = (REPO_ROOT / "tests/test_startup.py").read_text(encoding="utf-8") if text is None else text
+    if "class PinnedConfig" not in src or "self.config = PinnedConfig()" not in src:
+        return False, "FakeContext 没有注入自己的配置（链条会去读开发机的 config.json）"
+    if "config_module.config" in src:
+        return False, "还有用例在 monkeypatch 根模块那份真配置"
+    if "_config_object() is ctx.config" not in src:
+        return False, "没有那条「读的是注入的那份」的正向断言"
+    return True, "启动链条读的是用例注入的配置，与开发机 config.json 无关"
+
+
+def _d176_tests_never_write_the_real_config(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-176（已修）：测试与探针**不许**改写开发机上那份真 `config.json`。
+
+    现象（2026-10-06，并行跑全量之后发现）：用户 `config.json` 的 `language`
+    从 `en_US` 变成 `zh_CN`、`accent_color` 从 `#abcdef` 变成空串 —— 而用户看到的
+    正是"我的语言设置又被改回去了"。串行跑看不出来：最后写盘的那个人**恰好**把原值
+    写了回去（谁最后跑完谁说了算，D-175 的同一类问题：测试不该碰用户的真实状态）。
+
+    修法：`tests/config_isolation.py` 把真 `save_config()` 换成"只记数不落盘"，
+    整场测试由 `tests/conftest.py` 装一次；子进程（QML 探针 / 冒烟 / 视觉探针）
+    跑不到 conftest，各自在装配前调同一个守卫。
+
+    判据两半：
+
+    * 行为：装守卫 → 把内存里的语言改成别的值 → 调 `save_config()` →
+      **文件一个字节都不许变**，且守卫确实记到了"拦下了一次"；
+    * 结构：conftest 与各探针都得装上它（漏一个就等于给用户配置留一个后门）。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`tests/config_isolation.py`）。
+    """
+    if text is not None:
+        mutated = strip_python_comments(text)
+        if "config.save_config = blocked" not in mutated:
+            return False, "守卫没真的替换 save_config（写盘照旧）"
+        return True, "结构判据通过（负例自检分支）"
+
+    from config_isolation import isolate_config_writes, restore_config_writes
+
+    import config as config_module
+
+    path = REPO_ROOT / "config.json"
+    before = path.read_bytes()
+    saved_language = config_module.config.language
+    blocked = isolate_config_writes("ledger-d176")
+    try:
+        #: 故意改成一个"写下去就能看出来"的值：守卫要是失效，文件内容会真的变
+        config_module.config.language = "ja_JP"
+        config_module.config.save_config()
+        count = blocked()
+    finally:
+        config_module.config.language = saved_language
+        restore_config_writes("ledger-d176")
+    after = path.read_bytes()
+
+    if before != after:
+        return False, "守卫没挡住：真 config.json 被改写了"
+    if count < 1:
+        return False, "save_config 没有被拦下（守卫装空了）"
+
+    conftest = (REPO_ROOT / "tests/conftest.py").read_text(encoding="utf-8")
+    if "isolate_config_writes" not in conftest:
+        return False, "conftest 没装守卫（进程内测试仍会写用户配置）"
+    missing = [
+        name for name in ("_smoke_driver.py", "visual_probe.py", "qml_startup_probe.py",
+                          "qml_install_probe.py", "qml_versions_probe.py", "qml_home_probe.py",
+                          "qml_shell_probe.py")
+        if "isolate_config_writes" not in (REPO_ROOT / "tests" / name).read_text(encoding="utf-8")
+    ]
+    if missing:
+        return False, f"这些子进程探针没装守卫：{missing}"
+    return True, "真配置只读：守卫拦下了写盘，conftest 与 7 个探针都装上了"
+
+
 def _d169_rename_moves_files_that_exist(text: Optional[str] = None) -> Tuple[bool, str]:
     """D-169（已修）：重命名要能真的跑通（旧实现在搬文件那一步必崩）。
 
@@ -1003,17 +1304,46 @@ LEDGER: Dict[str, Entry] = {
         where="tests/test_main_qml_entry.py", check=_d166_test_assembly_restores_the_language,
         files=("tests/test_main_qml_entry.py", "tests/test_music_service.py")),
     "D-167": Entry(
-        defect="D-167", state="挂账",
+        defect="D-167", state="已修",
         summary="版本「校验修复」只兑现了**校验**：核心只算哈希、不重下文件，「修复」没做",
-        where="services/version_service.py",
-        markers=("def verify", "verify_installed_version"),
-        reason="核心（`launcher/verify.py` + `MinecraftLauncher.verify_installed_version`）"
-               "的能力就是「并发算哈希、返回无效文件清单」—— **没有任何重下/修复入口**。"
-               "真正的修复要复用安装器的下载链路（补下缺失/损坏的库与主 jar），那条链路属"
-               "**阶段 3** 的 3.3（安装新版本向导）—— 本轮不假装有：界面上的动作叫「校验文件」，"
-               "结果如实报告「N 个文件中有 M 个损坏」。3.3 落地下载链路后，在这里补「修复」并在"
-               "对照表 B-22 的备注里加一行。",
-        files=("services/version_service.py", "qml/pages/versions/VersionsPage.qml")),
+        where="launcher/core.py",
+        markers=("def repair_installed_version", "def expected_version_files"),
+        check=_d167_repair_reuses_the_install_chain,
+        files=("launcher/core.py", "services/version_service.py",
+               "qml/pages/versions/VersionsPage.qml")),
+    "D-172": Entry(
+        defect="D-172", state="已修",
+        summary="给 `_set_status` 加了一个参数 → 多继承下被混入类的一元同名方法遮住，"
+                "装带加载器的版本必失败（`TypeError: _set_status() takes 2 positional arguments but 3 were given`）",
+        where="launcher/core.py",
+        markers=("def _emit_status", "def _emit_progress", "legacy_status = self._set_status"),
+        check=_d172_callbacks_survive_the_mro,
+        files=("launcher/core.py", "tests/test_version_paths.py")),
+    "D-173": Entry(
+        defect="D-173", state="已修",
+        summary="QML 侧除首次启动外**没有切换界面语言的入口**，用户只能手改 `config.json` —— "
+                "而改完会被下一次 `save_config()` 整份覆盖回去，表现为「每次启动都回英文」",
+        where="qml/shell/AppBar.qml",
+        markers=("languageButton", "Shell.requestLanguage()"),
+        check=_d173_language_can_be_switched_in_app,
+        files=("qml/shell/AppBar.qml", "qml/StartupDialogs.qml", "app/bridges/shell_bridge.py")),
+    "D-175": Entry(
+        defect="D-175", state="已修",
+        summary="`tests/test_startup.py` 的 `FakeContext` 没提供 `config` → 启动链条读的是**开发机**的 "
+                "`config.json`，动一次真配置就红两条（与 D-166 同一类：测试依赖用户配置）",
+        where="tests/test_startup.py",
+        markers=("class PinnedConfig", "self.config = PinnedConfig()"),
+        check=_d175_startup_reads_the_pinned_config,
+        files=("tests/test_startup.py", "app/startup.py")),
+    "D-176": Entry(
+        defect="D-176", state="已修",
+        summary="测试与探针走生产装配路径时**改写了开发机的真 `config.json`**"
+                "（并行跑一轮全量之后 `language` 变成 zh_CN、`accent_color` 被清空）",
+        where="tests/config_isolation.py",
+        markers=("def isolate_config_writes", "def restore_config_writes"),
+        check=_d176_tests_never_write_the_real_config,
+        files=("tests/config_isolation.py", "tests/conftest.py", "tests/_smoke_driver.py",
+               "tests/visual_probe.py")),
     "D-168": Entry(
         defect="D-168", state="挂账",
         summary="`rename_instance` 的两个失败分支返回**硬编码中文**，非中文界面下会露出中文句子",
@@ -1193,6 +1523,29 @@ def test_check_based_probes_are_not_empty_assertions() -> None:
          (REPO_ROOT / "tests/test_main_qml_entry.py").read_text(encoding="utf-8")
          .replace("i18n_service._current_language = saved_lang", ""),
          "把界面语言还原那一行删掉"),
+        ("D-172", _d172_callbacks_survive_the_mro,
+         source("launcher/core.py").replace(
+             "self._emit_status(status, sink)", "self._set_status(status, sink)"
+         ),
+         "把「本次调用的出口」改回给被混入类遮住的那个方法传第二个实参"),
+        ("D-173", _d173_language_can_be_switched_in_app,
+         (REPO_ROOT / "qml/shell/AppBar.qml").read_text(encoding="utf-8")
+         .replace("Shell.requestLanguage()", "Shell.nothingHere()"),
+         "把顶栏语言入口的落点改掉"),
+        ("D-175", _d175_startup_reads_the_pinned_config,
+         (REPO_ROOT / "tests/test_startup.py").read_text(encoding="utf-8")
+         .replace("self.config = PinnedConfig()", "self.config = None"),
+         "把注入的那份配置去掉（退回读开发机的 config.json）"),
+        ("D-176", _d176_tests_never_write_the_real_config,
+         (REPO_ROOT / "tests/config_isolation.py").read_text(encoding="utf-8")
+         .replace("config.save_config = blocked", "pass"),
+         "让守卫不真的替换 save_config（写盘照旧）"),
+        ("D-167", _d167_repair_reuses_the_install_chain,
+         source("launcher/core.py").replace(
+             "self.expected_version_files(version_data, versions_dir, version_id)",
+             "self._own_file_list()",
+         ),
+         "让修复自己另写一份文件清单（退回两处各说各话）"),
         ("D-169", _d169_rename_moves_files_that_exist,
          source("launcher/core.py").replace("dst = new_dir / item\n", "dst = new_dir / item.name\n"),
          "把搬文件那一行改回 item.name"),

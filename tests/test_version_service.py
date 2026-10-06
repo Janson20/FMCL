@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -48,6 +49,15 @@ class FakeLauncher:
         self.rename_result: Tuple[bool, str] = (True, "ok")
         self.remove_result: Tuple[bool, str] = (True, "1.20.4")
         self.verify_result: Dict[str, Any] = {"total": 3, "valid": 3, "invalid": []}
+        #: 修复的返回值（3.3 / D-167）；`raise_on_repair` 用来验"核心抛异常"那条路
+        self.repair_result: Dict[str, Any] = {
+            "ok": True, "reason": "", "total": 3, "missing": 0, "broken": 2,
+            "repaired": 2, "failed": [], "remaining": [],
+        }
+        self.raise_on_repair: Optional[BaseException] = None
+        #: 为 True 时修复会在里面等取消标志（取消语义的测试要它，见 `test_cancel_is_not_a_failure`）
+        self.wait_for_cancel = False
+        self.progress_calls: List[Tuple[int, int]] = []
         self.raise_on_scan = False
         self.instances: Dict[str, InstanceInfo] = {}
 
@@ -75,6 +85,30 @@ class FakeLauncher:
     def verify_installed_version(self, version_id: str) -> Dict[str, Any]:
         self.calls.append(("verify_installed_version", version_id))
         return dict(self.verify_result)
+
+    def repair_installed_version(
+        self, version_id: str, *, on_progress: Any = None, cancel_check: Any = None
+    ) -> Dict[str, Any]:
+        """3.3 的修复入口。**签名要与核心一致**（`on_progress` / `cancel_check` 都是关键字）。"""
+        self.calls.append(("repair_installed_version", version_id))
+        if on_progress is not None:
+            on_progress(1, 2, "Repair x")
+            self.progress_calls.append((1, 2))
+        if self.wait_for_cancel:
+            deadline = time.time() + 3.0
+            while time.time() < deadline:
+                if cancel_check is not None and cancel_check():
+                    from launcher.errors import InstallCancelled
+
+                    raise InstallCancelled("用户取消了修复")
+                time.sleep(0.005)
+        if cancel_check is not None and cancel_check():
+            from launcher.errors import InstallCancelled
+
+            raise InstallCancelled("用户取消了修复")
+        if self.raise_on_repair is not None:
+            raise self.raise_on_repair
+        return dict(self.repair_result)
 
 
 class FakeConfig:
@@ -793,3 +827,128 @@ class TestThreading:
         assert first.wait(5.0) and second.wait(5.0)
         assert len(observer.versions()) == 2
         assert [row["id"] for row in service.rows] == ["1.20.4"]
+
+
+# ─── 3.3：修复（B-22 的后半，D-167 的收口）────────────────────
+
+
+class TestRepair:
+    """修复的状态机：修好了 / 没得修 / 没修完 / 核对不了 / 取消了，各有各的话说。"""
+
+    def test_repaired_files_are_reported(self) -> None:
+        service, fake, _port, _config, observer = make_service()
+        fake.repair_result = {
+            "ok": True, "reason": "", "total": 5, "missing": 1, "broken": 1,
+            "repaired": 2, "failed": [], "remaining": [],
+        }
+
+        service.repair("1.20.4").wait(5.0)
+        assert observer.status_for("version_repair_ok") == ("success", {"repaired": 2})
+        kind, ok, data = observer.results()[-1]
+        assert (kind, ok) == ("repair", True)
+        assert data["repaired"] == 2 and data["remainingCount"] == 0
+
+    def test_nothing_to_repair_is_a_success_not_a_warning(self) -> None:
+        """没得修不是问题：校验通过之后再点修复，用户应当看到"没有需要修复的文件"。"""
+        service, fake, _port, _config, observer = make_service()
+        fake.repair_result = {
+            "ok": True, "reason": "", "total": 5, "missing": 0, "broken": 0,
+            "repaired": 0, "failed": [], "remaining": [],
+        }
+
+        service.repair("1.20.4").wait(5.0)
+        assert observer.status_for("version_repair_none")[0] == "success"
+        assert observer.results()[-1][1] is True
+
+    def test_incomplete_repair_reports_how_many_are_left(self) -> None:
+        service, fake, _port, _config, observer = make_service()
+        fake.repair_result = {
+            "ok": False, "reason": "incomplete", "total": 5, "missing": 2, "broken": 1,
+            "repaired": 2, "failed": ["x.jar: 网络断了"], "remaining": ["a.jar: 缺失", "b.jar: 哈希不符"],
+        }
+
+        service.repair("1.20.4").wait(5.0)
+        assert observer.status_for("version_repair_failed") == ("warning", {"remaining": 2})
+        assert observer.results()[-1][1] is False
+
+    def test_missing_version_json_uses_the_verify_empty_key(self) -> None:
+        """版本 JSON 都没有 = 没什么可核对的，沿用 3.2 那条键（界面上是同一件事）。"""
+        service, fake, _port, _config, observer = make_service()
+        fake.repair_result = {"ok": False, "reason": "json_missing", "total": 0,
+                              "missing": 0, "broken": 0, "repaired": 0, "failed": [], "remaining": []}
+
+        service.repair("1.20.4").wait(5.0)
+        assert observer.status_for("version_verify_empty")[0] == "warning"
+
+    def test_core_exception_becomes_a_status(self) -> None:
+        service, fake, _port, _config, observer = make_service()
+        fake.raise_on_repair = RuntimeError("磁盘满了")
+
+        service.repair("1.20.4").wait(5.0)
+        level, params = observer.status_for("version_repair_error")
+        assert level == "error" and "磁盘满了" in params["error"]
+        assert observer.results()[-1][1] is False
+
+    def test_cancel_is_not_a_failure(self) -> None:
+        """取消修复**不是**失败：文案与 data 都要看得出这是用户自己的决定。"""
+        service, fake, _port, _config, observer = make_service()
+        #: 真修复是"下几个文件"的长活；假件要停在那儿等取消标志，否则它会先跑完，
+        #: 测试变成"谁先跑"的竞态（实测过）。
+        fake.wait_for_cancel = True
+
+        handle = service.repair("1.20.4")
+        #: 等它真的进到核心里再取消：`TaskRunner` 对"还没开始就被取消"的任务是**直接
+        #: 跳过**的（不发任何状态、也不发结果），那样测的就不是"取消修复"了。
+        deadline = time.time() + 3.0
+        while time.time() < deadline and ("repair_installed_version", "1.20.4") not in fake.calls:
+            time.sleep(0.01)
+        assert service.cancel_repair() is True, "修复在跑的时候取消要返回 True（界面据此判断点得动）"
+        handle.wait(5.0)
+
+        assert observer.status_for("version_repair_cancelled") is not None
+        kind, ok, data = observer.results()[-1]
+        assert (kind, ok, data.get("cancelled")) == ("repair", False, True)
+
+    def test_blank_id_is_rejected(self) -> None:
+        service, _fake, _port, _config, observer = make_service()
+        assert service.repair("   ") is None
+        assert observer.status_for("version_select_first")[0] == "error"
+
+    def test_progress_is_forwarded_to_the_task_context(self) -> None:
+        """修复也要能报进度：核心的 `on_progress` 被接到任务的 `ctx.progress` 上。"""
+        service, fake, _port, _config, _observer = make_service()
+        service.repair("1.20.4").wait(5.0)
+        assert fake.progress_calls == [(1, 2)]
+
+    def test_cancel_repair_is_false_when_nothing_is_running(self) -> None:
+        """没有在跑的修复时取消返回 False（界面据此判断"点了没用"）。"""
+        service, _fake, _port, _config, _observer = make_service()
+        service.repair("1.20.4").wait(5.0)
+        assert service.cancel_repair() is False
+
+
+# ─── 3.3：装完之后交接给版本列表 ───────────────────────────────
+
+
+class TestPendingSelection:
+    def test_note_installed_rescans_and_remembers_the_version(self) -> None:
+        launcher = FakeLauncher([info("1.20.4", vanilla_name="1.20.4")])
+        service, fake, _port, _config, _observer = make_service(launcher)
+
+        service.note_installed("1.20.4").wait(5.0)
+        assert service.consume_pending_selection() == "1.20.4"
+        assert fake.invalidated == 1, "装完必须强制重扫（吃缓存会看不到刚装的那个）"
+        assert ("get_installed_versions",) in fake.calls
+
+    def test_consume_clears_the_pending_value(self) -> None:
+        """待选中只能用一次 —— 否则每次刷新列表都会把选中抢回那个旧版本。"""
+        service, _fake, _port, _config, _observer = make_service()
+        service.note_installed("1.20.4").wait(5.0)
+        assert service.consume_pending_selection() == "1.20.4"
+        assert service.consume_pending_selection() == ""
+
+    def test_blank_version_only_rescans(self) -> None:
+        service, fake, _port, _config, _observer = make_service()
+        service.note_installed("  ").wait(5.0)
+        assert service.consume_pending_selection() == ""
+        assert fake.invalidated == 1

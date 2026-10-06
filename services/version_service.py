@@ -10,11 +10,12 @@
 | B-19 | **新增**：搜索与排序（名称 / 游戏版本 / 加载器） | 无（旧界面没有搜索框） |
 | B-20 | **新增**：版本详情（路径 / 所需 Java 大版本 / 模组数量 / 加载器） | 无（旧界面没有详情页） |
 | B-21 | **新增**：打开版本目录 | 无 |
-| B-22 | **新增**：校验版本文件完整性（接 `MinecraftLauncher.verify_installed_version`） | 无（核心有这个能力，旧界面 0 个调用点） |
+| B-22 | **新增**：校验 + 修复版本文件完整性（接 `MinecraftLauncher.verify_installed_version` / `repair_installed_version`） | 无（核心有校验能力，旧界面 0 个调用点） |
 
-**"校验修复"里的"修复"没做**：核心只提供"校验"（`launcher/verify.py` 算哈希，
-不重下文件）。真正的修复要复用安装器的下载链路（属于 3.3 的向导），本轮**不假装有** ——
-已作为 `D-165` 挂账（理由与排期写在 `docs/refactor/07-known-defects.md`）。
+**"校验修复"在 3.3 补齐了**：3.2 只兑现了"校验"，因为修复要复用安装器的下载链路
+（那条链路属 3.3 的安装向导）。3.3 把核心的 `repair_installed_version()` 做出来之后，
+本服务补上 `repair()` / `cancel_repair()` —— 缺陷 D-167 因此结案
+（理由、变异自检与排期删改见 `docs/refactor/07-known-defects.md`）。
 
 ## 三条设计约束
 
@@ -134,6 +135,10 @@ class VersionService(Service):
         self._observer: Any = None
         self._rows: List[Dict[str, Any]] = []
         self._lock = threading.RLock()
+        #: 装完待选中的版本 id（`note_installed()` 写、`consume_pending_selection()` 取）
+        self._pending_select = ""
+        #: 正在跑的修复任务句柄（取消用）
+        self._repair_handle: Any = None
 
     # ─── 装配 ───────────────────────────────────────────────
 
@@ -467,6 +472,32 @@ class VersionService(Service):
         except Exception as e:  # noqa: BLE001
             self.log.warning("清理 last_launched_version 失败: %s", e)
 
+    # ─── 装完之后（3.3 的交接点）────────────────────────────
+
+    def note_installed(self, version_id: str) -> Any:
+        """有人刚装好一个版本：记下"待选中"，并强制重扫列表。
+
+        为什么"待选中"要放在这里而不是让安装向导直接去点列表：**列表的真相在
+        本服务**（`_rows` 与过滤/排序），装完之后"列表该刷新、刷新完该选中新的那个"
+        是一条业务规则；向导只负责把"装好了"这件事说出来（红线 2）。
+        桥在 `on_versions` 里把它取走并真正调用 `select()`。
+
+        Returns:
+            ``load(force=True)`` 的任务句柄（测试要等它跑完；生产路径不看返回值）。
+        """
+        vid = str(version_id or "").strip()
+        if vid:
+            with self._lock:
+                self._pending_select = vid
+        return self.load(force=True)
+
+    def consume_pending_selection(self) -> str:
+        """取走"待选中"的版本 id（取完即清；没有则返回空串）。"""
+        with self._lock:
+            pending = self._pending_select
+            self._pending_select = ""
+        return pending
+
     # ─── 校验（B-22，新增）──────────────────────────────────
 
     def verify(self, version_id: str) -> Any:
@@ -511,6 +542,102 @@ class VersionService(Service):
             "valid": valid,
             "invalid": [str(item) for item in invalid[:MAX_INVALID_REPORTED]],
             "invalidCount": len(invalid),
+        })
+
+    # ─── 修复（B-22 的后半，D-167 的收口）──────────────────
+
+    def repair(self, version_id: str) -> Any:
+        """异步修复版本文件（缺失 / 哈希不符的库与主 jar 重下）。返回 ``TaskHandle``。
+
+        与 `verify()` 的分工：校验**只报**问题（3.2 已验收的语义），修复**动手补**。
+        两处用的是核心里同一份文件清单（`MinecraftLauncher.expected_version_files`），
+        所以"校验说坏的"和"修复去下的"不可能是两批文件。
+
+        取消：`cancel_repair()` 走任务句柄的取消标志，核心在下载回调里查它
+        （文件级粒度，见 `launcher/errors.py`）。
+        """
+        vid = str(version_id or "").strip()
+        if not vid:
+            self._emit_status("version_select_first", "error", {})
+            return None
+        handle = self.tasks.submit(
+            self._repair_sync, vid, name=f"version.repair.{vid}", pass_context=True
+        )
+        with self._lock:
+            self._repair_handle = handle
+        return handle
+
+    def cancel_repair(self) -> bool:
+        """请求取消正在跑的修复（**请求**，真正停下要等下载回调下一次检查）。"""
+        with self._lock:
+            handle = self._repair_handle
+        if handle is None:
+            return False
+        try:
+            handle.cancel()
+        except Exception as e:  # noqa: BLE001 - 取消失败只记一句
+            self.log.warning("取消修复失败: %s", e)
+            return False
+        return True
+
+    def _repair_sync(self, ctx: Any, version_id: str) -> Dict[str, Any]:
+        from launcher.errors import InstallCancelled
+
+        self._emit_status("version_repairing", "loading", {"version": version_id})
+        launcher = self._resolve_launcher()
+        if launcher is None:
+            self._emit_status("version_repair_error", "error", {"error": "launcher_unavailable"})
+            return self._result("repair", False, {"id": version_id, "error": "launcher_unavailable"})
+
+        def report_progress(current: int, total: int, _text: str = "") -> None:
+            try:
+                ctx.progress(int(current or 0), int(total or 0), "")
+            except Exception:  # noqa: BLE001 - 进度上报失败不影响修复
+                pass
+
+        try:
+            data = launcher.repair_installed_version(
+                version_id,
+                on_progress=report_progress,
+                cancel_check=lambda: bool(getattr(ctx, "cancelled", False)),
+            )
+        except InstallCancelled:
+            self._emit_status("version_repair_cancelled", "info", {"version": version_id})
+            with self._lock:
+                self._repair_handle = None
+            return self._result("repair", False, {"id": version_id, "cancelled": True})
+        except Exception as e:  # noqa: BLE001
+            self.log.error("修复 %s 失败: %s", version_id, e)
+            self._emit_status("version_repair_error", "error", {"error": str(e)})
+            with self._lock:
+                self._repair_handle = None
+            return self._result("repair", False, {"id": version_id, "error": str(e)})
+
+        with self._lock:
+            self._repair_handle = None
+
+        result = data if isinstance(data, dict) else {}
+        reason = str(result.get("reason", "") or "")
+        repaired = int(result.get("repaired", 0) or 0)
+        remaining = list(result.get("remaining", []) or [])
+        ok = bool(result.get("ok"))
+
+        if reason == "json_missing":
+            self._emit_status("version_verify_empty", "warning", {})
+        elif ok and repaired == 0:
+            self._emit_status("version_repair_none", "success", {})
+        elif ok:
+            self._emit_status("version_repair_ok", "success", {"repaired": repaired})
+        else:
+            self._emit_status("version_repair_failed", "warning", {"remaining": len(remaining)})
+
+        return self._result("repair", ok, {
+            "id": version_id,
+            "repaired": repaired,
+            "remaining": remaining[:MAX_INVALID_REPORTED],
+            "remainingCount": len(remaining),
+            "failed": list(result.get("failed", []) or [])[:MAX_INVALID_REPORTED],
+            "reason": reason,
         })
 
     # ─── 打开目录（B-21，新增）──────────────────────────────

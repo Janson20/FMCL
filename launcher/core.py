@@ -19,6 +19,7 @@ from logzero import logger
 
 from app.ports import NullUIPort, UIPort
 from config import Config
+from launcher.errors import InstallCancelled
 from mirror import MirrorSource
 from services.theme_service import Theme, get_theme_engine, init_theme_engine
 from services.user_agent import USER_AGENT
@@ -406,19 +407,23 @@ class MinecraftLauncher:
             logger.info("使用Mojang官方源")
 
     def _set_status(self, status: str) -> None:
-        """状态回调"""
+        """状态回调。
+
+        **签名不许动**（一元的）：`MinecraftLauncher` 是**多继承**的，`MultiMCMixin`
+        排在核心前面且定义了同名的一元方法（`launcher/multimc.py:921`）。给它多传一个
+        参数就是"装带加载器的版本必失败"——用户 2026-10-06 实测过（缺陷 D-172：
+        `_set_status() takes 2 positional arguments but 3 were given`）。
+        本次调用专用的出口在 `_emit_status()` / `_emit_progress()`（新名字，谁也覆盖不了）。
+        """
         logger.info(status)
         if self.on_progress:
             self.on_progress(0, 0, status)
 
     def _set_progress(self, progress: int) -> None:
-        """进度回调（节流：大量文件下载时避免高频回调导致UI卡死）"""
+        """进度回调（一元；节流：大量文件下载时避免高频回调导致UI卡死）"""
         if self.current_max != 0:
-            now = time.time()
-            last = getattr(self, "_last_progress_time", 0)
-            if progress != self.current_max and now - last < 0.1:
+            if not self._should_report_progress(progress):
                 return
-            self._last_progress_time = now
             logger.debug(f"进度: {progress}/{self.current_max}")
             if self.on_progress:
                 self.on_progress(progress, self.current_max, "")
@@ -428,9 +433,83 @@ class MinecraftLauncher:
         self.current_max = new_max
         logger.info(f"总任务数: {new_max}")
 
-    def _get_callback(self) -> Dict[str, Callable]:
-        """获取回调函数字典"""
-        return {"setStatus": self._set_status, "setProgress": self._set_progress, "setMax": self._set_max}
+    def _should_report_progress(self, progress: int) -> bool:
+        """进度节流判据：0.1 秒一次，但**收尾那一条必报**（两条出口共用）。
+
+        为什么单独一个方法：老出口（`_set_progress`，走 `self.on_progress`）与
+        本次调用出口（`_emit_progress`）必须**同一套节流语义**，否则同一次下载
+        在两个消费者眼里进度条走得不一样。
+        """
+        now = time.time()
+        last = getattr(self, "_last_progress_time", 0)
+        if progress != self.current_max and now - last < 0.1:
+            return False
+        self._last_progress_time = now
+        return True
+
+    def _emit_status(self, status: str, sink: Optional[Callable[[int, int, str], None]]) -> None:
+        """**本次调用专用**的状态出口（阶段 3 任务 3.3）。
+
+        为什么另起名字而不是给 `_set_status` 加参数：见 `_set_status` 的 docstring
+        —— 那个名字会被混入类遮住，加参数等于给真实类埋一颗必炸的雷（D-172）。
+        """
+        logger.info(status)
+        if sink is not None:
+            sink(0, 0, status)
+
+    def _emit_progress(self, progress: int, sink: Optional[Callable[[int, int, str], None]]) -> None:
+        """**本次调用专用**的进度出口（节流与老出口共用 `_should_report_progress`）。"""
+        if self.current_max == 0:
+            return
+        if not self._should_report_progress(progress):
+            return
+        logger.debug(f"进度(本次调用出口): {progress}/{self.current_max}")
+        if sink is not None:
+            sink(progress, self.current_max, "")
+
+    def _get_callback(
+        self,
+        on_progress: Optional[Callable[[int, int, str], None]] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
+    ) -> Dict[str, Callable]:
+        """获取回调函数字典。
+
+        阶段 3 任务 3.3 给两个可选参数（**都不传时与从前逐字节等价**）：
+
+        * ``on_progress``：本次调用的进度出口；不给就还是 `self.on_progress`。
+        * ``cancel_check``：取消标志的检查函数。mcllib 的下载循环**每个文件**都会
+          调一次 `setStatus`/`setProgress`，所以在这里抛 `InstallCancelled`
+          就等于"按文件粒度中断"—— 这是核心层唯一能在不重写下载器的前提下
+          得到的取消时机（`downloader.py` / mcllib 都没有取消钩子）。
+
+        **多继承的坑（D-172，用户实测）**：`self._set_status` 在本类上解析到的是
+        `MultiMCMixin._set_status(self, msg)`（一元），所以这里
+        **只能按老签名调它**；本次调用的出口一律走 `_emit_status` / `_emit_progress`。
+        """
+        #: 解析一次：没有本次出口时要回落到"老的那个"（多继承下可能是混入类的实现）
+        legacy_status = self._set_status
+        sink = self.on_progress if on_progress is None else on_progress
+
+        def check_cancel() -> None:
+            if cancel_check is not None and cancel_check():
+                raise InstallCancelled("用户取消了安装")
+
+        def set_status(status: str) -> None:
+            check_cancel()
+            if sink is not None:
+                self._emit_status(status, sink)
+            else:  # 没人接进度：保持老行为（Tk 那边混入类会转给 `self.set_status`）
+                legacy_status(status)
+
+        def set_progress(progress: int) -> None:
+            check_cancel()
+            if sink is not None:
+                self._emit_progress(progress, sink)
+            else:
+                self._set_progress(progress)
+
+        return {"setStatus": set_status, "setProgress": set_progress, "setMax": self._set_max}
+
 
     def check_and_setup_environment(self) -> None:
         """检查并设置环境"""
@@ -519,6 +598,43 @@ class MinecraftLauncher:
         except Exception as e:
             logger.error(f"安全回退也失败: {str(e)}")
             return []
+
+    #: 能"问一句支不支持这个 MC 版本"的加载器 id（mcllib 侧有官方 meta 可查的那四个）。
+    #: 另外四个（LiteLoader / LegacyFabric / Cleanroom / OptiFine）在 `downloader.py` 里
+    #: 是自定义安装器，没有查询接口 —— 它们的兼容判定在服务层按本地规则做。
+    QUERYABLE_MOD_LOADERS: Tuple[str, ...] = ("forge", "fabric", "neoforge", "quilt")
+
+    def check_mod_loader_support(self, loader: str, minecraft_version: str) -> Optional[bool]:
+        """问加载器自己的元数据：它支不支持这个 MC 版本（阶段 3 任务 3.3 的兼容提示）。
+
+        **返回三态，不是 bool**：
+
+        * ``True`` —— 加载器的官方 meta 里明确列出该版本；
+        * ``False`` —— 明确没有（真的装不了，界面给警告）；
+        * ``None`` —— 问不出来（网络失败 / 加载器不在可查询之列）。
+
+        为什么"问不出来"必须自成一态：把它并进 ``False``，一次网络抖动就会让界面
+        声称"不支持"，用户于是不敢装了 —— 兼容提示是**参考信息**，不能反过来
+        把能装的东西拦掉（旧 Tk 界面压根没有这个提示，这一步纯属新增）。
+
+        实现用 mcllib 的 `is_minecraft_version_supported()`：它读的就是安装器随后
+        要读的那份 meta（Forge 的 promotions、Fabric/Quilt 的 meta v2、NeoForge 的
+        maven），所以提示与真正开始装时不会各说各话。
+        """
+        loader_id = str(loader or "").strip().lower()
+        version = str(minecraft_version or "").strip()
+        if not version or loader_id in ("", "none", "无"):
+            return None
+        if loader_id not in self.QUERYABLE_MOD_LOADERS:
+            return None
+        try:
+            mod_loader = self._mcllib.mod_loader.get_mod_loader(loader_id)
+            supported = mod_loader.is_minecraft_version_supported(version)
+        except Exception as e:  # noqa: BLE001 - 查询失败=未知，不影响安装
+            logger.info(f"查询 {loader_id} 是否支持 MC {version} 失败（按未知处理）: {e}")
+            return None
+        logger.info(f"加载器兼容查询: {loader_id} / {version} → {supported}")
+        return bool(supported)
 
     def get_installed_versions(self) -> List[InstanceInfo]:
         """获取已安装的版本列表（返回结构化实例信息）
@@ -809,7 +925,14 @@ class MinecraftLauncher:
                 pass
             return False, str(e)
 
-    def install_version(self, version_id: str, mod_loader: str = "无") -> Tuple[bool, str]:
+    def install_version(
+        self,
+        version_id: str,
+        mod_loader: str = "无",
+        *,
+        on_progress: Optional[Callable[[int, int, str], None]] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
+    ) -> Tuple[bool, str]:
         """
         安装Minecraft版本
 
@@ -823,16 +946,29 @@ class MinecraftLauncher:
         Args:
             version_id: 版本ID (如 "1.20.4" 或 "26.1")
             mod_loader: 模组加载器 ("无", "Forge", "Fabric", "NeoForge")
+            on_progress: 本次调用的进度出口 ``(当前, 总数, 状态文本)``；
+                不给就用 ``self.on_progress``（旧 Tk 界面的挂法，行为不变）。
+            cancel_check: 取消标志检查函数。为真时抛 `InstallCancelled`
+                （文件级粒度；见 `launcher/errors.py` 的语义说明）。
 
         Returns:
             (是否成功, 安装后的版本ID) 元组
             安装原版时返回 version_id
             安装模组加载器时返回 loader 创建的版本ID (如 "1.20.4-forge-49.0.26" 或 "26.1-forge-1.0.0")
+
+        Raises:
+            InstallCancelled: 用户取消（**不是失败**，调用方要单独处理）。
         """
         # 验证版本ID合法性
         if not validate_version_id(version_id):
             logger.error(f"非法版本ID格式: {version_id}")
             return False, version_id
+
+        # 取消检查的第一道闸：还没开始下载就点了取消，一个字节都不该下
+        if cancel_check is not None and cancel_check():
+            raise InstallCancelled("用户取消了安装")
+
+        callback = self._get_callback(on_progress, cancel_check)
 
         # ── 插件钩子: version.pre_install ──
         self._emit_plugin_hook("version.pre_install", version_id=version_id, mod_loader=mod_loader)
@@ -857,7 +993,7 @@ class MinecraftLauncher:
                 def _install_vanilla():
                     try:
                         self._mcllib.install.install_minecraft_version(
-                            version_id, self.minecraft_dir, callback=self._get_callback()
+                            version_id, self.minecraft_dir, callback=callback
                         )
                         vanilla_done.set()
                     except Exception as e:
@@ -867,6 +1003,14 @@ class MinecraftLauncher:
                 def _install_loader():
                     try:
                         vanilla_done.wait()
+
+                        # 取消检查的第二道闸（**阶段边界**）：原版装完才发现用户点了取消，
+                        # 就不要再去装加载器了。为什么不能只靠下载回调里的那道闸 ——
+                        # 四个自定义安装器（LiteLoader/LegacyFabric/Cleanroom/OptiFine）
+                        # 的签名里根本没有 callback（`downloader.py:512/665/811/1061`），
+                        # 它们下载期间那道闸是聋的，所以边界这道必须有。
+                        if cancel_check is not None and cancel_check():
+                            raise InstallCancelled("用户取消了安装")
 
                         from downloader import install_mod_loader as _install_mod_loader
 
@@ -880,7 +1024,7 @@ class MinecraftLauncher:
                             minecraft_dir=self.minecraft_dir,
                             num_threads=self.config.download_threads,
                             mirror=self._mirror,
-                            callback=self._get_callback(),
+                            callback=callback,
                             java=java_path if java_path != "java" and os.path.isfile(java_path) else None,
                         )
                         loader_result[0] = result
@@ -895,6 +1039,13 @@ class MinecraftLauncher:
 
                 if loader_error[0]:
                     raise loader_error[0]
+
+                # 取消检查的第三道闸：两条线程都回来了再确认一次。
+                # 为什么要有这一道：原版线程被下载回调里的那道闸打断时，加载器线程
+                # 可能已经过了第二道闸（时间窗），于是这里会拿着一份 loader 的"成功"结果
+                # —— 但用户已经说不装了，取消的语义必须赢。
+                if cancel_check is not None and cancel_check():
+                    raise InstallCancelled("用户取消了安装")
 
                 installed_version_id, loader_version = loader_result[0]
 
@@ -916,13 +1067,23 @@ class MinecraftLauncher:
                 # 仅安装原版 Minecraft
                 logger.info(f"正在安装 Minecraft {version_id}")
                 self._mcllib.install.install_minecraft_version(
-                    version_id, self.minecraft_dir, callback=self._get_callback()
+                    version_id, self.minecraft_dir, callback=callback
                 )
                 logger.info(f"Minecraft {version_id} 安装成功")
                 slog.info("version_installed", version=version_id, loader="vanilla", installed_version_id=version_id)
                 self._emit_plugin_hook("version.post_install", version_id=version_id, success=True)
                 self.invalidate_instance_cache()
                 return True, version_id
+
+        except InstallCancelled:
+            # 取消**不是失败**：不记 slog.error、不发 post_install(success=False)、
+            # 不转成 (False, version_id) —— 原样抛给调用方（见 `launcher/errors.py`）。
+            # 但要失效实例缓存：磁盘上可能已经多了一个不完整的版本目录，
+            # 界面刷新时必须看得见它（宁可显示半个版本，也不要瞒着）。
+            logger.info(f"安装已取消: {version_id} (loader={mod_loader})")
+            slog.info("version_install_cancelled", version=version_id, loader=mod_loader)
+            self.invalidate_instance_cache()
+            raise
 
         except Exception as e:
             logger.error(f"安装版本失败: {str(e)}")
@@ -2766,6 +2927,82 @@ class MinecraftLauncher:
         """通知主窗口重新应用主题颜色"""
         pass
 
+    def _read_version_json_data(self, version_json: Path) -> Dict[str, Any]:
+        """读版本 JSON（orjson 优先，与校验路径一直以来的做法一致）。"""
+        try:
+            import orjson
+
+            return orjson.loads(version_json.read_bytes())
+        except ImportError:
+            with open(str(version_json), "r", encoding="utf-8") as f:
+                return json.load(f)
+
+    def expected_version_files(
+        self, version_data: Dict[str, Any], versions_dir: Path, version_id: str
+    ) -> List[Dict[str, Any]]:
+        """从版本 JSON 里算出**可校验/可重下的文件清单**（库 + 主程序 jar）。
+
+        每项 ``{"path": Path, "url": str, "sha1": str, "kind": "library"/"client"}``。
+        **不判断文件是否存在** —— 校验只看已存在的那批（3.2 已验收的语义不变），
+        修复还要靠"不存在"来发现缺文件，所以清单必须是全集。
+
+        为什么必须只有这一份清单（缺陷 D-170 的教训）：读 JSON 与找 jar 原来各写一套
+        假设，于是同一个版本"列表里看得见、一校验就说 JSON 不存在"。校验与修复要是
+        再各写一份，等于把同一个坑挖两遍。
+        """
+        files: List[Dict[str, Any]] = []
+
+        for lib in version_data.get("libraries", []) or []:
+            if not isinstance(lib, dict):
+                continue
+            downloads = lib.get("downloads", {})
+            if not isinstance(downloads, dict):
+                continue
+            artifact = downloads.get("artifact") or (downloads.get("classifiers", {}) or {}).get("natives-windows")
+            if not isinstance(artifact, dict) or not artifact.get("sha1"):
+                continue
+            rel = artifact.get("path", "")
+            if not rel:
+                continue
+            files.append({
+                "path": self.config.minecraft_dir / "libraries" / rel,
+                # mcllib 的 `install_libraries()` 只下 `url != ""` 且有 `path` 的库
+                # （`minecraft_launcher_lib/install.py:103-115`）—— 这里照抄同一个判据，
+                # 免得清单里混进"安装器根本不会下"的条目，修复一跑就报"下不了"。
+                "url": str(artifact.get("url") or ""),
+                "sha1": str(artifact["sha1"]),
+                "kind": "library",
+            })
+
+        downloads = version_data.get("downloads")
+        if isinstance(downloads, dict):
+            client = downloads.get("client")
+            if isinstance(client, dict) and client.get("sha1"):
+                jar_path = self._find_version_jar(versions_dir, version_id, client)
+                if jar_path is None:
+                    # 文件不在了也要能修：官方安装器的布局是 `versions/{id}/{id}.jar`
+                    jar_path = versions_dir / version_id / f"{version_id}.jar"
+                files.append({
+                    "path": jar_path,
+                    "url": str(client.get("url") or ""),
+                    "sha1": str(client["sha1"]),
+                    "kind": "client",
+                })
+
+        return files
+
+    @staticmethod
+    def _sha1_of(path: Path) -> Optional[str]:
+        """算一个文件的 sha1；读不了返回 None（调用方按"坏文件"处理）。"""
+        try:
+            digest = hashlib.sha1()
+            with open(str(path), "rb") as f:
+                for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            return digest.hexdigest()
+        except OSError:
+            return None
+
     def verify_installed_version(self, version_id: str, max_workers: int = 4) -> Dict[str, Any]:
         """
         并发校验已安装版本的文件完整性
@@ -2787,37 +3024,15 @@ class MinecraftLauncher:
             return {"total": 0, "valid": 0, "invalid": []}
 
         try:
-            # 高性能 JSON 解析
-            try:
-                import orjson
+            version_data = self._read_version_json_data(version_json)
 
-                version_data = orjson.loads(version_json.read_bytes())
-            except ImportError:
-                import json
-
-                with open(str(version_json), "r", encoding="utf-8") as f:
-                    version_data = json.load(f)
-
-            file_hash_pairs: List[Tuple[Path, str, str]] = []
-
-            # 从版本 JSON 中提取库文件和主程序的校验信息
-            libraries = version_data.get("libraries", [])
-            for lib in libraries:
-                downloads = lib.get("downloads", {})
-                artifact = downloads.get("artifact") or downloads.get("classifiers", {}).get("natives-windows")
-                if artifact and artifact.get("sha1"):
-                    path = self.config.minecraft_dir / "libraries" / artifact.get("path", "")
-                    if path.exists():
-                        file_hash_pairs.append((path, artifact["sha1"], "sha1"))
-
-            # 主程序 jar
-            main_downloads = version_data.get("mainClass", {})
-            if isinstance(version_data.get("downloads"), dict):
-                client = version_data["downloads"].get("client")
-                if client and client.get("sha1"):
-                    jar_path = self._find_version_jar(versions_dir, version_id, client)
-                    if jar_path is not None:
-                        file_hash_pairs.append((jar_path, client["sha1"], "sha1"))
+            # 只看**已存在**的文件（缺失不算"损坏"，这是 3.2 交付并验收过的语义；
+            # 缺失由修复链路负责补齐，见 `repair_installed_version()`）。
+            file_hash_pairs: List[Tuple[Path, str, str]] = [
+                (item["path"], item["sha1"], "sha1")
+                for item in self.expected_version_files(version_data, versions_dir, version_id)
+                if item["path"].exists()
+            ]
 
             if not file_hash_pairs:
                 return {"total": 0, "valid": 0, "invalid": []}
@@ -2834,6 +3049,133 @@ class MinecraftLauncher:
         except Exception as e:
             logger.error(f"版本校验失败: {e}")
             return {"total": 0, "valid": 0, "invalid": []}
+
+    #: 修复时最多重下多少条（与 `services/install_service.py` 的报告上限同一个数量级）。
+    #: 一个版本的库通常几十到一两百条，不设上限也只是慢；设上限是为了"清单被写坏"
+    #: 这类异常情况下不会把整晚的带宽都花在一个版本上。
+    MAX_REPAIR_FILES = 400
+
+    #: 修复结果里最多回传多少条"仍缺/仍坏"的路径（界面只显示条数）。
+    MAX_REPAIR_REPORTED = 50
+
+    def repair_installed_version(
+        self,
+        version_id: str,
+        *,
+        on_progress: Optional[Callable[[int, int, str], None]] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
+    ) -> Dict[str, Any]:
+        """修复已安装版本：把**缺失或哈希不符**的库与主程序 jar 重新下回来。
+
+        与 `verify_installed_version()` 的关系（D-167 的收口点）：
+
+        * 清单同源 —— 两处都用 `expected_version_files()`，不可能各说各话；
+        * 校验**只报已存在的坏文件**（3.2 语义），修复**连缺失的一起补**
+          （缺失是安装中断最常见的结果，不补等于"修复"两个字缺一半）；
+        * 重下用的是**安装器自己的下载原语** `minecraft_launcher_lib._helper.download_file`：
+          它按 sha1 跳过合格文件、哈希不符就地重写（`overwrite=False` 也不会漏），
+          所以这条路既是"复用安装链路"，又不会为一个坏文件重下整套资源。
+
+        Args:
+            version_id: 版本ID（目录名，可以是重命名过的实例）
+            on_progress: 进度出口 ``(已完成, 总数, 状态文本)``
+            cancel_check: 取消标志；为真时抛 `InstallCancelled`
+
+        Returns:
+            ``{"ok": bool, "total": 清单条数, "missing": 缺失数, "broken": 损坏数,
+            "repaired": 修好数, "failed": [失败的说明], "reason": ""/"json_missing"/...}``
+        """
+        from minecraft_launcher_lib._helper import download_file
+
+        versions_dir = self.config.get_versions_dir()
+        version_json = self.find_version_json(version_id)
+        if version_json is None:
+            logger.error(f"修复失败：版本 JSON 不存在 ({version_id})")
+            return {
+                "ok": False, "reason": "json_missing", "total": 0,
+                "missing": 0, "broken": 0, "repaired": 0, "failed": [],
+            }
+
+        version_data = self._read_version_json_data(version_json)
+        expected = self.expected_version_files(version_data, versions_dir, version_id)
+
+        missing: List[Dict[str, Any]] = []
+        broken: List[Dict[str, Any]] = []
+        for item in expected:
+            path = item["path"]
+            if not path.exists():
+                missing.append(item)
+            elif self._sha1_of(path) != item["sha1"]:
+                broken.append(item)
+
+        todo = missing + broken
+        no_url = [item for item in todo if not item["url"]]
+        todo = [item for item in todo if item["url"]]
+        if len(todo) > self.MAX_REPAIR_FILES:
+            logger.warning(f"待修复文件 {len(todo)} 条，超过上限 {self.MAX_REPAIR_FILES}，只修前一批")
+            todo = todo[: self.MAX_REPAIR_FILES]
+
+        logger.info(
+            f"开始修复 {version_id}: 缺失 {len(missing)} 个 / 损坏 {len(broken)} 个 / 本次重下 {len(todo)} 个"
+        )
+
+        callback = self._get_callback(on_progress, cancel_check)
+        callback.get("setMax", lambda _n: None)(len(todo))
+        callback.get("setStatus", lambda _s: None)(f"Repair {version_id}")
+
+        repaired = 0
+        failed: List[str] = []
+        for index, item in enumerate(todo, start=1):
+            if cancel_check is not None and cancel_check():
+                raise InstallCancelled("用户取消了修复")
+            try:
+                download_file(
+                    item["url"],
+                    str(item["path"]),
+                    callback,
+                    sha1=item["sha1"],
+                    minecraft_directory=str(self.minecraft_dir),
+                )
+            except InstallCancelled:
+                raise
+            except Exception as e:  # noqa: BLE001 - 单个文件失败不该中断整轮修复
+                logger.warning(f"重下失败 ({item['path']}): {e}")
+                failed.append(f"{item['path']}: {e}")
+            else:
+                # 下载器只在 sha1 相符时才算成功，但"文件到位"与"内容正确"是两回事
+                # —— 这里自己再算一次，报出去的 repaired 必须是**验过**的数。
+                if self._sha1_of(item["path"]) == item["sha1"]:
+                    repaired += 1
+                else:
+                    failed.append(f"{item['path']}: 重下后哈希仍不符")
+            callback.get("setProgress", lambda _p: None)(index)
+
+        for item in no_url:
+            failed.append(f"{item['path']}: 版本 JSON 里没有下载地址")
+
+        # "还剩多少没修好"必须在**已经重下的那批**上算，而不是只在 missing/broken 上算：
+        # 哈希不符的文件重下后可能还是不符（源站坏了），那属于"修了但没修好"。
+        remaining: List[str] = []
+        for item in expected:
+            path = item["path"]
+            if not path.exists():
+                remaining.append(f"{path}: 缺失")
+            elif self._sha1_of(path) != item["sha1"]:
+                remaining.append(f"{path}: 哈希不符")
+        remaining = remaining[: self.MAX_REPAIR_REPORTED]
+        self.invalidate_instance_cache()
+        ok = not remaining and not failed
+        logger.info(f"修复完成 {version_id}: 修好 {repaired} 个，仍缺/坏 {len(remaining)} 个，失败 {len(failed)} 条")
+        return {
+            "ok": ok,
+            "reason": "" if ok else "incomplete",
+            "total": len(expected),
+            "missing": len(missing),
+            "broken": len(broken),
+            "repaired": repaired,
+            "failed": failed[: self.MAX_REPAIR_REPORTED],
+            "remaining": remaining,
+        }
 
     def get_minecraft_dir(self) -> str:
         """获取 .minecraft 目录路径"""

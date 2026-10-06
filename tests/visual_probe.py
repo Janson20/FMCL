@@ -209,6 +209,12 @@ def patch(probe: Probe, window: Any, node: Any, tokens: Dict[str, str]) -> Dict[
 # 一个真的 App.qml 窗口"，手装更可控，也和 `tests/qml_shell_probe.py` 保持一致。
 
 APP = QGuiApplication.instance() or QGuiApplication([])
+#: 真配置的写盘也要挡住：本探针走生产桥装配路径，手里那份 `config` 就是根模块单例 ——
+#: 不挡的话跑一轮探针就会把开发机的 `config.json` 改写掉（语言/强调色都中过招）。
+from config_isolation import isolate_config_writes  # noqa: E402
+
+isolate_config_writes("visual-probe")
+
 SINK = main_qml.install_message_handler()
 ENGINE = main_qml.build_engine()
 # 图标上色 provider 必须注册：不注册的话每个 `image://fmcl-icon/…` 都画不出东西，

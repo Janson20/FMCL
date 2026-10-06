@@ -491,6 +491,32 @@ FmPage {
                 }
             }
 
+            //: 修复（3.3 / D-167）：把校验出来的坏文件与缺失文件重下回来。
+            //  校验只报问题，修复动手补 —— 两个动作挨着放，用户的下一步就是它。
+            FmButton {
+                objectName: "versionsDetailRepair"
+                primary: false
+                text: Tr?.map["version_repair"] ?? "version_repair"
+                iconName: "refresh"
+                enabled: page.bridgeAvailable && Versions.hasCurrent && !Versions.busy
+                onClicked: {
+                    if (page.bridgeAvailable)
+                        Versions.repair(Versions.currentId)
+                }
+            }
+
+            //: 修复/校验进行中的取消（请求式：核心在下载回调里查标志）
+            FmButton {
+                objectName: "versionsDetailCancelRepair"
+                primary: false
+                visible: page.bridgeAvailable && Versions.busy
+                text: Tr?.map["cancel"] ?? "cancel"
+                onClicked: {
+                    if (page.bridgeAvailable)
+                        Versions.cancelRepair()
+                }
+            }
+
             FmButton {
                 objectName: "versionsDetailMods"
                 primary: false

@@ -185,6 +185,12 @@ CONTEXT = build_context(config=None, register=True, set_current=False)
 CONTEXT.register_instance("version", FAKE_VERSION, replace=True)
 CONTEXT.register_instance("game", FAKE_GAME, replace=True)
 
+#: 真配置的写盘也要挡住：本探针走生产桥装配路径，手里那份 `config` 就是根模块单例 ——
+#: 不挡的话跑一轮探针就会把开发机的 `config.json` 改写掉（语言/强调色都中过招）。
+from config_isolation import isolate_config_writes  # noqa: E402
+
+isolate_config_writes("versions-probe")
+
 ENGINE = main_qml.build_engine()
 install_icon_provider(ENGINE)
 BRIDGES = main_qml.register_bridges(ENGINE, CONTEXT)

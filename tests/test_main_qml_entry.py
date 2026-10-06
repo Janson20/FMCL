@@ -77,10 +77,17 @@ def assembled():
     （`test_server_service` / `test_voice_input` 等）依赖 `AppContext.current()`
     来断言"服务被缓存 / 优先用 owner.context"，被我们改掉之后就会全量跑时红、
     单独跑绿 —— 这正是阶段 1 踩过的"测试间状态污染"。
+
+    **还必须隔离单实例守卫**（`isolate_single_instance`）：并行跑（`pytest -n auto`）
+    时两个 worker 都来装配应用，后到的那个会抛 `AlreadyRunning`，本模块 14 条用例
+    的 setup 一起红 —— 那是环境占用，不是界面缺陷。
     """
+    from single_instance_isolation import isolate_single_instance
+
     import main_qml
     from app.context import AppContext
 
+    isolate_single_instance("main-qml-entry")
     previous = AppContext.current()
     built = main_qml.assemble([], init_logging=False)
     try:
@@ -291,6 +298,7 @@ def test_runtime_icon_url_is_callable_from_qml(assembled):
     """
     from PySide6.QtCore import QUrl
     from PySide6.QtQml import QQmlComponent
+
     # 必须先 import QtQuick：否则 create() 只返回 QWindow 壳（没有 contentItem），实测踩过。
     from PySide6.QtQuick import QQuickWindow  # noqa: F401
 
@@ -560,8 +568,9 @@ def test_raise_main_window_is_skipped_on_offscreen():
     而 [P0] 冒烟测试把"未登记的 Qt 警告"当作失败 —— 第一版把它写在 QML 的
     `onVisibleChanged` 里，冒烟测试当场变红（那次实测值 183/183 → 1 条失败）。
     """
-    import main_qml
     from PySide6.QtGui import QGuiApplication
+
+    import main_qml
 
     assert QGuiApplication.platformName() == "offscreen", "本仓库的 Qt 测试都在 offscreen 下跑"
     window = _FakeWindow()
@@ -571,8 +580,9 @@ def test_raise_main_window_is_skipped_on_offscreen():
 
 def test_raise_main_window_calls_both_methods_on_a_real_platform(monkeypatch):
     """真平台（这里用假平台名模拟）上要**两个都调**，且单个失败不影响另一个。"""
-    import main_qml
     from PySide6.QtGui import QGuiApplication
+
+    import main_qml
 
     monkeypatch.setattr(QGuiApplication, "platformName", staticmethod(lambda: "windows"))
     window = _FakeWindow()
@@ -594,8 +604,9 @@ def test_raise_main_window_refuses_off_the_main_thread(monkeypatch):
     """
     import threading
 
-    import main_qml
     from PySide6.QtGui import QGuiApplication
+
+    import main_qml
 
     monkeypatch.setattr(QGuiApplication, "platformName", staticmethod(lambda: "windows"))
     window = _FakeWindow()

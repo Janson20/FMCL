@@ -313,26 +313,13 @@ def tail_lines(path: Path, limit: int, max_bytes: int = 131072) -> List[str]:
 def isolate_single_instance() -> str:
     """把单实例守卫的名字改成"本次运行唯一"，让并行的冒烟/测试进程互不干扰。
 
-    **这是实测踩出来的**：单实例是生产行为（`assemble()` 里 `try_acquire()` 失败就抛
-    `AlreadyRunning`），但它让"整个进程独占一个键"变成了冒烟测试的前置条件 ——
-    并行跑两次冒烟、或者开发机上开着启动器时再跑冒烟，都会以
-    `AlreadyRunning` 收场（我自己的验证就撞到过：另一个进程正在跑 `pytest tests/`）。
-    那种红是**环境占用**，不是界面缺陷，而且极容易被误读成"界面坏了"。
-
-    守卫本身照常走完（`QLocalServer` 监听、失败即 `AlreadyRunning`），只是键里带上
-    PID —— "两个实例不能同时跑"的语义由 `tests/test_main_qml_entry.py` 的
-    `test_single_instance_blocks_a_second_acquire` 负责，不在这里重复。
+    **实现已收口到 `tests/single_instance_isolation.py`**（原先 `_smoke_driver.py`
+    与 `qml_startup_probe.py` 各抄了一份，而 `test_main_qml_entry.py` 没有 ——
+    并行跑测试时只有它红）。这里保留这个薄封装：报告里要拿到后缀做排查。
     """
-    from app.bridges import single_instance
+    from single_instance_isolation import isolate_single_instance as _isolate
 
-    original = single_instance.default_key
-    marker = f"-ui-smoke-{os.getpid()}"
-
-    def patched(app_name: str, data_dir: str) -> str:
-        return original(app_name, data_dir) + marker
-
-    single_instance.default_key = patched  # type: ignore[assignment]
-    return marker
+    return _isolate("ui-smoke")
 
 
 def assemble(smoke: Smoke) -> Any:
@@ -349,6 +336,12 @@ def assemble(smoke: Smoke) -> Any:
     main_qml.QtMessageSink = lambda: smoke.recorder  # type: ignore[assignment]
 
     smoke.payload["singleInstanceKeySuffix"] = isolate_single_instance()
+    #: 真配置的写盘也要挡住：本进程走生产装配路径，手里那份 `config` 就是根模块单例 ——
+    #: 不挡的话跑一轮冒烟就会把开发机的 `config.json` 改写掉（语言/强调色都中过招）。
+    #: 注意**别把返回值塞进 payload**：那是个函数，JSON 序列化会炸（实测踩过）。
+    from config_isolation import isolate_config_writes
+
+    isolate_config_writes("ui-smoke")
     main_qml.create_application([])  # 必须**先**有 QGuiApplication（见文件头第 1 条）
     started = time.perf_counter()
     try:

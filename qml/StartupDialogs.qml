@@ -38,6 +38,8 @@ Item {
     //: 再由 `Startup.chooseLanguage()` 记下"已选过"并继续链条。
     property bool languageOpen: false
     property string languageChoice: ""
+    //: 这一次打开是"首次启动"（选完要继续启动链条）还是"顶栏随时切"（选完就完事）
+    property bool languageIsFirstRun: false
 
     //: 协议全文（`Startup.termsText`，Markdown 原文）。**做成根上的只读属性**而不是
     //: 内联在滚动视图里：`typeof Startup !== "undefined"` 的判空只写一处，
@@ -58,9 +60,10 @@ Item {
         noticeOpen = true
     }
 
-    function openLanguage() {
+    function openLanguage(firstRun) {
         // 默认选中当前语言（`Tr.language` 可能是系统语言推断出来的）
         languageChoice = Tr ? String(Tr.language ?? "") : ""
+        languageIsFirstRun = firstRun === true
         languageOpen = true
     }
 
@@ -68,8 +71,11 @@ Item {
         if (languageChoice.length > 0 && Tr)
             Tr.setLanguage(languageChoice)   // 切语言 + 写 config.language
         languageOpen = false
-        if (typeof Startup !== "undefined" && Startup)
+        // 只有"首次启动"那一次才要回去继续启动链条；顶栏那个入口是**随时切换**，
+        // 再调一次 `chooseLanguage()` 会把协议/公告/预下载链条重跑一遍。
+        if (languageIsFirstRun && typeof Startup !== "undefined" && Startup)
             Startup.chooseLanguage()          // 记下"已选过"并继续链条
+        languageIsFirstRun = false
     }
 
     function t(key) {
@@ -87,11 +93,22 @@ Item {
         }
 
         function onLanguageRequired() {
-            root.openLanguage()
+            root.openLanguage(true)
         }
 
         function onNoticeReady(content) {
             root.openNotice(content)
+        }
+    }
+
+    Connections {
+        //: 顶栏那个地球图标（`Shell.requestLanguage()`）—— **同一个浮层**，第二个入口。
+        //: 2026-10-06 验收反馈：A-27 只在首次启动问一次，之后想换语言只能去手改
+        //: `config.json`；设置页要到 3.4 才有，这里先补一个随时可用的入口。
+        target: typeof Shell !== "undefined" ? Shell : null
+
+        function onLanguageRequested() {
+            root.openLanguage(false)
         }
     }
 

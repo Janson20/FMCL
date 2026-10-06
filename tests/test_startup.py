@@ -71,11 +71,40 @@ class FakeTasks:
             self._threads.append(t)
 
 
+class PinnedConfig:
+    """钉住启动链条要读的那几个配置项（**别再让用例依赖开发机的 `config.json`**）。
+
+    2026-10-06 实测的坑：`FakeContext` 原来没有 `config`，`StartupController._config_object()`
+    于是回退到**根模块那个真单例** —— 于是"条款同意没同意""首次启动选过语言没有"这两件事
+    变成由开发机上的 `config.json` 决定。当天为了排查语言问题临时改过那份文件，
+    本文件立刻红了 2 条（`test_notice_failure_skips_straight_to_predownload` /
+    `test_empty_notice_skips_to_predownload`：链条停在协议那一步，走不到预下载），
+    而代码一个字都没改。这与 D-166（界面语言从配置泄漏进别的用例）是同一类问题。
+    """
+
+    language = "zh_CN"
+    language_chosen = True
+    terms_consent = True
+    ai_privacy_consent = True
+    bedrock_terms_accepted = True
+    auto_check_update = False
+    minimize_on_game_launch = False
+
+    def __init__(self) -> None:
+        self.saved = 0
+
+    def save_config(self) -> bool:
+        self.saved += 1
+        return True
+
+
 class FakeContext:
     def __init__(self, tasks: Any = None) -> None:
         self.tasks = tasks if tasks is not None else FakeTasks("run")
         self.ui = None
         self.instances: dict = {}
+        #: 见 `PinnedConfig`：有了它，链条的"要不要问语言 / 协议同意没同意"才由本文件说了算
+        self.config = PinnedConfig()
 
     def register_instance(self, name: str, obj: Any, replace: bool = False) -> None:
         self.instances[name] = obj
@@ -246,20 +275,20 @@ def test_status_text_is_an_i18n_key_not_a_literal():
 
 
 def test_agreement_required_then_chain_continues(monkeypatch):
-    """协议未同意时先要协议；同意之后才继续公告与预下载。"""
-    import config as config_module
+    """协议未同意时先要协议；同意之后才继续公告与预下载。
 
-    cfg = config_module.config
-    monkeypatch.setattr(cfg, "terms_consent", False, raising=False)
-    monkeypatch.setattr(cfg, "ai_privacy_consent", False, raising=False)
-    monkeypatch.setattr(cfg, "save_config", lambda: True, raising=False)
-
+    `cfg` 用的是**注入进 FakeContext 的那一份**（`PinnedConfig`），不是根模块的真配置 ——
+    2026-10-06 的教训：改开发机上的 `config.json` 曾让本文件红了两条（见 `PinnedConfig`）。
+    """
     calls: List[str] = []
-    ctl, _ = make(
+    ctl, ctx = make(
         min_splash_ms=0,
         notice=lambda: "公告正文",
         predownload=lambda: calls.append("predownload"),
     )
+    cfg = ctx.config
+    monkeypatch.setattr(cfg, "terms_consent", False, raising=False)
+    monkeypatch.setattr(cfg, "ai_privacy_consent", False, raising=False)
     agreed: List[int] = []
     notices: List[str] = []
     finished: List[int] = []
@@ -287,13 +316,9 @@ def test_agreement_required_then_chain_continues(monkeypatch):
 
 def test_agreement_skipped_when_already_consented(monkeypatch):
     """两个标志都为真时**跳过**协议直接拉公告（老用户不该每次启动都被拦）。"""
-    import config as config_module
-
-    cfg = config_module.config
-    monkeypatch.setattr(cfg, "terms_consent", True, raising=False)
-    monkeypatch.setattr(cfg, "ai_privacy_consent", True, raising=False)
-
-    ctl, _ = make(min_splash_ms=0, notice=lambda: "公告")
+    ctl, ctx = make(min_splash_ms=0, notice=lambda: "公告")
+    monkeypatch.setattr(ctx.config, "terms_consent", True, raising=False)
+    monkeypatch.setattr(ctx.config, "ai_privacy_consent", True, raising=False)
     agreed: List[int] = []
     notices: List[str] = []
     ctl.agreementRequired.connect(lambda: agreed.append(1))
@@ -301,6 +326,24 @@ def test_agreement_skipped_when_already_consented(monkeypatch):
     ctl.start()
     assert pump(1.5, lambda: bool(notices))
     assert agreed == [], "已经同意过了还弹协议"
+
+
+def test_the_chain_reads_the_pinned_config_not_the_machine_one() -> None:
+    """钉住"用例不依赖开发机配置"这件事本身（2026-10-06 的教训）。
+
+    判据：控制器的 `_config_object()` 必须是本文件注入的那一份；把它的 `terms_consent`
+    改成 False，链条就会停在协议那一步 —— 说明这个开关真的由用例掌握，而不是由
+    `config.json` 掌握。
+    """
+    ctl, ctx = make(min_splash_ms=0)
+    assert ctl._config_object() is ctx.config, "又回退到根模块那个真配置了"
+    assert ctl._config_value("terms_consent", False) is True
+
+    ctx.config.terms_consent = False
+    ctl.start()
+    assert pump(1.0, lambda: ctl.describe()["chrono"] and "agreement" in str(ctl.describe()["chrono"])), (
+        "未同意条款时应当停在协议那一步"
+    )
 
 
 def test_notice_failure_skips_straight_to_predownload():

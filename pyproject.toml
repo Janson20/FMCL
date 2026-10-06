@@ -60,6 +60,10 @@ dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
     "pytest-asyncio",
+    #: 并行跑测试（2026-10-06 用户要求"pytest 太慢了"）：全量 370s → 125s。
+    #: **必须写进依赖声明**：不写的话下一次 `uv sync` 会把它卸掉，
+    #: 而 `addopts` 里的 `-n 8` 会让 pytest 直接报"unrecognized arguments"。
+    "pytest-xdist>=3.8.0",
 ]
 ui = [
     "pyside6-addons==6.7.3",
@@ -92,8 +96,20 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -n 8 --dist loadfile"
 pythonpath = ["."]
+#: 并行加速（pytest-xdist，2026-10-06 用户要求）：全量从 ~370s 降到 ~142s。
+#: **为什么是 8 而不是 `auto`**：本机 16 核，`-n auto` 起 16 个 worker = "16 个 worker 抢
+#: 16 个核"，几个时序断言会被饿红（实测 `test_ui_port_qt` 与安装向导探针各红过一次）；
+#: 8 个 worker 连跑两轮全绿（142s / 150s），比 auto 只慢十几秒。机器更好也别盲目开满。
+#: **为什么是 `--dist loadfile`**：本仓库有大量"模块级 fixture 装配真引擎 / 真应用"的测试
+#: （`test_main_qml_entry`、各 QML 探针、视觉回归），按**文件**分给同一个 worker 才不会
+#: 互相踩（默认的 `load` 会把同一文件的用例拆到不同进程，模块级 fixture 就废了）。
+#: 并行还会暴露两类"测试污染"，都已修（见 `docs/refactor/16` §16.2）：
+#:   * 单实例守卫 → `tests/single_instance_isolation.py`（否则后到的 worker 抛 AlreadyRunning）；
+#:   * 真配置写盘 → `tests/config_isolation.py` + `tests/conftest.py`（否则跑一轮测试就把
+#:     开发机的 `config.json` 改了 —— 语言与强调色都中过招）。
+#: 串行跑（排查并行偶发红 / 看真实顺序）：`pytest -n0`。
 #: 自定义标记要登记，否则 pytest 会打 PytestUnknownMarkWarning（实测出现过）。
 #: `slow` = 起子进程 + 遍历页面的重度测试（2.19 的冒烟测试那一组），
 #: 用 `-m "not slow"` 可以整体跳过、只跑快测。

@@ -409,7 +409,7 @@ class TestMainThreadAnswers:
         elapsed = time.monotonic() - started
 
         assert value == "晚到的答案"
-        assert 0.0 <= elapsed < 2.0  # 嵌套事件循环期间 QTimer 照常工作
+        assert 0.0 <= elapsed < 4.0  # 嵌套事件循环期间 QTimer 照常工作（上限同放宽）
 
     def test_blocking_alert_on_main_thread_waits_for_reply(self, host, make_port):
         host.set_auto_reply(False)
@@ -571,7 +571,7 @@ class TestTimeouts:
         elapsed = time.monotonic() - started
 
         assert elapsed >= SHORT_TIMEOUT_S - 0.05  # 确实等满了一个超时周期
-        assert elapsed < 2.0
+        assert elapsed < 4.0  # 上限放宽同前几处：并行跑时线程可能被饿
 
     def test_timeout_leaves_dialog_open(self, host, make_port):
         host.set_auto_reply(False)
@@ -673,7 +673,7 @@ class TestProgressNotifyClipboard:
         elapsed = time.monotonic() - started
         watchdog.cancel()
 
-        assert elapsed < 2.0  # 靠 close_progress 放行，而不是靠 wait_event 兜底
+        assert elapsed < 4.0  # 靠 close_progress 放行，而不是靠 wait_event 兜底（上限同放宽）
         assert len(host.progress) == 1
         assert host.closed == 1
         assert port.describe()["modal_waiting"] is False
@@ -718,7 +718,10 @@ class TestStopReleases:
         value, elapsed = timed_in_worker(lambda: port.confirm("确认", "内容", default=True))
 
         assert value is True
-        assert elapsed < 2.0  # 没有干等到 5 秒超时
+        #: 判据是「**没有干等到 5 秒超时**」，不是「精确在 0.1 秒内返回」：并行跑全量
+        #: （`pytest -n auto`，16 个 worker 抢 16 个核）时线程被饿上一两秒是常态，
+        #: 原来写 `< 2.0` 会偶发红（2026-10-06 并行改造时实测抓到过）。
+        assert elapsed < 4.0
 
     def test_stop_releases_inflight_worker(self, host, make_port):
         """请求已经交给宿主、用户还没点：stop() 也要放行（界面销毁时的收尾）。"""
@@ -733,7 +736,7 @@ class TestStopReleases:
         value, elapsed = timed_in_worker(lambda: port.confirm("确认", "内容", default=True))
 
         assert value is True
-        assert elapsed < 2.0
+        assert elapsed < 4.0  # 上限同放宽：并行跑时线程可能被饿
         assert len(host.find("confirm")) == 1  # 确实投出去过
 
     def test_stop_releases_main_thread_wait(self, host, make_port):
@@ -744,7 +747,7 @@ class TestStopReleases:
 
         started = time.monotonic()
         assert port.confirm("确认", "内容", default=True) is True
-        assert time.monotonic() - started < 2.0
+        assert time.monotonic() - started < 4.0  # 上限同放宽：并行跑时可能被饿
 
 
 # ─── 9. NullDialogHost（无界面场景） ────────────────────────
