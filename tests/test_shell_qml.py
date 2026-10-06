@@ -291,6 +291,19 @@ def test_back_button_and_breadcrumb_go_back() -> None:
     assert crumb["afterBackButton"] == "home", "标题栏的返回按钮应该退一层"
 
 
+def test_breadcrumb_shows_only_the_last_three_frames() -> None:
+    """栈深了只显示最近 3 项（用户 2026-10-06 实测：九项塞满标题栏，看不出当前在哪）。
+
+    截断的只是**显示** —— 被藏起来的帧仍在栈里，所以点最近这几项退的层数依旧正确。
+    """
+    truncated = probe()["breadcrumbTruncated"]
+    assert truncated["depth"] == 5, f"这一轮压了 5 帧：{truncated['depth']}"
+    assert truncated["items"] == 3, f"只应显示 3 项，实际 {truncated['items']}"
+    assert truncated["ellipsis"] is True, "前面被藏起来时要有省略号"
+    assert truncated["afterFirstCrumbClick"] == "versions/detail", "点显示出来的第一项应退到它那一层"
+    assert truncated["depthAfterClick"] == 3, truncated["depthAfterClick"]
+
+
 # ─── 4. 状态条（A-09 的 10 秒语义） ─────────────────────────────
 
 
@@ -306,6 +319,18 @@ def test_status_bar_shows_the_text_and_can_be_cleared() -> None:
     assert status["afterSet"] == "skeleton check", "状态条必须跟着 Shell 走"
     assert status["level"] == "warning"
     assert status["afterClear"] == ""
+
+
+def test_loading_level_does_not_auto_clear() -> None:
+    """`loading` 是旧界面的第五档（`ui/app_handlers.py:1423-1438`）：⏳ + **不自动清空**。
+
+    用户 2026-10-06 实测把这一档翻了出来（日志里刷 `未知状态级别 'loading'`）——
+    3.1 的"游戏启动中"与 3.2 的"正在加载/正在删除/正在校验"都是这一档。
+    """
+    status = probe()["status"]
+    assert status["loadingBefore"] == "still working"
+    assert status["loadingLevel"] == "loading", "级别必须原样保留（不再被降级成 info）"
+    assert status["loadingAfter"] == "still working", "进行中的提示不该到点自动消失"
 
 
 def test_status_bar_auto_clears_after_the_timeout() -> None:
@@ -423,6 +448,20 @@ def test_shell_forwards_search_and_notification_requests() -> None:
     shell.toggleNotificationCenter()
     shell.toggleNotificationCenter()
     assert len(toggles) == 2, "每次调用发一次，由浮层自己翻可见性"
+
+
+def test_request_notice_fires_a_signal() -> None:
+    """顶栏铃铛 = "查看公告"：壳层只发请求，由 `App.qml` 决定重看还是提示"暂无公告"。
+
+    原先铃铛调的是 `toggleNotificationCenter()`，而那个信号**没有任何消费者**
+    （通知中心浮层一直没做）→ 用户 2026-10-06 实测："打开公告的按钮点不了"。
+    """
+    shell = ShellBridge(nav=nb.NavBridge())
+    requested: List[int] = []
+    shell.noticeRequested.connect(lambda: requested.append(1))
+    shell.requestNotice()
+    shell.requestNotice()
+    assert len(requested) == 2, "每次调用发一次"
 
 
 def test_shell_title_follows_the_route() -> None:

@@ -47,6 +47,27 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _restore_interface_language():
+    """真装配会把**全局界面语言**改成 `config.json` 里的那个，用完必须还原。
+
+    为什么必须有（本轮全量测试实测变红）：`assemble()` 走生产路径，`TrBridge` 构造时
+    按 `config.json` 调 `init_i18n`（D-160 的语义：配置里的语言优先）。用户机器上
+    配置是 `en_US`，于是本模块之后的测试全都跑在英文界面下 ——
+    `test_music_service` 的 `assert ... == "2 首"` 会变成 `"2 songs"`，
+    表现为"单独跑绿、全量跑红"，且**随用户配置变化**。与 `test_home_bridge` /
+    `tests/qml_home_probe.py` 里钉语言的做法同一套路。
+    """
+    from services import i18n_service
+
+    saved_lang = i18n_service.get_current_language()
+    saved = dict(i18n_service._translations)
+    yield
+    i18n_service._translations.clear()
+    i18n_service._translations.update(saved)
+    i18n_service._current_language = saved_lang
+
+
 @pytest.fixture(scope="module")
 def assembled():
     """装配一次，整组复用（QGuiApplication 每进程只能有一个）。
@@ -219,6 +240,33 @@ def test_bridge_status_reports_the_real_registry_state(assembled):
     assert "Runtime" in registered, "Runtime 桥是入口自己注册的，必须成功"
     for name in missing:
         assert name in text, f"缺失的桥 {name} 没有出现在状态提示里: {text!r}"
+
+
+def test_late_bridges_can_see_the_startup_controller(assembled):
+    """`Startup` 是**后**注册的，先注册的桥必须还能拿到它。
+
+    用户 2026-10-06 实测报的"打开公告的按钮点不了"就是这个顺序问题的后果：
+    `register_bridges()` 里 `HomeBridge.use_engine()` 跑的时候桥表里还没有 `Startup`
+    （它在同一个 `assemble()` 的后半段才被建出来）→ `Home._startup` 恒为 None →
+    `Home.hasNotice` 恒为 False → 首页那个「查看公告」按钮**永远灰的**，
+    而且启动链条跑完也不会刷首页。
+
+    修法：`Startup` 进桥表之后**再注入一次**（`use_engine` 幂等）。
+    这条断言钉的是"注入真的发生了"，而不是某个 UI 细节。
+    """
+    bridges = assembled.engine._fmcl_bridges
+    startup = bridges.get("Startup")
+    assert startup is not None, "assemble() 没把 Startup 放进桥表"
+
+    home = bridges.get("Home")
+    assert home is not None
+    assert getattr(home, "_startup", None) is startup, (
+        "Home 桥没拿到 Startup：公告入口与启动链条信号都会失效（用户实测的那个 bug）"
+    )
+
+    versions = bridges.get("Versions")
+    if versions is not None:  # 3.2 起注册
+        assert getattr(versions, "_startup", None) is startup, "Versions 桥没拿到 Startup"
 
 
 def test_no_qml_errors_during_load(assembled):

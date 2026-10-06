@@ -53,6 +53,7 @@ SERVICE_FACTORIES: Tuple[Tuple[str, str], ...] = (
     ("resource", "services.resource_service:ResourceService"),
     ("server", "services.server_service:ServerService"),
     ("tool", "services.tool_service:ToolService"),
+    ("version", "services.version_service:VersionService"),
     ("voice", "services.voice_service:VoiceService"),
 )
 

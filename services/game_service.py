@@ -53,7 +53,7 @@ import platform
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from services.base import Service
 from services.i18n_service import _
@@ -119,7 +119,7 @@ class GameService(Service):
         super().__init__(context)
         self._launcher = launcher
         self._clock = clock or time.time
-        self._observer: Any = None
+        self._observers: List[Any] = []
         self._state = STATE_IDLE
         self._current_version = ""
         self._minimize_after = False
@@ -137,8 +137,22 @@ class GameService(Service):
         self._launcher = launcher
 
     def set_observer(self, observer: Any) -> None:
-        """设置观察者（界面桥）。同一时刻只保留一个 —— 它代表"当前那个界面"。"""
-        self._observer = observer
+        """设置观察者（界面桥）。**替换**掉已有的全部观察者 —— 3.1 的语义，保持不变。"""
+        with self._lock:
+            self._observers = [observer] if observer is not None else []
+
+    def add_observer(self, observer: Any) -> None:
+        """追加一个观察者（3.2：首页与版本页要同时反映游戏状态）。重复添加是幂等的。"""
+        if observer is None:
+            return
+        with self._lock:
+            if not any(existing is observer for existing in self._observers):
+                self._observers.append(observer)
+
+    def remove_observer(self, observer: Any) -> None:
+        """摘掉一个观察者（页面销毁时用；没加过就什么都不做）。"""
+        with self._lock:
+            self._observers = [item for item in self._observers if item is not observer]
 
     def stop(self) -> None:
         """退出期：置停止标志，让两个监控线程自然收尾（**不杀游戏进程**）。"""
@@ -561,17 +575,21 @@ class GameService(Service):
         self._emit("on_status", key, level, dict(params or {}))
 
     def _emit(self, name: str, *args: Any) -> None:
-        """调观察者的可选回调（缺席或抛异常都不影响流程）。"""
-        observer = self._observer
-        if observer is None:
-            return
-        callback = getattr(observer, name, None)
-        if not callable(callback):
-            return
-        try:
-            callback(*args)
-        except Exception as e:  # noqa: BLE001 - 界面回调坏了不该把服务带崩
-            self.log.warning("观察者回调 %s 失败: %s", name, e)
+        """调**每个**观察者的可选回调（缺席或抛异常都不影响流程）。
+
+        3.2 起观察者是一个列表：首页桥与版本页桥都要看游戏状态（两页都能启动/强杀），
+        而 `set_observer` 是"替换"语义（3.1 的写法照旧能用）。
+        """
+        with self._lock:
+            observers = list(self._observers)
+        for observer in observers:
+            callback = getattr(observer, name, None)
+            if not callable(callback):
+                continue
+            try:
+                callback(*args)
+            except Exception as e:  # noqa: BLE001 - 界面回调坏了不该把服务带崩
+                self.log.warning("观察者回调 %s 失败: %s", name, e)
 
 
 __all__ = [

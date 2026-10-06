@@ -43,6 +43,10 @@ Rectangle {
             return Theme?.warning ?? "transparent"
         if (level === "error")
             return Theme?.error ?? "transparent"
+        //: `loading` = 旧界面的第五档（沙漏图标 + 次要色）。次要色本来就是 info 的落点，
+        //: 这里显式写出来是为了和 `ShellBridge.STATUS_LEVELS` 一一对上，别再被当成"漏了一档"。
+        if (level === "loading")
+            return Theme?.textSecondary ?? "transparent"
         return Theme?.textSecondary ?? "transparent"
     }
 

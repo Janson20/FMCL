@@ -150,6 +150,7 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "app.bridges.overlay_bridge",
     "app.bridges.shell_bridge",
     "app.bridges.home_bridge",
+    "app.bridges.version_bridge",
     # app.bootstrap 的服务表（`_make_factory` 按 "模块:类名" 导入）
     "services.account_service",
     "services.achievement_service",
@@ -165,6 +166,7 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "services.resource_service",
     "services.server_service",
     "services.tool_service",
+    "services.version_service",
     "services.voice_service",
 )
 

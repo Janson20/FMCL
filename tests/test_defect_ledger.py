@@ -563,6 +563,151 @@ def _d163_component_bindings_survive_teardown(text: Optional[str] = None) -> Tup
     return (not problems, "；".join(problems) or "两个绑定都先判函数在不在")
 
 
+def _d164_scan_survives_a_missing_core(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-164（已修）：核心还没注册进上下文时，版本列表要**降级**而不是整页出错。
+
+    现象（视觉探针的装配实测）：`VersionsBridge.bind()` 发生在装配期，那时启动链条
+    还没把 `launcher` 注册进上下文 —— 旧写法直接回 `launcher_unavailable`，
+    于是版本页是一整块"出错"（`loadState=error`），用户要手动刷新才恢复；
+    而磁盘上的版本其实看得见。
+
+    修法两条：①`VersionService._scan_sync` 在核心缺席时**降级为按目录名列举**
+    （元数据拿不到就先显示目录名）；②桥接 `Startup.chainFinished`，链条跑完再扫一次
+    把加载器/游戏版本补齐。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`services/version_service.py`）。
+    """
+    service = source("services/version_service.py") if text is None else strip_python_comments(text)
+    bridge = source("app/bridges/version_bridge.py")
+    problems: List[str] = []
+    if "def _scan_folders" not in service:
+        problems.append("没有降级扫描（核心缺席就只剩报错这一条路）")
+    if "rows = self._scan_folders()" not in service:
+        problems.append("核心缺席的分支没有走降级扫描")
+    if "def on_chain_finished" not in bridge:
+        problems.append("桥没有在启动链条跑完后重扫")
+    if "chainFinished" not in bridge:
+        problems.append("桥没有接 Startup.chainFinished")
+    return (not problems, "；".join(problems) or "核心缺席时降级列目录，链条跑完自动补齐元数据")
+
+
+def _d165_error_state_retry_is_primary(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-165（已修）：错误态的"重试"必须是**主按钮**。
+
+    现象：视觉回归的"每个页面都看得到强调色"判据在版本页上判红（`accent=0`）。
+    根因不是页面画错了，而是错误态里唯一该做的事（重试）用的是次按钮 ——
+    整块错误态只有灰底按钮与红色图标，一点强调色都没有。
+    （版本页在"桥在场、服务缺席"的装配下走的就是错误态，见 D-164 的另一半。）
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`qml/components/FmErrorState.qml`）。
+    """
+    state = (REPO_ROOT / "qml/components/FmErrorState.qml").read_text(encoding="utf-8") if text is None else text
+    if "primary: true" not in state:
+        return False, "重试按钮退回次按钮了（错误态会整页没有强调色）"
+    return True, "重试按钮是主按钮"
+
+
+def _d166_test_assembly_restores_the_language(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-166（已修）：真装配的模块级 fixture 用完必须**还原界面语言**。
+
+    现象（本轮全量测试实测）：`tests/test_main_qml_entry.py` 的 `assembled` fixture
+    走生产路径装配一次应用，`TrBridge` 按 `config.json` 调 `init_i18n`（D-160 的语义：
+    配置里的语言优先）。用户机器上配置是 `en_US`，于是该模块之后的测试全跑在英文下 ——
+    `test_music_service` 的 `assert … == "2 首"` 变成 `"2 songs"`，
+    表现为"单独跑绿、全量跑红"，且**随用户配置变化**。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`tests/test_main_qml_entry.py`）。
+    """
+    module = (REPO_ROOT / "tests/test_main_qml_entry.py").read_text(encoding="utf-8") if text is None else text
+    problems: List[str] = []
+    if "_restore_interface_language" not in module:
+        problems.append("没有还原界面语言的 fixture")
+    if "i18n_service._current_language = saved_lang" not in module:
+        problems.append("没把语言还原回去")
+    return (not problems, "；".join(problems) or "真装配之后界面语言被还原")
+
+
+def _d169_rename_moves_files_that_exist(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-169（已修）：重命名要能真的跑通（旧实现在搬文件那一步必崩）。
+
+    `rename_instance()` 里 `dst = new_dir / item.name`，而 `item` 是 `os.listdir()`
+    返回的**字符串** —— 每次重命名都抛 `'str' object has no attribute 'name'`，
+    被外层 `except` 兜住之后返回 `(False, "'str' object has no attribute 'name'")`，
+    用户看到的是"重命名失败: 'str' object has no attribute 'name'"。
+    **旧 Tk 界面同样如此**（用户 2026-10-06 在新界面上点出来才发现）。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`launcher/core.py`）。
+    """
+    core = source("launcher/core.py") if text is None else strip_python_comments(text)
+    problems: List[str] = []
+    if "dst = new_dir / item.name" in core:
+        problems.append("又写成 `item.name` 了（item 是字符串，这条路必崩）")
+    if "dst = new_dir / item\n" not in core:
+        problems.append("找不到 `dst = new_dir / item`（搬文件那一行）")
+    return (not problems, "；".join(problems) or "搬文件用的是字符串本身，不是 .name")
+
+
+def _d170_one_place_finds_the_version_json(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-170（已修）：版本 JSON 与主程序 jar 的查找必须**收口到一处**。
+
+    `_read_instance_info()` 只认 `versions/{id}/{id}.json`，而
+    `verify_installed_version()` 原来只认顶层 `versions/{id}.json` —— 于是同一个版本
+    "列表里看得见、一校验就说版本 JSON 不存在"（用户 2026-10-06 的日志）。
+    重命名过的实例还有第二个坑：主程序 jar 的文件名**还是旧的**，只认 `{id}.jar`
+    同样找不到（`_find_version_jar` 的三个候选就是为此）。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`launcher/core.py`）。
+    """
+    core = source("launcher/core.py") if text is None else strip_python_comments(text)
+    problems: List[str] = []
+    if "def find_version_json" not in core:
+        problems.append("核心没有 find_version_json()（查找又散开了）")
+    if "json_path = self.find_version_json(folder_name)" not in core:
+        problems.append("_read_instance_info() 没有走收口后的查找")
+    if "version_json = self.find_version_json(version_id)" not in core:
+        problems.append("verify_installed_version() 没有走收口后的查找")
+    if "def _find_version_jar" not in core:
+        problems.append("没有 _find_version_jar()（重命名后的 jar 名找不到）")
+    return (not problems, "；".join(problems) or "JSON 与 jar 的查找都只有一处真值来源")
+
+
+def _d171_late_bridges_get_the_startup_controller(text: Optional[str] = None) -> Tuple[bool, str]:
+    """D-171（已修）：`Startup` 后注册，先注册的桥必须还能拿到它。
+
+    用户 2026-10-06 实测："两个打开公告的按钮都点不了"。两条独立的根因：
+
+    1. `assemble()` 里 `register_bridges()` 跑在 `StartupController` **之前** ——
+       `HomeBridge.use_engine()` 那一刻桥表里没有 `Startup`，于是 `Home._startup` 恒为
+       None、`Home.hasNotice` 恒为 False、首页「查看公告」按钮永久置灰；
+    2. 顶栏铃铛调的是 `Shell.toggleNotificationCenter()`，而那个信号**没有任何消费者**
+       （通知中心浮层一直没做）—— 点了什么都不发生。
+
+    修法：①`Startup` 进桥表之后对 Home / Versions 再注入一次引擎；
+    ②铃铛改发 `Shell.requestNotice()`，由 `App.qml` 决定重看公告还是提示"暂无公告"。
+
+    Args:
+        text: 负例自检喂进来的**故意改坏**的源码（`main_qml.py`）。
+    """
+    main = source("main_qml.py") if text is None else strip_python_comments(text)
+    appbar = (REPO_ROOT / "qml/shell/AppBar.qml").read_text(encoding="utf-8")
+    app = (REPO_ROOT / "qml/App.qml").read_text(encoding="utf-8")
+    problems: List[str] = []
+    if 'for name in ("Home", "Versions"):' not in main:
+        problems.append("main_qml 没有对后注册的 Startup 做二次注入")
+    if "inject(engine)" not in main:
+        problems.append("二次注入没真的调用 use_engine")
+    if "Shell.requestNotice()" not in appbar:
+        problems.append("顶栏铃铛没改用 Shell.requestNotice()")
+    if "onNoticeRequested" not in app or "notice_none" not in app:
+        problems.append("App.qml 没接通知请求（没有公告时也没有提示）")
+    return (not problems, "；".join(problems) or "二次注入 + 铃铛改走通知请求")
+
+
 def _d155_checkin_streak_is_really_read(text: Optional[str] = None) -> Tuple[bool, str]:
     """D-155（已修）：每日签到的"连续 N 天"必须**真的读回来**。
 
@@ -754,7 +899,13 @@ LEDGER: Dict[str, Entry] = {
                "QML 磁盘缓存 —— 实测缓存开着时主题段稳定 10 条报错、关掉 0 条，而打包产物冷启动"
                "差值落在 400 ms 采样精度内（`poc/_measure_d150.py`、`poc/_smoke_packaged.py`）。"
                "正解（升级 Qt，或打包时预编译 QML 后再打开缓存）排期**阶段 4.3** 的打包重做；"
-               "`tests/_smoke_driver.py` 自己那份规避保留（同一条路径的双保险）。",
+               "`tests/_smoke_driver.py` 自己那份规避保留（同一条路径的双保险）。"
+               "**2026-10-06 补充（3.2 验收轮实测）**：这条竞态**仍在**，只是触发概率随界面"
+               "复杂度漂移 —— 版本页（25 行 × 6 个图标）上线后，同一份 `tests/ui_smoke.py`"
+               "「跑 3 次里 2 次」在主题段刷出 4 条 `QML FmIcon: Cannot find member data`"
+               "（判据把它算失败）；换成阶段 2 的占位版本页则不复现。**没有放宽判据**"
+               "（曾试过在 IGNORED_PATTERNS 登记，被 `test_ignored_patterns_are_registered_and_few`"
+               "的「放行 ≤ 5 条」当场驳回）—— 根因仍是本条，排期不变。",
         files=("main_qml.py", "tests/_smoke_driver.py")),
     "D-151": Entry(
         defect="D-151", state="挂账",
@@ -833,6 +984,64 @@ LEDGER: Dict[str, Entry] = {
         summary="`FmButton` 的绑定在对象销毁那一刻会抛 `TypeError: Property 'borderColor' … is not a function`",
         where="qml/components/FmButton.qml", check=_d163_component_bindings_survive_teardown,
         files=("qml/components/FmButton.qml", "tests/test_visual_regression.py")),
+
+    # ─── 3.2（版本列表与详情）新登记的五条 ────────────────────────
+    "D-164": Entry(
+        defect="D-164", state="已修",
+        summary="装配期扫描时启动器核心还没注册 → 版本页整页「出错」（磁盘上的版本其实看得见）",
+        where="services/version_service.py", check=_d164_scan_survives_a_missing_core,
+        files=("services/version_service.py", "app/bridges/version_bridge.py",
+               "tests/test_version_service.py", "tests/test_version_bridge.py")),
+    "D-165": Entry(
+        defect="D-165", state="已修",
+        summary="错误态的「重试」是次按钮 → 整块错误态没有强调色（视觉判据在错误态判红）",
+        where="qml/components/FmErrorState.qml", check=_d165_error_state_retry_is_primary,
+        files=("qml/components/FmErrorState.qml", "tests/test_visual_regression.py")),
+    "D-166": Entry(
+        defect="D-166", state="已修",
+        summary="真装配的模块级 fixture 不还原界面语言 → 后续模块的中文断言随用户 `config.json` 变红",
+        where="tests/test_main_qml_entry.py", check=_d166_test_assembly_restores_the_language,
+        files=("tests/test_main_qml_entry.py", "tests/test_music_service.py")),
+    "D-167": Entry(
+        defect="D-167", state="挂账",
+        summary="版本「校验修复」只兑现了**校验**：核心只算哈希、不重下文件，「修复」没做",
+        where="services/version_service.py",
+        markers=("def verify", "verify_installed_version"),
+        reason="核心（`launcher/verify.py` + `MinecraftLauncher.verify_installed_version`）"
+               "的能力就是「并发算哈希、返回无效文件清单」—— **没有任何重下/修复入口**。"
+               "真正的修复要复用安装器的下载链路（补下缺失/损坏的库与主 jar），那条链路属"
+               "**阶段 3** 的 3.3（安装新版本向导）—— 本轮不假装有：界面上的动作叫「校验文件」，"
+               "结果如实报告「N 个文件中有 M 个损坏」。3.3 落地下载链路后，在这里补「修复」并在"
+               "对照表 B-22 的备注里加一行。",
+        files=("services/version_service.py", "qml/pages/versions/VersionsPage.qml")),
+    "D-168": Entry(
+        defect="D-168", state="挂账",
+        summary="`rename_instance` 的两个失败分支返回**硬编码中文**，非中文界面下会露出中文句子",
+        where="launcher/core.py",
+        markers=('return False, f"实例 \'{old_name}\' 不存在"', 'return False, "找不到实例 JSON 文件"'),
+        reason="旧界面就是这么显示的（`ui/app_handlers.py:1138-1139` 把核心返回的原文塞进 "
+               "`rename_instance_error` 的 `{error}`），属**原样保留**（红线 1）。改成返回 i18n 键"
+               "会动到核心的返回契约（`rename_instance` 的调用点不止一处），排在**阶段 4** 的"
+               "i18n 收尾一起做：那时把这两个分支改成键名，界面侧映射成新键。",
+        files=("launcher/core.py", "services/version_service.py")),
+
+    # ─── 3.2 人工验收当场发现的三条（D-169 ~ D-171）──────────────
+    "D-169": Entry(
+        defect="D-169", state="已修",
+        summary="`rename_instance()` 用 `item.name` 搬文件（`item` 是字符串）→ 重命名 100% 失败",
+        where="launcher/core.py", check=_d169_rename_moves_files_that_exist,
+        files=("launcher/core.py", "tests/test_version_paths.py")),
+    "D-170": Entry(
+        defect="D-170", state="已修",
+        summary="版本 JSON 与主程序 jar 的查找散在两处各认一半 → 列表里看得见、一校验就说版本 JSON 不存在",
+        where="launcher/core.py", check=_d170_one_place_finds_the_version_json,
+        files=("launcher/core.py", "services/version_service.py", "tests/test_version_paths.py")),
+    "D-171": Entry(
+        defect="D-171", state="已修",
+        summary="两个\"打开公告\"的按钮都点不了（Startup 注册晚于桥注册 + 铃铛发的信号没人接）",
+        where="main_qml.py", check=_d171_late_bridges_get_the_startup_controller,
+        files=("main_qml.py", "app/bridges/shell_bridge.py", "qml/shell/AppBar.qml",
+               "qml/App.qml", "tests/test_main_qml_entry.py")),
 }
 
 #: 台账必须覆盖的缺陷号（防"悄悄少一条"）：18 条欠账 + 后续几轮新登记的。
@@ -842,6 +1051,8 @@ REQUIRED_IDS = (
     "D-146", "D-147", "D-150", "D-151", "D-152", "D-153", "D-154",
     "D-155", "D-156", "D-157", "D-158", "D-159",
     "D-160", "D-161", "D-162", "D-163",
+    "D-164", "D-165", "D-166", "D-167", "D-168",
+    "D-169", "D-170", "D-171",
 )
 
 
@@ -971,6 +1182,28 @@ def test_check_based_probes_are_not_empty_assertions() -> None:
          (REPO_ROOT / "qml/components/FmButton.qml").read_text(encoding="utf-8")
          .replace("control.borderColor ? control.borderColor()", "control.borderColor()"),
          "把 border.color 的兜底去掉（退回析构期裸调）"),
+        ("D-164", _d164_scan_survives_a_missing_core,
+         source("services/version_service.py").replace("rows = self._scan_folders()", "rows = []"),
+         "核心缺席时不再降级列目录"),
+        ("D-165", _d165_error_state_retry_is_primary,
+         (REPO_ROOT / "qml/components/FmErrorState.qml").read_text(encoding="utf-8")
+         .replace("primary: true", "primary: false"),
+         "把重试按钮退回次按钮"),
+        ("D-166", _d166_test_assembly_restores_the_language,
+         (REPO_ROOT / "tests/test_main_qml_entry.py").read_text(encoding="utf-8")
+         .replace("i18n_service._current_language = saved_lang", ""),
+         "把界面语言还原那一行删掉"),
+        ("D-169", _d169_rename_moves_files_that_exist,
+         source("launcher/core.py").replace("dst = new_dir / item\n", "dst = new_dir / item.name\n"),
+         "把搬文件那一行改回 item.name"),
+        ("D-170", _d170_one_place_finds_the_version_json,
+         source("launcher/core.py").replace(
+             "version_json = self.find_version_json(version_id)",
+             'version_json = versions_dir / f"{version_id}.json"'),
+         "让校验退回只看顶层 JSON"),
+        ("D-171", _d171_late_bridges_get_the_startup_controller,
+         source("main_qml.py").replace('for name in ("Home", "Versions"):', 'for name in ():'),
+         "把后注册 Startup 的二次注入去掉"),
     ]
     problems = []
     for defect, probe, mutated, note in cases:

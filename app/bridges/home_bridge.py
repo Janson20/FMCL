@@ -103,8 +103,17 @@ class HomeBridge(QObject):
         self._account = self._service(context, "account")
         self._achievement = self._service(context, "achievement")
         if self._game is not None:
-            # 观察者协议见 services/game_service.py 的模块文档
-            self._game.set_observer(self)
+            # 观察者协议见 services/game_service.py 的模块文档。
+            # 3.2 起 `GameService` 支持多观察者（版本页也要看游戏状态），所以这里
+            # **追加**而不是替换：否则装配顺序一变（版本页先注册）就会把对方踢掉。
+            add = getattr(self._game, "add_observer", None)
+            try:
+                if callable(add):
+                    add(self)
+                else:
+                    self._game.set_observer(self)
+            except Exception as e:  # noqa: BLE001 - 观察不上只是状态不刷新
+                logger.warning("首页观察游戏服务失败: %s", e)
         self.refresh()
 
     def use_engine(self, engine: Any) -> None:

@@ -79,7 +79,11 @@ Item {
             objectName: "fmErrorStateRetry"
             anchors.horizontalCenter: parent.horizontalCenter
             visible: block.retryText.length > 0
-            primary: false
+            //: **主按钮**：出错时这一块里唯一该做的事就是重试，它是这个区域的主动作。
+            //: 顺带让"每个页面都看得到强调色"这条视觉判据在**错误态**下同样成立
+            //: （阶段 3 任务 3.2 实测：版本页在"桥在、服务缺席"的装配下走错误态，
+            //: 次按钮的灰底让整页一点强调色都没有）。
+            primary: true
             iconName: "refresh"
             text: block.retryText
             onClicked: block.retried()

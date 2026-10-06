@@ -51,7 +51,9 @@ DEFAULT_STATUS_TIMEOUT_MS = 10_000
 
 #: 合法的状态级别。非法级别**降级成 info** 并记 warning，而不是往 navFailed 这类
 #: 业务信号上塞（那不是导航失败）。
-STATUS_LEVELS = ("info", "success", "warning", "error")
+STATUS_LEVELS = ("info", "success", "warning", "error", "loading")
+#: 进行中的那一档：**不自动清空**（旧界面语义，见 `setStatus` 的说明）。
+STATUS_LOADING = "loading"
 
 
 class ShellBridge(QObject):
@@ -67,6 +69,8 @@ class ShellBridge(QObject):
     searchRequested = Signal(str)
     #: 通知中心被要求切换（每次调用发一次，由浮层自己翻可见性）。
     notificationCenterToggled = Signal()
+    #: 请求"查看公告"（顶栏铃铛；由 `App.qml` 转给 `Startup.replayNotice()`）。
+    noticeRequested = Signal()
 
     def __init__(
         self,
@@ -176,6 +180,12 @@ class ShellBridge(QObject):
 
         空文本等价于清空。非法级别降级为 `info`（记 warning），不抛异常、不发失败信号
         —— 状态条是"提示"，它的参数写错不该变成一个需要用户处理的错误。
+
+        `loading` 是**旧界面的第五档**（`ui/app_handlers.py:1423-1438`：沙漏图标 +
+        次要色 + **不自动清空** —— 它表示"这件事还在做"，到点自动消失反而会让人以为
+        已经做完了）。阶段 3 任务 3.2 的用户实测把它翻了出来：3.1 的 `game_launching`
+        与新页面的"正在加载/正在删除/正在校验"都是这一档，早先只登记了四档，
+        于是每次都在日志里刷一条 `未知状态级别 'loading'`。
         """
         normalized = str(level or "info").strip().lower()
         if normalized not in STATUS_LEVELS:
@@ -187,9 +197,15 @@ class ShellBridge(QObject):
             return
         self._status_text = message
         self._status_level = normalized
-        self._timer.start(self._timeout_ms)  # start() 会自动重排已有计时
+        if normalized == STATUS_LOADING:
+            # 与旧界面一致：进行中的提示**不自动清空**，等下一句状态覆盖它
+            self._timer.stop()
+        else:
+            self._timer.start(self._timeout_ms)  # start() 会自动重排已有计时
         self.statusChanged.emit()
-        logger.debug("状态条：%s（%s，%d ms 后自动清空）", message, normalized, self._timeout_ms)
+        logger.debug("状态条：%s（%s，%s）", message, normalized,
+                     "进行中（不自动清空）" if normalized == STATUS_LOADING
+                     else "%d ms 后自动清空" % self._timeout_ms)
 
     @Slot()
     def clearStatus(self) -> None:  # noqa: N802
@@ -246,8 +262,24 @@ class ShellBridge(QObject):
 
     @Slot()
     def toggleNotificationCenter(self) -> None:  # noqa: N802
-        """切换通知中心（浮层由 2.13/2.15 的宿主实现，这里只发请求）。"""
+        """切换通知中心（浮层由 2.13/2.15 的宿主实现，这里只发请求）。
+
+        **当前没有任何消费者**：QML 侧的浮层一直没做（阶段 2 的脚手架），所以顶栏那个
+        铃铛改成了"查看公告"入口（`requestNotice`）—— 用户 2026-10-06 实测报了
+        "打开公告的按钮点不了"，而铃铛当时点了确实什么都不发生。这个槽保留给以后的
+        通知中心浮层，不在 3.2 里删（它是有测试的公开 API）。
+        """
         self.notificationCenterToggled.emit()
+
+    @Slot()
+    def requestNotice(self) -> None:  # noqa: N802
+        """请求"查看公告"（顶栏铃铛的落点）。
+
+        真正的展示在 `StartupDialogs.qml` / `StartupController.replayNotice()`，
+        **由 `App.qml` 把它们接起来**（壳层不该 import 启动流程）；有没有公告、
+        没有时提示什么，也在那一层决定。
+        """
+        self.noticeRequested.emit()
 
     # ─── 内部 ───────────────────────────────────────────────
 

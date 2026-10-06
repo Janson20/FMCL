@@ -209,6 +209,33 @@ FluWindow {
         }
     }
 
+    // 版本页桥（3.2）只发状态条文案：游戏状态、崩溃提示、最小化仍然由**首页桥**发
+    // （它是常驻的那个，见 `app/bridges/version_bridge.py` 模块文档第 1 条）——
+    // 这里再挂一次 `onCrashDetected` 就会出现两个 Toast。
+    Connections {
+        target: (typeof Versions !== "undefined" && Versions) ? Versions : null
+
+        function onStatusMessage(text, level) {
+            if (Shell)
+                Shell.setStatus(text, level)
+        }
+    }
+
+    // 壳层的"查看公告"请求（顶栏铃铛）→ 启动流程重看公告。
+    // 没有公告时给一句话：按钮点下去什么都不发生是最难排查的那种"坏"。
+    Connections {
+        target: (typeof Shell !== "undefined" && Shell) ? Shell : null
+
+        function onNoticeRequested() {
+            if (typeof Startup !== "undefined" && Startup && Startup.hasNotice) {
+                Startup.replayNotice()
+                return
+            }
+            if (Shell)
+                Shell.setStatus(Tr?.map["notice_none"] ?? "notice_none", "info")
+        }
+    }
+
     // ── 启动画面（任务 2.14）────────────────────────────────────────
     // 单独的顶层窗口，显示/隐藏在 Python 侧决定（app/startup.py 的 4 条竞争退出路径）。
     Splash {}

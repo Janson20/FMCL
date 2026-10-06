@@ -386,6 +386,15 @@ def main() -> int:
     report["status"]["shortTimeoutBefore"] = status_text()
     QTest.qWait(400)
     report["status"]["shortTimeoutAfter"] = status_text()
+
+    # 2d) `loading` 档（旧界面的第五档）：**不自动清空** —— 它表示"还在做"，
+    #     到点自动消失会让人以为已经做完了（旧 `set_status` 的 `if status_type != "loading"`）。
+    short.setStatus("still working", "loading")
+    QTest.qWait(60)
+    report["status"]["loadingBefore"] = status_text()
+    report["status"]["loadingLevel"] = short.statusLevel
+    QTest.qWait(400)
+    report["status"]["loadingAfter"] = status_text()
     ENGINE.rootContext().setContextProperty("Shell", SHELL)
     ENGINE._fmcl_bridges["Shell"] = SHELL
     QTest.qWait(60)
@@ -442,6 +451,24 @@ def main() -> int:
         report["breadcrumb"]["afterCrumbClick"] = NAV.currentRoute
     click(item("backButton"))
     report["breadcrumb"]["afterBackButton"] = NAV.currentRoute
+
+    # 5b) 栈变深之后只显示最近 3 项（用户 2026-10-06 实测报的问题：九项塞满标题栏）
+    NAV.reset()
+    for route_id in ("versions", "versions/detail", "versions/detail/mods", "versions/detail/launch"):
+        NAV.push(route_id)
+        QTest.qWait(120)
+    crumbs = [c for c in _walk_items(item("breadcrumb")) if c.objectName() == "crumbItem"]
+    ellipsis = [c for c in _walk_items(item("breadcrumb")) if c.objectName() == "crumbEllipsis"]
+    report["breadcrumbTruncated"] = {
+        "depth": NAV.depth,
+        "items": len(crumbs),
+        "titles": [str(c.property("text")) for c in crumbs],
+        "ellipsis": bool(ellipsis and ellipsis[0].property("visible")),
+    }
+    if len(crumbs) >= 2:
+        click(crumbs[0])
+        report["breadcrumbTruncated"]["afterFirstCrumbClick"] = NAV.currentRoute
+        report["breadcrumbTruncated"]["depthAfterClick"] = NAV.depth
 
     # 6) 插件页（只给一个 QML 文件 URL、没有声明 PageStack 传的属性）
     plugin_dir = Path(tempfile.mkdtemp(prefix="fmcl_plugin_"))

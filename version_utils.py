@@ -45,6 +45,11 @@ class InstanceInfo:
     loader_version: Optional[str] = None
     state: str = "original"
     reliable: bool = True
+    #: 版本 JSON 里声明的 Java 大版本（``javaVersion.majorVersion``）；
+    #: **0 = 未声明或解析不出**（阶段 3 任务 3.2 的版本详情用；旧界面从不显示它）。
+    #: 取值时机与其它字段一致：解析时已合并 HMCL patches 与 ``inheritsFrom`` 父 JSON，
+    #: 所以 Forge/Fabric 这类继承实例拿到的是父版本声明的值，不是空。
+    java_major: int = 0
 
     @property
     def has_loader(self) -> bool:
@@ -1185,7 +1190,42 @@ def parse_instance_from_json(json_text: str, folder_name: str, minecraft_dir: Op
     if info.loader_type:
         info.loader_version = parse_loader_version_from_json(json_text, info.loader_type)
 
+    # ── 提取所需 Java 大版本（阶段 3 任务 3.2）──
+    # 放在最后：此时 json_obj 已经并过 HMCL patches 与 inheritsFrom 父 JSON，
+    # 继承实例（Forge/Fabric）拿到的是父版本声明的 javaVersion。
+    info.java_major = _parse_java_major(json_obj)
+
     return info
+
+
+def _parse_java_major(json_obj: dict) -> int:
+    """从版本 JSON 里取 ``javaVersion.majorVersion``，取不到返回 0。
+
+    ``0`` 是"未声明或解析不出"的统一表示（旧版本 JSON 里这个键可能整个缺失，
+    值也可能是 ``"8"`` 这样的字符串或 ``8.0`` 这样的浮点）。**不抛异常**：
+    这个字段只用于"版本详情"里显示一行信息，缺它不该让整个实例解析失败。
+    """
+    try:
+        java_version = json_obj.get("javaVersion")
+        if not isinstance(java_version, dict):
+            return 0
+        raw = java_version.get("majorVersion")
+        if isinstance(raw, bool) or raw is None:
+            return 0
+        if isinstance(raw, int):
+            return raw if raw > 0 else 0
+        if isinstance(raw, float):
+            return int(raw) if raw > 0 else 0
+        if isinstance(raw, str):
+            text = raw.strip()
+            if not text:
+                return 0
+            # 允许 "8" / "17" / "21.0" 这类写法；"1.8" 取整数部分（=1，与 JSON 语义一致）
+            head = text.split(".")[0]
+            return int(head) if head.isdigit() and int(head) > 0 else 0
+    except Exception:  # noqa: BLE001 - 详情字段，解析失败一律退化成"未声明"
+        return 0
+    return 0
 
 
 def _merge_hmcl_patches(json_obj: dict) -> Optional[dict]:

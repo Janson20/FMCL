@@ -585,22 +585,9 @@ class MinecraftLauncher:
         Returns:
             InstanceInfo 或 None（读取失败）
         """
-        versions_dir = self.config.get_versions_dir()
-        json_path = versions_dir / folder_name / f"{folder_name}.json"
-        if not json_path.exists():
-            # 尝试查找目录下唯一的 JSON 文件
-            version_dir = versions_dir / folder_name
-            if version_dir.exists():
-                try:
-                    json_files = list(version_dir.glob("*.json"))
-                    if len(json_files) == 1:
-                        json_path = json_files[0]
-                    else:
-                        return None
-                except Exception:
-                    return None
-            else:
-                return None
+        json_path = self.find_version_json(folder_name)
+        if json_path is None:
+            return None
 
         try:
             json_text = json_path.read_text(encoding="utf-8")
@@ -608,6 +595,59 @@ class MinecraftLauncher:
         except Exception as e:
             logger.debug(f"解析实例 JSON 失败 ({folder_name}): {e}")
             return None
+
+    def find_version_json(self, version_id: str) -> Optional[Path]:
+        """找出某个版本的 JSON 路径，**三种真实布局都认**。
+
+        仓库里同时存在三种装法，各自只出现在一种入口：
+
+        1. ``versions/{id}/{id}.json`` —— 官方安装器与 `install_version()` 写的布局；
+        2. ``versions/{id}.json`` —— 同上，安装器**同时**写的顶层副本
+           （`remove_version()` 两个都删，就是这个原因）；
+        3. ``versions/{id}/<别的名字>.json`` —— HMCL 之类第三方启动器导入的实例。
+
+        为什么必须收口到一处（缺陷 D-170）：`_read_instance_info()` 只认 1 与 3，
+        `verify_installed_version()` 原来只认 2 —— 于是**同一个版本，列表里看得见、
+        一校验就说"版本 JSON 不存在"**（用户 2026-10-06 实测的那条日志）。
+        """
+        versions_dir = self.config.get_versions_dir()
+        version_dir = versions_dir / version_id
+        for candidate in (version_dir / f"{version_id}.json", versions_dir / f"{version_id}.json"):
+            try:
+                if candidate.is_file():
+                    return candidate
+            except OSError:
+                continue
+        try:
+            json_files = sorted(version_dir.glob("*.json"))
+        except OSError:
+            return None
+        return json_files[0] if len(json_files) == 1 else None
+
+    def _find_version_jar(self, versions_dir: Path, version_id: str, client: dict) -> Optional[Path]:
+        """找出主程序 jar 的实际路径。
+
+        为什么不能只认 ``versions/{id}/{id}.jar``（缺陷 D-170 的第二半）：
+        **重命名过的实例里，jar 的文件名还是旧的** —— 重命名只改 JSON 的 `id` 与文件名，
+        目录里的 `1.18.2.jar` 原样保留。所以顺序是：`{id}.jar` → 下载 URL 的文件名
+        （`…/client.jar` 这类）→ 目录里唯一的 jar。
+        """
+        version_dir = versions_dir / version_id
+        candidates = [version_dir / f"{version_id}.jar"]
+        url_name = Path(str(client.get("url", ""))).name
+        if url_name:
+            candidates.append(version_dir / url_name)
+        for candidate in candidates:
+            try:
+                if candidate.is_file():
+                    return candidate
+            except OSError:
+                continue
+        try:
+            jars = sorted(version_dir.glob("*.jar"))
+        except OSError:
+            return None
+        return jars[0] if len(jars) == 1 else None
 
     def get_instance_info(self, version_id: str) -> Optional[InstanceInfo]:
         """获取单个版本的实例信息（优先从缓存读取）
@@ -713,7 +753,10 @@ class MinecraftLauncher:
             # 3. 移动所有非 JSON 文件（jar、natives 等）
             for item in os.listdir(str(old_dir)):
                 src = old_dir / item
-                dst = new_dir / item.name
+                # 缺陷 D-169：这里原来写的是 `item.name`，而 `item` 是 `os.listdir`
+                # 返回的**字符串** —— 于是每次重命名都在这一步抛
+                # `'str' object has no attribute 'name'`，整个重命名失败（旧界面同样如此）。
+                dst = new_dir / item
                 if src.is_file() and src.name != old_json_path.name:
                     shutil.move(str(src), str(dst))
                 elif src.is_dir() and src.name != new_name:
@@ -2737,10 +2780,10 @@ class MinecraftLauncher:
         from launcher.verify import concurrent_file_verify
 
         versions_dir = self.config.get_versions_dir()
-        version_json = versions_dir / f"{version_id}.json"
+        version_json = self.find_version_json(version_id)
 
-        if not version_json.exists():
-            logger.error(f"版本 JSON 不存在: {version_json}")
+        if version_json is None:
+            logger.error(f"版本 JSON 不存在: {versions_dir / f'{version_id}.json'}")
             return {"total": 0, "valid": 0, "invalid": []}
 
         try:
@@ -2772,8 +2815,8 @@ class MinecraftLauncher:
             if isinstance(version_data.get("downloads"), dict):
                 client = version_data["downloads"].get("client")
                 if client and client.get("sha1"):
-                    jar_path = versions_dir / version_id / f"{version_id}.jar"
-                    if jar_path.exists():
+                    jar_path = self._find_version_jar(versions_dir, version_id, client)
+                    if jar_path is not None:
                         file_hash_pairs.append((jar_path, client["sha1"], "sha1"))
 
             if not file_hash_pairs:

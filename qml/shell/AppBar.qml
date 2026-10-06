@@ -103,8 +103,12 @@ FluAppBar {
 
             iconName: "notify"
             onClicked: {
+                // 铃铛 = "查看公告"。原先它调的是 `toggleNotificationCenter()`，
+                // 而那个信号**没有任何消费者**（通知中心浮层一直没做）—— 用户
+                // 2026-10-06 实测报的"打开公告的按钮点不了"就是它。
+                // 现在发 `Shell.requestNotice()`，由 `App.qml` 决定重看公告还是提示"暂无公告"。
                 if (Shell)
-                    Shell.toggleNotificationCenter()
+                    Shell.requestNotice()
             }
         }
 

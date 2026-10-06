@@ -72,6 +72,7 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Overlay", "app.bridges.overlay_bridge", "OverlayBridge"),
     ("Shell", "app.bridges.shell_bridge", "ShellBridge"),
     ("Home", "app.bridges.home_bridge", "HomeBridge"),
+    ("Versions", "app.bridges.version_bridge", "VersionsBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -580,6 +581,25 @@ def assemble(
                 set_bridges(engine._fmcl_bridges)
             except Exception as e:  # noqa: BLE001
                 logger.warning("回填桥表给 Startup 失败: %s", e)
+
+        # ── 再注入一次引擎：`Startup` 是**刚**进桥表的 ──
+        # `register_bridges()`（上面第 541 行）在这一步之前就跑完了，那时桥表里还没有
+        # `Startup` —— 而 `HomeBridge.use_engine()` 正是**那一刻**去桥表里找 Startup 的
+        # （它要接公告入口与启动链条的两个信号）。结果：`Home.hasNotice` 恒为 False、
+        # 首页那个「查看公告」按钮**永远点不了**，而且启动链条跑完也不会刷首页。
+        # 用户 2026-10-06 实测报的就是这个（"打开公告的按钮点不了"）。
+        # 修法照搬 `tests/qml_home_probe.py` 里那条既有的正确顺序：Startup 进桥表之后
+        # **再注入一次**（`use_engine` 本来就是幂等的：它只存引用 + 接信号）。
+        for name in ("Home", "Versions"):
+            obj = engine._fmcl_bridges.get(name)
+            inject = getattr(obj, "use_engine", None)
+            if not callable(inject):
+                continue
+            try:
+                inject(engine)
+            except Exception as e:  # noqa: BLE001 - 注不进只是那一页少一块信息
+                logger.warning("第二次注入引擎给 %s 失败: %s", name, e)
+        logger.info("已把 Startup 注入给需要它的桥（Home / Versions）")
     except Exception as e:  # noqa: BLE001 - 启动流程起不来也要能进界面（宁可没有启动画面）
         logger.error("StartupController 不可用（%s）—— 跳过启动画面与启动链条", e)
 
