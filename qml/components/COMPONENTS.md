@@ -46,9 +46,11 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `FmLoadingState` | 整块内容区正在等数据。不要用于可量化进度、局部小块、空、错 | `title` `description` `iconName` `spinning` | ``FmLoadingState { title: Tr?.map["plugin_state_loading"] ?? "loading" }`` |
 | `FmErrorState` | 取数据失败（网络、磁盘、服务异常）。不要用于字段校验、一次性提示、加载中 | `title` `description` `detailText` `retryText` `iconName` `retried()` | ``FmErrorState { description: page.errorText; detailText: page.errorDetail; retryText: "retry"; onRetried: page.reload() }`` |
 | `FmTable` | 多列、需要对照阅读的结构化数据。不要用于一两列的行、卡片内容、行内编辑 | `columns`（`[{key,title,width,align}]`） `rows` `emptyText` `clickable` `rowActivated(i,row)` | ``FmTable { columns: page.cols; rows: page.rows; emptyText: "no rows" }`` |
-| `FmScrollView` | **整块内容比可视区高**时的滚动容器（组件画廊、启动期的协议/公告长文、阶段 3 的长表单与详情面板）。不要用于列表数据（ListView 自己滚，外面再套一层会两条滚动条打架）、多行输入（`FmTextArea` 自己滚）、本来就装得下的内容 | `verticalBarEnabled` `horizontalBarEnabled` `verticalBarAlwaysVisible` `horizontalBarAlwaysVisible` `barThickness` | ``FmScrollView { anchors.fill: parent; ColumnLayout { … } }`` |
-| `FmScrollBar` | 给**自己就会滚**的容器贴一条跟随主题的滚动条（ListView / GridView / Flickable 的 `ScrollBar.vertical`）。`FmScrollView` 内部用的就是它。不要给不滚动的容器贴条（永远不出现的滚动条只会让人以为能滚） | `thickness` `alwaysVisible` `policy`（原生） `engaged` | ``ListView { ScrollBar.vertical: FmScrollBar {} }`` |
+| `FmScrollView` | **整块内容比可视区高**时的滚动容器（组件画廊、启动期的协议/公告长文、阶段 3 的长表单与详情面板）。不要用于列表数据（原生列表视图自己滚，外面再套一层会两条滚动条打架）、多行输入（`FmTextArea` 自己滚）、本来就装得下的内容 | `verticalBarEnabled` `horizontalBarEnabled` `verticalBarAlwaysVisible` `horizontalBarAlwaysVisible` `barThickness` | ``FmScrollView { anchors.fill: parent; ColumnLayout { … } }`` |
+| `FmScrollBar` | 给**自己就会滚**的容器贴一条跟随主题的滚动条（List View / Grid View / Flickable 的 `ScrollBar.vertical`）。`FmScrollView` 内部用的就是它。不要给不滚动的容器贴条（永远不出现的滚动条只会让人以为能滚） | `thickness` `alwaysVisible` `policy`（原生） `engaged` | ``ListView { ScrollBar.vertical: FmScrollBar {} }`` |
 | `FmIcon` | 界面上的一切图标（唯一的上色入口）。不要用于 FluentUI 控件内部图标、多色插画 | `name` `color` `size` `fallbackUsed` | ``FmIcon { name: "check"; color: Theme?.success ?? "transparent"; size: Theme?.iconSize ?? 0 }`` |
+| `FmTabBar` | **同一屏内切换"看哪一组数据"**且各组数量不多（4±2 个）——资源管理页的「模组 / 资源包 / 地图 / 光影」就是它的场景。不要用于：只有一个选项（写个标题就行）、条目多到要滚动（那是 `shell/Navigation.qml`）、表单里的互斥选项（`FmRadio` / `FmComboBox`）、可关闭的多文档页签（本件没有关闭语义） | `items`（`[{key,labelKey,label}]`） `currentKey` `tabRequested(key)` | ``FmTabBar { items: page.tabs; currentKey: page.tab; onTabRequested: page.go(key) }`` |
+| `FmDropZone` | **接受从文件管理器拖进来的文件**、且"拖进来"是这一块的主要交互——资源管理页的「把 .jar / .zip 拖到这里」，它同时也是空态。不要用于：只是想让某个列表"顺便"支持拖放（用裸 DropArea 铺在列表上）、界面**内部**的拖拽（列表项排序之类，那不是文件拖放） | `text` `iconName` `active` `dropped(urls)` | ``FmDropZone { text: page.hint; onDropped: page.take(urls) }`` |
 | `FmToolButton` | **纯图标**的方形命中区（顶栏的返回/通知/账号、行尾的复制/删除）。不要用于有文字的按钮（`FmButton`）、导航项、整行点击（`FmListItem`） | `iconName` `iconColor` `hoverIconColor` `iconSize` `selected` `side` `badgeText` `enabled` `clicked()` | ``FmToolButton { iconName: "notify"; selected: page.unread > 0; badgeText: page.unread > 0 ? String(page.unread) : "" }`` |
 
 ## 三、宿主与对话框组件（2.13 / 2.15 落地，页面一般不直接用，但一样登记）
@@ -65,7 +67,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `TextInputDialog` | 单行文本输入框（`ask_text`） | `request` `fieldText` `accept()` `cancel()` |
 | `ChoiceDialog` | 选项框（选项即按钮，点了立即作答） | `request` `options` `primaryIndex` `select(value)` |
 | `ProgressDialog` | 进度面板（确定进度 / 不确定转圈 / 可取消） | `request` `report` `cancellable` `requestCancel()` |
-| `LogView` | 通用日志面板 / 控制台（任务 2.18，`qml/pages/dev/LogDemo.qml` 是它的自查页）：ListModel + ListView 虚拟化、按块裁剪（内存硬上限 `maxLines + trimChunk`）、用户上滚后不再抢滚动位置；日志内容由调用方喂进来，组件不读文件、不碰服务 | `maxLines` `trimChunk` `lineCount` `autoScroll` `searchText` `title` `emptyText` `showToolbar` `append(line,level)` `appendLines(list)` `clear()` `copyAll()` `cleared()` `copied(n)` |
+| `LogView` | 通用日志面板 / 控制台（任务 2.18，`qml/pages/dev/LogDemo.qml` 是它的自查页）：ListModel + 列表视图虚拟化、按块裁剪（内存硬上限 `maxLines + trimChunk`）、用户上滚后不再抢滚动位置；日志内容由调用方喂进来，组件不读文件、不碰服务 | `maxLines` `trimChunk` `lineCount` `autoScroll` `searchText` `title` `emptyText` `showToolbar` `append(line,level)` `appendLines(list)` `clear()` `copyAll()` `cleared()` `copied(n)` |
 
 ### 3.2 页面内联的表单对话框（阶段 3 任务 3.5 新增的三个件）
 
@@ -79,6 +81,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `AddAccountDialog` | 添加账号表单（微软说明+按钮 / 离线角色名 / 外置三格）；校验只做"空则报错"，业务校验在服务层 | `kind` `errorText` `hintText` `reset()` `submitted(payload)` `cancelled()` |
 | `PasswordDialog` | 密码输入（可选"再输一次"核对）；`password: true` 走掩码 | `title` `prompt` `confirmPrompt` `needConfirm` `value` `reset()` `submitted(value)` `cancelled()` |
 | `ExportResultDialog` | 导出结果（成功文案 + 文件路径 + 「打开目录」） | `exportPath` `closed()` `openFolderRequested()` |
+| `ResourceUpdateDialog` | 模组更新选择（阶段 3.6）：一行一个模组（复选框 + 名字 + `v旧 -> v新`）+ 底部「取消 / 全部更新 / 更新选中」。**不分页**（旧 Tk 实现分页是性能妥协，QML 的列表视图会虚拟化）。只做显示与勾选，勾选状态留在自己这儿；点按钮只发信号，不碰服务 | `rows` `checked` `titleText` `headerText` `hintText` `cancelText` `allText` `selectedText` `syncChecked()` `checkedIds()` `allIds()` `cancelled()` `selected(modids)` `allRequested()` |
 
 > 三个件都是"页内浮层"（普通 Item + 遮罩，没有独立窗口），所以**必须用 `Loader.active`
 > 控制存在性**而不是 `visible` —— 留着的不可见实例会继续吃键盘焦点。
@@ -152,3 +155,6 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
      混用会出现"同一个界面两种灰"（`FmToolButton.qml` 头部记的顾虑就是这个）；要拦下来
      得先与壳层必需的 FluWindow / FluAppBar / FluTheme 划清界限，已登记为
      阶段 3 的候选 **R10**。
+
+> `FmTabBar` / `FmDropZone` 是阶段 3 任务 3.6 新增的两个通用件（登记见上表）；
+> `ResourceUpdateDialog` 是同一任务新增的第三个页内浮层（登记见 3.2 节）。

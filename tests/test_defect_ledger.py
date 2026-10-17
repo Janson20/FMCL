@@ -1651,6 +1651,17 @@ def _d196_button_binding_form_is_safe() -> Tuple[bool, str]:
 
     1. 面板色 / 描边色是**普通函数**（`function faceColor()` / `function borderColor()`）；
     2. 不引入 `X.js` 这类 JS 模块 import。
+
+    **2026-10-07 补充（第二次验收反馈轮，同一条缺陷的第二现场）**：光"是普通函数"还不够 ——
+    函数是普通函数、但**调用处没判存在**一样会抛，只是抛的是另一句：
+
+        TypeError: Property 'faceColor' of object FmButton_… is not a function
+
+    背景矩形那两行当年写的是 `control.faceColor ? control.faceColor() : 兜底`（D-163 留下的
+    "判存在"守卫），而 `labelColor` 里的调用**漏了守卫** → 主题热切换重建对象时稳定抛，
+    被 `tests/test_visual_regression.py::test_probe_ran_clean` 抓住（对象是设置页的保存按钮）。
+    所以现在多钉一条：**`labelColor` 里对 `faceColor` / `faceLuminance` 的调用也必须判存在**。
+    这一条是"用真走查打出来的"，不是推的。
     """
     button = source("qml/components/FmButton.qml")
     problems: List[str] = []
@@ -1662,9 +1673,24 @@ def _d196_button_binding_form_is_safe() -> Tuple[bool, str]:
         problems.append("又引入了 JS 模块 import（实测会引出 Cannot find member data）")
     if "color: control.faceColor ? control.faceColor()" not in button:
         problems.append("面板色的绑定没有走 D-163 的「先判函数在不在」兜底")
+    #: 2026-10-07：文字色那条绑定同样要判存在（不判就抛 `… is not a function`，
+    #: 被 `test_visual_regression.py::test_probe_ran_clean` 在真走查里抓住）。
+    #:
+    #: 判据只取 `labelColor` 那一段，并且两边都要在：
+    #: `control.faceColor`（**判存在**，函数名后面不跟括号）与 `control.faceColor()`
+    #: （真调）。两条踩过的坑：
+    #:   * 第一版在**全文**里找这两个串，于是背景矩形那两行把它喂绿了 ——
+    #:     **变异测试抓不住**（把守卫去掉照样通过）；
+    #:   * `source()` 会**抹掉注释**，而注释里也写着 `control.faceColor()`，
+    #:     所以判据必须落在"去注释后的真实代码"上（这正是要按段取的原因）。
+    label_block = button.split("readonly property color labelColor", 1)[-1].split("function borderColor()", 1)[0]
+    if "control.faceColor()" in label_block and "control.faceColor\n" not in label_block.replace(" ?", "\n"):
+        problems.append("文字色的绑定调了 faceColor() 却没判存在（实测会抛 is not a function）")
+    if "control.faceLuminance(" in label_block and "control.faceLuminance\n" not in label_block.replace(" ?", "\n"):
+        problems.append("文字色的绑定调了 faceLuminance() 却没判存在")
     if problems:
         return False, "；".join(problems[:3])
-    return True, "配色仍是两个普通函数 + 内联/属性文字色，没有 JS 模块 import"
+    return True, "配色仍是两个普通函数 + 判存在的调用，没有 JS 模块 import"
 
 
 def _d195_login_failure_is_not_silent() -> Tuple[bool, str]:

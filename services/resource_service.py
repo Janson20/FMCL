@@ -180,7 +180,16 @@ def _check_ach(achievement_id: str, condition: bool):
 def minecraft_dir(callbacks: Dict[str, Any]) -> Path:
     """获取当前版本的 .minecraft 目录（原 ``ResourceManagerWindow._get_minecraft_dir``）。
 
-    ``self.callbacks`` → 入参 ``callbacks``，其余逐字。
+    ``self.callbacks`` → 入参 ``callbacks``，其余逐字 —— **包括"没有回调时返回相对的
+    ``Path(".") / ".minecraft"``"这一条**（旧实现的原文就是这样，改动它等于顺手改了
+    旧行为）。
+
+    ⚠ 但那意味着"有回调"与"没回调"返回的路径**性质不同**（绝对 / 相对），
+    调用方不能假定它是绝对的。会话侧因此必须自己解析一次基准目录
+    （见 :attr:`ResourceSession.minecraft_dir`）并把绝对路径交给
+    :meth:`ResourceService.resource_dir_in` —— 否则同一屏的"目录解析"与
+    "缓存比对"会拿到**两个不同的基准目录**（2026-10-07 验收实测：
+    版本隔离目录被拼到进程工作目录下的 ``.minecraft``，于是"自动新建文件夹"失效）。
     """
     if "get_minecraft_dir" in callbacks:
         return Path(callbacks["get_minecraft_dir"]())
@@ -226,6 +235,39 @@ def resource_dir(version_id: str, mc_dir: Path, resource_type: str) -> Path:
     global_dir = mc_dir / folder_name
     logger.info(f"使用全局目录: {global_dir}")
     return global_dir
+
+
+#: 资源类型的**固定顺序**（旧 `RESOURCE_TYPES` 的键序：模组 / 资源包 / 地图 / 光影）。
+RESOURCE_ORDER: Tuple[str, ...] = ("mods", "resourcepacks", "saves", "shaderpacks")
+
+#: 没装模组加载器的版本能用哪几类（见 :func:`allowed_types`）。
+VANILLA_RESOURCE_ORDER: Tuple[str, ...] = ("resourcepacks", "saves")
+
+
+def allowed_types(version_id: str, mc_dir: Path) -> List[str]:
+    """这个版本能用哪几类资源（阶段 3.6 用户裁决，2026-10-07）。
+
+    **规则**：装了模组加载器的版本 → 四类全给；没装的（原版）→ 只给
+    ``resourcepacks`` 与 ``saves``（模组与光影对原版没有意义，页签不该摆在那里）。
+
+    ⚠ **这不是旧实现的行为**：旧窗口 `_build_ui` 无条件按 ``RESOURCE_TYPES`` 建四个
+    按钮，原版版本也能看到「模组 / 光影」两个空页签。本轮按用户裁决改成按加载器过滤
+    —— 对照表 L-55 记「行为变更」。
+
+    ``version_id`` 为空串（看的是全局 ``.minecraft`` 目录）时四类全给：全局目录本来
+    就可能有旧版本留下的 ``mods``。
+
+    判不出来（版本 JSON 坏了之类）时按**原版**那一档给：保守，但不会出现"一个页签都
+    没有"的空屏。
+    """
+    if not version_id:
+        return list(RESOURCE_ORDER)
+    try:
+        if has_mod_loader(version_id, mc_dir):
+            return list(RESOURCE_ORDER)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("判断模组加载器失败 (%s): %s", version_id, e)
+    return list(VANILLA_RESOURCE_ORDER)
 
 
 def server_mods_dir(callbacks: Dict[str, Any], version_id: str) -> Path:
@@ -1344,8 +1386,35 @@ class ResourceService(Service):
 
     @staticmethod
     def resource_dir_for(callbacks: Dict[str, Any], version_id: str, resource_type: str) -> Path:
-        """一次到位：``callbacks`` → ``.minecraft`` → 资源目录（界面最常用的入口）。"""
+        """一次到位：``callbacks`` → ``.minecraft`` → 资源目录（旧界面的入口）。
+
+        ⚠ 新界面（阶段 3.6 的会话）**不要用它** —— 它会自己再解析一次 ``.minecraft``，
+        与 `ResourceSession.minecraft_dir` 可能算出不同的基准目录（见
+        :meth:`resource_dir_in`）。会话走 :meth:`resource_dir_in`。
+        """
         return resource_dir(version_id, minecraft_dir(callbacks), resource_type)
+
+    @staticmethod
+    def resource_dir_in(
+        mc_dir: Path, version_id: str, resource_type: str, *, has_loader: bool
+    ) -> Path:
+        """由**已经解析好的** ``.minecraft`` 与加载器判定拼出资源目录（阶段 3.6）。
+
+        为什么要多这一个入口（2026-10-07 验收实测）：:meth:`resource_dir_for` 会**自己**
+        从 ``callbacks`` 再解析一次 ``.minecraft``，而"会话已经知道基准目录"这件事就丢了
+        —— 当回调给的是相对 ``.minecraft``（核心未就绪的降级路径）而会话手里的
+        ``config.minecraft_dir`` 是绝对路径时，两处会算出**不同的基准目录**：
+        目录解析用相对的、缓存比对用绝对的。会话因此把资源目录解析到
+        ``<进程工作目录>/.minecraft/...``（用户真正那个 ``.minecraft`` 之外），
+        于是"自动新建文件夹"看上去没做（见 :func:`minecraft_dir` 的说明）。
+
+        本入口把判定拆开：基准目录与加载器判定由调用方（会话）给，本函数只负责拼路径
+        （纯函数、无副作用，与原 ``_get_resource_dir`` 的分支逐字一致）。
+        """
+        folder_name = RESOURCE_FOLDERS[resource_type]
+        if has_loader:
+            return Path(mc_dir) / "versions" / version_id / folder_name
+        return Path(mc_dir) / folder_name
 
     @staticmethod
     def server_mods_dir(callbacks: Dict[str, Any], version_id: str) -> Path:
@@ -1356,6 +1425,11 @@ class ResourceService(Service):
     def resource_extensions(resource_type: str) -> Set[str]:
         """资源类型的扩展名白名单（原 ``RESOURCE_TYPES[rtype]["extensions"]``）。"""
         return resource_extensions(resource_type)
+
+    @staticmethod
+    def allowed_types(version_id: str, mc_dir: Path) -> List[str]:
+        """这个版本能用哪几类资源（原版只给资源包与地图，见 :func:`allowed_types`）。"""
+        return allowed_types(version_id, mc_dir)
 
     @staticmethod
     def parse_drop_paths(raw: str) -> List[str]:
@@ -1390,15 +1464,72 @@ class ResourceService(Service):
         return dir_has_content(directory)
 
     @staticmethod
-    def extract_mods_metadata(mods_dir: Path, status_callback=None) -> List[Dict]:
+    def extract_mods_metadata(mods_dir: Path, status_callback=None, cancel_event=None) -> List[Dict]:
         """读取 ``mods/`` 下每个 jar 的元数据（原 ``_refresh_mod_list`` 里那两行）。
 
         ``status_callback(done, total)`` 由调用方在 **worker 线程**里被回调 ——
         界面侧照原文那样 ``after(0, ...)`` 切回主线程。
+
+        ``cancel_event``（阶段 3.6 新增，可选）是 :class:`app.tasks.TaskContext`
+        的协作式取消事件；置位后提取会在条目边界停下并返回**已收集的部分**。
+        默认 ``None`` = 旧行为，旧调用点无需改动。
         """
         from modrinth import extract_all_mods_metadata
 
-        return extract_all_mods_metadata(mods_dir, status_callback=status_callback)
+        return extract_all_mods_metadata(
+            mods_dir, status_callback=status_callback, cancel_event=cancel_event
+        )
+
+    @staticmethod
+    def trigger_achievements(mod_count: int, mc_dir: Path) -> None:
+        """模组列表加载完成后要触发的成就（原 ``_on_mod_metadata_loaded`` 那三行）。
+
+        搬进服务层的理由：这三条与"有多少模组""装过哪些加载器"绑定，都是业务
+        判定；界面侧只该说"刚加载完 N 个模组"。三类触发**互不影响**，单条失败
+        只记日志（旧实现里 ``_trigger_ach`` 自己吞异常，这里保持同样的容错边界）。
+        """
+        if mod_count <= 0:
+            return
+        _trigger_ach("modder_first_mod", value=int(mod_count))
+        _trigger_ach("modder_mod_expert", value=int(mod_count), trigger_type="set")
+        check_full_house(mc_dir)
+
+    def new_session(
+        self,
+        callbacks: Optional[Dict[str, Any]] = None,
+        *,
+        version_id: str = "",
+        config: Any = None,
+        launcher: Any = None,
+        tasks: Any = None,
+    ) -> Any:
+        """造一个「我的资源」会话（阶段 3.6；见 ``services/resource_session.py``）。
+
+        ``ResourceService`` 本身是**无状态**的薄委托集合（旧窗口一个实例只服务一个
+        版本，所以当年不需要会话对象）。QML 侧的页面是常驻的，需要"当前是哪个版本 /
+        哪个标签页 / 第几页"这一整套状态，于是把它单独放一个对象里 —— 服务仍然
+        不带状态，会话可以被随时丢掉重建。
+
+        **是实例方法不是 `@staticmethod`**：会话要拿着服务去调
+        ``resource_dir_for`` / ``scan_resources`` / ``tasks``，所以它必须绑定到一个
+        具体实例上（`ResourceSession(service, ...)` 的第一个参数就是本对象）。
+        """
+        from services.resource_session import ResourceSession
+
+        #: 任务调度器的来源顺序：**AppContext 上的那个优先**（它就是全局唯一的调度器），
+        #: 再退回 `Service.tasks` 属性。写成两个候选是因为 `ResourceService` 允许脱离
+        #: 上下文单测（`self.tasks` 在那时会抛 `ServiceNotAvailable`），而"没拿到调度器"
+        #: 会让会话的异步方法（模组元数据 / 更新检查 / 批量更新）静默失效 ——
+        #: 实测踩过：探针里 `bind()` 之后 `modCount` 永远是 0（阶段 3.6）。
+        tasks = tasks if tasks is not None else getattr(self._context, "tasks", None)
+        if tasks is None:
+            try:
+                tasks = self.tasks
+            except Exception:  # noqa: BLE001 - 没有 AppContext
+                tasks = None
+        return ResourceSession(
+            self, config=config, callbacks=callbacks, version_id=version_id, launcher=launcher, tasks=tasks
+        )
 
     # ─── 搜索 / 过滤 / 分页 ─────────────────────────────────
 

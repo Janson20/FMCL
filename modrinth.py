@@ -1591,13 +1591,18 @@ def extract_mod_metadata(jar_path: Path) -> Optional[Dict]:
         return None
 
 
-def extract_all_mods_metadata(mods_dir: Path, status_callback=None) -> List[Dict]:
+def extract_all_mods_metadata(
+    mods_dir: Path, status_callback=None, cancel_event=None
+) -> List[Dict]:
     """
     批量提取模组目录中所有 jar 的元数据
 
     Args:
         mods_dir: 模组目录路径
         status_callback: 状态回调函数
+        cancel_event: 协作式取消事件（``threading.Event``）。阶段 3.6 新增，**可选**：
+            置位后在每个条目开始处跳出，返回**已收集的部分**。默认 ``None`` = 旧行为
+            （跑完全部条目），所以旧调用点一个字都不用改。
 
     Returns:
         元数据列表，每项包含 name, modid, author, description, icon_base64, path, size, disabled
@@ -1619,6 +1624,9 @@ def extract_all_mods_metadata(mods_dir: Path, status_callback=None) -> List[Dict
 
     processed = 0
     for entry in entries:
+        if cancel_event is not None and cancel_event.is_set():
+            # 已经解过的 jar 不白费：返回部分结果，由调用方（任务层）决定是否采用
+            break
         if not entry.is_file():
             continue
 

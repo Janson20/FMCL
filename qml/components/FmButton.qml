@@ -57,7 +57,9 @@ Item {
     //: **刻意做成普通函数、也刻意不放进单独的 JS 模块**：阶段 3.5 反馈轮实测，
     //: 把它组合成"只读属性 + 组件自己的函数"会让真 `App.qml` 里三态演示按钮刷
     //: `QML FmButton: Cannot find member data`（缺陷 D-196，二分记录见 `16` §二十一）。
-    //: 这里的形态与 committed 版里那两个配色函数**同构**，是实测 0 命中的写法。
+    //: `#rrggbb` / `#aarrggbb` → 相对亮度（`labelColor` 用它判断面板偏亮还是偏暗）。
+    //: 阈值 `0.17905…` 是**解出来的**：白字与黑字对比度相等的那个相对亮度
+    //: （解 `1.05/(L+0.05) = (L+0.05)/0.05`），不是 0.5 那种经验值。
     function faceLuminance(color) {
         var text = String(color)
         if (text.charAt(0) !== "#")
@@ -90,12 +92,27 @@ Item {
     }
 
     //: 文字/图标颜色：**按面板底色自适应**（浅底深字、深底浅字）。
-    //: 形态说明见 D-196：这种"读 `control.hovered` 的多数值三元"是实测 0 命中的写法。
+    //:
+    //: 两处与"顺手写出来"的样子不同，都是被真走查逼出来的：
+    //:
+    //: 1. **调用自身的 JS 函数必须判存在**（与下面背景矩形那两行同一手法，D-163）：
+    //:    对象被拆到一半时 `control.faceColor` 已经**不是函数**了，绑定一求值就是
+    //:    `TypeError: Property 'faceColor' … is not a function`。
+    //:    2026-10-07 这条在真 `App.qml` 走查里稳定复现（`test_visual_regression.py`），
+    //:    对象是设置页的保存按钮 —— 背景矩形当年写了守卫、**这里我漏了**。
+    //: 2. **面板色仍然走 `faceColor()` 这个普通函数**（不改成 `readonly property`、
+    //:    也不引 JS 模块）：D-196 用真冒烟逐条对照过，那两种写法会让新建按钮刷
+    //:    `QML FmButton: Cannot find member data`（命中 15 / 15~21，普通函数是 0）。
+    //:    所以这里的形态是"**函数 + 守卫**"，不是"属性 + 模块"。
     readonly property color labelColor: control.enabled
-                   ? (((control.danger && !control.hovered)
-                       ? (control.faceLuminance(Theme?.error) > 0.17905004914115914
-                          ? control.faceLuminance(Theme?.bgMedium) : 0)
-                       : control.faceLuminance(control.faceColor())) > 0.17905004914115914
+                   ? ((control.faceLuminance
+                       ? (control.danger && !control.hovered
+                          ? (control.faceLuminance(Theme?.error) > 0.17905004914115914
+                             ? control.faceLuminance(Theme?.bgMedium) : 0)
+                          : (control.faceColor
+                             ? control.faceLuminance(control.faceColor())
+                             : 0))
+                       : 0) > 0.17905004914115914
                       ? (Theme?.bgDark ?? "transparent")
                       : (Theme?.textPrimary ?? "transparent"))
                    : (Theme?.textSecondary ?? "transparent")

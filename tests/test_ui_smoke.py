@@ -77,10 +77,24 @@ def smoke_json(tmp_path_factory: pytest.TempPathFactory) -> Dict[str, Any]:
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         cwd=str(REPO_ROOT), timeout=SMOKE_TIMEOUT,
     )
-    assert completed.returncode == 0, (
-        f"UI 冒烟测试失败（exit={completed.returncode}）：\n"
-        f"stdout={completed.stdout[-4000:]}\nstderr={completed.stderr[-2000:]}"
-    )
+    if completed.returncode != 0:
+        #: 失败时先把**完整 JSON**与 stdout/stderr 落到测试目录，再断言。
+        #: 为什么必须落盘：内联断言只能贴 `stdout[-4000:]`，而驱动是先打一整份
+        #: JSON（含几百帧截图的 sha256）、最后才退出 —— 截出来刚好全是尾部的截图
+        #: 校验记录，**看不到是哪几条 check 挂了**。为了让"并行重载下偶发红灯"
+        #: 这件事以后有据可查，这里把报告整份留下（路径写在断言消息里）。
+        try:
+            (out_dir / "smoke.json").write_text(completed.stdout, encoding="utf-8")
+            (out_dir / "smoke.stderr.txt").write_text(completed.stderr, encoding="utf-8")
+        except OSError:  # pragma: no cover - 落盘失败不该盖住真正的断言
+            pass
+        failed = _failed_checks(completed.stdout)
+        raise AssertionError(
+            f"UI 冒烟测试失败（exit={completed.returncode}）：\n"
+            f"失败检查={failed}\n"
+            f"完整报告：{out_dir / 'smoke.json'}\n"
+            f"stderr={completed.stderr[-2000:]}"
+        )
     try:
         data = json.loads(completed.stdout)
     except ValueError as exc:  # noqa: BLE001
@@ -90,6 +104,23 @@ def smoke_json(tmp_path_factory: pytest.TempPathFactory) -> Dict[str, Any]:
     data["_outDir"] = str(out_dir)
     data["_stderr"] = completed.stderr
     return data
+
+
+def _failed_checks(stdout: str) -> List[str]:
+    """从驱动的 `--json` 输出里挑出 `ok == false` 的检查（失败时给一条可读的线索）。
+
+    驱动把报告**整份**打在 stdout；解析失败就返回一条"解析不了"的说明 ——
+    真正的报告已经落在 `smoke.json` 里了，不需要在这里硬猜。
+    """
+    start = stdout.find('{"schema"')
+    if start < 0:
+        return ["（stdout 里找不到 JSON 报告）"]
+    try:
+        data = json.loads(stdout[start:])
+    except ValueError as exc:  # noqa: BLE001
+        return [f"（JSON 报告解析失败：{exc}）"]
+    bad = [str(row.get("id", "?")) for row in data.get("checks", []) if not row.get("ok")]
+    return bad or ["（报告里没有任何失败检查 —— 退出码与内容不一致）"]
 
 
 # ─── 1. 结构 ────────────────────────────────────────────────────

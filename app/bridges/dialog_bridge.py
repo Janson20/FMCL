@@ -399,10 +399,17 @@ class DialogBridge(QObject):
         self.toastsChanged.emit()
         self._enforce_cap()
 
+    @Slot(str, result=bool)
     def set_clipboard(self, text: str) -> bool:
         """写入剪贴板；失败返回 False（调用方据此降级提示，不假装成功）。
 
         ``QGuiApplication.clipboard()`` 必须在主线程调用，所以非主线程一律拒绝。
+
+        `@Slot` 是阶段 3 任务 3.6 补的：**它一直是给 QML 用的口子，但没有 `@Slot`
+        时 QML 侧根本调不到** —— 实测 `Dialogs.set_clipboard("x")` 抛
+        `Property 'set_clipboard' … is not a function`（见
+        `docs/refactor/16-phase3-execution-log.md` §二十二）。漏了它一年也不会有人
+        发现，因为 3.5 之前的调用点全在 Python 侧。
         """
         if not self._on_main_thread():
             self.log.warning("set_clipboard 只能在主线程调用，已拒绝（返回 False）")

@@ -52,6 +52,15 @@ Item {
     //: 返工 C 组新增的两件（FmCheckBox 的勾选态、FmSpinBox 的当前值）
     property bool demoAgreed: false
     property int demoThreads: 8
+    //: 阶段 3.6 新增的两件（FmTabBar 的当前页签、FmDropZone 收到的文件数）
+    property string tabBarKey: "mods"
+    property var tabBarModel: [
+        {"key": "mods", "labelKey": "resource_mods"},
+        {"key": "resourcepacks", "labelKey": "resource_packs"},
+        {"key": "saves", "labelKey": "resource_maps"},
+        {"key": "shaderpacks", "labelKey": "resource_shaders"}
+    ]
+    property int dropCount: 0
 
     //: 进度条的自动演示（每 100ms 加 5%，到 1 回到 0）：让"活的进度条"不需要人动手
     Timer {
@@ -447,6 +456,99 @@ Item {
                         color: Theme?.textPrimary ?? "transparent"
                         font.pixelSize: Theme?.fontSizeBase ?? 12
                     }
+                }
+            }
+
+            // ── FmTabBar：同屏切组（4 个页签，第 1 个选中）──
+            ColumnLayout {
+                objectName: "galleryItem_FmTabBar"
+                Layout.fillWidth: true
+                spacing: Theme?.spacingXs ?? 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme?.spacingSm ?? 0
+
+                    Text {
+                        text: "FmTabBar"
+                        color: Theme?.accent ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeBase ?? 12
+                        font.bold: true
+                    }
+
+                    Text {
+                        objectName: "galleryHint_tabbar"
+                        Layout.fillWidth: true
+                        //: 同页签再点一次 = 重扫（`setTab` 没有"相同就早退"）
+                        text: Tr?.map["resource_mods"] ?? "resource_mods"
+                        color: Theme?.textSecondary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        elide: Text.ElideRight
+                    }
+                }
+
+                FmTabBar {
+                    objectName: "galleryTabBar"
+                    Layout.fillWidth: true
+                    items: page.tabBarModel
+                    currentKey: page.tabBarKey
+                    onTabRequested: function (key) {
+                        page.tabBarKey = String(key)
+                    }
+                }
+
+                Text {
+                    objectName: "galleryTabBarReadout"
+                    text: String(page.tabBarKey)
+                    color: Theme?.textSecondary ?? "transparent"
+                    font.pixelSize: Theme?.fontSizeSmall ?? 10
+                }
+            }
+
+            // ── FmDropZone：文件拖放 + 悬停高亮（组件本身不碰文件，只发 urls）──
+            ColumnLayout {
+                objectName: "galleryItem_FmDropZone"
+                Layout.fillWidth: true
+                spacing: Theme?.spacingXs ?? 0
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme?.spacingSm ?? 0
+
+                    Text {
+                        text: "FmDropZone"
+                        color: Theme?.accent ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeBase ?? 12
+                        font.bold: true
+                    }
+
+                    Text {
+                        objectName: "galleryHint_dropzone"
+                        Layout.fillWidth: true
+                        //: 被放下时只把 `drop.urls` 原样发出去，路径折算归调用方
+                        text: Tr?.map["rm_drop_hint"] ?? "rm_drop_hint"
+                        color: Theme?.textSecondary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        elide: Text.ElideRight
+                    }
+                }
+
+                FmDropZone {
+                    objectName: "galleryDropZone"
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 120
+                    text: Tr?.map["rm_drop_hint"] ?? "rm_drop_hint"
+                    iconName: "download"
+                    onDropped: function (urls) {
+                        page.dropCount += urls.length
+                    }
+                }
+
+                Text {
+                    objectName: "galleryDropZoneReadout"
+                    text: String(page.dropCount)
+                    color: Theme?.textSecondary ?? "transparent"
+                    font.pixelSize: Theme?.fontSizeSmall ?? 10
                 }
             }
 

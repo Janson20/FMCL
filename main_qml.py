@@ -81,6 +81,9 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("About", "app.bridges.about_bridge", "AboutBridge"),
     # 账号页（阶段 3 任务 3.5）：登录 / 切换 / 删除 / 刷新 / 导入导出。
     ("Accounts", "app.bridges.accounts_bridge", "AccountsBridge"),
+    # 资源页（阶段 3 任务 3.6）：模组 / 资源包 / 地图 / 光影的扫描、启停、删除、
+    # 安装、缩略图、双源更新检查与批量更新。
+    ("Resources", "app.bridges.resources_bridge", "ResourcesBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -566,6 +569,21 @@ def assemble(
     except Exception as e:  # noqa: BLE001 - 图标上色失败不该挡住启动
         logger.warning("注册图标 provider 失败（图标将退化为未上色）: %s", e)
 
+    # 任务 3.6：缩略图 provider（同样必须在这之前注册）。资源包/光影的预览图在服务层
+    # 是**base64** 的 data URI —— 探针实测 Qt Quick 的 `Image` **认**它，所以这里不用
+    # provider 也能显示。改用通道是为了两件事：`Image` 会把同一张图按每个委托各解一份
+    # （一屏十个模组就是十份），而且没有 LRU 上限；走 `QQuickImageProvider` 之后主线程
+    # 解一次、按 `requestedSize` 缩放，并受 `CACHE_LIMIT` 约束（见
+    # `app/bridges/thumbnail_provider.py` 的头注释）。
+    # 通道与图标上色同一套（`QQuickImageProvider`），注册完顺手接给 `Resources` 桥。
+    # 没装上也不会白屏：`has_thumbnail` 为假，列表委托画兜底图标。
+    try:
+        from app.bridges.resources_bridge import install as install_resources
+
+        install_resources(engine)
+    except Exception as e:  # noqa: BLE001 - 缩略图通道失败不该挡住启动
+        logger.warning("注册缩略图 provider 失败（预览图将退化为兜底图标）: %s", e)
+
     # ── 任务 2.14：启动流程控制器 ──
     # 挂在 QML 上是 `Startup`（启动画面的显示、协议/公告/预下载链条都由它驱动）。
     # `splash_expected` 必须与下面的 `start_startup` **同源**：它让 QML 在 `load()` 期
@@ -703,6 +721,16 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("注销账号进度监听失败: %s", e)
+        # 资源桥：取消在跑的模组元数据任务（阶段 3.6）。不做的话退出时那几个
+        # 后台任务还会往一个正在销毁的对象上投递事件。
+        resources = bridges.get("Resources")
+        if resources is not None:
+            detach = getattr(resources, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("取消资源后台任务失败: %s", e)
         if overlay is not None:
             shutdown = getattr(overlay, "shutdown", None)
             if callable(shutdown):
