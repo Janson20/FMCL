@@ -21,7 +21,6 @@ import pytest
 
 from services import modpack_service as svc
 
-
 # ─── 造真实 zip ─────────────────────────────────────────────────
 
 
@@ -375,6 +374,59 @@ class TestInstallEntryDispatch:
             svc.call_server_install_entry({}, "/p/a.mrpack", [], None)
 
 
+class TestInstanceName:
+    def test_default_name_sanitizes_invalid_chars_and_blank(self) -> None:
+        assert svc.default_instance_name("My:Pack/1") == "My_Pack_1"
+        assert svc.default_instance_name("   ") == "modpack"
+        assert svc.default_instance_name("Pack.") == "Pack"
+
+    def test_validate_accepts_normal_names(self) -> None:
+        assert svc.validate_instance_name("My Pack", []) == ""
+        assert svc.validate_instance_name("  My Pack  ", []) == ""
+
+    def test_validate_rejects_empty_invalid_and_reserved(self) -> None:
+        assert svc.validate_instance_name("", []) == "rename_instance_invalid"
+        assert svc.validate_instance_name("a/b", []) == "rename_instance_invalid"
+        assert svc.validate_instance_name("CON", []) == "rename_instance_invalid"
+        assert svc.validate_instance_name("x.", []) == "rename_instance_invalid"
+
+    def test_validate_rejects_conflict_case_insensitively(self) -> None:
+        assert svc.validate_instance_name("Demo", ["demo"]) == "rename_instance_exists"
+        assert svc.validate_instance_name("Demo", ["Other"]) == ""
+
+    def test_installed_instance_ids_degrades_to_empty(self) -> None:
+        assert svc.installed_instance_ids(None) == []
+
+        class Broken:
+            def get_installed_version_ids(self):
+                raise OSError("no dir")
+
+        assert svc.installed_instance_ids(Broken()) == []
+
+    def test_instance_name_forwarded_to_unified_entry(self) -> None:
+        seen = {}
+
+        def _unified(path, optional_file_ids=None, instance_name=None):
+            seen.update({"path": path, "ids": optional_file_ids, "name": instance_name})
+            return True, "ok"
+
+        assert svc.call_install_entry(
+            {"install_modpack": _unified}, "/p/a.mrpack", ["o"], "mrpack", "My Pack"
+        ) == (True, "ok")
+        assert seen == {"path": "/p/a.mrpack", "ids": ["o"], "name": "My Pack"}
+
+    def test_instance_name_forwarded_to_mrpack_fallback(self) -> None:
+        seen = {}
+        callbacks = {
+            "install_mrpack": lambda path, optional_files=None, instance_name=None: seen.update(
+                {"path": path, "files": optional_files, "name": instance_name}
+            )
+            or (True, "ok"),
+        }
+        assert svc.call_install_entry(callbacks, "/p/a.mrpack", [], "mrpack", "My Pack") == (True, "ok")
+        assert seen == {"path": "/p/a.mrpack", "files": [], "name": "My Pack"}
+
+
 class TestProgressPercent:
     @pytest.mark.parametrize(
         "data,expected",
@@ -403,3 +455,110 @@ class TestServiceFacade:
         assert info["format"] == "mrpack"
         assert service.progress_percent({"current": 1, "max": 2}) == 50.0
         assert service.detect_pack_format(packs["hmcl"]).pack_type == "hmcl"
+
+
+class TestDescribePackInfo:
+    """3.8 新加的"元数据 → 页面描述"纯函数。"""
+
+    def test_mrpack_optional_files_become_selectable_components(self) -> None:
+        info = {
+            "format": "mrpack",
+            "name": "Pack",
+            "summary": "S",
+            "minecraftVersion": "1.20.1",
+            "optionalFiles": ["config/a.zip", "mods/b.jar"],
+        }
+        desc = svc.describe_pack_info(info)
+        assert desc["format"] == "mrpack"
+        assert desc["mc_version"] == "1.20.1"
+        assert desc["components"] == [
+            {"name": "config/a.zip", "selectable": True},
+            {"name": "mods/b.jar", "selectable": True},
+        ]
+        assert desc["optional_files"] == ["config/a.zip", "mods/b.jar"]
+
+    def test_mc_version_prefers_explicit_mc_version_even_when_empty(self) -> None:
+        info = {"mc_version": "", "minecraftVersion": "1.20.4"}
+        assert svc.describe_pack_info(info)["mc_version"] == ""
+
+    def test_multimc_components_are_read_only_and_loader_is_joined(self) -> None:
+        info = {
+            "format": "multimc",
+            "mc_version": "1.20.1",
+            "loader_type": "forge",
+            "loader_version": "47.2.0",
+            "components": [{"uid": "net.minecraft"}, {"name": "Forge"}, "extra"],
+        }
+        desc = svc.describe_pack_info(info)
+        assert desc["loader_text"] == "forge 47.2.0"
+        assert desc["components"] == [
+            {"name": "net.minecraft", "selectable": False},
+            {"name": "Forge", "selectable": False},
+            {"name": "extra", "selectable": False},
+        ]
+
+    def test_curseforge_counts_and_no_component_rows(self) -> None:
+        info = {
+            "format": "curseforge",
+            "mc_version": "1.20.1",
+            "loader_type": "fabric",
+            "loader_version": "0.15",
+            "required_files": 7,
+            "optional_files": 3,
+            "components": ["must-not-show"],
+        }
+        desc = svc.describe_pack_info(info)
+        assert desc["loader_text"] == "fabric 0.15"
+        assert desc["required_count"] == 7
+        assert desc["optional_count"] == 3
+        assert desc["components"] == []
+
+    def test_invalid_counts_fall_back_to_zero(self) -> None:
+        desc = svc.describe_pack_info({"format": "curseforge", "required_files": None, "optional_files": "x"})
+        assert desc["required_count"] == 0
+        assert desc["optional_count"] == 0
+
+    def test_format_label_returns_brand_or_key(self) -> None:
+        assert svc.format_label("modrinth") == {"text": "", "key": ""}
+        assert svc.format_label("mrpack") == {"text": "Modrinth", "key": ""}
+        assert svc.format_label("compress") == {"text": "", "key": "mp_format_compress"}
+
+
+class TestProgressSnapshot:
+    """进度快照：夹取、百分比、字段原样带出。"""
+
+    def test_parallel_phase_and_percentages(self) -> None:
+        snapshot = svc.progress_snapshot(
+            {
+                "phase": "parallel",
+                "overall": 0.5,
+                "status_text": "并行安装中",
+                "mrpack": {"current": 1, "max": 4, "label": "a"},
+                "vanilla": {"current": 3, "max": 0, "label": "b"},
+            }
+        )
+        assert snapshot["phase"] == "parallel"
+        assert snapshot["overall"] == 0.5
+        assert snapshot["status"] == "并行安装中"
+        assert snapshot["mrpack_pct"] == 25.0
+        assert snapshot["vanilla_pct"] == 100.0  # max=0 时按 1 算，3/1 被夹到 100
+
+    def test_overall_is_clamped_to_unit_interval(self) -> None:
+        assert svc.progress_snapshot({"overall": 5})["overall"] == 1.0
+        assert svc.progress_snapshot({"overall": -2})["overall"] == 0.0
+        assert svc.progress_snapshot(None)["overall"] == 0.0
+
+
+class TestLauncherCallbacks:
+    def test_only_callable_entries_are_kept(self) -> None:
+        class FakeLauncher:
+            def get_mrpack_information(self, path):
+                return {}
+
+            install_modpack = "not-callable"
+
+        callbacks = svc.launcher_callbacks(FakeLauncher())
+        assert list(callbacks) == ["get_mrpack_information"]
+
+    def test_none_launcher_gives_empty_mapping(self) -> None:
+        assert svc.launcher_callbacks(None) == {}

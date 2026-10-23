@@ -94,12 +94,12 @@ class MinecraftLauncher(
     def _install_modrinth_wrapper(
         self, path: str, optional_ids: Optional[list], name: Optional[str]
     ) -> Tuple[bool, str]:
-        return self.install_mrpack(path, optional_files=optional_ids or [])
+        return self.install_mrpack(path, optional_files=optional_ids or [], instance_name=name)
 
     def _install_multimc_wrapper(
         self, path: str, optional_ids: Optional[list], name: Optional[str]
     ) -> Tuple[bool, str]:
-        return self.install_multimc_pack(path, optional_files=optional_ids)
+        return self.install_multimc_pack(path, optional_files=optional_ids, instance_name=name)
 
     def _install_curseforge_wrapper(
         self, path: str, optional_ids: Optional[list], name: Optional[str]
@@ -115,7 +115,7 @@ class MinecraftLauncher(
     def _install_launcher_pack_wrapper(
         self, path: str, optional_ids: Optional[list], name: Optional[str]
     ) -> Tuple[bool, str]:
-        return self.install_launcher_pack(path)
+        return self.install_launcher_pack(path, instance_name=name)
 
     def _install_compress_wrapper(
         self, path: str, optional_ids: Optional[list], name: Optional[str]

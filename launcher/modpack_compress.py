@@ -173,7 +173,7 @@ class CompressPackMixin:
                 pass
             return False, str(e)
 
-    def install_launcher_pack(self, zip_path: str) -> Tuple[bool, str]:
+    def install_launcher_pack(self, zip_path: str, instance_name: Optional[str] = None) -> Tuple[bool, str]:
         """
         安装带启动器的压缩包
 
@@ -214,8 +214,8 @@ class CompressPackMixin:
 
             logger.info(f"提取内嵌整合包: {inner_file} → {inner_path}")
 
-            # 递归安装：调用统一入口
-            result = self.install_modpack(inner_path)
+            # 递归安装：调用统一入口（实例名继续传下去）
+            result = self.install_modpack(inner_path, instance_name=instance_name)
 
             # 清理临时文件
             try:

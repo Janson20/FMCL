@@ -142,6 +142,8 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
      "pages/versions/InstallVersionPage.qml", ""),
     ("versions/modpack", "modpack_info", "modpack", "versions",
      "pages/versions/ModpackPage.qml", ""),
+    ("versions/modpack/browse", "mp_browser_title", "search", "versions/modpack",
+     "pages/versions/ModpackBrowserPage.qml", ""),
     ("versions/predownload", "predownload_title", "download", "versions", "pages/versions/VersionsPage.qml", ""),
     # ── 4.3 资源 ───────────────────────────────────────────────
     ("resources", "mod_browser_title_all", "mods", "", "pages/resources/ResourcesPage.qml", ""),
@@ -166,7 +168,10 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("servers/detail/mods", "server_mods_title", "mods", "servers/detail", "pages/servers/ServersPage.qml", ""),
     ("servers/detail/packs", "server_packs_title", "resourcepack", "servers/detail", "pages/servers/ServersPage.qml", ""),
     ("servers/install", "server_install_title", "download", "servers", "pages/servers/ServersPage.qml", ""),
-    ("servers/modpack", "ach_server_modpack_server", "modpack", "servers", "pages/servers/ServersPage.qml", ""),
+    ("servers/modpack", "mp_server_title", "modpack", "servers",
+     "pages/versions/ModpackPage.qml", ""),
+    ("servers/modpack/browse", "mp_browser_title", "search", "servers/modpack",
+     "pages/versions/ModpackBrowserPage.qml", ""),
     # ── 4.5 联机 ───────────────────────────────────────────────
     ("online", "online_title", "online", "", "pages/online/OnlinePage.qml", "online_description"),
     ("online/create", "online_create_title", "add", "online", "pages/online/OnlinePage.qml", ""),

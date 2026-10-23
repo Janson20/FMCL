@@ -36,12 +36,55 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from logzero import logger
 
 from services.base import Service
-from services.browse_common import AI_HITS_PER_KEYWORD, SearchOutcome, split_result
+from services.browse_common import (
+    AI_HITS_PER_KEYWORD,
+    MODPACK_VERSION_PAGE_SIZE,
+    SearchOutcome,
+    split_result,
+)
+
+#: 整合包的两个安装去向（旧实现是两个独立窗口：客户端安装 / 服务器安装）。
+TARGET_CLIENT = "client"
+TARGET_SERVER = "server"
+TARGETS: Tuple[str, ...] = (TARGET_CLIENT, TARGET_SERVER)
+
+#: 版本选择器一次追加多少条（旧 `ModpackBrowserWindow.VERSION_PAGE_SIZE = 50`）。
+VERSION_PAGE_SIZE: int = MODPACK_VERSION_PAGE_SIZE
+
+#: 格式 → 显示名的固定部分（品牌名不翻译）；`key` 非空时由界面翻这个键。
+FORMAT_LABELS: Dict[str, Tuple[str, str]] = {
+    "mrpack": ("Modrinth", ""),
+    "multimc": ("MultiMC", ""),
+    "curseforge": ("CurseForge", ""),
+    "hmcl": ("HMCL", ""),
+    "mcbbs": ("MCBBS", ""),
+    "compress": ("", "mp_format_compress"),
+    "launcher_pack": ("", "mp_format_launcher_pack"),
+}
+
+#: 六个元数据解析回调（`load_pack_info` 的 `callbacks` 只需要这几个键）。
+INFO_CALLBACKS: Tuple[str, ...] = (
+    "get_mrpack_information",
+    "get_multimc_pack_info",
+    "get_cf_pack_info",
+    "get_hmcl_pack_info",
+    "get_mcbbs_pack_info",
+    "get_compress_pack_info",
+)
+
+#: 客户端/服务端安装入口（`call_install_entry` / `call_server_install_entry` 用）。
+INSTALL_CALLBACKS: Tuple[str, ...] = (
+    "install_modpack",
+    "install_mrpack",
+    "install_multimc_pack",
+    "install_mrpack_server",
+)
 
 # ═══════════════════════════════════════════════════════════════════
 # 在线搜索 / 版本列表
@@ -258,6 +301,7 @@ def call_install_entry(
     mrpack_path: str,
     optional_files: List[str],
     pack_format: str = "mrpack",
+    instance_name: Optional[str] = None,
 ) -> Tuple[bool, Any]:
     """客户端安装入口分发（原 ``ModpackInstallWindow._do_install`` 里那个 ``try`` 块，逐字）。
 
@@ -272,17 +316,22 @@ def call_install_entry(
     回调抛的异常**原样向上冒**，界面侧的 ``except`` 会把它转成
     ``_on_install_done(False, str(e))``。
     """
+    name = str(instance_name or "").strip()
     if "install_modpack" in callbacks:
         # 新版统一入口
-        success, result = callbacks["install_modpack"](
-            mrpack_path, optional_file_ids=optional_files if optional_files else None
-        )
+        kwargs: Dict[str, Any] = {"optional_file_ids": optional_files if optional_files else None}
+        if name:
+            kwargs["instance_name"] = name
+        success, result = callbacks["install_modpack"](mrpack_path, **kwargs)
     else:
         # 回退：旧版格式分发
+        kwargs = {"optional_files": optional_files}
+        if name:
+            kwargs["instance_name"] = name
         if pack_format == "multimc" and "install_multimc_pack" in callbacks:
-            success, result = callbacks["install_multimc_pack"](mrpack_path, optional_files=optional_files)
+            success, result = callbacks["install_multimc_pack"](mrpack_path, **kwargs)
         else:
-            success, result = callbacks["install_mrpack"](mrpack_path, optional_files=optional_files)
+            success, result = callbacks["install_mrpack"](mrpack_path, **kwargs)
     return success, result
 
 
@@ -311,6 +360,212 @@ def progress_percent(progress_data: Optional[Dict[str, Any]]) -> float:
     """
     data = progress_data or {}
     return (data.get("current", 0) / max(data.get("max", 1), 1)) * 100
+
+
+def progress_snapshot(progress_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """把核心的 launcher._mp_progress 归一成界面可直接绑定的快照（纯函数）。
+
+    旧界面在 _poll_progress 里直接读这个字典；QML 侧不能跨对象读私有字段，
+    所以桥每 200ms 取一次快照、经信号投递。字段口径逐字对齐旧实现：
+
+    * overall 是 0..1 的比例（核心写的是 overall / 100.0），这里再夹一次
+      到 0..1，避免历史数据把进度条画到框外；
+    * 两路百分比走同一个 :func:`progress_percent`，因此 max=0 不会除零；
+    * phase / status_text / loader_label / format_name 原样带出，
+      文案翻译仍由桥做。
+    """
+    data = progress_data or {}
+    try:
+        overall = float(data.get("overall", 0) or 0)
+    except (TypeError, ValueError):
+        overall = 0.0
+    overall = max(0.0, min(overall, 1.0))
+    mp_data = data.get("mrpack")
+    mc_data = data.get("vanilla")
+    mp = mp_data if isinstance(mp_data, dict) else {}
+    mc = mc_data if isinstance(mc_data, dict) else {}
+    return {
+        "phase": str(data.get("phase", "") or ""),
+        "overall": overall,
+        "status": str(data.get("status_text", "") or ""),
+        "format_name": str(data.get("format_name", "") or ""),
+        "loader_label": str(data.get("loader_label", "") or ""),
+        "mrpack_pct": min(100.0, max(0.0, progress_percent(mp))),
+        "mrpack_label": str(mp.get("label", "") or ""),
+        "vanilla_pct": min(100.0, max(0.0, progress_percent(mc))),
+        "vanilla_label": str(mc.get("label", "") or ""),
+    }
+
+
+def launcher_callbacks(launcher: Any) -> Dict[str, Any]:
+    """从核心启动器实例取元数据/安装入口（取不到的键不放进字典）。
+
+    为什么不让桥自己拼：六个格式解析器分散在五个 mixin 上，漏一个的表现是
+    "某种整合包一选就报 KeyError"，而这种漏法在界面上看不出原因。这里用一份
+    清单集中取，新增格式时只改 :data:`INFO_CALLBACKS` 一处。
+    """
+    out: Dict[str, Any] = {}
+    if launcher is None:
+        return out
+    for name in INFO_CALLBACKS + INSTALL_CALLBACKS:
+        fn = getattr(launcher, name, None)
+        if callable(fn):
+            out[name] = fn
+    return out
+
+
+#: Windows 文件名非法字符（实例名最终就是 versions/ 下的目录名）。
+INVALID_INSTANCE_CHARS = '<>:"/\\|?*'
+
+#: Windows 保留设备名（不区分大小写，带扩展名也算）。
+_WINDOWS_RESERVED = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+}
+
+
+def default_instance_name(pack_name: str) -> str:
+    """整合包名 → 默认实例名：非法字符换成下划线，空名回落 modpack。"""
+    text = re.sub(r'[<>:"/\\\\|?*]', "_", str(pack_name or "")).strip()
+    text = text.rstrip(". ")
+    if len(text) > 100:
+        text = text[:100].rstrip()
+    return text or "modpack"
+
+
+def validate_instance_name(name: str, installed: Optional[List[str]] = None) -> str:
+    """校验实例名；合法返回空串，否则返回 i18n 键（rename_instance_*）。
+
+    规则与核心的重命名/安装目录一致：非空、不含 Windows 非法字符与控制字符、
+    不以点/空格结尾、不是 . / .. / 保留设备名；重名按不区分大小写判断。
+    """
+    text = str(name or "").strip()
+    if not text or len(text) > 100:
+        return "rename_instance_invalid"
+    if any(ch in INVALID_INSTANCE_CHARS or ord(ch) < 32 for ch in text):
+        return "rename_instance_invalid"
+    if text in (".", "..") or text.endswith((" ", ".")):
+        return "rename_instance_invalid"
+    if text.split(".", 1)[0].lower() in _WINDOWS_RESERVED:
+        return "rename_instance_invalid"
+    existing = {str(item or "").strip().casefold() for item in (installed or []) if str(item or "").strip()}
+    if text.casefold() in existing:
+        return "rename_instance_exists"
+    return ""
+
+
+def installed_instance_ids(launcher: Any) -> List[str]:
+    """已安装版本 ID（冲突检查用）；取不到时退化成空列表。"""
+    if launcher is None:
+        return []
+    getter = getattr(launcher, "get_installed_version_ids", None)
+    if not callable(getter):
+        return []
+    try:
+        return sorted(str(item) for item in (getter() or []) if str(item).strip())
+    except Exception as e:  # noqa: BLE001 - 冲突检查失败不应该挡住安装
+        logger.warning("列举已安装实例失败: %s", e)
+        return []
+
+
+def _text(value: Any) -> str:
+    return "" if value is None else str(value)
+
+
+def _component_name(component: Any) -> str:
+    """组件条目的显示名（旧三个渲染分支的同一行 name / uid / "?"）。"""
+    if isinstance(component, dict):
+        return _text(component.get("name") or component.get("uid") or "?")
+    return _text(component)
+
+
+def describe_pack_info(info: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """把六种格式的元数据归一成页面要的一份描述（纯函数，不翻译）。
+
+    旧 ModpackInstallWindow._show_mrpack_info 里有四条分支：MultiMC 显示组件、
+    mrpack 显示可选文件复选、CurseForge 显示必装/可选计数、其余显示组件清单。
+    这里把这四条分支的**数据部分**收拢，界面只按 kind 决定画法：
+
+    * kind == "optional"：可勾选（mrpack 的 optionalFiles）；
+    * kind == "list"：只读组件清单（MultiMC / HMCL / MCBBS / 压缩包）；
+    * kind == "cf"：只显示 required_count / optional_count。
+
+    mc_version 的取值顺序与旧实现一致：先 mc_version，再
+    minecraftVersion（**不是** or —— 显式给了空串就按空串显示"未知"）。
+    """
+    data = info or {}
+    pack_format = _text(data.get("format") or "mrpack")
+    if "mc_version" in data:
+        mc_version = _text(data.get("mc_version"))
+    else:
+        mc_version = _text(data.get("minecraftVersion"))
+
+    loader_type = _text(data.get("loader_type"))
+    loader_version = _text(data.get("loader_version"))
+    loader_text = ""
+    #: 旧实现只在这三种格式上拼加载器（mrpack/HMCL/压缩包的元数据没有这个字段）。
+    if pack_format in ("multimc", "curseforge", "mcbbs") and loader_type:
+        loader_text = f"{loader_type} {loader_version}".strip()
+
+    optional_files = [_text(v) for v in (data.get("optionalFiles") or []) if _text(v)]
+    raw_components = data.get("components") or []
+    components: List[Dict[str, Any]] = []
+    if pack_format == "mrpack":
+        components = [{"name": name, "selectable": True} for name in optional_files]
+    elif pack_format in ("multimc", "mcbbs", "hmcl", "compress", "launcher_pack"):
+        components = [
+            {"name": _component_name(comp), "selectable": False}
+            for comp in raw_components
+            if _component_name(comp)
+        ]
+
+    try:
+        required_count = int(data.get("required_files", 0) or 0)
+    except (TypeError, ValueError):
+        required_count = 0
+    try:
+        optional_count = int(data.get("optional_files", 0) or 0)
+    except (TypeError, ValueError):
+        optional_count = 0
+
+    return {
+        "format": pack_format,
+        "name": _text(data.get("name")),
+        "summary": _text(data.get("summary")),
+        "description": _text(data.get("description")),
+        "mc_version": mc_version,
+        "loader_type": loader_type,
+        "loader_version": loader_version,
+        "loader_text": loader_text,
+        "optional_files": optional_files,
+        "components": components,
+        "required_count": required_count,
+        "optional_count": optional_count,
+    }
+
+
+def format_label(pack_format: str) -> Dict[str, str]:
+    """格式 → {"text": 品牌名, "key": i18n 键}（二者最多一个非空）。"""
+    text, key = FORMAT_LABELS.get(_text(pack_format), ("", ""))
+    return {"text": text, "key": key}
+
+
+def trigger_achievement(achievement_id: str) -> bool:
+    """触发一条成就；引擎不可用时静默返回 False（旧两个窗口的 _trigger_ach）。"""
+    try:
+        from achievement_engine import get_achievement_engine
+
+        engine = get_achievement_engine()
+        if engine:
+            engine.update_progress(achievement_id, value=1, trigger_type="increment")
+            return True
+    except Exception as e:  # noqa: BLE001 - 成就失败绝不影响安装结果
+        logger.warning("触发成就 %s 失败: %s", achievement_id, e)
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -417,9 +672,10 @@ class ModpackService(Service):
         mrpack_path: str,
         optional_files: List[str],
         pack_format: str = "mrpack",
+        instance_name: Optional[str] = None,
     ) -> Tuple[bool, Any]:
         """客户端安装入口分发（原 ``_do_install`` 的调用与结果判定）。"""
-        return call_install_entry(callbacks, mrpack_path, optional_files, pack_format)
+        return call_install_entry(callbacks, mrpack_path, optional_files, pack_format, instance_name)
 
     @staticmethod
     def call_server_install_entry(
@@ -436,15 +692,50 @@ class ModpackService(Service):
         """``current / max`` 百分比（原两个 ``_poll_progress`` 里的同一行）。"""
         return progress_percent(progress_data)
 
+    @staticmethod
+    def progress_snapshot(progress_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """``_mp_progress`` → QML 可绑定的快照（见模块级同名函数）。"""
+        return progress_snapshot(progress_data)
+
+    @staticmethod
+    def launcher_callbacks(launcher: Any) -> Dict[str, Any]:
+        """从核心启动器取六个解析器与四个安装入口。"""
+        return launcher_callbacks(launcher)
+
+    @staticmethod
+    def describe_pack_info(info: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """六种格式的元数据 → 页面描述（纯函数）。"""
+        return describe_pack_info(info)
+
+    @staticmethod
+    def format_label(pack_format: str) -> Dict[str, str]:
+        """格式 → 品牌名或 i18n 键。"""
+        return format_label(pack_format)
+
+    @staticmethod
+    def trigger_achievement(achievement_id: str) -> bool:
+        """触发一条成就（旧两个窗口的 ``_trigger_ach``）。"""
+        return trigger_achievement(achievement_id)
+
 
 __all__ = [
+    "FORMAT_LABELS",
+    "INFO_CALLBACKS",
+    "INSTALL_CALLBACKS",
     "ModpackService",
+    "TARGETS",
+    "TARGET_CLIENT",
+    "TARGET_SERVER",
+    "VERSION_PAGE_SIZE",
     "build_sorted_version_list",
     "call_install_entry",
     "call_server_install_entry",
+    "describe_pack_info",
     "detect_pack_format",
     "download_modpack_version",
     "fetch_modpack_versions",
+    "format_label",
+    "launcher_callbacks",
     "load_info_compress",
     "load_info_curseforge",
     "load_info_hmcl",
@@ -453,6 +744,8 @@ __all__ = [
     "load_info_multimc",
     "load_pack_info",
     "progress_percent",
+    "progress_snapshot",
     "search_ai_modpacks",
     "search_modpacks",
+    "trigger_achievement",
 ]

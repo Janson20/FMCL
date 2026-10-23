@@ -530,7 +530,9 @@ class MultiMCMixin:
         version_id = version_json.get("id", game_version)
         return True, version_id
 
-    def install_multimc_pack(self, zip_path: str, optional_files: Optional[List[str]] = None) -> Tuple[bool, str]:
+    def install_multimc_pack(
+        self, zip_path: str, optional_files: Optional[List[str]] = None, instance_name: Optional[str] = None
+    ) -> Tuple[bool, str]:
         if not os.path.isfile(zip_path):
             return False, f"file not found: {zip_path}"
 
@@ -547,6 +549,9 @@ class MultiMCMixin:
             instance_cfg = read_instance_cfg(
                 zip_path, root_entry, default_name=os.path.splitext(os.path.basename(zip_path))[0]
             )
+            requested_name = str(instance_name or "").strip()
+            if requested_name:
+                instance_cfg.name = requested_name
 
             mc_version = mmc_manifest.get_minecraft_version()
             if not mc_version:
@@ -557,6 +562,8 @@ class MultiMCMixin:
             loader_version = loader_info[1] if loader_info else None
             version_id = instance_cfg.name
             version_dir = os.path.join(mc_dir, "versions", version_id)
+            if requested_name and os.path.exists(version_dir):
+                return False, f"实例已存在: {version_id}"
 
             self._set_status(f"parsing modpack: {instance_cfg.name}")
 
@@ -609,7 +616,7 @@ class MultiMCMixin:
                 self._cleanup_version_dir(version_dir)
                 return False, f"game install failed: {install_error}"
 
-            if final_version_id != version_id:
+            if final_version_id != version_id and not requested_name:
                 old_dir = version_dir
                 version_dir = os.path.join(mc_dir, "versions", final_version_id)
                 if old_dir != version_dir and os.path.isdir(old_dir) and not os.path.isdir(version_dir):

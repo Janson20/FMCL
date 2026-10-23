@@ -87,6 +87,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     # 在线资源浏览（阶段 3 任务 3.7）：Modrinth + CurseForge 双源搜索 / AI 搜索 /
     # 分页 / 卡片安装 / 详情页（版本选择 + 依赖预览）。
     ("ModBrowser", "app.bridges.mod_browser_bridge", "ModBrowserBridge"),
+    # 整合包（阶段 3 任务 3.8）：浏览 / 客户端安装 / 服务器开服共用一桥。
+    ("Modpack", "app.bridges.modpack_bridge", "ModpackBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -743,6 +745,15 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("取消在线浏览后台任务失败: %s", e)
+        # 整合包桥：停进度轮询并取消下载/查询（阶段 3.8）。
+        modpack = bridges.get("Modpack")
+        if modpack is not None:
+            detach = getattr(modpack, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("停止整合包后台任务失败: %s", e)
         if overlay is not None:
             shutdown = getattr(overlay, "shutdown", None)
             if callable(shutdown):

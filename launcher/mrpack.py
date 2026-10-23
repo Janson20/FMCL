@@ -26,6 +26,10 @@ class MrpackMixin:
     # 并行下载模组时的线程数
     PARALLEL_DOWNLOADS = 10
 
+    #: 并行阶段（整合包文件 + 原版）在总进度里的权重。模组加载器另占剩下的 10%，
+    #: 否则「文件下完」就会显示 100%，用户会以为已经装完（2026-10-23 用户反馈）。
+    MODPACK_PARALLEL_WEIGHT = 0.9
+
     # ─── 整合包（mrpack）安装 ───────────────────────────────────
 
     def _get_cached_java_runtimes_mrpack(self) -> List:
@@ -120,6 +124,62 @@ class MrpackMixin:
 
         logger.error(f"无法为 {version_id} 自动安装 Java runtime")
         return "java"
+
+    def _make_modpack_loader_callback(self, base: Dict[str, Callable], lock: threading.Lock) -> Dict[str, Callable]:
+        """把模组加载器的 0..max 进度映射到总进度的 90%..100% 段。
+
+        核心的 loader 安装器（Forge / NeoForge / Fabric / Quilt）本来就会回调
+        setMax / setProgress / setStatus；之前这里直接把回调给了它们，但只更新
+        `self.current_*`，`_mp_progress` 的 overall 停在并行阶段的 100% ——
+        用户看到「文件下完 = 100%」而加载器还在装。
+
+        这里保留原回调的副作用（状态栏、旧 Tk 的 on_progress 仍能收到），再把同一批
+        数字写进 `_mp_progress`：overall = 90% + 10% * (current / max)。
+        """
+        progress_ref = self._mp_progress
+        weight = float(self.MODPACK_PARALLEL_WEIGHT)
+
+        def _forward(name: str, *args: Any) -> None:
+            fn = base.get(name)
+            if callable(fn):
+                try:
+                    fn(*args)
+                except Exception as e:  # noqa: BLE001 - 老回调坏了不能拖垮安装
+                    logger.warning(f"模组加载器回调 {name} 失败: {e}")
+
+        def set_max(value: Any) -> None:
+            _forward("setMax", value)
+            try:
+                total = max(int(value or 0), 1)
+            except (TypeError, ValueError):
+                total = 1
+            with lock:
+                progress_ref["loader_max"] = total
+                progress_ref["loader_current"] = 0
+                progress_ref["overall"] = weight
+
+        def set_progress(value: Any) -> None:
+            _forward("setProgress", value)
+            try:
+                current = max(int(value or 0), 0)
+            except (TypeError, ValueError):
+                current = 0
+            with lock:
+                total = max(int(progress_ref.get("loader_max", 1) or 1), 1)
+                fraction = max(0.0, min(current / total, 1.0))
+                progress_ref["loader_current"] = current
+                progress_ref["overall"] = weight + (1.0 - weight) * fraction
+                label = str(progress_ref.get("loader_label") or "安装模组加载器")
+                progress_ref["status_text"] = f"{label} {int(fraction * 100)}%"
+
+        def set_status(message: Any) -> None:
+            _forward("setStatus", message)
+            text = str(message or "")
+            with lock:
+                progress_ref["loader_label"] = text
+                progress_ref["status_text"] = text
+
+        return {"setMax": set_max, "setProgress": set_progress, "setStatus": set_status}
 
     def get_mrpack_information(self, mrpack_path: str) -> Dict[str, Any]:
         """
@@ -262,7 +322,11 @@ class MrpackMixin:
         return failed_files
 
     def install_mrpack(
-        self, mrpack_path: str, optional_files: Optional[List[str]] = None, modpack_directory: Optional[str] = None
+        self,
+        mrpack_path: str,
+        optional_files: Optional[List[str]] = None,
+        modpack_directory: Optional[str] = None,
+        instance_name: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """
         安装 .mrpack 整合包（默认启用版本隔离，并行下载优化）
@@ -274,6 +338,9 @@ class MrpackMixin:
             mrpack_path: .mrpack 文件的绝对路径
             optional_files: 要安装的可选文件列表（默认全部不安装）
             modpack_directory: 整合包安装目录（默认为版本隔离目录，即 versions/<launch_version>/）
+            instance_name: 用户指定的实例名（默认沿用 mrpack 推导出的加载器版本 ID）。
+                指定时 modpack 文件装进 versions/<instance_name>，安装完成后从加载器
+                版本复制一份 version.json 并改写 id，不再和别的实例共用那个加载器目录。
 
         Returns:
             (是否成功, 启动版本ID 或 错误信息) 元组
@@ -294,10 +361,19 @@ class MrpackMixin:
             logger.error(msg)
             return False, msg
 
+        requested_name = str(instance_name or "").strip()
+        if requested_name:
+            #: 目录名只做最后一道防线；真正的校验在服务/桥（空、非法字符、重名）。
+            requested_name = re.sub(r'[<>:"/\\|?*]', "_", requested_name).strip()
+        target_version = requested_name or launch_version
+        custom_instance = bool(requested_name and target_version != launch_version)
+
         if modpack_directory:
             mp_dir = modpack_directory
         else:
-            mp_dir = os.path.join(mc_dir, "versions", launch_version)
+            mp_dir = os.path.join(mc_dir, "versions", target_version)
+            if custom_instance and os.path.exists(mp_dir):
+                return False, f"实例已存在: {target_version}"
             os.makedirs(mp_dir, exist_ok=True)
             logger.info(f"版本隔离模式: 整合包资源将安装到 {mp_dir}")
 
@@ -318,7 +394,8 @@ class MrpackMixin:
             def _update_overall():
                 mp_pct = (mp_state["current"] / mp_state["max"]) if mp_state["max"] > 0 else 0
                 mc_pct = (mc_state["current"] / mc_state["max"]) if mc_state["max"] > 0 else 0
-                overall = int((mp_pct + mc_pct) / 2 * 100)
+                #: 并行阶段只占总进度的 90%；剩下 10% 留给模组加载器。
+                overall = int((mp_pct + mc_pct) / 2 * self.MODPACK_PARALLEL_WEIGHT * 100)
                 self._mp_progress["overall"] = overall / 100.0
                 status_text = f"整合包: {mp_state['label']} | 原版: {mc_state['label']}"
                 self._mp_progress["status_text"] = status_text
@@ -405,8 +482,12 @@ class MrpackMixin:
             logger.info("并行阶段完成，开始安装模组加载器...")
 
             self._mp_progress["phase"] = "loader"
+            self._mp_progress["overall"] = self.MODPACK_PARALLEL_WEIGHT
+            self._mp_progress["loader_current"] = 0
+            self._mp_progress["loader_max"] = 1
             self._mp_progress["mrpack"] = {"current": 1, "max": 1, "label": "完成"}
             self._mp_progress["vanilla"] = {"current": 1, "max": 1, "label": "完成"}
+            loader_cb = self._make_modpack_loader_callback(callback, progress_lock)
 
             index = self._read_mrpack_index(mrpack_path)
             deps = index["dependencies"]
@@ -419,27 +500,50 @@ class MrpackMixin:
             if "forge" in deps:
                 self._mp_progress["loader_label"] = f"安装 Forge {deps['forge']}"
                 forge = self._mcllib.mod_loader.get_mod_loader("forge")
-                forge.install(deps["minecraft"], mc_dir, loader_version=deps["forge"], callback=callback)
+                forge.install(deps["minecraft"], mc_dir, loader_version=deps["forge"], callback=loader_cb)
 
             if "neoforge" in deps:
                 self._mp_progress["loader_label"] = f"安装 NeoForge {deps['neoforge']}"
                 neoforge = self._mcllib.mod_loader.get_mod_loader("neoforge")
-                neoforge.install(deps["minecraft"], mc_dir, loader_version=deps["neoforge"], callback=callback)
+                neoforge.install(deps["minecraft"], mc_dir, loader_version=deps["neoforge"], callback=loader_cb)
 
             if "fabric-loader" in deps:
                 self._mp_progress["loader_label"] = f"安装 Fabric {deps['fabric-loader']}"
                 fabric = self._mcllib.mod_loader.get_mod_loader("fabric")
-                fabric.install(deps["minecraft"], mc_dir, loader_version=deps["fabric-loader"], callback=callback)
+                fabric.install(deps["minecraft"], mc_dir, loader_version=deps["fabric-loader"], callback=loader_cb)
 
             if "quilt-loader" in deps:
                 self._mp_progress["loader_label"] = f"安装 Quilt {deps['quilt-loader']}"
                 quilt = self._mcllib.mod_loader.get_mod_loader("quilt")
-                quilt.install(deps["minecraft"], mc_dir, loader_version=deps["quilt-loader"], callback=callback)
+                quilt.install(deps["minecraft"], mc_dir, loader_version=deps["quilt-loader"], callback=loader_cb)
+
+            if custom_instance:
+                #: 加载器安装器只会生成“加载器版本 ID”的目录/JSON；这里复制一份到
+                #: 用户指定的实例目录并改写 id，mods/config 已经在这个目录里了。
+                target_dir = Path(mp_dir)
+                source_dir = Path(mc_dir) / "versions" / launch_version
+                source_json = source_dir / f"{launch_version}.json"
+                if not source_json.is_file():
+                    raise RuntimeError(f"加载器版本 JSON 不存在: {source_json}")
+                version_data = json.loads(source_json.read_text(encoding="utf-8"))
+                version_data["id"] = target_version
+                source_jar = source_dir / f"{launch_version}.jar"
+                if source_jar.is_file():
+                    shutil.copy2(str(source_jar), str(target_dir / f"{target_version}.jar"))
+                    version_data["jar"] = f"{target_version}.jar"
+                (target_dir / f"{target_version}.json").write_text(
+                    json.dumps(version_data, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                source_icon = source_dir / "icon.png"
+                if source_icon.is_file():
+                    shutil.copy2(str(source_icon), str(target_dir / "icon.png"))
+                logger.info(f"已创建自定义实例: {target_version}")
 
             self._mp_progress["phase"] = "done"
+            self._mp_progress["overall"] = 1.0
 
-            logger.info(f"整合包安装完成，启动版本: {launch_version}")
-            return True, launch_version
+            logger.info(f"整合包安装完成，启动版本: {target_version}")
+            return True, target_version
 
         except Exception as e:
             logger.error(f"整合包安装失败: {e}")
@@ -541,7 +645,8 @@ class MrpackMixin:
             def _update_overall():
                 mp_pct = (mp_state["current"] / mp_state["max"]) if mp_state["max"] > 0 else 0
                 mc_pct = (mc_state["current"] / mc_state["max"]) if mc_state["max"] > 0 else 0
-                overall = int((mp_pct + mc_pct) / 2 * 100)
+                #: 并行阶段只占总进度的 90%；剩下 10% 留给模组加载器。
+                overall = int((mp_pct + mc_pct) / 2 * self.MODPACK_PARALLEL_WEIGHT * 100)
                 self._mp_progress["overall"] = overall / 100.0
                 status_text = f"整合包: {mp_state['label']} | 原版: {mc_state['label']}"
                 self._mp_progress["status_text"] = status_text
@@ -624,6 +729,9 @@ class MrpackMixin:
                 return False, combined
 
             self._mp_progress["phase"] = "loader"
+            self._mp_progress["overall"] = self.MODPACK_PARALLEL_WEIGHT
+            self._mp_progress["loader_current"] = 0
+            self._mp_progress["loader_max"] = 1
             self._mp_progress["mrpack"] = {"current": 1, "max": 1, "label": "完成"}
             self._mp_progress["vanilla"] = {"current": 1, "max": 1, "label": "完成"}
 
@@ -752,6 +860,7 @@ class MrpackMixin:
                     logger.warning(f"[模组筛选] 筛选过程出错（不影响安装）: {filter_err}")
 
             self._mp_progress["phase"] = "done"
+            self._mp_progress["overall"] = 1.0
             logger.info(f"整合包服务器 {server_name} 安装完成: {server_dir}")
             return True, server_name
 
