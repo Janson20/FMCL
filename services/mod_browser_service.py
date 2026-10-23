@@ -451,6 +451,368 @@ def server_install_mod(
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 详情页：项目信息 / 版本列表 / 依赖预览 / 按版本安装（阶段 3.7）
+# ═══════════════════════════════════════════════════════════════════
+#
+# 这三样旧窗口**没有**（卡片直接装最新兼容版本）。用户 2026-10-17 裁决
+# 「三页 + 详情页本轮一并做」，于是详情页需要它们。
+#
+# 两个源的字段形状不同（Modrinth：title/description/icon_url/version_number；
+# CurseForge：name/summary/logo/displayName），全部在这一层归一成**同一套键**，
+# 界面侧不判来源。
+
+#: 依赖关系里"会真的被装进来"的两种。``embedded`` 已内嵌、``incompatible`` 跳过、
+#: ``tool`` 不是内容依赖 —— 详情页只把前两种摆出来（与安装时的实际行为对齐）。
+INSTALLABLE_RELATIONS: Tuple[str, ...] = ("required", "optional")
+
+#: 依赖预览里最多**联网解析**多少个名字。超出的只显示 ID ——
+#: 详情页一次几十个依赖时不该发几十个请求。
+DEPENDENCY_NAME_LIMIT: int = 8
+
+
+def normalize_project(source: str, raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """把两个源的项目详情归一成同一套键（``{}`` 表示拿不到）。"""
+    if not raw:
+        return {}
+    if source == "curseforge":
+        logo = raw.get("logo", {}) or {}
+        authors = raw.get("authors", []) or []
+        return {
+            "source": "curseforge",
+            "project_id": str(raw.get("id", "")),
+            "title": raw.get("name", "") or "",
+            "description": raw.get("summary", "") or "",
+            "author": authors[0].get("name", "") if authors else "",
+            "downloads": int(raw.get("downloadCount", 0) or 0),
+            "icon_url": (logo.get("thumbnailUrl") or logo.get("url") or ""),
+            "slug": raw.get("slug", "") or "",
+            "game_versions": [],
+            "loaders": [],
+        }
+    return {
+        "source": source or "modrinth",
+        "project_id": str(raw.get("id", "") or raw.get("project_id", "")),
+        "title": raw.get("title", "") or "",
+        "description": raw.get("description", "") or "",
+        "author": raw.get("author", "") or "",
+        "downloads": int(raw.get("downloads", 0) or 0),
+        "icon_url": raw.get("icon_url", "") or "",
+        "slug": raw.get("slug", "") or "",
+        "game_versions": list(raw.get("game_versions", []) or []),
+        "loaders": list(raw.get("loaders", []) or []),
+    }
+
+
+def project_detail(source: str, project_id: str) -> Dict[str, Any]:
+    """项目详情（归一化）。拿不到返回 ``{}``（界面走错误态）。"""
+    if source == "curseforge":
+        import curseforge
+
+        try:
+            return normalize_project("curseforge", curseforge.get_project_info(int(project_id)))
+        except (TypeError, ValueError) as e:
+            logger.warning(f"CurseForge 项目 ID 非法 ({project_id}): {e}")
+            return {}
+    import modrinth
+
+    return normalize_project("modrinth", modrinth.get_project_info(project_id))
+
+
+def normalize_versions(source: str, raw_versions: Optional[Sequence[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """把两个源的版本/文件列表归一成同一套键（详情页"版本选择"的数据源）。
+
+    归一后的键：
+
+    - ``id``：Modrinth 的 version id / CurseForge 的 file id（字符串）
+    - ``name``：给人看的名字（``version_number`` / CurseForge 的 ``display_name``）
+    - ``game_versions`` / ``loaders`` / ``filename`` / ``download_url``
+    - ``release_type``（release / beta / alpha）
+    - ``size``：字节数（拿不到是 0）
+    - ``dependencies``：``[{"project_id": str, "kind": str}]``
+    """
+    out: List[Dict[str, Any]] = []
+    for raw in raw_versions or []:
+        if not isinstance(raw, dict):
+            continue
+        deps = []
+        for dep in raw.get("dependencies", []) or []:
+            if not isinstance(dep, dict):
+                continue
+            kind = str(dep.get("kind") or dep.get("dependency_type") or "required")
+            pid = str(dep.get("project_id", "") or "")
+            if pid:
+                deps.append({"project_id": pid, "kind": kind})
+        files = raw.get("files", []) or []
+        primary = next((f for f in files if isinstance(f, dict) and f.get("primary")), None)
+        if primary is None and files:
+            primary = files[0] if isinstance(files[0], dict) else None
+        primary = primary or {}
+        out.append(
+            {
+                "id": str(raw.get("id", "") or ""),
+                "name": str(raw.get("version_number") or raw.get("display_name") or raw.get("file_name") or ""),
+                "game_versions": list(raw.get("game_versions", []) or []),
+                "loaders": list(raw.get("loaders", []) or []),
+                "filename": str(primary.get("filename") or raw.get("file_name") or ""),
+                "download_url": str(primary.get("url") or raw.get("download_url") or ""),
+                "release_type": str(raw.get("release_type", "") or raw.get("version_type", "") or "release"),
+                "size": int(primary.get("size", 0) or raw.get("size", 0) or 0),
+                "dependencies": deps,
+            }
+        )
+    return out
+
+
+def project_versions(
+    source: str,
+    project_id: str,
+    game_version: Optional[str] = None,
+    mod_loader: Optional[str] = None,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    """项目的版本/文件列表（归一化）。"""
+    if source == "curseforge":
+        import curseforge
+
+        try:
+            raw = curseforge.get_project_files(
+                int(project_id), game_version=game_version, mod_loader=mod_loader, limit=limit
+            )
+        except (TypeError, ValueError) as e:
+            logger.warning(f"CurseForge 项目 ID 非法 ({project_id}): {e}")
+            return []
+        return normalize_versions("curseforge", raw)
+    import modrinth
+
+    return normalize_versions(
+        "modrinth", modrinth.get_mod_versions(project_id, game_version=game_version, mod_loader=mod_loader)
+    )
+
+
+def version_dependency_preview(
+    source: str,
+    project_id: str,
+    version_id: str,
+    game_version: Optional[str] = None,
+    mod_loader: Optional[str] = None,
+    name_limit: int = DEPENDENCY_NAME_LIMIT,
+) -> List[Dict[str, Any]]:
+    """某个版本的依赖预览：``[{project_id, kind, name}]``（只含会装进来的两种）。
+
+    名称解析**限量**（``name_limit``）：先是 Modrinth 的逐个 ``get_project_info``，
+    CurseForge 走一次 ``get_projects_batch``。解析不到的留空串，界面显示 ID。
+    """
+    versions = project_versions(source, project_id, game_version, mod_loader, limit=200)
+    chosen = next((v for v in versions if v["id"] == str(version_id)), None)
+    if chosen is None:
+        #: 选中的版本不在筛选结果里 —— 退到不筛再找一次（与安装路径同一条规矩）
+        versions = project_versions(source, project_id, limit=200)
+        chosen = next((v for v in versions if v["id"] == str(version_id)), None)
+    if chosen is None:
+        return []
+
+    deps = [d for d in chosen.get("dependencies", []) if d.get("kind") in INSTALLABLE_RELATIONS]
+    names: Dict[str, str] = {}
+    if deps:
+        ids = [d["project_id"] for d in deps[: max(0, name_limit)]]
+        if source == "curseforge":
+            import curseforge
+
+            try:
+                numeric = [int(i) for i in ids]
+            except (TypeError, ValueError):
+                numeric = []
+            if numeric:
+                try:
+                    for row in curseforge.get_projects_batch(numeric) or []:
+                        names[str(row.get("id", ""))] = row.get("name", "") or ""
+                except Exception as e:  # noqa: BLE001 - 名字解析失败不影响预览
+                    logger.warning(f"解析依赖名称失败: {e}")
+        else:
+            import modrinth
+
+            for pid in ids:
+                try:
+                    info = modrinth.get_project_info(pid)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"解析依赖名称失败 ({pid}): {e}")
+                    continue
+                if info:
+                    names[pid] = info.get("title", "") or ""
+    return [
+        {"project_id": d["project_id"], "kind": d["kind"], "name": names.get(d["project_id"], "")}
+        for d in deps
+    ]
+
+
+def describe_version(version_id: Optional[str]) -> Dict[str, Optional[str]]:
+    """来源版本的游戏版本与加载器（旧窗口 ``__init__`` 里那两行 ``parse_*``）。
+
+    空 ``version_id``（"全部版本"入口）→ 两个都 ``None``。
+    """
+    if not version_id:
+        return {"game_version": None, "loader": None}
+    from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
+
+    try:
+        return {
+            "game_version": parse_game_version_from_version(version_id),
+            "loader": parse_mod_loader_from_version(version_id),
+        }
+    except Exception as e:  # noqa: BLE001 - 解析失败退化成"不筛"
+        logger.warning(f"解析来源版本失败 ({version_id}): {e}")
+        return {"game_version": None, "loader": None}
+
+
+def install_dir_for(mc_dir: Path, version_id: Optional[str], tab_key: str) -> Path:
+    """**从某个版本进来时**的安装目录（阶段 3.7，用户 2026-10-23 反馈）。
+
+    与旧 ``resolve_install_dir`` 的区别：那条路靠"已安装实例列表 + 筛选值"反查，
+    拿不到列表（核心没起来）时会退到 ``Path(".")/<sub>`` —— 相对的、也不是当前版本的目录
+    （实测：从 ``1.20.4-forge`` 进来，对话框定位在 ``mods``）。这里直接用**已知的来源版本**：
+
+    * 该版本装了模组加载器 → ``.minecraft/versions/<id>/<sub>``（版本隔离，与 3.6 资源页一致）；
+    * 没装加载器（原版）→ ``.minecraft/<sub>``（游戏本来就写全局目录）。
+
+    ``mc_dir`` 必须是**绝对路径**（调用方负责解析），否则又会拼出相对的影子目录。
+    """
+    sub = INSTALL_SUBDIRS.get(tab_key, "mods")
+    base = Path(mc_dir)
+    if not version_id:
+        return base / sub
+    try:
+        from version_utils import has_mod_loader_from_json
+
+        isolated = bool(has_mod_loader_from_json(str(version_id), str(base)))
+    except Exception as e:  # noqa: BLE001 - 判不出来就按隔离处理（用户预期的那个目录）
+        logger.warning(f"判定版本隔离失败 ({version_id}): {e}")
+        isolated = True
+    if isolated:
+        return base / "versions" / str(version_id) / sub
+    return base / sub
+
+
+def trigger_achievements(installed_count: int) -> None:
+    """模组安装成功后的成就（旧 ``_trigger_ach`` 的两处调用，逐字搬来）。
+
+    - 装了不止一个（含依赖）→ ``modder_dependency_expert`` +1
+    - 只要成功 → ``modder_first_mod`` 按**安装个数**累加
+
+    成就引擎不可用时**一律吞掉**（旧实现就是 ``except Exception: pass``）：
+    成就系统坏了不该把安装结果变成失败。
+    """
+    if installed_count <= 0:
+        return
+    try:
+        from achievement_engine import get_achievement_engine
+
+        engine = get_achievement_engine()
+        if engine is None:
+            return
+        if installed_count > 1:
+            engine.update_progress("modder_dependency_expert", value=1, trigger_type="increment")
+        engine.update_progress("modder_first_mod", value=installed_count, trigger_type="increment")
+    except Exception as e:  # noqa: BLE001 - 见 docstring
+        logger.debug(f"触发模组成就失败: {e}")
+
+
+def game_version_options() -> List[str]:
+    """游戏版本筛选的候选（旧 ``_load_version_options`` 用的同一个来源）。"""
+    try:
+        from modrinth import get_all_game_versions
+
+        return list(get_all_game_versions())
+    except Exception as e:  # noqa: BLE001 - 拿不到就是空列表（界面只给"全部版本"）
+        logger.debug(f"加载游戏版本列表失败: {e}")
+        return []
+
+
+def install_chosen_version(
+    source: str,
+    tab_key: str,
+    project_id: str,
+    title: str,
+    version_id: Optional[str],
+    game_version: str,
+    mod_loader: str,
+    target_dir: str,
+    status_callback: Optional[Callable[[str], None]] = None,
+) -> Tuple[bool, Any, List[str]]:
+    """按**指定版本**安装（详情页的安装按钮；``version_id`` 为空 = 最新兼容版本）。
+
+    返回 ``(success, result, installed_names)`` —— 与 :func:`install_mod` 同形，
+    界面侧两条安装路径可以共用一套结果处理。
+
+    资源包 / 光影走 Modrinth 还是 CurseForge，由 ``source`` 决定。
+    **旧实现只能装 Modrinth 的资源包/光影**（CurseForge 的结果点安装会因为
+    数字 ID 在 Modrinth 查不到而失败）；这里按来源分流，等于顺手修掉那条
+    从来装不上的路径，记入对照表"行为变更/改进"。
+    """
+    if tab_key == TAB_MODS:
+        if source == "curseforge":
+            import curseforge
+
+            ok, result = curseforge.install_mod(
+                int(project_id),
+                game_version=game_version,
+                mod_loader=mod_loader,
+                mods_dir=target_dir,
+                file_id=int(version_id) if version_id else None,
+            )
+            return ok, result, ([title] if ok else [])
+        import modrinth
+
+        return modrinth.install_mod_with_deps(
+            project_id,
+            game_version=game_version,
+            mod_loader=mod_loader,
+            mods_dir=target_dir,
+            status_callback=status_callback,
+            version_id=version_id,
+        )
+
+    if source == "curseforge":
+        import curseforge
+
+        if not version_id:
+            return False, "CurseForge 资源包/光影需要先选一个文件版本", []
+        files = curseforge.get_project_files(int(project_id), game_version=game_version, limit=200)
+        chosen = next((f for f in files if str(f.get("id", "")) == str(version_id)), None)
+        if chosen is None:
+            return False, "未找到指定文件", []
+        ok, result = curseforge.download_file(
+            int(project_id),
+            int(chosen["id"]),
+            target_dir,
+            chosen.get("file_name", ""),
+            (chosen.get("hashes") or {}).get(1),
+            sha1=True,
+            preferred_url=chosen.get("download_url", ""),
+        )
+        return ok, result, ([title] if ok else [])
+
+    import modrinth
+
+    if tab_key == TAB_RESOURCE_PACKS:
+        ok, result = modrinth.install_resource_pack(
+            project_id,
+            game_version=game_version,
+            resourcepacks_dir=target_dir,
+            status_callback=status_callback,
+            version_id=version_id,
+        )
+    else:
+        ok, result = modrinth.install_shader(
+            project_id,
+            game_version=game_version,
+            shaderpacks_dir=target_dir,
+            status_callback=status_callback,
+            version_id=version_id,
+        )
+    return ok, result, ([title] if ok else [])
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 服务对象
 # ═══════════════════════════════════════════════════════════════════
 
@@ -609,10 +971,89 @@ class ModBrowserService(Service):
         """服务端模组安装（``(success, result, installed_names)``）。"""
         return server_install_mod(project_id, game_version, mod_loader, mods_dir, status_callback)
 
+    # ─── 详情页（阶段 3.7）───────────────────────────────────
+
+    @staticmethod
+    def project_detail(source: str, project_id: str) -> Dict[str, Any]:
+        """项目详情（归一化；``{}`` = 拿不到）。"""
+        return project_detail(source, project_id)
+
+    @staticmethod
+    def project_versions(
+        source: str,
+        project_id: str,
+        game_version: Optional[str] = None,
+        mod_loader: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """版本 / 文件列表（归一化）。"""
+        return project_versions(source, project_id, game_version, mod_loader, limit)
+
+    @staticmethod
+    def version_dependency_preview(
+        source: str,
+        project_id: str,
+        version_id: str,
+        game_version: Optional[str] = None,
+        mod_loader: Optional[str] = None,
+        name_limit: int = DEPENDENCY_NAME_LIMIT,
+    ) -> List[Dict[str, Any]]:
+        """某个版本的依赖预览。"""
+        return version_dependency_preview(
+            source, project_id, version_id, game_version, mod_loader, name_limit
+        )
+
+    @staticmethod
+    def game_version_options() -> List[str]:
+        """游戏版本筛选候选。"""
+        return game_version_options()
+
+    @staticmethod
+    def install_dir_for(mc_dir: Path, version_id: Optional[str], tab_key: str) -> Path:
+        """从某个版本进来时的安装目录（版本隔离，见模块级函数说明）。"""
+        return install_dir_for(mc_dir, version_id, tab_key)
+
+    @staticmethod
+    def describe_version(version_id: Optional[str]) -> Dict[str, Optional[str]]:
+        """来源版本的游戏版本与加载器（筛选默认值 / 安装参数都靠它）。
+
+        ⚠ 这个薄委托**漏过一次**（阶段 3.7，2026-10-23）：模块级函数早就写好了，
+        但类上没加同名方法，于是桥调 `self._service.describe_version(...)` 抛
+        `AttributeError` 被 `except` 吞成"解析失败" —— 症状是**游戏版本筛选永远是
+        「全部版本」**（加载器还能从路由参数拿到，所以只有版本空着，更难看出来）。
+        桥测试当时用的是假服务（自己带这个方法），所以没抓到。
+        """
+        return describe_version(version_id)
+
+    @staticmethod
+    def trigger_achievements(installed_count: int) -> None:
+        """安装成功后的成就（两个 ``modder_*``）。"""
+        return trigger_achievements(installed_count)
+
+    @staticmethod
+    def install_chosen_version(
+        source: str,
+        tab_key: str,
+        project_id: str,
+        title: str,
+        version_id: Optional[str],
+        game_version: str,
+        mod_loader: str,
+        target_dir: str,
+        status_callback: Optional[Callable[[str], None]] = None,
+    ) -> Tuple[bool, Any, List[str]]:
+        """按指定版本安装（``version_id`` 为空 = 最新兼容版本）。"""
+        return install_chosen_version(
+            source, tab_key, project_id, title, version_id,
+            game_version, mod_loader, target_dir, status_callback,
+        )
+
 
 __all__ = [
     "CLIENT_TABS",
+    "DEPENDENCY_NAME_LIMIT",
     "INSTALL_SUBDIRS",
+    "INSTALLABLE_RELATIONS",
     "MOD_LOADER_COMPAT_MAP",
     "ModBrowserService",
     "SERVER_LOADER_MARKERS",
@@ -620,10 +1061,18 @@ __all__ = [
     "TAB_RESOURCE_PACKS",
     "TAB_SHADERS",
     "compat_loader",
+    "describe_version",
+    "game_version_options",
+    "install_chosen_version",
+    "install_dir_for",
     "install_mod",
     "install_resource_pack",
     "install_shader",
     "match_installed_instance",
+    "normalize_project",
+    "normalize_versions",
+    "project_detail",
+    "project_versions",
     "resolve_install_dir",
     "search_ai_merged_tab",
     "search_client_tab",
@@ -631,4 +1080,5 @@ __all__ = [
     "search_server_page",
     "server_install_mod",
     "server_mods_dir",
+    "version_dependency_preview",
 ]

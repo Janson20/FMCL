@@ -77,6 +77,18 @@ CLASS_ID_MAP: Dict[str, int] = {
 # 文件状态 (参考 PCL-CE: CompFileStatus)
 FILE_STATUS_MAP: Dict[int, str] = {1: "release", 2: "beta", 3: "alpha"}
 
+#: 文件依赖关系（阶段 3.7）：CurseForge 的 relationType → 与 Modrinth
+#: ``dependency_type`` 同名的四个词。1=EmbeddedLibrary / 2=OptionalDependency /
+#: 3=RequiredDependency / 4=Tool / 5=Incompatible / 6=Include。
+CF_RELATION_MAP: Dict[int, str] = {
+    1: "embedded",
+    2: "optional",
+    3: "required",
+    4: "tool",
+    5: "incompatible",
+    6: "embedded",
+}
+
 # 搜索排序 (参考 PCL-CE: CompSortType)
 SORT_FIELD_MAP: Dict[str, int] = {
     "popularity": 2,  # Popularity (对应 Downloads=3)
@@ -575,6 +587,16 @@ def _parse_file_entry(project_id: int, f: Dict) -> Optional[Dict]:
         "loaders": [LOADER_TYPE_MAP.get(lt, str(lt)) for lt in (f.get("modLoaderTypes") or [])],
         "download_count": f.get("downloadCount", 0),
         "hashes": {h.get("algo", 1): h.get("value", "") for h in (f.get("hashes") or [])},
+        #: 阶段 3.7 新增：文件级依赖（详情页"依赖预览"要用）。CurseForge 的
+        #: ``relationType`` 是 1=内嵌/2=可选/3=必需/4=工具/5=不兼容/6=包含，
+        #: 统一收敛成四个词，与 Modrinth 的 ``dependency_type`` 同名。
+        "dependencies": [
+            {
+                "project_id": str(d.get("modId", "")),
+                "kind": CF_RELATION_MAP.get(d.get("relationType", 3), "required"),
+            }
+            for d in (f.get("dependencies") or [])
+        ],
         "source": "curseforge",
     }
 
@@ -771,6 +793,7 @@ def install_mod(
     mod_loader: Optional[str] = None,
     mods_dir: str = ".",
     version_type: str = "release",
+    file_id: Optional[int] = None,
 ) -> Tuple[bool, str]:
     """
     安装 CurseForge 模组到指定目录
@@ -783,13 +806,25 @@ def install_mod(
         mod_loader: 模组加载器
         mods_dir: mods 目录
         version_type: 版本类型
+        file_id: **可选**，指定要下载的文件 ID（阶段 3.7 详情页的"版本选择"）。
+            给了它就直接下那个文件，不再挑"最新兼容版本"；找不到该文件时报错。
 
     Returns:
         (success, message)
     """
-    file_info = get_latest_version(project_id, game_version, mod_loader, version_type)
-    if not file_info:
-        return False, f"未找到兼容版本 (game={game_version}, loader={mod_loader})"
+    if file_id is not None:
+        files = get_project_files(project_id, game_version=game_version, mod_loader=mod_loader, limit=200)
+        file_info = next((f for f in files if int(f.get("id", 0) or 0) == int(file_id)), None)
+        if file_info is None:
+            #: 指定的文件不在当前筛选里 —— 退到不筛再找（详情页可能选了别的游戏版本）
+            files = get_project_files(project_id, limit=200)
+            file_info = next((f for f in files if int(f.get("id", 0) or 0) == int(file_id)), None)
+        if file_info is None:
+            return False, f"未找到指定文件 (file_id={file_id})"
+    else:
+        file_info = get_latest_version(project_id, game_version, mod_loader, version_type)
+        if not file_info:
+            return False, f"未找到兼容版本 (game={game_version}, loader={mod_loader})"
 
     file_id = file_info["id"]
     filename = file_info.get("file_name", "")

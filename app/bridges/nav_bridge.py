@@ -150,11 +150,13 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("resources/packs", "resource_packs", "resourcepack", "resources", "pages/resources/ResourcesPage.qml", ""),
     ("resources/shaders", "resource_shaders", "shaderpack", "resources", "pages/resources/ResourcesPage.qml", ""),
     ("resources/maps", "resource_maps", "world", "resources", "pages/resources/ResourcesPage.qml", ""),
-    ("resources/browse", "mod_browser_search", "search", "resources", "pages/resources/ResourcesPage.qml", ""),
-    ("resources/browse/results", "resource_search_title", "search", "resources/browse",
-     "pages/resources/ResourcesPage.qml", ""),
+    #: 在线浏览只有两页（用户 2026-10-23 裁决）：搜索与结果在**同一页**（旧窗口也是
+    #: 一屏），详情页是新增的那一层。曾按 IA 拆出过 `resources/browse/results`，
+    #: 它的工具条与浏览页完全重复，面包屑还排成「资源浏览 → 搜索 → 资源搜索」。
+    ("resources/browse", "mod_browser_title_all", "search", "resources",
+     "pages/resources/BrowsePage.qml", ""),
     ("resources/browse/detail", "resource_detail_title", "file", "resources/browse",
-     "pages/resources/ResourcesPage.qml", ""),
+     "pages/resources/BrowseDetailPage.qml", ""),
     ("resources/updates", "mod_update_dialog_title", "refresh", "resources", "pages/resources/ResourcesPage.qml", ""),
     # ── 4.4 服务器 ─────────────────────────────────────────────
     ("servers", "server_tab", "server", "", "pages/servers/ServersPage.qml", ""),

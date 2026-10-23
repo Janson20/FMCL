@@ -100,7 +100,13 @@ FmPage {
     description: page.live ? page.t(String(Resources.tabDescKey)) : ""
     iconName: page.tabIcon
 
-    contentState: page.live ? String(Resources.loadState || "empty") : "error"
+    //: 文件夹为空时**不能让整页进入 empty** —— FmPage 会把工具条/页签一起换掉，
+    //: 用户就切不到其他类型（2026-10-23 反馈）。页面本体保持 ready，空目录画在
+    //: 列表区里的拖拽区上；只有"一个版本都没装"才整页 empty。
+    contentState: !page.live ? "error"
+                  : (Resources.noVersion === true ? "empty"
+                  : (String(Resources.loadState) === "empty" ? "ready"
+                  : String(Resources.loadState || "empty")))
     loadingText: page.t("mod_loading_metadata")
     //: 空态的**标题按真实原因分两种**（2026-10-07 第二次反馈：原先写死成"还没有已安装的
     //: 版本"，而状态栏在说"文件夹不存在"，标题和原因对不上）：

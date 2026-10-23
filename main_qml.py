@@ -84,6 +84,9 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     # 资源页（阶段 3 任务 3.6）：模组 / 资源包 / 地图 / 光影的扫描、启停、删除、
     # 安装、缩略图、双源更新检查与批量更新。
     ("Resources", "app.bridges.resources_bridge", "ResourcesBridge"),
+    # 在线资源浏览（阶段 3 任务 3.7）：Modrinth + CurseForge 双源搜索 / AI 搜索 /
+    # 分页 / 卡片安装 / 详情页（版本选择 + 依赖预览）。
+    ("ModBrowser", "app.bridges.mod_browser_bridge", "ModBrowserBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -731,6 +734,15 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("取消资源后台任务失败: %s", e)
+        # 在线浏览桥：取消在跑的安装任务（阶段 3.7），理由同上。
+        mod_browser = bridges.get("ModBrowser")
+        if mod_browser is not None:
+            detach = getattr(mod_browser, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("取消在线浏览后台任务失败: %s", e)
         if overlay is not None:
             shutdown = getattr(overlay, "shutdown", None)
             if callable(shutdown):

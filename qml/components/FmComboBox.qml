@@ -11,6 +11,10 @@
 // 状态：正常 / 展开 / 禁用。model 支持字符串数组与 `[{...}]` 对象数组（Qt 原生语义）。
 // 文案由调用方给：`model` 里的显示文本要么是 `Tr.map[…]` 的值，要么是数据本身
 //   （版本号、路径），组件不做翻译。
+//
+// 长列表（阶段 3 任务 3.7 补）：`popupMaxHeight` 限制弹出层高度，超出的部分**滚动**。
+//   游戏版本候选有一百多个，不限制时 Popup 会撑到比窗口还高 —— 既放不下、也滚不动
+//   （用户 2026-10-23 反馈「版本的下拉列表太长还不能滚动」）。默认 320，调用方可以改。
 
 import QtQuick
 import QtQuick.Controls
@@ -22,6 +26,9 @@ ComboBox {
     implicitWidth: 200
     implicitHeight: 32
     font.pixelSize: Theme?.fontSizeBase ?? 12
+
+    //: 弹出层最大高度（像素）。超过就出现滚动条；列表短时按内容高度收缩。
+    property int popupMaxHeight: 320
 
     background: Rectangle {
         radius: Theme?.radiusMd ?? 0
@@ -73,18 +80,22 @@ ComboBox {
     }
 
     popup: Popup {
+        id: popup
         objectName: "fmComboBoxPopup"
         y: control.height
         width: control.width
-        implicitHeight: contentItem.implicitHeight + 2
+        //: 内容高度与最大高度取小 —— 这就是"长列表可滚动"的实现点
+        implicitHeight: Math.min(contentItem.implicitHeight + 2, control.popupMaxHeight)
         padding: 1
 
         contentItem: ListView {
+            objectName: "fmComboBoxPopupList"
             clip: true
-            implicitHeight: contentHeight
-            model: control.popup.visible ? control.delegateModel : null
+            implicitHeight: Math.min(contentHeight, control.popupMaxHeight - 2)
+            model: popup.visible ? control.delegateModel : null
             currentIndex: control.highlightedIndex
             boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical: FmScrollBar {}
         }
 
         background: Rectangle {

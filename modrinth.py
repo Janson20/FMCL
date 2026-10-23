@@ -556,6 +556,42 @@ def get_project_info(project_id: str) -> Optional[Dict]:
         return None
 
 
+def _pick_version(versions: List[Dict], version_id: Optional[str] = None) -> Optional[Dict]:
+    """从版本列表里挑出要用的那一个（阶段 3.7 新增，详情页"版本选择"用）。
+
+    ``version_id`` 为空时取第一个 —— 与旧行为逐字一致（原来每个安装函数都写着
+    ``version = versions[0]``）。给了 ``version_id`` 却找不到时返回 ``None``，
+    由调用方决定"退回第一个"还是"报错"。
+    """
+    if not versions:
+        return None
+    if not version_id:
+        return versions[0]
+    wanted = str(version_id)
+    for candidate in versions:
+        if str(candidate.get("id", "")) == wanted:
+            return candidate
+    return None
+
+
+def _resolve_version(
+    project_id: str,
+    game_version: Optional[str],
+    mod_loader: Optional[str],
+    version_id: Optional[str],
+) -> Optional[Dict]:
+    """取"要安装的那个版本"：先按筛选查，给的 ``version_id`` 不在其中时**退到不筛**再找。
+
+    为什么要有第二跳：详情页允许用户选一个"不属于当前筛选"的版本（比如从别的游戏版本
+    点进来的），只按筛选查会永远找不到它。不筛之后能查到的就是项目全部版本。
+    """
+    versions = get_mod_versions(project_id, game_version=game_version, mod_loader=mod_loader)
+    chosen = _pick_version(versions, version_id)
+    if chosen is not None or not version_id:
+        return chosen
+    return _pick_version(get_mod_versions(project_id), version_id)
+
+
 def install_mod_with_deps(
     project_id: str,
     game_version: str,
@@ -563,6 +599,7 @@ def install_mod_with_deps(
     mods_dir: str,
     installed_files: Optional[set] = None,
     status_callback=None,
+    version_id: Optional[str] = None,
 ) -> Tuple[bool, str, List[str]]:
     """
     安装模组及其 required 依赖（递归）
@@ -581,6 +618,8 @@ def install_mod_with_deps(
         mods_dir: mods 目录路径
         installed_files: 已安装/已处理的 project_id 集合（防止循环依赖）
         status_callback: 状态回调函数，接受 str 参数
+        version_id: **可选**，指定要安装的版本 ID（阶段 3.7 详情页的"版本选择"）。
+            为 None 时取筛选结果里的第一个 —— 与旧行为逐字一致。
 
     Returns:
         (是否成功, 结果消息, 安装的模组名称列表) 元组
@@ -601,9 +640,9 @@ def install_mod_with_deps(
     mod_title = project_info.get("title", project_id) if project_info else project_id
 
     # 获取兼容版本
-    versions = get_mod_versions(project_id, game_version=game_version, mod_loader=mod_loader)
+    version = _resolve_version(project_id, game_version, mod_loader, version_id)
 
-    if not versions:
+    if version is None:
         logger.warning(f"模组 {mod_title} 没有兼容的版本 ({game_version}+{mod_loader})")
         slog.warning(
             "mod_no_compatible_version",
@@ -614,7 +653,6 @@ def install_mod_with_deps(
         )
         return False, f"{mod_title} 没有兼容的版本", []
 
-    version = versions[0]
     mod_version_number = version.get("version_number", "")
     files = version.get("files", [])
 
@@ -713,7 +751,11 @@ def install_mod_with_deps(
 
 
 def install_resource_pack(
-    project_id: str, game_version: str, resourcepacks_dir: str, status_callback=None
+    project_id: str,
+    game_version: str,
+    resourcepacks_dir: str,
+    status_callback=None,
+    version_id: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """
     安装资源包（下载到 resourcepacks 目录）
@@ -723,6 +765,7 @@ def install_resource_pack(
         game_version: 游戏版本 (如 "1.20.6")
         resourcepacks_dir: resourcepacks 目录路径
         status_callback: 状态回调函数，接受 str 参数
+        version_id: **可选**，指定要安装的版本 ID（阶段 3.7 详情页的"版本选择"）
 
     Returns:
         (是否成功, 结果消息 或 文件路径) 元组
@@ -730,13 +773,12 @@ def install_resource_pack(
     project_info = get_project_info(project_id)
     title = project_info.get("title", project_id) if project_info else project_id
 
-    versions = get_mod_versions(project_id, game_version=game_version)
+    version = _resolve_version(project_id, game_version, None, version_id)
 
-    if not versions:
+    if version is None:
         logger.warning(f"资源包 {title} 没有兼容的版本 ({game_version})")
         return False, f"{title} 没有兼容的版本"
 
-    version = versions[0]
     version_number = version.get("version_number", "")
     files = version.get("files", [])
 
@@ -771,7 +813,13 @@ def install_resource_pack(
         return False, f"{title} 安装失败: {result}"
 
 
-def install_shader(project_id: str, game_version: str, shaderpacks_dir: str, status_callback=None) -> Tuple[bool, str]:
+def install_shader(
+    project_id: str,
+    game_version: str,
+    shaderpacks_dir: str,
+    status_callback=None,
+    version_id: Optional[str] = None,
+) -> Tuple[bool, str]:
     """
     安装光影（下载到 shaderpacks 目录）
 
@@ -780,6 +828,7 @@ def install_shader(project_id: str, game_version: str, shaderpacks_dir: str, sta
         game_version: 游戏版本 (如 "1.20.6")
         shaderpacks_dir: shaderpacks 目录路径
         status_callback: 状态回调函数，接受 str 参数
+        version_id: **可选**，指定要安装的版本 ID（阶段 3.7 详情页的"版本选择"）
 
     Returns:
         (是否成功, 结果消息 或 文件路径) 元组
@@ -787,13 +836,12 @@ def install_shader(project_id: str, game_version: str, shaderpacks_dir: str, sta
     project_info = get_project_info(project_id)
     title = project_info.get("title", project_id) if project_info else project_id
 
-    versions = get_mod_versions(project_id, game_version=game_version)
+    version = _resolve_version(project_id, game_version, None, version_id)
 
-    if not versions:
+    if version is None:
         logger.warning(f"光影 {title} 没有兼容的版本 ({game_version})")
         return False, f"{title} 没有兼容的版本"
 
-    version = versions[0]
     version_number = version.get("version_number", "")
     files = version.get("files", [])
 
