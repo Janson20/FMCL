@@ -154,6 +154,7 @@
   "game_window_ready": "Game is ready",
   "game_exited": "Game exited normally",
   "game_crashed": "Game crashed (exit code: {code})",
+  "game_crashed_report": "Game crashed (crash report detected)",
   "game_process_killed": "Game process forcefully terminated",
   "game_no_process": "No running game process",
   

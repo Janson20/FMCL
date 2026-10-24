@@ -154,6 +154,7 @@
   "game_window_ready": "遊戲已就緒",
   "game_exited": "遊戲已正常退出",
   "game_crashed": "遊戲異常退出 (退出碼: {code})",
+  "game_crashed_report": "遊戲崩潰（已偵測到崩潰報告）",
   "game_process_killed": "遊戲程序已強制結束",
   "game_no_process": "沒有正在執行的遊戲行程",
   

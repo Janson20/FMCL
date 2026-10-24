@@ -498,9 +498,17 @@ class HomeBridge(QObject):
             self._crash_seq += 1
             self._crash_analysis_running = False
             info = self._describe_crash(files, code)
-            info["message"] = _("game_crashed", code=code)
+            has_artifact = bool(
+                files.get("crash_report") or files.get("jvm_crash_log")
+            )
+            if code == 0 and has_artifact:
+                # 退出码 0 但有本次新生成的崩溃报告：不能对用户说“正常退出”。
+                message = _("game_crashed_report")
+            else:
+                message = _("game_crashed", code=code)
+            info["message"] = message
             info["canAnalyze"] = bool(self._ai_token()) and self._crash is not None
-            self.crashDetected.emit(code, str(info["message"]))
+            self.crashDetected.emit(code, str(message))
             self.crashDialogRequested.emit(code, info)
             logger.warning("游戏崩溃（退出码 %s），崩溃文件: %s", exit_code, sorted(crash_files))
         self._refresh_game_state()
@@ -645,6 +653,8 @@ class HomeBridge(QObject):
             return _("game_exited")
         if key == "game_crashed":
             return _("game_crashed", code=data.get("code", -1))
+        if key == "game_crashed_report":
+            return _("game_crashed_report")
         if key == "game_process_killed":
             return _("game_process_killed")
         if key == "game_no_process":

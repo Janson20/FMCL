@@ -154,6 +154,7 @@
   "game_window_ready": "ゲーム準備完了",
   "game_exited": "ゲームが正常に終了しました",
   "game_crashed": "ゲームがクラッシュしました（終了コード: {code}）",
+  "game_crashed_report": "ゲームがクラッシュしました（クラッシュレポートを検出）",
   "game_process_killed": "ゲームプロセスを強制終了しました",
   "game_no_process": "実行中のゲームプロセスがありません",
   

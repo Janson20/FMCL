@@ -154,6 +154,7 @@
   "game_window_ready": "游戏已就绪",
   "game_exited": "游戏已正常退出",
   "game_crashed": "游戏异常退出 (退出码: {code})",
+  "game_crashed_report": "游戏崩溃（已检测到崩溃报告）",
   "game_process_killed": "游戏进程已强制结束",
   "game_no_process": "没有正在运行的游戏进程",
   

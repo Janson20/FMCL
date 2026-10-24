@@ -16,7 +16,7 @@ QML 界面要的不是这套"混在窗口类里的方法"，而是一个能单�
 | B-04 | 强制结束游戏进程（用户强杀标记） | `ui/app_handlers.py:356-367` |
 | B-05 | 启动过程"加载中"动画的**启停时机** | `ui/app_handlers.py:389-416`、`1144-1160` |
 | B-06 | 游戏窗口出现检测（读 stdout 特征串，120 秒超时） | `ui/app_handlers.py:506-565` |
-| B-07 | 游戏退出监控与崩溃归因（退出码非 0 且非用户强杀） | `ui/app_handlers.py:418-437` |
+| B-07 | 游戏退出监控与崩溃归因（退出码非 0 且非用户强杀；**本次启动后新生成的崩溃报告 / hs_err 也判崩溃**，覆盖 JVM 以 0 退出的路径） | `ui/app_handlers.py:418-437` |
 | B-08 | 崩溃文件收集（latest.log / debug.log / crash-reports 最新 10 个 / hs_err_pid） | `ui/app_handlers.py:439-504` |
 
 **动画本身不在这里**：B-05 的"进度条往返滚动、50ms 步进"是纯视图行为，
@@ -80,6 +80,16 @@ KILL_EXIT_CODE = -1
 #: 崩溃报告最多收集几个（旧 `ui/app_handlers.py:495`）。
 CRASH_REPORT_LIMIT = 10
 
+#: 判定“这次崩溃产生的文件”时允许的时间回差（秒）。
+#: 文件系统时间戳与 `time.time()` 之间有毫秒级偏差，给 2 秒足够；
+#: 再大就会把上一次启动留下的崩溃报告误认成这一次的。
+CRASH_MTIME_TOLERANCE_S = 2.0
+
+#: 能证明“确实发生过崩溃”的产物键。只有进程退出码非 0，或者本次启动后
+#: 新生成了这些文件，才判崩溃 —— Minecraft 在某些 JVM/包装路径下会以 0 退出，
+#: 但崩溃报告已经写出来了（用户 2026-10-24 实测）。
+CRASH_ARTIFACT_KEYS: Tuple[str, ...] = ("crash_report", "jvm_crash_log")
+
 # ─── 状态机（界面据此决定按钮可用性；取值是稳定契约）───
 
 STATE_IDLE = "idle"
@@ -128,6 +138,8 @@ class GameService(Service):
         self._current_version = ""
         self._minimize_after = False
         self._killed_by_user = False
+        #: 本次启动的时间（epoch 秒）；用来判断崩溃报告/ hs_err 是不是这次新写的。
+        self._launch_started_at: Optional[float] = None
         self._stopping = False
         self._lock = threading.RLock()
         #: 退出监控线程的句柄，``stop()`` 时只置标志、不强杀（进程是用户的）
@@ -233,6 +245,7 @@ class GameService(Service):
             self._minimize_after = minimize
             self._killed_by_user = False
             self._current_version = version
+            self._launch_started_at = None
 
         self._set_state(STATE_LAUNCHING)
         self._emit_status("game_launching", "loading", {"version": version})
@@ -276,6 +289,7 @@ class GameService(Service):
             target = str(target_version or version)
             with self._lock:
                 self._current_version = target
+                self._launch_started_at = float(self._clock())
             self._remember_version(target)
             self._set_state(STATE_WAITING)
             self._emit_status("game_launched", "loading", {"version": version})
@@ -341,11 +355,22 @@ class GameService(Service):
         with self._lock:
             killed = self._killed_by_user
             self._killed_by_user = False
-        crashed = exit_code != 0 and not killed
-        crash_files = self.collect_crash_info() if crashed else {}
+            started_at = self._launch_started_at
+        # 崩溃文件要**先收集**再判定：Minecraft 有“退出码 0 但已写崩溃报告”的路径。
+        # 传 since 只会保留本次启动后新写的报告 / hs_err；旧报告不会被误认。
+        crash_files = {} if killed else self.collect_crash_info(since=started_at)
+        has_artifact = any(crash_files.get(key) for key in CRASH_ARTIFACT_KEYS)
+        crashed = (not killed) and (
+            exit_code != 0 or (started_at is not None and has_artifact)
+        )
+        if not crashed:
+            crash_files = {}
         self._set_state(STATE_CRASHED if crashed else STATE_EXITED)
         if crashed:
-            self._emit_status("game_crashed", "error", {"code": exit_code})
+            if exit_code == 0 and has_artifact:
+                self._emit_status("game_crashed_report", "error", {})
+            else:
+                self._emit_status("game_crashed", "error", {"code": exit_code})
             # 旧实现在 `game_crashed` 分支里触发（ui/app_handlers.py:1322）
             self._trigger_ach("advanced_crash_analyst")
         else:
@@ -462,14 +487,27 @@ class GameService(Service):
 
     # ─── B-08 崩溃文件收集 ──────────────────────────────────
 
-    def collect_crash_info(self) -> Dict[str, Any]:
+    def collect_crash_info(self, *, since: Optional[float] = None) -> Dict[str, Any]:
         """收集崩溃相关文件（后台线程调用；失败只记日志，返回已收到的部分）。
 
         返回键：``game_log`` / ``debug_log`` / ``crash_report``（最新一个）/
         ``crash_report_list``（最新 10 个）/ ``jvm_crash_log``。旧实现同样"有就放，
         没有就不放"，调用方要用 ``in`` 判断而不是取默认值。
+
+        Args:
+            since: 只收集 mtime 不早于该时间（减 `CRASH_MTIME_TOLERANCE_S`）的
+                崩溃报告 / hs_err。传 None 保持旧语义（全部）。
         """
         files: Dict[str, Any] = {}
+        tolerance = float(CRASH_MTIME_TOLERANCE_S)
+
+        def _fresh(path: Path) -> bool:
+            if since is None:
+                return True
+            try:
+                return path.stat().st_mtime >= float(since) - tolerance
+            except OSError:
+                return False
         try:
             launcher = self._resolve_launcher()
             mc_dir = Path(launcher.get_minecraft_dir()) if launcher is not None else None
@@ -500,13 +538,23 @@ class GameService(Service):
             for game_dir in game_dirs:
                 crash_dir = game_dir / "crash-reports"
                 if crash_dir.exists():
-                    reports = sorted(
-                        crash_dir.glob("crash-*.txt"), key=lambda f: f.stat().st_mtime, reverse=True
-                    )
+                    reports = [
+                        item
+                        for item in sorted(
+                            crash_dir.glob("crash-*.txt"), key=lambda f: f.stat().st_mtime, reverse=True
+                        )
+                        if _fresh(item)
+                    ]
                     if reports:
                         files.setdefault("crash_report", str(reports[0]))
                         files.setdefault("crash_report_list", [str(f) for f in reports[:CRASH_REPORT_LIMIT]])
-                hs_err = sorted(game_dir.glob("hs_err_pid*.log"), key=lambda f: f.stat().st_mtime, reverse=True)
+                hs_err = [
+                    item
+                    for item in sorted(
+                        game_dir.glob("hs_err_pid*.log"), key=lambda f: f.stat().st_mtime, reverse=True
+                    )
+                    if _fresh(item)
+                ]
                 if hs_err:
                     files.setdefault("jvm_crash_log", str(hs_err[0]))
         except Exception as e:  # noqa: BLE001 - 崩溃收集绝不能再抛异常打断退出路径
