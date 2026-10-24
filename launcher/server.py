@@ -6,14 +6,35 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from logzero import logger
 
+from launcher.server_port import choose_server_port
+from services.user_agent import USER_AGENT
 from structured_logger import slog
 from validation import validate_memory, validate_server_ip, validate_server_port, validate_version_id
 from version_utils import parse_mc_version_from_dir, parse_mc_version_from_id
+
+
+def _hidden_console_kwargs() -> Dict[str, Any]:
+    """Windows 下彻底隐藏服务器控制台窗口的 Popen 参数。
+
+    只写 CREATE_NO_WINDOW 时，通过 cmd.exe 执行的 run.bat 有时仍会弹一个黑窗；
+    再叠加 STARTF_USESHOWWINDOW/SW_HIDE 才稳定（真机反馈：启动 NeoForge 服务器
+    会弹服务器控制台）。非 Windows 返回空字典。
+    """
+    if sys.platform != "win32":
+        return {}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE
+    return {
+        "creationflags": subprocess.CREATE_NO_WINDOW,
+        "startupinfo": startupinfo,
+    }
 
 
 class ServerMixin:
@@ -241,7 +262,12 @@ class ServerMixin:
         """
         return parse_mc_version_from_dir(version_id, self.minecraft_dir)
 
-    def install_server(self, version_id: str) -> Tuple[bool, str]:
+    def install_server(
+        self,
+        version_id: str,
+        *,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    ) -> Tuple[bool, str]:
         """
         下载并安装 Minecraft 服务器
 
@@ -253,6 +279,9 @@ class ServerMixin:
 
         Args:
             version_id: 版本号（如 "1.21.4"）
+            progress_callback: 可选的本次安装进度出口 (phase, current, total)，
+                phase 为 client 或 server；不传时行为与旧实现逐字一致
+                （走全局 self.on_progress）。
 
         Returns:
             (是否成功, 版本号) 元组
@@ -269,11 +298,32 @@ class ServerMixin:
             server_dir.mkdir(parents=True, exist_ok=True)
             server_jar = server_dir / f"server-{version_id}.jar"
 
+            def report(phase: str, current: int, total: int) -> None:
+                if progress_callback is None:
+                    return
+                try:
+                    progress_callback(str(phase), int(current), int(total))
+                except Exception as cb_error:  # noqa: BLE001 - 进度坏了不能拖垮安装
+                    logger.debug(f"服务器安装进度回调失败: {cb_error}")
+
+            if progress_callback is None:
+                client_callback = self._get_callback()
+            else:
+                def client_sink(current: int, total: int, status: str) -> None:
+                    report("client", current, total)
+                    if self.on_progress is not None:
+                        try:
+                            self.on_progress(current, total, status)
+                        except Exception:  # noqa: BLE001
+                            pass
+
+                client_callback = self._get_callback(on_progress=client_sink)
+
             # 1. 安装同名客户端版本（会自动下载 Java runtime）
             logger.info(f"正在安装客户端版本 {version_id}（自动下载 Java runtime）...")
             self._set_status(f"正在准备环境: 安装 {version_id} ...")
             self._mcllib.install.install_minecraft_version(
-                version_id, self.minecraft_dir, callback=self._get_callback()
+                version_id, self.minecraft_dir, callback=client_callback
             )
 
             java_path = self._ensure_java_runtime(version_id)
@@ -305,17 +355,28 @@ class ServerMixin:
             # 3. 下载 server jar
             logger.info(f"正在下载服务器 jar: {server_jar_url}")
             self._set_status(f"正在下载服务器 {version_id} jar ...")
-            resp = req.get(server_jar_url, stream=True)
+            resp = req.get(
+                server_jar_url,
+                stream=True,
+                headers={"User-Agent": str(USER_AGENT)},
+            )
             resp.raise_for_status()
             total = int(resp.headers.get("content-length", 0))
             downloaded = 0
+            if total:
+                self._set_max(total)
             with open(server_jar, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=8192):
                     f.write(chunk)
                     downloaded += len(chunk)
-                    if total:
+                    if not total:
+                        continue
+                    if progress_callback is not None:
+                        # 与 _set_progress 共用同一套 0.1 秒节流；收尾那条必报。
+                        if downloaded == total or self._should_report_progress(downloaded):
+                            report("server", downloaded, total)
+                    else:
                         self._set_progress(downloaded)
-                        self._set_max(total)
             logger.info(f"服务器 jar 下载完成: {server_jar}")
 
             # 4. 自动同意 EULA
@@ -445,6 +506,9 @@ class ServerMixin:
         if not validate_memory(max_memory):
             logger.error(f"非法内存参数格式: {max_memory}")
             return False, None
+        if self.is_server_running(version_id):
+            logger.warning(f"服务器 {version_id} 已经在运行，忽略重复启动")
+            return False, None
 
         try:
             server_dir = self._get_server_versions_dir() / version_id
@@ -530,8 +594,16 @@ class ServerMixin:
                 except Exception as e:
                     logger.warning(f"清理 session.lock 失败: {e}")
 
-            # 清理占用 25565 端口的残留进程
-            self._kill_process_on_port(25565)
+            # 端口自动防冲突：25565 被占用时顺延到空闲端口并回写 server.properties。
+            # 刻意**不杀**占用端口的进程（旧实现会 taskkill 掉别的进程）。
+            port, port_changed, port_error = choose_server_port(server_dir)
+            if port is None:
+                logger.error(f"服务器 {version_id} 没有可用端口: {port_error}")
+                return False, None
+            self._server_port = port
+            if port_changed:
+                logger.info(f"服务器 {version_id} 端口被占用，已自动改用 {port}")
+                self._set_status(f"端口被占用，已改用 {port}")
 
             # NeoForge / Forge 服务器：优先使用 run.bat 或 run.sh 启动
             run_script = server_dir / ("run.bat" if sys.platform == "win32" else "run.sh")
@@ -545,8 +617,10 @@ class ServerMixin:
                     java_bin_dir = os.path.dirname(java_path)
                     env["PATH"] = java_bin_dir + os.pathsep + env.get("PATH", "")
                     logger.info(f"run_script 设置 JAVA_HOME={java_home}")
-                cmd = [str(run_script)]
-                logger.info(f"使用启动脚本: {run_script}")
+                # run.bat / run.sh 末尾都有 %* / "$@"，必须显式把 nogui 传进去；
+                # 否则 NeoForge/Forge 的 run 脚本会用默认 GUI 启动，弹出服务器窗口。
+                cmd = [str(run_script), "nogui"]
+                logger.info(f"使用启动脚本: {run_script} (nogui)")
                 popen_kwargs = dict(
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
@@ -555,11 +629,13 @@ class ServerMixin:
                     cwd=str(server_dir),
                     env=env,
                 )
-                if sys.platform == "win32":
-                    popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+                popen_kwargs.update(_hidden_console_kwargs())
                 self._emit_plugin_hook("server.pre_start", server_name=version_id)
                 process = subprocess.Popen(cmd, **popen_kwargs)
-                self._server_process = process
+                # 标记“这是 cmd/sh 包装进程”：它退出前可能停在 run.bat 的 pause，
+                # 会话侧需要监视 java 子进程，不能只等 stdout EOF。
+                process._fmcl_wrapper = True
+                self._remember_server_process(version_id, process)
                 self._emit_plugin_hook("server.post_start", server_name=version_id, pid=process.pid)
                 logger.info(f"服务器 {version_id} 已启动 (PID: {process.pid})")
                 slog.info(
@@ -589,12 +665,11 @@ class ServerMixin:
             popen_kwargs = dict(
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE, bufsize=1, cwd=str(server_dir)
             )
-            if sys.platform == "win32":
-                popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            popen_kwargs.update(_hidden_console_kwargs())
 
             self._emit_plugin_hook("server.pre_start", server_name=version_id)
             process = subprocess.Popen(cmd, **popen_kwargs)
-            self._server_process = process
+            self._remember_server_process(version_id, process)
             self._emit_plugin_hook("server.post_start", server_name=version_id, pid=process.pid)
             logger.info(f"服务器 {version_id} 已启动 (PID: {process.pid})")
             slog.info(
@@ -614,14 +689,77 @@ class ServerMixin:
             slog.error("server_start_failed", server_version=version_id, server_type=_server_type, error=str(e)[:200])
             return False, None
 
-    def stop_server(self) -> bool:
-        """停止服务器（发送 stop 命令）"""
-        proc = getattr(self, "_server_process", None)
-        if proc is not None and proc.poll() is None:
+    # ─── 多服务器进程表 ─────────────────────────────────────
+    #
+    # 旧实现只有一个 _server_process；3.9 验收反馈要求同时运行多个服务器，
+    # 因此加一张 version -> Popen 的表。_server_process 继续指向“最近启动”的那台
+    # （旧 Tk 页面的无参 is_server_running / stop_server / send_server_command 行为
+    # 保持），新界面按版本号精确操作。
+
+    def _server_processes(self) -> Dict[str, subprocess.Popen]:
+        processes = getattr(self, "_server_process_map", None)
+        if not isinstance(processes, dict):
+            processes = {}
+            self._server_process_map = processes
+        return processes
+
+    @staticmethod
+    def _process_alive(proc: Any) -> bool:
+        try:
+            return proc is not None and proc.poll() is None
+        except Exception:  # noqa: BLE001 - 取不到状态按已退出处理
+            return False
+
+    def _remember_server_process(self, version_id: str, process: subprocess.Popen) -> None:
+        self._server_processes()[version_id] = process
+        self._server_process = process
+        self._server_current_version = version_id
+
+    def _version_of_process(self, process: Any) -> str:
+        for version, proc in self._server_processes().items():
+            if proc is process:
+                return version
+        return ""
+
+    def _forget_server_process(self, version_id: str) -> None:
+        processes = self._server_processes()
+        proc = processes.pop(version_id, None)
+        if getattr(self, "_server_process", None) is proc:
+            live = [(v, p) for v, p in processes.items() if self._process_alive(p)]
+            if live:
+                self._server_process = live[-1][1]
+                self._server_current_version = live[-1][0]
+            else:
+                self._server_process = None
+                self._server_current_version = None
+
+    def _tracked_process(self, version_id: Optional[str] = None) -> Optional[subprocess.Popen]:
+        processes = self._server_processes()
+        if version_id:
+            return processes.get(str(version_id))
+        current = getattr(self, "_server_process", None)
+        if self._process_alive(current):
+            return current
+        for _version, proc in reversed(list(processes.items())):
+            if self._process_alive(proc):
+                return proc
+        return None
+
+    def stop_server(self, version_id: Optional[str] = None) -> bool:
+        """停止指定服务器（不传版本时停最近启动的那台，保持旧 Tk 行为）。"""
+        proc = self._tracked_process(version_id)
+        resolved = str(version_id or self._version_of_process(proc) or "")
+        if proc is not None and self._process_alive(proc):
             try:
                 proc.stdin.write(b"stop\n")
                 proc.stdin.flush()
-                logger.info("已发送 stop 命令到服务器")
+                # run.bat 末尾常有 pause：关掉 stdin 让它在服务端退出后走 EOF，
+                # 而不是在隐藏控制台里继续挂着（用户反馈“退出没有关闭服务器”）。
+                try:
+                    proc.stdin.close()
+                except Exception:
+                    pass
+                logger.info(f"已发送 stop 命令到服务器 {resolved or '(unknown)'}")
                 return True
             except Exception as e:
                 logger.error(f"发送 stop 命令失败: {e}")
@@ -629,23 +767,16 @@ class ServerMixin:
                     proc.kill()
                 except Exception:
                     pass
-                self._server_process = None
+                if resolved:
+                    self._forget_server_process(resolved)
                 return False
         logger.warning("没有正在运行的服务器")
         return False
 
-    def send_server_command(self, command: str) -> bool:
-        """
-        向服务器发送控制台命令
-
-        Args:
-            command: 要发送的命令字符串
-
-        Returns:
-            是否发送成功
-        """
-        proc = getattr(self, "_server_process", None)
-        if proc is not None and proc.poll() is None:
+    def send_server_command(self, command: str, version_id: Optional[str] = None) -> bool:
+        """向指定服务器发送控制台命令（不传版本时发给最近启动的那台）。"""
+        proc = self._tracked_process(version_id)
+        if proc is not None and self._process_alive(proc):
             try:
                 proc.stdin.write((command + "\n").encode("utf-8"))
                 proc.stdin.flush()
@@ -656,14 +787,69 @@ class ServerMixin:
                 return False
         return False
 
-    def is_server_running(self) -> bool:
-        """检查服务器是否正在运行"""
-        proc = getattr(self, "_server_process", None)
-        return proc is not None and proc.poll() is None
+    def is_server_running(self, version_id: Optional[str] = None) -> bool:
+        """检查服务器是否正在运行；传版本号时只查那一台，否则查任意一台。"""
+        if version_id:
+            return self._process_alive(self._server_processes().get(str(version_id)))
+        return self._tracked_process() is not None
 
-    def get_server_process(self) -> Optional[subprocess.Popen]:
-        """获取服务器进程对象"""
-        return getattr(self, "_server_process", None)
+    def get_server_process(self, version_id: Optional[str] = None) -> Optional[subprocess.Popen]:
+        """获取服务器进程；传版本号时取那一台，否则取最近启动的那台。"""
+        if version_id:
+            return self._server_processes().get(str(version_id))
+        return self._tracked_process()
+
+    def shutdown_servers(self, timeout_s: float = 8.0) -> int:
+        """退出启动器时停止所有由本进程启动的服务器。
+
+        先给每台发 stop 并关闭 stdin，等待 timeout_s 秒；仍未退出的直接 kill。
+        返回处理的服务器数量。不会碰不是本进程启动的服务器。
+        """
+        processes = {
+            version: proc
+            for version, proc in list(self._server_processes().items())
+            if self._process_alive(proc)
+        }
+        if not processes:
+            self._server_processes().clear()
+            self._server_process = None
+            self._server_current_version = None
+            return 0
+        logger.info(f"退出启动器：正在关闭 {len(processes)} 台服务器")
+        for version, proc in processes.items():
+            try:
+                proc.stdin.write(b"stop\n")
+                proc.stdin.flush()
+            except Exception as e:
+                logger.warning(f"向服务器 {version} 发送 stop 失败: {e}")
+            try:
+                proc.stdin.close()
+            except Exception:
+                pass
+        deadline = time.time() + max(0.0, float(timeout_s))
+        while time.time() < deadline:
+            if not any(self._process_alive(proc) for proc in processes.values()):
+                break
+            time.sleep(0.1)
+        for version, proc in processes.items():
+            if self._process_alive(proc):
+                logger.warning(f"服务器 {version} 未在 {timeout_s:.0f}s 内退出，强制结束")
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        for version, proc in processes.items():
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+            if version in self._server_processes():
+                self._forget_server_process(version)
+        self._server_processes().clear()
+        self._server_process = None
+        self._server_current_version = None
+        logger.info("退出启动器：服务器已全部关闭")
+        return len(processes)
 
     def remove_server(self, version_id: str) -> Tuple[bool, str]:
         """删除已安装的服务器版本"""
@@ -673,9 +859,9 @@ class ServerMixin:
                 logger.error(f"服务器版本未安装: {version_id}")
                 return False, version_id
 
-            # 如果正在运行则先停止
-            if self.is_server_running():
-                self.stop_server()
+            # 如果这一台正在运行则先停止（多服务器时不能误停别的）
+            if self.is_server_running(version_id):
+                self.stop_server(version_id)
 
             shutil.rmtree(str(server_dir))
             logger.info(f"服务器 {version_id} 已删除")

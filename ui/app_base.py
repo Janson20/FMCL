@@ -68,6 +68,15 @@ class ModernAppBase(ctk.CTk):
         """清理资源并关闭窗口"""
         self._running = False
 
+        # 退出启动器时先关掉由本进程启动的服务器（阶段 3.9 验收反馈）。
+        # 回调不存在（旧核心/无服务器模块）时静默跳过。
+        shutdown_servers = self.callbacks.get("shutdown_servers")
+        if callable(shutdown_servers):
+            try:
+                shutdown_servers()
+            except Exception:
+                pass
+
         # ── 插件钩子: app.shutdown ──
         try:
             pm = self.callbacks.get("get_plugin_manager", lambda: None)()

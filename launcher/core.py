@@ -2658,6 +2658,7 @@ class MinecraftLauncher:
             "remove_server": self.remove_server,
             "get_server_dir": self.get_server_dir,
             "send_server_command": self.send_server_command,
+            "shutdown_servers": self.shutdown_servers,
             # 整合包相关
             "get_mrpack_information": self.get_mrpack_information,
             "install_mrpack": self.install_mrpack,

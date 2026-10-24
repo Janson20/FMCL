@@ -89,6 +89,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("ModBrowser", "app.bridges.mod_browser_bridge", "ModBrowserBridge"),
     # 整合包（阶段 3 任务 3.8）：浏览 / 客户端安装 / 服务器开服共用一桥。
     ("Modpack", "app.bridges.modpack_bridge", "ModpackBridge"),
+    # 服务器（阶段 3 任务 3.9）：列表 / 生命周期 / 安装进度 / 每服内存。
+    ("Servers", "app.bridges.servers_bridge", "ServersBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -630,7 +632,16 @@ def assemble(
                 inject(engine)
             except Exception as e:  # noqa: BLE001 - 注不进只是那一页少一块信息
                 logger.warning("第二次注入引擎给 %s 失败: %s", name, e)
-        logger.info("已把 Startup 注入给需要它的桥（Home / Versions）")
+        # 3.9 的服务器桥同样要接 Startup.chainFinished（启动链条跑完后再取核心），
+        # 但它不是 D-171 的公告桥，所以单列一段而不是改上面那行被台账钉住的字面量。
+        servers_obj = engine._fmcl_bridges.get("Servers")
+        servers_inject = getattr(servers_obj, "use_engine", None)
+        if callable(servers_inject):
+            try:
+                servers_inject(engine)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("第二次注入引擎给 Servers 失败: %s", e)
+        logger.info("已把 Startup 注入给需要它的桥（Home / Versions / Servers）")
     except Exception as e:  # noqa: BLE001 - 启动流程起不来也要能进界面（宁可没有启动画面）
         logger.error("StartupController 不可用（%s）—— 跳过启动画面与启动链条", e)
 
@@ -754,6 +765,24 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("停止整合包后台任务失败: %s", e)
+        # 服务器进程：退出启动器时关闭由本进程启动的全部服务器（阶段 3.9 反馈）。
+        # 先停进程再摘观察者，否则最后几条退出事件会被丢掉。
+        launcher = context.try_get("launcher") if context is not None else None
+        shutdown_servers = getattr(launcher, "shutdown_servers", None)
+        if callable(shutdown_servers):
+            try:
+                shutdown_servers(timeout_s=6.0)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("关闭服务器进程失败: %s", e)
+        # 服务器桥：停止观察者投递；进程已经在上一步关闭。
+        servers = bridges.get("Servers")
+        if servers is not None:
+            detach = getattr(servers, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("停止服务器观察者失败: %s", e)
         if overlay is not None:
             shutdown = getattr(overlay, "shutdown", None)
             if callable(shutdown):
