@@ -9,11 +9,17 @@
 // 诊断文本由 services/crash_service.py 的 CRASH_TYPES 提供（服务层的中文数据，
 // 旧界面同样原样展示）；本组件不自己判崩溃类型。
 //
+// 导出/分享也是"桥做事、这里只发意图"：FileDialog 选完路径后发
+// exportRequested(path)，分享按钮发 shareRequested()；ZIP 打包与上传分别在
+// services/crash_service.py / api/logshare.py，异步由 HomeBridge 调度，
+// 进度/结果/错误通过 App.qml 的属性回灌。
+//
 // 纪律：颜色只来自 Theme.*（R8）、图标走 FmIcon/FmToolButton（R2）、文案走
 // Tr.map/桥翻译（R3/R4）、只用 qml/components 里的 Fm*（R9）。
 
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Dialogs
 import ".."
 
 Item {
@@ -24,10 +30,20 @@ Item {
     property bool analyzing: false
     property string resultText: ""
     property string errorText: ""
+    property bool exporting: false
+    property bool sharing: false
+    property string actionMessage: ""
+    property string actionLevel: "info"
+    property string shareUrl: ""
+    property string exportFileName: ""
+
+    readonly property bool busy: exporting || sharing
 
     signal closeRequested()
     signal analyzeRequested()
     signal openFileRequested(string kind)
+    signal exportRequested(string path)
+    signal shareRequested()
 
     readonly property var diagnoses: (crashInfo && crashInfo.diagnoses) ? crashInfo.diagnoses : []
     readonly property bool hasResult: resultText.length > 0
@@ -234,6 +250,57 @@ Item {
             }
         }
 
+        FmInfoBar {
+            objectName: "gameCrashActionInfo"
+            Layout.fillWidth: true
+            visible: root.actionMessage.length > 0
+            level: root.actionLevel
+            text: root.actionMessage
+        }
+
+        TextEdit {
+            objectName: "gameCrashShareUrl"
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.max(18, contentHeight)
+            visible: root.shareUrl.length > 0
+            text: root.shareUrl
+            color: Theme?.accent ?? "transparent"
+            font.pixelSize: Theme?.fontSizeSmall ?? 11
+            wrapMode: TextEdit.WrapAnywhere
+            readOnly: true
+            selectByMouse: true
+        }
+
+        RowLayout {
+            objectName: "gameCrashFileActions"
+            Layout.fillWidth: true
+            spacing: Theme?.spacingSm ?? 8
+
+            FmButton {
+                objectName: "gameCrashExportButton"
+                primary: false
+                text: Tr?.map["crash_export"] ?? "crash_export"
+                iconName: "download"
+                loading: root.exporting
+                enabled: !root.busy
+                onClicked: root.suggestExport()
+            }
+
+            FmButton {
+                objectName: "gameCrashShareButton"
+                primary: false
+                text: root.sharing
+                      ? (Tr?.map["crash_share_uploading"] ?? "crash_share_uploading")
+                      : (Tr?.map["crash_share_log"] ?? "crash_share_log")
+                iconName: "upload"
+                loading: root.sharing
+                enabled: root.hasGameLog && !root.busy
+                onClicked: root.shareRequested()
+            }
+
+            Item { Layout.fillWidth: true }
+        }
+
         RowLayout {
             objectName: "gameCrashActions"
             Layout.fillWidth: true
@@ -258,6 +325,14 @@ Item {
             }
 
             Item { Layout.fillWidth: true }
+        }
+
+        RowLayout {
+            objectName: "gameCrashBottomActions"
+            Layout.fillWidth: true
+            spacing: Theme?.spacingSm ?? 8
+
+            Item { Layout.fillWidth: true }
 
             FmButton {
                 objectName: "gameCrashCloseButton"
@@ -274,6 +349,41 @@ Item {
                 enabled: root.canAnalyze
                 onClicked: root.analyzeRequested()
             }
+        }
+    }
+
+    FileDialog {
+        id: crashExportDialog
+        objectName: "gameCrashExportDialog"
+        title: Tr?.map["crash_export"] ?? "crash_export"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "zip"
+        nameFilters: ["*.zip"]
+        onAccepted: {
+            var target = root.localPath(selectedFile)
+            if (target.length > 0)
+                root.exportRequested(target)
+        }
+    }
+
+    function suggestExport() {
+        root.exportFileName = "FMCL-crash-" + Qt.formatDateTime(new Date(), "yyyyMMdd_HHmmss") + ".zip"
+        var folder = String(crashExportDialog.currentFolder)
+        if (folder.length > 0) {
+            if (folder.charAt(folder.length - 1) !== "/")
+                folder += "/"
+            crashExportDialog.currentFile = folder + root.exportFileName
+        }
+        crashExportDialog.open()
+    }
+
+    function localPath(url) {
+        var text = String(url)
+        text = text.replace(/^file:\/{2,3}/, "")
+        try {
+            return decodeURIComponent(text)
+        } catch (e) {
+            return text
         }
     }
 }

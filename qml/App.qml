@@ -62,6 +62,11 @@ FluWindow {
     property bool crashAnalyzing: false
     property string crashResultText: ""
     property string crashErrorText: ""
+    property bool crashExporting: false
+    property bool crashSharing: false
+    property string crashActionMessage: ""
+    property string crashActionLevel: "info"
+    property string crashShareUrl: ""
 
     // `autoVisible: false` 是**必须**的：FluWindow 在自己的 `Component.onCompleted` 里
     // 会无条件 `show()`，那一步会把上面这条绑定覆盖掉，于是主窗口在启动画面期间
@@ -246,6 +251,11 @@ FluWindow {
             app.crashAnalyzing = false
             app.crashResultText = ""
             app.crashErrorText = ""
+            app.crashExporting = false
+            app.crashSharing = false
+            app.crashActionMessage = ""
+            app.crashActionLevel = "info"
+            app.crashShareUrl = ""
             app.crashDialogVisible = true
         }
 
@@ -264,6 +274,58 @@ FluWindow {
         function onCrashAnalysisFailed(message) {
             app.crashAnalyzing = false
             app.crashErrorText = String(message)
+        }
+
+        function onCrashExportStarted() {
+            app.crashExporting = true
+            app.crashActionLevel = "info"
+            app.crashActionMessage = Tr?.map["crash_export_started"] ?? "crash_export_started"
+            app.crashShareUrl = ""
+        }
+
+        function onCrashExportFinished(path, message) {
+            app.crashExporting = false
+            app.crashActionLevel = "success"
+            app.crashActionMessage = String(message)
+            app.crashShareUrl = ""
+        }
+
+        function onCrashExportFailed(message) {
+            app.crashExporting = false
+            app.crashActionLevel = "error"
+            app.crashActionMessage = String(message)
+        }
+
+        function onCrashShareStarted() {
+            app.crashSharing = true
+            app.crashActionLevel = "info"
+            app.crashActionMessage = Tr?.map["crash_share_uploading"] ?? "crash_share_uploading"
+            app.crashShareUrl = ""
+        }
+
+        function onCrashShareFinished(url, message) {
+            app.crashSharing = false
+            app.crashShareUrl = String(url)
+            var copied = false
+            try {
+                if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.set_clipboard)
+                    copied = Dialogs.set_clipboard(String(url))
+            } catch (e) {
+                copied = false
+            }
+            if (copied) {
+                app.crashActionLevel = "success"
+                app.crashActionMessage = String(message)
+            } else {
+                app.crashActionLevel = "warning"
+                app.crashActionMessage = Tr?.map["crash_share_link_ready"] ?? "crash_share_link_ready"
+            }
+        }
+
+        function onCrashShareFailed(message) {
+            app.crashSharing = false
+            app.crashActionLevel = "error"
+            app.crashActionMessage = String(message)
         }
 
         function onNoticeRequested() {
@@ -323,11 +385,21 @@ FluWindow {
         analyzing: app.crashAnalyzing
         resultText: app.crashResultText
         errorText: app.crashErrorText
+        exporting: app.crashExporting
+        sharing: app.crashSharing
+        actionMessage: app.crashActionMessage
+        actionLevel: app.crashActionLevel
+        shareUrl: app.crashShareUrl
         onCloseRequested: {
             app.crashDialogVisible = false
             app.crashAnalyzing = false
             app.crashResultText = ""
             app.crashErrorText = ""
+            app.crashExporting = false
+            app.crashSharing = false
+            app.crashActionMessage = ""
+            app.crashActionLevel = "info"
+            app.crashShareUrl = ""
         }
         onAnalyzeRequested: {
             if (typeof Home !== "undefined" && Home)
@@ -336,6 +408,14 @@ FluWindow {
         onOpenFileRequested: function (kind) {
             if (typeof Home !== "undefined" && Home)
                 Home.openCrashFile(String(kind))
+        }
+        onExportRequested: function (path) {
+            if (typeof Home !== "undefined" && Home)
+                Home.exportCrashReport(String(path))
+        }
+        onShareRequested: {
+            if (typeof Home !== "undefined" && Home)
+                Home.shareCrashLog()
         }
     }
 

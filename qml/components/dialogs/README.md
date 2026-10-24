@@ -13,7 +13,7 @@ QML 侧的对话框宿主与 5 个弹窗组件，服务的是 Python 侧那个 `
 | `TextInputDialog.qml` | `ask_text`（预填 + 全选、回车确认、Esc 取消、`password` 掩码） |
 | `ChoiceDialog.qml` | `choose`（选项即按钮，点了立即作答；`default` 决定主按钮） |
 | `ProgressDialog.qml` | `show_progress` / `close_progress` 的进度面板（确定进度走进度条、不确定走转圈、有 `on_cancel` 才有取消按钮） |
-| `GameCrashDialog.qml` | 游戏崩溃提示 + 崩溃诊断 + AI 分析（3.10 补充；由壳层 `App.qml` 直接驱动，不走 DialogHost 队列） |
+| `GameCrashDialog.qml` | 游戏崩溃提示 + 崩溃诊断 + 导出崩溃 ZIP / 上传日志分享 + AI 分析（3.10 补充；由壳层 `App.qml` 直接驱动，不走 DialogHost 队列） |
 | `../FmButton.qml` | 对话框按钮（**2.16 起换成官方件**：`import ".."` 之后直接用 `FmButton`；2.13 的临时件 `DialogButton.qml` 已删除） |
 | `../ToastHost.qml` | 右下角 Toast 队列（新 toast 向上叠、y 递减、淡入淡出、超时消失） |
 

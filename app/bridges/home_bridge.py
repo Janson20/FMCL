@@ -82,6 +82,15 @@ class HomeBridge(QObject):
     crashAnalysisStarted = Signal()
     crashAnalysisReady = Signal(str)
     crashAnalysisFailed = Signal(str)
+    #: 崩溃报告 ZIP 导出开始 / 完成（参数 = 路径, 已翻译消息）/ 失败（已翻译消息）。
+    crashExportStarted = Signal()
+    crashExportFinished = Signal(str, str)
+    crashExportFailed = Signal(str)
+    #: 游戏日志上传开始 / 完成（参数 = 分享 URL, 已翻译消息）/ 失败（已翻译消息）。
+    #: 不在这里写剪贴板：QML 收到完成信号后走 Dialogs.set_clipboard（主线程硬约束）。
+    crashShareStarted = Signal()
+    crashShareFinished = Signal(str, str)
+    crashShareFailed = Signal(str)
     #: 请求重新展示公告（首页的"公告入口"，A-22）。
     noticeRequested = Signal()
 
@@ -102,6 +111,10 @@ class HomeBridge(QObject):
         self._crash_analysis_running = False
         #: 代次号：分析期间又崩了一次时，旧任务的结果必须丢掉。
         self._crash_seq = 0
+        #: 崩溃现场导出 / 日志分享的并发闸与代次（新崩溃后旧任务结果作废）。
+        self._crash_generation = 0
+        self._crash_export_running = False
+        self._crash_share_running = False
 
         # ── 全部是普通 Python 属性（工作线程会写它们，R7 只允许这么写）──
         self._account_summary: Dict[str, Any] = {}
@@ -399,6 +412,118 @@ class HomeBridge(QObject):
             # 旧实现 _open_game_log 在成功打开后触发“日志猎人”。
             self._trigger_achievement("advanced_log_hunter")
 
+    @Slot(str)
+    def exportCrashReport(self, path: str) -> None:  # noqa: N802
+        """把最近一次崩溃现场导出为 ZIP（路径由 QML 的 FileDialog 给）。"""
+        if self._crash_export_running:
+            return
+        if self._crash is None:
+            message = _("crash_export_failed", error="task_unavailable")
+            self.statusMessage.emit(message, "error")
+            self.crashExportFailed.emit(message)
+            return
+        target = str(path or "").strip()
+        if not target:
+            message = _("crash_export_failed", error="empty_path")
+            self.statusMessage.emit(message, "error")
+            self.crashExportFailed.emit(message)
+            return
+        tasks = self._tasks
+        if tasks is None:
+            message = _("crash_export_failed", error="task_unavailable")
+            self.statusMessage.emit(message, "error")
+            self.crashExportFailed.emit(message)
+            return
+
+        files = dict(self._last_crash_files)
+        code = int(self._last_crash_exit)
+        generation = self._crash_generation
+        crash = self._crash
+        self._crash_export_running = True
+        self.crashExportStarted.emit()
+
+        def work() -> Any:
+            return crash.export_crash_report(files, target, code)
+
+        def done(result: Any) -> None:
+            if generation != self._crash_generation:
+                return
+            self._crash_export_running = False
+            data = result if isinstance(result, dict) else {}
+            saved = str(data.get("path") or target)
+            message = _("crash_export_success", path=saved)
+            self.statusMessage.emit(message, "success")
+            self.crashExportFinished.emit(saved, message)
+
+        def failed(error: Any) -> None:
+            if generation != self._crash_generation:
+                return
+            self._crash_export_running = False
+            message = _("crash_export_failed", error=str(error) or type(error).__name__)
+            self.statusMessage.emit(message, "error")
+            self.crashExportFailed.emit(message)
+
+        try:
+            tasks.submit(work, name="game.crash.export", on_done=done, on_error=failed)
+        except Exception as e:  # noqa: BLE001 - 提交失败按导出失败收尾
+            failed(e)
+
+    @Slot()
+    def shareCrashLog(self) -> None:  # noqa: N802
+        """把本次崩溃的游戏日志上传到 LogShare.CN（结果 URL 由 QML 写剪贴板）。"""
+        if self._crash_share_running:
+            return
+        files = dict(self._last_crash_files)
+        if not str(files.get("game_log") or "").strip():
+            message = _("crash_share_no_log")
+            self.statusMessage.emit(message, "warning")
+            self.crashShareFailed.emit(message)
+            return
+        if self._crash is None:
+            message = _("crash_share_failed", error="task_unavailable")
+            self.statusMessage.emit(message, "error")
+            self.crashShareFailed.emit(message)
+            return
+        tasks = self._tasks
+        if tasks is None:
+            message = _("crash_share_failed", error="task_unavailable")
+            self.statusMessage.emit(message, "error")
+            self.crashShareFailed.emit(message)
+            return
+
+        generation = self._crash_generation
+        crash = self._crash
+        self._crash_share_running = True
+        self.crashShareStarted.emit()
+
+        def work() -> Any:
+            return crash.share_game_log(files)
+
+        def done(result: Any) -> None:
+            if generation != self._crash_generation:
+                return
+            self._crash_share_running = False
+            url = str(result or "").strip()
+            if not url:
+                failed("empty_url")
+                return
+            message = _("crash_share_success")
+            self.statusMessage.emit(message, "success")
+            self.crashShareFinished.emit(url, message)
+
+        def failed(error: Any) -> None:
+            if generation != self._crash_generation:
+                return
+            self._crash_share_running = False
+            message = _("crash_share_failed", error=str(error) or type(error).__name__)
+            self.statusMessage.emit(message, "error")
+            self.crashShareFailed.emit(message)
+
+        try:
+            tasks.submit(work, name="game.crash.share", on_done=done, on_error=failed)
+        except Exception as e:  # noqa: BLE001 - 提交失败按分享失败收尾
+            failed(e)
+
     def _trigger_achievement(self, achievement_id: str) -> bool:
         """推进一次成就进度（与 Home 已有的成就服务共用同一个引擎）。"""
         service = self._achievement
@@ -496,6 +621,10 @@ class HomeBridge(QObject):
             self._last_crash_exit = code
             # 新崩溃：让还在飞的上一条分析结果失效，并允许对这次新崩溃重新分析。
             self._crash_seq += 1
+            # 新崩溃：旧的导出/分享任务即使晚到也不能覆盖新弹窗的状态。
+            self._crash_generation += 1
+            self._crash_export_running = False
+            self._crash_share_running = False
             self._crash_analysis_running = False
             info = self._describe_crash(files, code)
             has_artifact = bool(

@@ -46,11 +46,14 @@
 
 import os
 import platform
+import tempfile
+import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from services.base import Service
-from services.errors import NetworkError
+from services.errors import InvalidArgument, NetworkError, NotFound
 
 if TYPE_CHECKING:  # pragma: no cover - 仅供类型检查
     from app.context import AppContext
@@ -256,6 +259,300 @@ def describe_crash(crash_files: Dict[str, Any], exit_code: int = -1) -> Dict[str
         "hasJvmCrashLog": bool(files.get("jvm_crash_log")),
         "diagnoses": diagnoses,
     }
+
+
+def _launcher_log_text(log_buffer: Any = None) -> str:
+    """取启动器日志全文：优先内存缓冲区，其次当前日志 handler，最后配置路径。
+
+    崩溃导出要求的是完整启动器日志（旧实现 ZIP 里的 launcher.log），不能像
+    AI 上下文那样只取最后 200 行。这里集中一处，避免导出路径自己维护一套
+    编码回退。
+    """
+    if log_buffer is not None:
+        try:
+            buffered = log_buffer.getvalue()
+        except Exception:
+            buffered = ""
+        if str(buffered).strip():
+            return str(buffered)
+
+    candidates: List[Path] = []
+
+    # logzero 的文件 handler 记录的是最终路径（目录不可写时会回退），
+    # 比 config.log_file 更可信。
+    try:
+        import logging
+
+        for logger_name in ("logzero", ""):
+            for handler in logging.getLogger(logger_name).handlers:
+                name = getattr(handler, "baseFilename", None)
+                if name:
+                    candidates.append(Path(str(name)))
+    except Exception:
+        pass
+
+    try:
+        from config import config as _cfg
+
+        configured = getattr(_cfg, "log_file", None)
+        if configured:
+            candidates.append(Path(str(configured)))
+    except Exception:
+        pass
+
+    if platform.system().lower() == "linux":
+        candidates.append(Path.home() / ".local" / "share" / "fmcl" / "fmcl.log")
+    else:
+        candidates.append(Path("latest.log"))
+
+    seen = set()
+    for candidate in candidates:
+        try:
+            key = os.path.normcase(os.path.abspath(str(candidate)))
+        except Exception:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if not candidate.is_file():
+                continue
+        except (OSError, ValueError):
+            continue
+        for encoding in ("utf-8", "gbk", "latin-1"):
+            try:
+                return candidate.read_text(encoding=encoding)
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+            except (OSError, ValueError):
+                break
+    return ""
+
+
+def _dedupe_arcname(arcname: str, used: set) -> str:
+    """ZIP 内同名的第二个文件加 -2 / -3，不覆盖前一个。"""
+    if arcname not in used:
+        used.add(arcname)
+        return arcname
+    stem, suffix = os.path.splitext(arcname)
+    index = 2
+    while f"{stem}-{index}{suffix}" in used:
+        index += 1
+    unique = f"{stem}-{index}{suffix}"
+    used.add(unique)
+    return unique
+
+
+def _crash_zip_sources(crash_files: Dict[str, Any]) -> List[tuple]:
+    """把崩溃文件表整理成 [(源路径, ZIP 内路径)]，按旧界面同样的顺序。"""
+    files = crash_files or {}
+    sources: List[tuple] = []
+    seen_paths = set()
+
+    def add_arc(key: Any, arcname: str) -> None:
+        if not key:
+            return
+        try:
+            path = Path(str(key))
+        except Exception:
+            return
+        try:
+            marker = os.path.normcase(os.path.abspath(str(path)))
+        except Exception:
+            marker = str(path)
+        if marker in seen_paths:
+            return
+        try:
+            if not path.is_file():
+                return
+        except (OSError, ValueError):
+            return
+        seen_paths.add(marker)
+        sources.append((path, arcname))
+
+    # 崩溃报告：最新一个 + crash_report_list（GameService 已按时间倒序取了最多 10 个）。
+    add_arc(files.get("crash_report"), "")
+    report_list = files.get("crash_report_list") or []
+    if isinstance(report_list, (str, bytes)):
+        report_list = [report_list]
+    try:
+        for item in report_list:
+            add_arc(item, "")
+    except TypeError:
+        pass
+
+    add_arc(files.get("game_log"), "logs/latest.log")
+    add_arc(files.get("debug_log"), "logs/debug.log")
+    add_arc(files.get("jvm_crash_log"), "hs_err_pid.log")
+
+    normalized: List[tuple] = []
+    for path, arcname in sources:
+        if not arcname:
+            arcname = f"crash-reports/{path.name or 'crash-report.txt'}"
+        normalized.append((path, arcname))
+    return normalized
+
+
+def export_crash_report(
+    crash_files: Dict[str, Any],
+    dest: str,
+    exit_code: int = -1,
+    *,
+    launcher_log: Optional[str] = None,
+) -> Dict[str, Any]:
+    """把一次崩溃的现场打包成 ZIP（旧界面 _export_crash_report 的服务化版本）。
+
+    ZIP 内容与旧实现一致：崩溃报告、游戏日志/debug 日志、JVM 崩溃日志、
+    启动器日志、系统信息。额外只多一个 system-info.txt 里的归档清单。
+
+    先写同目录临时文件再 os.replace，中途失败不会留下半截 ZIP，也不会
+    破坏用户已经选好的同名文件。
+
+    Raises:
+        InvalidArgument: 目标路径为空、是目录或不可写。
+    """
+    if not str(dest or "").strip():
+        raise InvalidArgument("导出路径为空")
+
+    target = Path(str(dest)).expanduser()
+    try:
+        if target.exists() and target.is_dir():
+            raise InvalidArgument("导出路径是目录")
+        target.parent.mkdir(parents=True, exist_ok=True)
+    except InvalidArgument:
+        raise
+    except (OSError, ValueError) as e:
+        raise InvalidArgument(f"无法写入导出路径: {e}", detail=str(target), cause=e) from e
+
+    entries: List[str] = []
+    skipped: List[str] = []
+    used_arcnames = set()
+
+    try:
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{target.name or 'FMCL-crash'}.", suffix=".tmp", dir=str(target.parent)
+        )
+        os.close(fd)
+    except (OSError, ValueError) as e:
+        raise InvalidArgument(f"无法写入导出路径: {e}", detail=str(target), cause=e) from e
+
+    try:
+        with zipfile.ZipFile(temp_name, "w", zipfile.ZIP_DEFLATED) as archive:
+            for source, arcname in _crash_zip_sources(crash_files):
+                unique = _dedupe_arcname(arcname, used_arcnames)
+                try:
+                    archive.write(str(source), unique)
+                except FileNotFoundError:
+                    # 文件在收集后、写 ZIP 前被游戏/系统清理掉：跳过它，不毁掉整包。
+                    skipped.append(str(source))
+                    used_arcnames.discard(unique)
+                    continue
+                entries.append(unique)
+
+            log_text = (
+                str(launcher_log)
+                if launcher_log is not None and str(launcher_log).strip()
+                else _launcher_log_text()
+            )
+            if log_text.strip():
+                archive.writestr("launcher.log", log_text.encode("utf-8", errors="replace"))
+                entries.append("launcher.log")
+
+            info_lines = [
+                "FMCL Crash Report",
+                f"Time: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S %z')}",
+                f"Exit Code: {int(exit_code)}",
+                f"OS: {platform.system()} {platform.release()}",
+                f"OS Version: {platform.version()}",
+                f"Architecture: {platform.machine()}",
+                f"Python: {platform.python_version()}",
+                "",
+                "Archived files:",
+            ]
+            info_lines.extend(f"- {name}" for name in entries)
+            if skipped:
+                info_lines.append("")
+                info_lines.append("Skipped (disappeared before packaging):")
+                info_lines.extend(f"- {path}" for path in skipped)
+            archive.writestr("system-info.txt", "\n".join(info_lines) + "\n")
+            entries.append("system-info.txt")
+
+        os.replace(temp_name, target)
+    except (OSError, ValueError, zipfile.BadZipFile) as e:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise InvalidArgument(f"导出崩溃报告失败: {e}", detail=str(target), cause=e) from e
+    except Exception:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+
+    try:
+        size = target.stat().st_size
+    except OSError:
+        size = 0
+
+    try:
+        from structured_logger import slog
+
+        slog.info(
+            "crash_report_exported",
+            exit_code=int(exit_code),
+            entry_count=len(entries),
+            skipped_count=len(skipped),
+        )
+    except Exception:
+        pass
+    return {"path": str(target), "entries": entries, "skipped": skipped, "bytes": size}
+
+
+def share_game_log(
+    crash_files: Dict[str, Any], *, uploader: Optional[Callable[[str], Optional[str]]] = None
+) -> str:
+    """把本次崩溃的游戏日志上传到 LogShare.CN，返回分享 URL。
+
+    旧界面直接调 api.logshare.upload_game_log，这里只把“从崩溃文件表取
+    game_log”和“把上传器异常收敛成服务层错误”两步放进来；网络客户端仍
+    复用 api/logshare.py。uploader 可注入，便于离线验证。
+
+    Raises:
+        NotFound: 没有游戏日志，或日志文件已经不存在。
+        NetworkError: 上传失败 / 服务端没有返回链接。
+    """
+    path_text = str((crash_files or {}).get("game_log") or "").strip()
+    if not path_text:
+        raise NotFound("未找到游戏日志文件")
+    path = Path(path_text)
+    try:
+        if not path.is_file():
+            raise NotFound("未找到游戏日志文件")
+    except (OSError, ValueError) as e:
+        raise NotFound("未找到游戏日志文件", detail=path_text, cause=e) from e
+
+    upload = uploader
+    if upload is None:
+        from api.logshare import upload_game_log as upload  # noqa: PLC0415 - 网络依赖按需加载
+
+    try:
+        url = upload(str(path))
+    except Exception as e:  # noqa: BLE001 - LogShareError / URLError 统一成服务层表达
+        raise NetworkError(str(e) or "日志上传失败", detail=path_text, cause=e) from e
+
+    url_text = str(url or "").strip()
+    if not url_text:
+        raise NetworkError("日志上传失败：服务端未返回分享链接", detail=path_text)
+
+    try:
+        from structured_logger import slog
+
+        slog.info("game_log_shared", size=path.stat().st_size if path.exists() else 0)
+    except Exception:
+        pass
+    return url_text
 
 
 def collect_ai_context(crash_files: dict, exit_code: int, log_buffer: Any = None) -> str:
@@ -673,6 +970,25 @@ class CrashService(Service):
         """转发 :func:`describe_crash`。"""
         return describe_crash(crash_files, exit_code)
 
+    # ─── 崩溃现场导出 / 日志分享 ─────────────────────────────
+
+    def export_crash_report(
+        self,
+        crash_files: Dict[str, Any],
+        dest: str,
+        exit_code: int = -1,
+        *,
+        launcher_log: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """转发模块级 export_crash_report。"""
+        return export_crash_report(crash_files, dest, exit_code, launcher_log=launcher_log)
+
+    def share_game_log(
+        self, crash_files: Dict[str, Any], *, uploader: Optional[Callable[[str], Optional[str]]] = None
+    ) -> str:
+        """转发模块级 share_game_log。"""
+        return share_game_log(crash_files, uploader=uploader)
+
     # ─── AI 分析 ─────────────────────────────────────────────
 
     def analyze_crash(self, context: str, exit_code: int, token: str, *, transport: Optional[Transport] = None) -> str:
@@ -712,5 +1028,7 @@ __all__ = [
     "collect_server_ai_context",
     "describe_crash",
     "diagnose_crash",
+    "export_crash_report",
     "read_file_tail",
+    "share_game_log",
 ]
