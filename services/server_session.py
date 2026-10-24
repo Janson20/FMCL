@@ -1,4 +1,4 @@
-"""服务器会话状态机（阶段 3 任务 3.9；对照表 L-26 ~ L-33）。
+"""服务器会话状态机（阶段 3 任务 3.9 ~ 3.10；对照表 L-21 ~ L-35）。
 
 ## 为什么要有这个文件
 
@@ -15,6 +15,8 @@ server_log_status_label 的文本，安装进度来自核心的全局 on_progres
 - _sync_server_memory_display → memory_for / set_memory（每服独立 .fmcl_server.json）
 - _render_server_available_page → available_rows（正式版每页 10 条）
 - _on_server_install → install（安装任务 + 进度回调）
+- 控制台（3.10）：按版本隔离的日志游标 / 在线玩家 / 内存 / 命令 / 退出确认 /
+  崩溃 AI 分析都在这里；桥只转发，QML 不保存任何业务状态。
 
 ## 线程约定
 
@@ -48,7 +50,14 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from launcher.server_config import get_server_launch_memory, set_server_launch_memory
 from launcher.server_port import DEFAULT_PORT, read_server_port
-from services.server_service import ServerConsoleWatcher, paginate
+from services.server_service import (
+    LOG_BUFFER_MAX_LINES,
+    ServerConsoleWatcher,
+    apply_player_events,
+    format_exit_info,
+    paginate,
+    running_process_memory,
+)
 from version_utils import parse_mc_version_from_id, parse_mod_loader_from_version
 
 logger = logging.getLogger("services.server_session")
@@ -70,6 +79,18 @@ STATE_LOADING = "loading"
 STATE_READY = "ready"
 STATE_EMPTY = "empty"
 STATE_ERROR = "error"
+
+#: 控制台运行状态（与旧界面三态逐字对齐：未运行 / 运行中 / 已停止）。
+CONSOLE_STATE_RUNNING = "running"
+CONSOLE_STATE_STOPPED = "stopped"
+CONSOLE_STATE_IDLE = "not_running"
+
+#: 旧实现把在线玩家上限硬编码成 20（self._server_max_players = 20）。
+#: 3.10 保持同口径，不读 server.properties 的 max-players —— 那是 3.11 配置编辑器的事。
+CONSOLE_MAX_PLAYERS = 20
+
+#: 崩溃 AI 分析任务名（Tasks 面板与取消操作按名字找）。
+TASK_CRASH = "server.crash"
 
 #: 忙的种类（界面据此禁用按钮、显示不同进度条）。
 BUSY_INSTALLING = "installing"
@@ -96,6 +117,7 @@ SERVER_CALLBACK_NAMES: Tuple[str, ...] = (
     "remove_server",
     "get_server_dir",
     "send_server_command",
+    "get_jdz_token",
     "get_installed_version_ids",
     "install_version",
     "launch_game",
@@ -145,12 +167,14 @@ class ServerSession:
         launcher: Any = None,
         tasks: Any = None,
         game: Any = None,
+        achievement: Any = None,
         callbacks: Optional[Dict[str, Callable[..., Any]]] = None,
         observer: Any = None,
     ) -> None:
         self._launcher = launcher
         self._tasks = tasks
         self._game = game
+        self._achievement = achievement
         self._callbacks: Dict[str, Callable[..., Any]] = launcher_callbacks(launcher)
         if callbacks:
             self._callbacks.update(callbacks)
@@ -175,6 +199,14 @@ class ServerSession:
         self._log_lines: Dict[str, List[str]] = {}
         #: 正在执行用户 stop 的版本：包装进程被 pause 卡住时按“正常停止”收尾。
         self._stopping: set = set()
+
+        #: 控制台（3.10）：全部按 version 隔离，绝不读“最近启动”的全局状态。
+        self._console_started: set = set()
+        self._console_seqs: Dict[str, int] = {}
+        self._console_cleared: Dict[str, int] = {}
+        self._console_players: Dict[str, List[str]] = {}
+        #: 退出后等待界面询问“是否正常运行”的退出码（一版本一条）。
+        self._exit_prompts: Dict[str, int] = {}
 
         self._busy = ""
         self._install_state = INSTALL_IDLE
@@ -591,6 +623,209 @@ class ServerSession:
         self._notice("server_config_save_failed", "error", error=str(error))
         return False
 
+    # ─── 控制台（3.10）────────────────────────────────────────
+
+    @property
+    def console_max_lines(self) -> int:
+        """控制台缓冲上限（与 ServerConsoleWatcher 是同一个常量）。"""
+        return LOG_BUFFER_MAX_LINES
+
+    def console_state(self, version: str = "") -> str:
+        """某台服务器当前的运行状态：running / stopped / not_running。
+
+        “已停止”与“未运行”的区别沿用旧界面：本会话启动过、且现在不在跑 = 已停止；
+        从未启动过 = 未运行。状态只按传进来的版本判断，多服务器互不影响。
+        """
+        target = str(version or self.selected or "").strip()
+        with self._lock:
+            if target in self._running:
+                return CONSOLE_STATE_RUNNING
+            if target in self._console_started or target in self._last_exit_codes:
+                return CONSOLE_STATE_STOPPED
+        return CONSOLE_STATE_IDLE
+
+    def console_snapshot(self, version: str = "") -> Dict[str, Any]:
+        """控制台日志快照：只返回清屏点之后的行，并带绝对序号游标。
+
+        游标是“这台服务器至今产生过多少行”（绝对序号），不是“缓冲里有多少行”：
+        ServerConsoleWatcher 会裁掉最老的行，用长度当游标会在裁剪后错位。
+        """
+        target = str(version or self.selected or "").strip()
+        if not target:
+            return {"version": "", "lines": [], "seq": 0, "cleared": 0, "capacity": LOG_BUFFER_MAX_LINES}
+        with self._lock:
+            lines = list(self._log_lines.get(target, []))
+            total = int(self._console_seqs.get(target, 0))
+            cleared = int(self._console_cleared.get(target, 0))
+        base = max(0, total - len(lines))
+        first = max(cleared, base)
+        start = max(0, first - base)
+        return {
+            "version": target,
+            "lines": lines[start:],
+            "seq": total,
+            "cleared": cleared,
+            "capacity": LOG_BUFFER_MAX_LINES,
+        }
+
+    def clear_console(self, version: str = "") -> int:
+        """清屏：只移动显示游标，**不动日志缓冲**（崩溃分析仍要拿到清屏前的现场）。"""
+        target = str(version or self.selected or "").strip()
+        if not target:
+            return 0
+        with self._lock:
+            total = int(self._console_seqs.get(target, 0))
+            self._console_cleared[target] = total
+        return total
+
+    def console_info(self, version: str = "") -> Dict[str, Any]:
+        """控制台状态快照（运行态 / 玩家 / 内存 / 退出码 / 行数）。"""
+        target = str(version or self.selected or "").strip()
+        if not target:
+            return {}
+        with self._lock:
+            proc = self._running.get(target)
+            is_running = proc is not None
+            started = target in self._console_started
+            exit_code = self._last_exit_codes.get(target)
+            pending_exit = target in self._exit_prompts
+            players = list(self._console_players.get(target, []))
+            total = int(self._console_seqs.get(target, 0))
+            cleared = int(self._console_cleared.get(target, 0))
+            buffer_len = len(self._log_lines.get(target, []))
+        base = max(0, total - buffer_len)
+        visible = max(0, total - max(cleared, base))
+        memory_mb: Optional[int] = None
+        if is_running and proc is not None:
+            # D-81 / D-80：psutil 实现，微秒级，不跑 tasklist；异常按“没采到”处理。
+            try:
+                memory_mb = running_process_memory(proc)
+            except Exception as e:  # noqa: BLE001 - 进程刚退出时 poll/pid 可能抛
+                logger.debug("采样服务器 %s 内存失败: %s", target, e)
+        if is_running:
+            state = CONSOLE_STATE_RUNNING
+        elif started or exit_code is not None:
+            state = CONSOLE_STATE_STOPPED
+        else:
+            state = CONSOLE_STATE_IDLE
+        return {
+            "version": target,
+            "state": state,
+            "running": is_running,
+            "started": started,
+            "players": players,
+            "playerCount": len(players),
+            "maxPlayers": CONSOLE_MAX_PLAYERS,
+            "memoryMb": int(memory_mb) if memory_mb is not None else -1,
+            "exitCode": int(exit_code) if exit_code is not None else None,
+            "exitInfo": format_exit_info(int(exit_code)) if exit_code is not None else "",
+            "pendingExit": pending_exit,
+            "seq": total,
+            "lineCount": visible,
+            "capacity": LOG_BUFFER_MAX_LINES,
+        }
+
+    def take_exit_prompt(self, version: str = "") -> Optional[int]:
+        """取走某台服务器待确认的退出码（没有则返回 None）。
+
+        退出确认只问一次：界面取走之后不再重复弹；如果控制台页当时不在前台，
+        等用户下次进控制台再问（旧界面是每次退出都弹，这里把“什么时候看得见”
+        交给路由，但确认本身仍然只有一次）。
+        """
+        target = str(version or self.selected or "").strip()
+        with self._lock:
+            return self._exit_prompts.pop(target, None)
+
+    def send_command(self, version: str, command: str) -> Tuple[bool, str]:
+        """向指定版本发送控制台命令；成功后触发 server_admin 成就。
+
+        Returns:
+            (是否成功, 失败原因键)。原因键由桥翻译，服务层不碰 i18n。
+        """
+        target = str(version or self.selected or "").strip()
+        cmd = str(command or "").strip()
+        if not target:
+            self._status("server_no_version_selected", "error")
+            return False, "server_no_version_selected"
+        if not cmd:
+            return False, ""
+        fn = self._callbacks.get("send_server_command")
+        if not callable(fn):
+            self._status("server_cmd_error_no_callback", "error")
+            return False, "server_cmd_error_no_callback"
+        try:
+            ok = bool(fn(cmd, target))
+        except Exception as e:  # noqa: BLE001 - 发送失败统一按“未运行”提示
+            logger.warning("向服务器 %s 发送命令失败: %s", target, e)
+            ok = False
+        if ok:
+            self._trigger_achievement("server_admin")
+            return True, ""
+        self._status("server_cmd_error_not_running", "error")
+        return False, "server_cmd_error_not_running"
+
+    def export_console(self, version: str, path: str) -> Tuple[bool, str]:
+        """把控制台当前可见日志写到 path（UTF-8，LF 换行）。
+
+        Returns:
+            (是否成功, 路径或错误信息)。
+        """
+        target = str(version or self.selected or "").strip()
+        if not target:
+            return False, "server_no_version_selected"
+        dest = str(path or "").strip()
+        if not dest:
+            return False, "empty_path"
+        snapshot = self.console_snapshot(target)
+        lines = list(snapshot.get("lines") or [])
+        if not lines:
+            return False, "empty_log"
+        try:
+            target_path = Path(dest).expanduser()
+            target_path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        except Exception as e:  # noqa: BLE001 - 路径不可写统一按失败返回
+            logger.warning("导出服务器 %s 控制台日志失败: %s", target, e)
+            return False, str(e)
+        return True, str(target_path)
+
+    def analyze_crash(self, version: str, exit_code: int) -> bool:
+        """对某台服务器的退出做 AI 分析（复用 services.crash_service 的既有能力）。"""
+        target = str(version or self.selected or "").strip()
+        if not target:
+            return False
+        getter = self._callbacks.get("get_jdz_token")
+        token = ""
+        if callable(getter):
+            try:
+                token = str(getter() or "").strip()
+            except Exception as e:  # noqa: BLE001 - 取不到 token 按未登录处理
+                logger.warning("读取净读 Token 失败: %s", e)
+        if not token:
+            self._notice("ai_search_login_required", "warning")
+            return False
+        try:
+            code = int(exit_code)
+        except (TypeError, ValueError):
+            code = -1
+        with self._lock:
+            lines = list(self._log_lines.get(target, []))
+
+        def work() -> Any:
+            from services.crash_service import analyze_server_crash, collect_server_ai_context
+
+            context = collect_server_ai_context(code, version_id=target, server_log_lines=lines)
+            return analyze_server_crash(context, code, token)
+
+        def done(result: Any) -> None:
+            self._emit("on_crash_analysis", target, str(result or ""))
+
+        def failed(error: Any) -> None:
+            logger.warning("分析服务器 %s 崩溃失败: %s", target, error)
+            self._emit("on_crash_failed", target, str(error))
+
+        self._submit(work, name=TASK_CRASH, on_done=done, on_error=failed)
+        return True
+
     # ─── 安装 ───────────────────────────────────────────────
 
     def install(self, version: str) -> None:
@@ -750,6 +985,11 @@ class ServerSession:
                 self._last_exit_codes.pop(version, None)
                 self._last_exit_code = None
                 self._log_lines[version] = []
+                self._console_started.add(version)
+                self._console_seqs[version] = 0
+                self._console_cleared[version] = 0
+                self._console_players[version] = []
+                self._exit_prompts.pop(version, None)
         if not ok or proc is None:
             self._status("server_start_failed", "error", version=version)
             self._changed("run")
@@ -768,6 +1008,19 @@ class ServerSession:
         elif port_after != DEFAULT_PORT:
             self._notice("server_port_not_default", "warning", port=port_after)
 
+    def _console_line(self, version: str, line: str) -> None:
+        """一行服务器日志：推进绝对序号、解析玩家进出，再通知观察者。"""
+        text = str(line or "")
+        with self._lock:
+            seq = int(self._console_seqs.get(version, 0)) + 1
+            self._console_seqs[version] = seq
+            players = self._console_players.setdefault(version, [])
+            actions = apply_player_events(players, text)
+            snapshot = list(players)
+        self._emit("on_log", version, text, seq)
+        if actions:
+            self._emit("on_players", version, snapshot)
+
     def _spawn_watcher(self, version: str, proc: Any) -> None:
         """读 stdout 并等退出；无论走哪条路径都恰好投递一次退出（D-84）。"""
         def run() -> None:
@@ -781,7 +1034,7 @@ class ServerSession:
                 watcher = ServerConsoleWatcher(self._log_lines.setdefault(version, []))
                 watcher.watch(
                     lambda: proc,
-                    on_log=lambda line: self._emit("on_log", version, line),
+                    on_log=lambda line: self._console_line(version, line),
                     on_exit=lambda code: self._handle_exit(version, int(code)),
                 )
             except Exception as e:  # noqa: BLE001 - 监控线程不许静默死掉
@@ -869,6 +1122,9 @@ class ServerSession:
             self._stopping.discard(version)
             self._last_exit_codes[version] = int(exit_code)
             self._last_exit_code = int(exit_code)
+            self._console_players.get(version, []).clear()
+            # 退出质量确认只问一次；等控制台页来 take_exit_prompt 取走。
+            self._exit_prompts[version] = int(exit_code)
             if self._busy == BUSY_STOPPING:
                 self._busy = ""
         self._changed("run")
@@ -1080,6 +1336,7 @@ class ServerSession:
         launcher: Any = None,
         tasks: Any = None,
         game: Any = None,
+        achievement: Any = None,
         callbacks: Optional[Dict[str, Callable[..., Any]]] = None,
     ) -> None:
         """启动链条跑完后再接一次核心（launcher 在装配期还不在上下文里）。"""
@@ -1090,6 +1347,8 @@ class ServerSession:
             self._launcher = launcher
             self._tasks = tasks
             self._game = game
+            if achievement is not None:
+                self._achievement = achievement
             if merged:
                 self._callbacks = merged
 
@@ -1097,6 +1356,38 @@ class ServerSession:
         """窗口退出：停止把事件投给桥；**不杀服务器进程**（旧实现也不杀）。"""
         self._closing = True
         self.set_observer(None)
+
+    # ─── 成就 ───────────────────────────────────────────────
+
+    def _trigger_achievement(self, achievement_id: str) -> bool:
+        """推进一次成就进度（引擎是全局单例；取不到就静默跳过）。
+
+        调用口子与旧界面一致：优先走 AppContext 里注册的 AchievementService.engine()，
+        没有服务时退回根模块 get_achievement_engine()。QML 永远不碰这里。
+        """
+        engine = None
+        service = self._achievement
+        getter = getattr(service, "engine", None)
+        if callable(getter):
+            try:
+                engine = getter()
+            except Exception as e:  # noqa: BLE001 - 成就失败不能影响发送命令
+                logger.warning("取成就引擎失败: %s", e)
+        if engine is None:
+            try:
+                from achievement_engine import get_achievement_engine
+
+                engine = get_achievement_engine()
+            except Exception as e:  # noqa: BLE001
+                logger.debug("成就引擎不可用: %s", e)
+        if engine is None:
+            return False
+        try:
+            engine.update_progress(achievement_id, value=1, trigger_type="increment")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("触发成就 %s 失败: %s", achievement_id, e)
+            return False
+        return True
 
     # ─── 任务提交 ───────────────────────────────────────────
 

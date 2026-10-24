@@ -163,7 +163,8 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     # ── 4.4 服务器 ─────────────────────────────────────────────
     ("servers", "server_tab", "server", "", "pages/servers/ServersPage.qml", ""),
     ("servers/detail", "server_detail_title", "info", "servers", "pages/servers/ServerDetailPage.qml", ""),
-    ("servers/detail/console", "server_log_title", "monitor", "servers/detail", "pages/servers/ServersPage.qml", ""),
+    ("servers/detail/console", "server_log_title", "monitor", "servers/detail",
+     "pages/servers/ServerConsolePage.qml", ""),
     ("servers/detail/config", "server_config_panel_btn", "slider", "servers/detail", "pages/servers/ServersPage.qml", ""),
     ("servers/detail/mods", "server_mods_title", "mods", "servers/detail", "pages/servers/ServersPage.qml", ""),
     ("servers/detail/packs", "server_packs_title", "resourcepack", "servers/detail", "pages/servers/ServersPage.qml", ""),

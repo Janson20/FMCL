@@ -1,8 +1,7 @@
 // ServerDetailPage.qml —— 服务器详情与生命周期（阶段 3 任务 3.9）。
 //
-// 承载：启动 / 停止 / 加入服务器、每服独立最大内存、打开目录、删除、运行状态。
-// 控制台（3.10）、配置编辑（3.11）、服务器模组（3.12）各自有后续任务，本页
-// 不提前放空按钮。
+// 承载：启动 / 停止 / 加入服务器、进入控制台、每服独立最大内存、打开目录、删除、
+// 运行状态。配置编辑（3.11）、服务器模组（3.12）各自有后续任务，本页不提前放空按钮。
 //
 // 数据全部来自 Servers 桥；本页只绑属性、发槽调用、按状态显示。
 
@@ -17,23 +16,23 @@ FmPage {
     objectName: "serverDetailPage"
 
     readonly property bool live: (typeof Servers !== "undefined" && Servers) ? true : false
-    readonly property var info: page.live ? Servers.selectedInfo : ({})
-    readonly property string serverId: page.info ? String(page.info.id || "") : ""
-    readonly property bool installed: page.info ? !!page.info.installed : false
-    readonly property bool running: page.live && page.info ? !!page.info.running : false
+    readonly property var info: (page && page.live) ? Servers.selectedInfo : ({})
+    readonly property string serverId: (page && page.info) ? String(page.info.id || "") : ""
+    readonly property bool installed: (page && page.info) ? !!page.info.installed : false
+    readonly property bool running: (page && page.live && page.info) ? !!page.info.running : false
     property string deleteTarget: ""
 
-    contentState: !page.live ? "error"
+    contentState: (!page || !page.live) ? "error"
                   : (Servers.listState === "loading" ? "loading"
                   : (!Servers.hasSelection || !page.installed ? "error" : "ready"))
 
     loadingText: Tr?.map["plugin_state_loading"] ?? "plugin_state_loading"
     errorText: Tr?.map["plugin_state_error"] ?? "plugin_state_error"
-    errorDetail: page.live && Servers.hasSelection && !page.installed
+    errorDetail: (page && page.live && Servers.hasSelection && !page.installed)
                  ? (Tr?.map["server_no_installed"] ?? "server_no_installed")
-                 : (page.live && !Servers.hasSelection
+                 : ((page && page.live && !Servers.hasSelection)
                     ? (Tr?.map["server_no_version_selected"] ?? "server_no_version_selected")
-                    : (page.live ? String(Servers.listError) : ""))
+                    : ((page && page.live) ? String(Servers.listError) : ""))
     retryText: Tr?.map["version_refresh"] ?? "version_refresh"
 
     onRetried: page.applyRoute()
@@ -52,7 +51,7 @@ FmPage {
     }
 
     function applyRoute() {
-        if (!page.live)
+        if (!page || !page.live)
             return
         var wanted = page.routeParams ? String(page.routeParams.server || "") : ""
         if (wanted.length > 0)
@@ -68,7 +67,7 @@ FmPage {
     }
 
     function memoryIndex() {
-        if (!page.live)
+        if (!page || !page.live)
             return 0
         var current = String(Servers.memory || "2G")
         var options = Servers.memoryOptions
@@ -80,7 +79,7 @@ FmPage {
     }
 
     function statusText() {
-        if (!page.live)
+        if (!page || !page.live)
             return ""
         if (page.running)
             return page.format("server_status_running", {"version": page.serverId})
@@ -158,7 +157,7 @@ FmPage {
             Text {
                 objectName: "serverDetailName"
                 Layout.fillWidth: true
-                text: page.serverId.length > 0
+                text: (page && page.serverId.length > 0)
                       ? page.serverId
                       : (Tr?.map["server_detail_title"] ?? "server_detail_title")
                 color: Theme?.textPrimary ?? "transparent"
@@ -170,15 +169,15 @@ FmPage {
 
             FmTag {
                 objectName: "serverDetailLoaderTag"
-                visible: String(page.info.loader || "").length > 0
-                text: String(page.info.loader || "")
+                visible: page && String(page.info.loader || "").length > 0
+                text: page ? String(page.info.loader || "") : ""
                 level: "accent"
             }
 
             FmTag {
                 objectName: "serverDetailStatusTag"
-                text: page.statusText()
-                level: page.running ? "success" : "warning"
+                text: page ? page.statusText() : ""
+                level: (page && page.running) ? "success" : "warning"
             }
 
             FmButton {
@@ -186,7 +185,7 @@ FmPage {
                 primary: false
                 text: Tr?.map["version_refresh"] ?? "version_refresh"
                 iconName: "refresh"
-                enabled: page.live && !Servers.busy
+                enabled: page && page.live && !Servers.busy
                 onClicked: page.applyRoute()
             }
         }
@@ -197,7 +196,7 @@ FmPage {
             Layout.fillWidth: true
             Layout.fillHeight: false
             title: Tr?.map["server_tab"] ?? "server_tab"
-            subtitle: page.statusText()
+            subtitle: page ? page.statusText() : ""
 
             RowLayout {
                 objectName: "serverLifecycleActions"
@@ -210,8 +209,8 @@ FmPage {
                     primary: true
                     text: Tr?.map["server_start_btn"] ?? "server_start_btn"
                     iconName: "play"
-                    enabled: page.live && Servers.canStart
-                    loading: page.live && Servers.busyKind === "starting"
+                    enabled: page && page.live && Servers.canStart
+                    loading: page && page.live && Servers.busyKind === "starting"
                     onClicked: {
                         if (page.live)
                             Servers.start()
@@ -223,8 +222,8 @@ FmPage {
                     danger: true
                     text: Tr?.map["server_stop_btn"] ?? "server_stop_btn"
                     iconName: "stop"
-                    enabled: page.live && Servers.canStop
-                    loading: page.live && Servers.busyKind === "stopping"
+                    enabled: page && page.live && Servers.canStop
+                    loading: page && page.live && Servers.busyKind === "stopping"
                     onClicked: {
                         if (page.live)
                             Servers.stop()
@@ -236,11 +235,23 @@ FmPage {
                     primary: false
                     text: Tr?.map["server_join_btn"] ?? "server_join_btn"
                     iconName: "players"
-                    enabled: page.live && Servers.canJoin
-                    loading: page.live && Servers.busyKind === "joining"
+                    enabled: page && page.live && Servers.canJoin
+                    loading: page && page.live && Servers.busyKind === "joining"
                     onClicked: {
                         if (page.live)
                             Servers.join(page.serverId)
+                    }
+                }
+
+                FmButton {
+                    objectName: "serverDetailConsoleButton"
+                    primary: false
+                    text: Tr?.map["server_log_title"] ?? "server_log_title"
+                    iconName: "monitor"
+                    enabled: page && page.live && page.serverId.length > 0
+                    onClicked: {
+                        if (page.live && page.serverId.length > 0)
+                            Servers.openConsole(page.serverId)
                     }
                 }
 
@@ -265,9 +276,9 @@ FmPage {
                     id: memoryCombo
                     objectName: "serverMemoryCombo"
                     Layout.preferredWidth: 130
-                    model: page.live ? Servers.memoryOptions : []
-                    currentIndex: page.memoryIndex()
-                    enabled: page.live && !Servers.busy
+                    model: page && page.live ? Servers.memoryOptions : []
+                    currentIndex: page ? page.memoryIndex() : 0
+                    enabled: page && page.live && !Servers.busy
                     onActivated: {
                         if (page.live)
                             Servers.setMemory(String(currentText))
@@ -289,8 +300,8 @@ FmPage {
                 objectName: "serverPortCurrent"
                 Layout.fillWidth: true
                 Layout.fillHeight: false
-                visible: page.live && Number(page.info.port || 25565) !== 25565
-                text: page.format("server_port_not_default", {"port": Number(page.info.port || 25565)})
+                visible: page && page.live && Number(page.info.port || 25565) !== 25565
+                text: page ? page.format("server_port_not_default", {"port": Number(page.info.port || 25565)}) : ""
                 color: Theme?.warning ?? "transparent"
                 font.pixelSize: Theme?.fontSizeSmall ?? 10
                 font.bold: true
@@ -319,7 +330,7 @@ FmPage {
                 objectName: "serverDetailPath"
                 Layout.fillWidth: true
                 Layout.fillHeight: false
-                text: String(page.info.path || "")
+                text: page ? String(page.info.path || "") : ""
                 color: Theme?.textSecondary ?? "transparent"
                 font.pixelSize: Theme?.fontSizeSmall ?? 10
                 wrapMode: Text.WrapAnywhere
@@ -336,7 +347,7 @@ FmPage {
                     primary: false
                     text: Tr?.map["server_config_open_folder"] ?? "server_config_open_folder"
                     iconName: "folder-open"
-                    enabled: page.live && page.serverId.length > 0
+                    enabled: page && page.live && page.serverId.length > 0
                     onClicked: {
                         if (page.live)
                             Servers.openDir(page.serverId)
@@ -350,7 +361,7 @@ FmPage {
                     danger: true
                     text: Tr?.map["version_row_delete"] ?? "version_row_delete"
                     iconName: "trash"
-                    enabled: page.live && Servers.canRemove
+                    enabled: page && page.live && Servers.canRemove
                     onClicked: {
                         if (page.live && page.serverId.length > 0)
                             page.deleteTarget = page.serverId
@@ -369,7 +380,7 @@ FmPage {
         Loader {
             objectName: "serverDetailDeleteLoader"
             anchors.fill: parent
-            active: page.deleteTarget.length > 0
+            active: page ? page.deleteTarget.length > 0 : false
             sourceComponent: deleteComponent
         }
     }
@@ -380,8 +391,8 @@ FmPage {
         ConfirmDialog {
             objectName: "serverDetailDeleteDialog"
             request: ({
-                "title": page.t("server_delete_confirm_title"),
-                "message": page.format("server_delete_confirm_msg", {"version": page.deleteTarget}),
+                "title": page ? page.t("server_delete_confirm_title") : "",
+                "message": page ? page.format("server_delete_confirm_msg", {"version": page.deleteTarget}) : "",
                 "default": false
             })
             onAnswered: function (value) {
