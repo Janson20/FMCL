@@ -465,6 +465,12 @@ def main() -> int:
     HOME.on_game_exit(1, True, {"crash_report": "C:/mc/crash-reports/crash-1.txt"}, False)
     QTest.qWait(80)
     report["status_crashed"] = SHELL.property("statusText")
+    # 3.10 补充：崩溃同时会弹壳层对话框；后续步骤要点首页控件，必须先关掉它。
+    report["crash_dialog_visible"] = visible("gameCrashDialog")
+    report["crash_dialog_message"] = text_of("gameCrashMessage")
+    click(item("gameCrashCloseButton"))
+    QTest.qWait(80)
+    report["crash_dialog_closed"] = not visible("gameCrashDialog")
 
     # ── 8. 公告入口：没有公告时禁用，拉到公告后可用且能重看（A-22）──
     report["noticeEnabled_before"] = enabled("homeNoticeButton")

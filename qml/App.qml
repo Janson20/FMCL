@@ -55,6 +55,14 @@ FluWindow {
     readonly property bool startupActive: (typeof Startup !== "undefined" && Startup) ? Startup.startupActive : false
     visible: !app.startupActive
 
+    //: 游戏崩溃弹窗（GameCrashDialog）：由 Home.crashDialogRequested 打开，
+    //: 分析中 / 结果 / 错误三份状态也放在壳层，页面切换不会丢掉这次崩溃。
+    property bool crashDialogVisible: false
+    property var crashInfo: ({})
+    property bool crashAnalyzing: false
+    property string crashResultText: ""
+    property string crashErrorText: ""
+
     // `autoVisible: false` 是**必须**的：FluWindow 在自己的 `Component.onCompleted` 里
     // 会无条件 `show()`，那一步会把上面这条绑定覆盖掉，于是主窗口在启动画面期间
     // 就露出来了（用户截图里"两层窗口叠在一起"就是这么来的）。
@@ -231,8 +239,31 @@ FluWindow {
         function onCrashDetected(exitCode, message) {
             if (Shell)
                 Shell.setStatus(message, "error")
-            if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.available)
-                Dialogs.notify({"level": "error", "message": message, "icon": "error"})
+        }
+
+        function onCrashDialogRequested(exitCode, info) {
+            app.crashInfo = info || ({})
+            app.crashAnalyzing = false
+            app.crashResultText = ""
+            app.crashErrorText = ""
+            app.crashDialogVisible = true
+        }
+
+        function onCrashAnalysisStarted() {
+            app.crashAnalyzing = true
+            app.crashResultText = ""
+            app.crashErrorText = ""
+        }
+
+        function onCrashAnalysisReady(text) {
+            app.crashAnalyzing = false
+            app.crashResultText = String(text)
+            app.crashErrorText = ""
+        }
+
+        function onCrashAnalysisFailed(message) {
+            app.crashAnalyzing = false
+            app.crashErrorText = String(message)
         }
 
         function onNoticeRequested() {
@@ -278,6 +309,34 @@ FluWindow {
     StartupDialogs {
         anchors.fill: parent
         z: 200
+    }
+
+    // ── 游戏崩溃 / AI 分析弹窗（3.10 补充）────────────────────────────
+    // 必须盖住整窗（不只页面内容区）：游戏可能在用户停留在任意页面时崩溃。
+    // 数据由 Home 桥整理（diagnose_crash 在 services/crash_service.py），这里只显示。
+    GameCrashDialog {
+        id: gameCrashDialog
+        anchors.fill: parent
+        z: 150
+        visible: app.crashDialogVisible
+        crashInfo: app.crashInfo
+        analyzing: app.crashAnalyzing
+        resultText: app.crashResultText
+        errorText: app.crashErrorText
+        onCloseRequested: {
+            app.crashDialogVisible = false
+            app.crashAnalyzing = false
+            app.crashResultText = ""
+            app.crashErrorText = ""
+        }
+        onAnalyzeRequested: {
+            if (typeof Home !== "undefined" && Home)
+                Home.requestCrashAnalysis()
+        }
+        onOpenFileRequested: function (kind) {
+            if (typeof Home !== "undefined" && Home)
+                Home.openCrashFile(String(kind))
+        }
     }
 
     // ── 对话框宿主与 Toast（任务 2.13）──────────────────────────────

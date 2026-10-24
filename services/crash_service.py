@@ -230,6 +230,34 @@ def diagnose_crash(crash_files: dict) -> list:
     return matched[:3]  # 最多返回前 3 个最可能的崩溃类型
 
 
+def describe_crash(crash_files: Dict[str, Any], exit_code: int = -1) -> Dict[str, Any]:
+    """把“崩溃文件 + 诊断结果”整理成界面能直接渲染的一份快照。
+
+    QML 只读这份普通字典，不需要知道 CRASH_TYPES 的 icon/score 细节；
+    icon 是 emoji（服务层的历史字段），这里刻意不往界面层透传。
+    """
+    files = dict(crash_files or {})
+    diagnoses = [
+        {
+            "name": str(item.get("name", "")),
+            "cause": str(item.get("cause", "")),
+            "advice": str(item.get("advice", "")),
+            "score": float(item.get("score", 0.0) or 0.0),
+        }
+        for item in diagnose_crash(files)
+    ]
+    report = str(files.get("crash_report") or "")
+    return {
+        "exitCode": int(exit_code),
+        "hasCrashReport": bool(report),
+        "hasCrashReportList": bool(files.get("crash_report_list")),
+        "hasGameLog": bool(files.get("game_log")),
+        "hasDebugLog": bool(files.get("debug_log")),
+        "hasJvmCrashLog": bool(files.get("jvm_crash_log")),
+        "diagnoses": diagnoses,
+    }
+
+
 def collect_ai_context(crash_files: dict, exit_code: int, log_buffer: Any = None) -> str:
     """收集发送给 AI 的崩溃上下文信息
 
@@ -512,6 +540,23 @@ def analyze_crash(context: str, exit_code: int, token: str, *, transport: Option
         raise NetworkError(_err_msg, detail=f"endpoint={AI_ENDPOINT}", cause=e) from e
 
 
+def analyze_game_crash(
+    crash_files: Dict[str, Any],
+    exit_code: int,
+    token: str,
+    log_buffer: Any = None,
+    *,
+    transport: Optional[Transport] = None,
+) -> str:
+    """收集游戏崩溃上下文并调用 AI（旧界面 _do_ai_analyze 的“服务化”版本）。
+
+    只做组合：上下文收集用 collect_ai_context，请求用 analyze_crash；两者都已
+    有独立测试。线程/进度/弹窗仍由界面侧负责。
+    """
+    context = collect_ai_context(crash_files, exit_code, log_buffer=log_buffer)
+    return analyze_crash(context, exit_code, token, transport=transport)
+
+
 def analyze_server_crash(context: str, exit_code: int, token: str, *, transport: Optional[Transport] = None) -> str:
     """调用净读 AI 接口分析服务器崩溃，返回分析正文。
 
@@ -623,6 +668,11 @@ class CrashService(Service):
         """转发 :func:`collect_server_ai_context`。"""
         return collect_server_ai_context(exit_code, version_id, server_log_lines, log_buffer)
 
+    @staticmethod
+    def describe_crash(crash_files: Dict[str, Any], exit_code: int = -1) -> Dict[str, Any]:
+        """转发 :func:`describe_crash`。"""
+        return describe_crash(crash_files, exit_code)
+
     # ─── AI 分析 ─────────────────────────────────────────────
 
     def analyze_crash(self, context: str, exit_code: int, token: str, *, transport: Optional[Transport] = None) -> str:
@@ -635,6 +685,20 @@ class CrashService(Service):
         """转发 :func:`analyze_server_crash`（``transport`` 缺省时用构造期注入的那个）。"""
         return analyze_server_crash(context, exit_code, token, transport=transport or self._transport)
 
+    def analyze_game_crash(
+        self,
+        crash_files: Dict[str, Any],
+        exit_code: int,
+        token: str,
+        log_buffer: Any = None,
+        *,
+        transport: Optional[Transport] = None,
+    ) -> str:
+        """转发 :func:`analyze_game_crash`（上下文收集 + AI 请求一次完成）。"""
+        return analyze_game_crash(
+            crash_files, exit_code, token, log_buffer, transport=transport or self._transport
+        )
+
 
 __all__ = [
     "AI_ENDPOINT",
@@ -642,9 +706,11 @@ __all__ = [
     "CrashService",
     "Transport",
     "analyze_crash",
+    "analyze_game_crash",
     "analyze_server_crash",
     "collect_ai_context",
     "collect_server_ai_context",
+    "describe_crash",
     "diagnose_crash",
     "read_file_tail",
 ]

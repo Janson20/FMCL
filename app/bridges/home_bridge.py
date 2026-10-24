@@ -33,9 +33,11 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Property, QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices
 
 from services.game_service import (
     STATE_LAUNCHING,
@@ -73,16 +75,33 @@ class HomeBridge(QObject):
     minimizeWindowRequested = Signal()
     #: 游戏崩溃（退出码非 0 且非用户强杀）。`message` 已翻译（B-07）。
     crashDetected = Signal(int, str)
+    #: 崩溃详情（退出码, 已整理的快照）—— 壳层据此弹崩溃/AI 分析对话框。
+    #: 与 crashDetected 分开是为了不破坏 3.1 已验收的两参数信号契约。
+    crashDialogRequested = Signal(int, "QVariantMap")
+    #: AI 分析开始 / 完成 / 失败（失败参数为**已翻译**的整句）。
+    crashAnalysisStarted = Signal()
+    crashAnalysisReady = Signal(str)
+    crashAnalysisFailed = Signal(str)
     #: 请求重新展示公告（首页的"公告入口"，A-22）。
     noticeRequested = Signal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
+        self._context: Any = None
         self._game: Any = None
         self._account: Any = None
         self._achievement: Any = None
+        self._crash: Any = None
+        self._tasks: Any = None
         self._startup: Any = None
         self._nav: Any = None
+
+        #: 最近一次崩溃的原始文件表与退出码（只由主线程/游戏观察者写）。
+        self._last_crash_files: Dict[str, Any] = {}
+        self._last_crash_exit = -1
+        self._crash_analysis_running = False
+        #: 代次号：分析期间又崩了一次时，旧任务的结果必须丢掉。
+        self._crash_seq = 0
 
         # ── 全部是普通 Python 属性（工作线程会写它们，R7 只允许这么写）──
         self._account_summary: Dict[str, Any] = {}
@@ -98,10 +117,13 @@ class HomeBridge(QObject):
     # ─── 装配期注入 ─────────────────────────────────────────
 
     def bind(self, context: Any = None) -> None:
-        """`main_qml.register_bridges` 在注册前调它：取三个服务。"""
+        """`main_qml.register_bridges` 在注册前调它：取四个服务 + 任务调度器。"""
+        self._context = context
         self._game = self._service(context, "game")
         self._account = self._service(context, "account")
         self._achievement = self._service(context, "achievement")
+        self._crash = self._service(context, "crash")
+        self._tasks = getattr(context, "tasks", None) if context is not None else None
         if self._game is not None:
             # 观察者协议见 services/game_service.py 的模块文档。
             # 3.2 起 `GameService` 支持多观察者（版本页也要看游戏状态），所以这里
@@ -315,6 +337,87 @@ class HomeBridge(QObject):
             return
         self._game.kill()
 
+    @Slot(result=bool)
+    def requestCrashAnalysis(self) -> bool:  # noqa: N802
+        """对最近一次游戏崩溃做 AI 分析（异步；结果走信号）。"""
+        if self._crash is None or not self._last_crash_files:
+            return False
+        if self._crash_analysis_running:
+            return False
+        token = self._ai_token()
+        if not token:
+            self.statusMessage.emit(_("ai_search_login_required"), "warning")
+            return False
+        tasks = self._tasks
+        if tasks is None:
+            message = _("crash_analyze_failed", error="task_unavailable")
+            self.statusMessage.emit(message, "error")
+            self.crashAnalysisFailed.emit(message)
+            return False
+
+        files = dict(self._last_crash_files)
+        code = int(self._last_crash_exit)
+        self._crash_seq += 1
+        seq = self._crash_seq
+        self._crash_analysis_running = True
+        self.crashAnalysisStarted.emit()
+
+        def work() -> Any:
+            return self._crash.analyze_game_crash(files, code, token)
+
+        def done(result: Any) -> None:
+            if seq != self._crash_seq:
+                return
+            self._crash_analysis_running = False
+            self.crashAnalysisReady.emit(str(result or ""))
+
+        def failed(error: Any) -> None:
+            if seq != self._crash_seq:
+                return
+            self._crash_analysis_running = False
+            message = _("crash_analyze_failed", error=str(error))
+            self.statusMessage.emit(message, "error")
+            self.crashAnalysisFailed.emit(message)
+
+        try:
+            tasks.submit(work, name="game.crash", on_done=done, on_error=failed)
+        except Exception as e:  # noqa: BLE001 - 提交失败按分析失败收尾
+            failed(e)
+        return True
+
+    @Slot(str)
+    def openCrashFile(self, kind: str) -> None:  # noqa: N802
+        """打开崩溃报告 / 游戏日志（路径只来自本次崩溃的检测结果）。"""
+        target = str(kind or "")
+        path = str(self._last_crash_files.get(target, "") or "")
+        if not path or not Path(path).is_file():
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+            self.statusMessage.emit(_("rm_open_folder_failed", error=path), "error")
+            return
+        if target == "game_log":
+            # 旧实现 _open_game_log 在成功打开后触发“日志猎人”。
+            self._trigger_achievement("advanced_log_hunter")
+
+    def _trigger_achievement(self, achievement_id: str) -> bool:
+        """推进一次成就进度（与 Home 已有的成就服务共用同一个引擎）。"""
+        service = self._achievement
+        engine = None
+        getter = getattr(service, "engine", None)
+        if callable(getter):
+            try:
+                engine = getter()
+            except Exception as e:  # noqa: BLE001 - 成就失败不能影响日志查看
+                logger.warning("取成就引擎失败: %s", e)
+        if engine is None:
+            return False
+        try:
+            engine.update_progress(achievement_id, value=1, trigger_type="increment")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("触发成就 %s 失败: %s", achievement_id, e)
+            return False
+        return True
+
     @Slot(str)
     def selectSkin(self, path: str) -> None:  # noqa: N802
         """选定一个皮肤文件（尺寸校验与复制在 `AccountService`，B-17）。"""
@@ -387,9 +490,55 @@ class HomeBridge(QObject):
         if not crashed and not killed:
             self.statusMessage.emit(_("game_exited"), "info")
         if crashed:
-            self.crashDetected.emit(int(exit_code), _("game_crashed", code=exit_code))
+            code = int(exit_code)
+            files = dict(crash_files or {})
+            self._last_crash_files = files
+            self._last_crash_exit = code
+            # 新崩溃：让还在飞的上一条分析结果失效，并允许对这次新崩溃重新分析。
+            self._crash_seq += 1
+            self._crash_analysis_running = False
+            info = self._describe_crash(files, code)
+            info["message"] = _("game_crashed", code=code)
+            info["canAnalyze"] = bool(self._ai_token()) and self._crash is not None
+            self.crashDetected.emit(code, str(info["message"]))
+            self.crashDialogRequested.emit(code, info)
             logger.warning("游戏崩溃（退出码 %s），崩溃文件: %s", exit_code, sorted(crash_files))
         self._refresh_game_state()
+
+    def _describe_crash(self, crash_files: Dict[str, Any], exit_code: int) -> Dict[str, Any]:
+        """崩溃文件 → 界面快照（诊断失败时也要给出可渲染的兜底表）。"""
+        if self._crash is not None:
+            try:
+                return dict(self._crash.describe_crash(crash_files, exit_code))
+            except Exception as e:  # noqa: BLE001 - 诊断失败只降级，不能吞掉崩溃提示
+                logger.warning("整理崩溃信息失败: %s", e)
+        return {
+            "exitCode": int(exit_code),
+            "hasCrashReport": bool(crash_files.get("crash_report")),
+            "hasCrashReportList": bool(crash_files.get("crash_report_list")),
+            "hasGameLog": bool(crash_files.get("game_log")),
+            "hasDebugLog": bool(crash_files.get("debug_log")),
+            "hasJvmCrashLog": bool(crash_files.get("jvm_crash_log")),
+            "diagnoses": [],
+        }
+
+    def _ai_token(self) -> str:
+        """净读 AI Token：优先核心回调，取不到再退回配置单例（与旧窗口同源）。"""
+        launcher = self._service(self._context, "launcher")
+        getter = getattr(launcher, "get_jdz_token", None)
+        if callable(getter):
+            try:
+                token = str(getter() or "").strip()
+                if token:
+                    return token
+            except Exception as e:  # noqa: BLE001 - 只影响 AI 按钮可用性
+                logger.warning("读取净读 Token 失败: %s", e)
+        try:
+            from config import config
+
+            return str(getattr(config, "jdz_token", "") or "").strip()
+        except Exception:  # noqa: BLE001
+            return ""
 
     def on_killed(self, exit_code: int) -> None:
         self._refresh_game_state()
