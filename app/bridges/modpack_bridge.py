@@ -39,6 +39,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import threading
@@ -145,6 +146,9 @@ class ModpackBridge(QObject):
     #: 服务器装好了（参数 = 服务器目录名）—— 3.9 的服务器列表据此刷新；
     #: 现在还没有服务器桥，先把这个口子留出来（旧实现是 `_refresh_parent_server_list`）。
     serverInstalled = Signal(str)
+    #: 服务端模组筛选后仍有“待人工确认”的条目（服务器名，条目列表，总数）。
+    #: 阶段 3.12 修复：旧实现只往日志里写一行，用户完全看不到这些模组。
+    serverModsNeedReview = Signal(str, "QVariantList", int)
     #: 内部投递信号：worker 只排队并 emit 它。
     posted = Signal()
 
@@ -180,6 +184,8 @@ class ModpackBridge(QObject):
         self._result_text = ""
         self._result_level = ""
         self._install_target = TARGET_CLIENT
+        #: 本次服务端安装里核心回报的筛选结果（按 target 存；安装成功后才弹窗）。
+        self._server_filter: Dict[str, Dict[str, Any]] = {}
 
         self._versions_bridge: Any = None
         self._handles: Dict[str, Any] = {}
@@ -847,6 +853,7 @@ class ModpackBridge(QObject):
 
         self._busy = True
         self._install_target = target
+        self._server_filter.pop(target, None)
         self._install_state = "installing"
         self._progress = 0.0
         self._progress_text = _("mp_installing")
@@ -882,11 +889,26 @@ class ModpackBridge(QObject):
 
         threading.Thread(target=poll_progress, name="modpack-progress", daemon=True).start()
 
+        def filter_notice(payload: Dict[str, Any]) -> None:
+            """核心在工作线程里回调；只排队，真正落状态在主线程的 `_deliver`。"""
+            self._post({"kind": "mods-filtered", "target": target, "payload": payload})
+
         def work() -> Any:
             try:
                 if target == TARGET_SERVER:
+                    #: 阶段 3.12 之前的服务/测试替身没有这个关键字参数；只在对方
+                    #: 明确接受时才传，避免把“旧接口”变成安装失败。
+                    kwargs: Dict[str, Any] = {}
+                    try:
+                        params = inspect.signature(self._service.call_server_install_entry).parameters
+                        if "mods_filter_callback" in params or any(
+                            p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+                        ):
+                            kwargs["mods_filter_callback"] = filter_notice
+                    except (TypeError, ValueError):
+                        pass
                     return self._service.call_server_install_entry(
-                        callbacks, path, optional, server_name or None
+                        callbacks, path, optional, server_name or None, **kwargs
                     )
                 return self._service.call_install_entry(
                     callbacks, path, optional, pack_format, instance_name=instance_name
@@ -906,6 +928,7 @@ class ModpackBridge(QObject):
         self._vanilla_text = ""
         self._result_text = ""
         self._result_level = ""
+        self._server_filter.pop(self._mode, None)
         self.installChanged.emit()
 
 
@@ -1100,6 +1123,23 @@ class ModpackBridge(QObject):
 
     # ─── 内部：安装结果 ─────────────────────────────────────
 
+    def _apply_mods_filtered(self, payload: Dict[str, Any]) -> None:
+        """记下核心回报的服务端模组筛选结果（等安装成功后再决定要不要弹窗）。"""
+        target = str(payload.get("target", TARGET_SERVER))
+        data = payload.get("payload") or {}
+        rows = []
+        for row in data.get("unknown") or []:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("file_name", "") or "").strip()
+            if not name:
+                continue
+            rows.append({"file_name": name, "reason": str(row.get("reason", "") or "")})
+        if rows:
+            self._server_filter[target] = {"unknown": rows}
+        else:
+            self._server_filter.pop(target, None)
+
     def _apply_install(self, payload: Dict[str, Any]) -> None:
         target = str(payload.get("target", self._install_target))
         if payload.get("error"):
@@ -1124,8 +1164,21 @@ class ModpackBridge(QObject):
                 self._result_text = _("mp_install_done_msg", result=detail)
                 notice = _("notify_modpack_installed")
             self._result_level = "success"
+            #: 先把“安装成功”的可见状态发完，再触发成就。成就服务可能缺席/抛错，
+            #: 不能让它把待确认模组弹窗和服务器列表刷新一起吞掉（3.12 探针实测）。
+            if target == TARGET_SERVER:
+                self.serverInstalled.emit(str(detail or ""))
+                review_row = self._server_filter.pop(target, None) or {}
+                review_rows = list(review_row.get("unknown") or [])
+                if review_rows:
+                    self.serverModsNeedReview.emit(str(detail or ""), review_rows, len(review_rows))
             if self._service is not None:
-                self._service.trigger_achievement("server_modpack_server" if target == TARGET_SERVER else "modder_lazy")
+                try:
+                    self._service.trigger_achievement(
+                        "server_modpack_server" if target == TARGET_SERVER else "modder_lazy"
+                    )
+                except Exception as e:  # noqa: BLE001 - 成就失败不影响安装结果
+                    logger.warning("触发整合包成就失败: %s", e)
             if target == TARGET_CLIENT and self._versions_bridge is not None:
                 refresh = getattr(self._versions_bridge, "refresh", None)
                 if callable(refresh):
@@ -1134,8 +1187,6 @@ class ModpackBridge(QObject):
                     except Exception as e:  # noqa: BLE001 - 刷新失败不影响安装结果
                         logger.warning("刷新版本列表失败: %s", e)
             self._notify(notice, "success")
-            if target == TARGET_SERVER:
-                self.serverInstalled.emit(str(detail or ""))
         else:
             if target == TARGET_SERVER:
                 self._result_text = _("mp_server_install_error", error=detail)
@@ -1224,6 +1275,8 @@ class ModpackBridge(QObject):
                     self._apply_download_status(item)
                 elif kind == "mp-progress":
                     self._apply_progress(item)
+                elif kind == "mods-filtered":
+                    self._apply_mods_filtered(item)
                 elif kind == "install":
                     self._apply_install(item)
             except Exception as e:  # noqa: BLE001 - 一条失败不拖垮后面的

@@ -17,6 +17,7 @@ import QtQuick
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import "../../components"
+import "../../components/dialogs"
 
 FmPage {
     id: page
@@ -26,6 +27,12 @@ FmPage {
     readonly property bool live: (typeof Modpack !== "undefined" && Modpack) ? true : false
     readonly property string mode: String(page.routeId || "").indexOf("servers/") === 0 ? "server" : "client"
     readonly property bool serverMode: page.mode === "server"
+
+    //: 服务端安装完成后，核心回报“待人工确认”的模组。旧实现只写日志，用户看不到；
+    //: 现在弹一个列表，确认后直接进 3.12 的模组管理页处理。
+    property bool modsReviewOpen: false
+    property var modsReviewRows: []
+    property string modsReviewVersion: ""
 
     title: page.serverMode ? page.t("mp_server_title") : page.t("mp_install_header")
     description: page.serverMode ? page.t("mp_server_subtitle") : page.t("mp_install_subtitle")
@@ -81,6 +88,13 @@ FmPage {
             Modpack.toggleComponent(String(name));
     }
 
+    function openModsPage() {
+        var version = page.modsReviewVersion;
+        page.modsReviewOpen = false;
+        if (version.length > 0 && typeof Nav !== "undefined" && Nav)
+            Nav.push("servers/detail/mods", {"version": version});
+    }
+
     Connections {
         target: page.live ? Modpack : null
         ignoreUnknownSignals: true
@@ -102,6 +116,18 @@ FmPage {
         function onFileReady(target, path) {
             if (String(target) === page.mode && page.isForeground())
                 page.activateFromRoute();
+        }
+
+        //: 3.12 修复：服务端模组筛选有 unknown 时弹窗。安装本身已经成功，
+        //: 这里不重跑筛选、不自动禁用；用户确认后去模组管理逐条判断。
+        function onServerModsNeedReview(version, rows, count) {
+            if (!page.serverMode || !page.isForeground())
+                return;
+            if (!rows || rows.length === 0)
+                return;
+            page.modsReviewVersion = String(version || "");
+            page.modsReviewRows = rows;
+            page.modsReviewOpen = true;
         }
     }
 
@@ -624,6 +650,57 @@ FmPage {
             }
 
             Item { Layout.fillHeight: true }
+        }
+    }
+
+    //: 待确认模组弹窗的宿主（页内浮层；Loader 控制存在性，关掉后不占焦点）
+    Item {
+        id: reviewOverlay
+        objectName: "modpackReviewOverlay"
+        anchors.fill: parent
+        z: 100
+
+        Loader {
+            objectName: "modpackReviewLoader"
+            anchors.fill: parent
+            active: page.modsReviewOpen
+            sourceComponent: reviewComponent
+        }
+    }
+
+    Component {
+        id: reviewComponent
+
+        ModReviewDialog {
+            objectName: "modpackModsReviewDialog"
+            rows: page.modsReviewRows
+            titleText: page.t("server_mods_title")
+            hintText: page.t("mod_unknown") + " ("
+                      + String((page.modsReviewRows || []).length) + ")"
+            disableText: page.t("mod_disable")
+            manageText: page.t("server_mod_manage_btn")
+            closeText: page.t("close")
+            onDisableRequested: function (names) {
+                page.modsReviewOpen = false;
+                if (page.live && typeof ServerMods !== "undefined" && ServerMods)
+                    ServerMods.disableMods(page.modsReviewVersion, names);
+            }
+            onManageRequested: page.openModsPage()
+            onCancelled: page.modsReviewOpen = false
+        }
+    }
+
+    //: 待确认弹窗里的“禁用”动作走 ServerMods 桥；提示也由它发出。
+    //: 只有当前页在前台时才转成 Toast，避免在别的页面重复弹。
+    Connections {
+        target: (typeof ServerMods !== "undefined" && ServerMods) ? ServerMods : null
+        ignoreUnknownSignals: true
+
+        function onNoticeRequested(message, level) {
+            if (!page.isForeground())
+                return;
+            if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.available)
+                Dialogs.notify({"level": String(level), "message": String(message), "icon": "mods"});
         }
     }
 

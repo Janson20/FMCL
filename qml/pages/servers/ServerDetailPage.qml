@@ -1,7 +1,7 @@
 // ServerDetailPage.qml —— 服务器详情与生命周期（阶段 3 任务 3.9）。
 //
 // 承载：启动 / 停止 / 加入服务器、进入控制台、每服独立最大内存、打开目录、删除、
-// 运行状态。配置编辑入口已接 3.11；服务器模组/资源包归 3.12，本页不提前放空按钮。
+// 运行状态。配置编辑入口接 3.11，模组/资源包入口接 3.12。
 //
 // 数据全部来自 Servers 桥；本页只绑属性、发槽调用、按状态显示。
 
@@ -364,6 +364,30 @@ FmPage {
                     onClicked: {
                         if (page.live)
                             Servers.openDir(page.serverId)
+                    }
+                }
+
+                FmButton {
+                    objectName: "serverDetailModsButton"
+                    primary: false
+                    text: Tr?.map["server_mod_manage_btn"] ?? "server_mod_manage_btn"
+                    iconName: "mods"
+                    enabled: page && page.live && page.serverId.length > 0
+                    onClicked: {
+                        if (page.live && page.serverId.length > 0 && typeof Nav !== "undefined" && Nav)
+                            Nav.push("servers/detail/mods", {"version": page.serverId})
+                    }
+                }
+
+                FmButton {
+                    objectName: "serverDetailPacksButton"
+                    primary: false
+                    text: Tr?.map["resource_packs"] ?? "resource_packs"
+                    iconName: "resourcepack"
+                    enabled: page && page.live && page.serverId.length > 0
+                    onClicked: {
+                        if (page.live && page.serverId.length > 0 && typeof Nav !== "undefined" && Nav)
+                            Nav.push("servers/detail/packs", {"version": page.serverId})
                     }
                 }
 

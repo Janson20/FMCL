@@ -340,15 +340,21 @@ def call_server_install_entry(
     mrpack_path: str,
     optional_files: List[str],
     server_name: Optional[str],
+    mods_filter_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Tuple[bool, Any]:
     """服务端安装入口（原 ``ModpackServerWindow._do_install`` 里那次调用，逐字）。
 
     只有一条路：``callbacks["install_mrpack_server"]``；没有统一入口也没有格式分发
     （服务端窗口只收 ``.mrpack``）。异常同样原样上抛。
+
+    ``mods_filter_callback`` 是阶段 3.12 新增的**可选**出口：核心完成服务端模组
+    筛选后把可序列化结果交给界面（待人工确认的模组要弹窗）。传 None 时与旧行为
+    逐字一致。
     """
-    return callbacks["install_mrpack_server"](
-        mrpack_path, optional_files=optional_files, server_name=server_name
-    )
+    kwargs: Dict[str, Any] = {"optional_files": optional_files, "server_name": server_name}
+    if mods_filter_callback is not None:
+        kwargs["mods_filter_callback"] = mods_filter_callback
+    return callbacks["install_mrpack_server"](mrpack_path, **kwargs)
 
 
 def progress_percent(progress_data: Optional[Dict[str, Any]]) -> float:
@@ -683,9 +689,12 @@ class ModpackService(Service):
         mrpack_path: str,
         optional_files: List[str],
         server_name: Optional[str],
+        mods_filter_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> Tuple[bool, Any]:
         """服务端安装入口（原服务端 ``_do_install`` 的调用与结果判定）。"""
-        return call_server_install_entry(callbacks, mrpack_path, optional_files, server_name)
+        return call_server_install_entry(
+            callbacks, mrpack_path, optional_files, server_name, mods_filter_callback
+        )
 
     @staticmethod
     def progress_percent(progress_data: Optional[Dict[str, Any]]) -> float:

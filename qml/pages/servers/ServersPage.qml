@@ -309,6 +309,16 @@ FmPage {
                     }
 
                     FmToolButton {
+                        objectName: "serverRowModsButton"
+                        iconName: "mods"
+                        iconSize: (Theme?.iconSize ?? 20) - 4
+                        onClicked: {
+                            if (page.live && typeof Nav !== "undefined" && Nav)
+                                Nav.push("servers/detail/mods", {"version": String(modelData.id || "")})
+                        }
+                    }
+
+                    FmToolButton {
                         objectName: "serverRowDeleteButton"
                         iconName: "trash"
                         iconSize: (Theme?.iconSize ?? 20) - 4

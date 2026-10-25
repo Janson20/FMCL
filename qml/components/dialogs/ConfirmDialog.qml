@@ -29,6 +29,10 @@ Item {
     //: 是否铺一层遮罩并吞掉卡片外的点击（默认 false：对话框宿主自己已有遮罩）。
     //: 阶段 3.11 的页面内确认框打开它，避免底部动作条仍可点。
     property bool modalScrim: false
+    //: 按钮文案覆盖（阶段 3.12）：空串 = 沿用通用的“确定 / 取消”。
+    //: 只改文案，不改按钮顺序与返回值语义。
+    property string confirmText: ""
+    property string cancelText: ""
 
     readonly property bool defaultIsConfirm: !!(request && request.default === true)
 
@@ -173,7 +177,9 @@ Item {
                         id: okButton
                         objectName: "okButton"
                         primary: true
-                        text: Tr?.map["confirm"] ?? "confirm"
+                        text: dialog.confirmText.length > 0
+                              ? dialog.confirmText
+                              : (Tr?.map["confirm"] ?? "confirm")
                         focus: dialog.defaultIsConfirm
                         onClicked: dialog.accept()
                     }
@@ -182,7 +188,9 @@ Item {
                         id: cancelButton
                         objectName: "cancelButton"
                         visible: dialog.cancelVisible
-                        text: Tr?.map["cancel"] ?? "cancel"
+                        text: dialog.cancelText.length > 0
+                              ? dialog.cancelText
+                              : (Tr?.map["cancel"] ?? "cancel")
                         focus: dialog.cancelVisible && !dialog.defaultIsConfirm
                         onClicked: dialog.cancel()
                     }

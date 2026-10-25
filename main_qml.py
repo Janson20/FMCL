@@ -93,6 +93,10 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Servers", "app.bridges.servers_bridge", "ServersBridge"),
     # 服务器配置编辑器（阶段 3 任务 3.11）：草稿 / 分类搜索 / 校验 / 保存 / 原文。
     ("ServerConfig", "app.bridges.server_config_bridge", "ServerConfigBridge"),
+    # 服务器本地模组 / 资源包（阶段 3 任务 3.12）：扫描 / 搜索 / 启停 / 删除 / 更新。
+    ("ServerMods", "app.bridges.server_mods_bridge", "ServerModsBridge"),
+    # 服务端模组在线浏览（阶段 3 任务 3.12）：Modrinth 单源搜索 / AI / 安装到服务器。
+    ("ServerModBrowser", "app.bridges.server_mod_browser_bridge", "ServerModBrowserBridge"),
 )
 
 QML_MODULE_URI = "FMCL"

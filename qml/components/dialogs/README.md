@@ -9,7 +9,8 @@ QML 侧的对话框宿主与 5 个弹窗组件，服务的是 Python 侧那个 `
 |------|------|
 | `DialogHost.qml` | 宿主：接 `Dialogs.dialogRequested/dialogClosed/progressChanged/progressClosed`，按 kind 选组件、排队、回填答案；`Component.onCompleted/Destruction` 里做 `markReady()/markClosing()` 握手 |
 | `MessageDialog.qml` | `info` / `warning` / `error` 三合一（单个「确定」，关闭即回填 `fallback`） |
-| `ConfirmDialog.qml` | `confirm`（确定 -> true，取消/Esc/关闭 -> **false**）；页面内直接用时可选 `modalScrim`（遮罩 + 拦截外部点击）与 `cancelVisible: false`（只有一个「确定」） |
+| `ModReviewDialog.qml` | 待确认模组的**逐项选择**：每行一个 `FmCheckBox`（勾选 = 禁用）、「禁用 (N)」「模组管理」「关闭」；默认全不勾，`disableRequested(names)` 由页面交给 `ServerMods.disableMods`（阶段 3.12） |
+| `ConfirmDialog.qml` | `confirm`（确定 -> true，取消/Esc/关闭 -> **false**）；页面内直接用时可选 `modalScrim`（遮罩 + 拦截外部点击）、`cancelVisible: false`（只有一个「确定」）与 `confirmText` / `cancelText`（只换按钮文案，不改顺序与返回值） |
 | `TextInputDialog.qml` | `ask_text`（预填 + 全选、回车确认、Esc 取消、`password` 掩码） |
 | `ChoiceDialog.qml` | `choose`（选项即按钮，点了立即作答；`default` 决定主按钮） |
 | `ProgressDialog.qml` | `show_progress` / `close_progress` 的进度面板（确定进度走进度条、不确定走转圈、有 `on_cancel` 才有取消按钮） |

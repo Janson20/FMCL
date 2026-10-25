@@ -569,7 +569,11 @@ class MrpackMixin:
         return self._mcllib.mrpack.get_mrpack_launch_version(mrpack_path)
 
     def install_mrpack_server(
-        self, mrpack_path: str, optional_files: Optional[List[str]] = None, server_name: Optional[str] = None
+        self,
+        mrpack_path: str,
+        optional_files: Optional[List[str]] = None,
+        server_name: Optional[str] = None,
+        mods_filter_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> Tuple[bool, str]:
         """
         安装整合包作为服务器（并行下载优化）
@@ -583,6 +587,10 @@ class MrpackMixin:
             mrpack_path: .mrpack 文件的绝对路径
             optional_files: 要安装的可选文件列表
             server_name: 服务器目录名（默认使用整合包名称）
+            mods_filter_callback: 模组筛选完成后的通知回调（可选）。参数是一个
+                可序列化的字典，含 `total` / `server_keep` / `client_only` /
+                `unknown` / `summary`；**在安装线程里被调用**，调用方负责切回界面线程。
+                没有回调时行为与旧实现逐字一致（只写日志）。
 
         Returns:
             (是否成功, 服务器名称 或 错误信息) 元组
@@ -855,6 +863,28 @@ class MrpackMixin:
                     if filter_result.unknown:
                         unknown_names = [r["file_name"] for r in filter_result.unknown]
                         logger.info(f"[模组筛选] ⚠ {len(unknown_names)} 个模组无法确定: {', '.join(unknown_names)}")
+
+                    #: 把筛选结果交给界面（可选的用户确认入口）。**即使没有 unknown 也回调**
+                    #: —— 界面需要知道"筛选做过"；是否弹窗由界面按 unknown 是否为空决定。
+                    #: 回调异常只记日志，筛选本身已经落盘，不能因此判安装失败。
+                    if mods_filter_callback is not None:
+                        payload = {
+                            "total": len(filter_result.rows),
+                            "server_keep": len(filter_result.server_keep),
+                            "client_only": len(filter_result.client_only),
+                            "unknown": [
+                                {
+                                    "file_name": str(r.get("file_name", "") or ""),
+                                    "reason": str(r.get("reason", "") or ""),
+                                }
+                                for r in filter_result.unknown
+                            ],
+                            "summary": filter_result.summary,
+                        }
+                        try:
+                            mods_filter_callback(payload)
+                        except Exception as callback_err:  # noqa: BLE001 - 回调不是安装的一部分
+                            logger.warning(f"[模组筛选] 界面回调失败（不影响安装）: {callback_err}")
 
                 except Exception as filter_err:
                     logger.warning(f"[模组筛选] 筛选过程出错（不影响安装）: {filter_err}")

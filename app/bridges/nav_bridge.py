@@ -167,8 +167,11 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
      "pages/servers/ServerConsolePage.qml", ""),
     ("servers/detail/config", "server_config_panel_btn", "slider", "servers/detail",
      "pages/servers/ServerConfigPage.qml", ""),
-    ("servers/detail/mods", "server_mods_title", "mods", "servers/detail", "pages/servers/ServersPage.qml", ""),
-    ("servers/detail/packs", "server_packs_title", "resourcepack", "servers/detail", "pages/servers/ServersPage.qml", ""),
+    ("servers/detail/mods", "server_mods_title", "mods", "servers/detail", "pages/servers/ServerModsPage.qml", ""),
+    #: 在线浏览是模组页的下一层（旧实现是一扇独立的模态子窗口）。
+    ("servers/detail/mods/browser", "mod_browser_title_all", "search", "servers/detail/mods",
+     "pages/servers/ServerModBrowserPage.qml", ""),
+    ("servers/detail/packs", "resource_packs", "resourcepack", "servers/detail", "pages/servers/ServerModsPage.qml", ""),
     ("servers/install", "server_install_title", "download", "servers", "pages/servers/ServerInstallPage.qml", ""),
     ("servers/modpack", "mp_server_title", "modpack", "servers",
      "pages/versions/ModpackPage.qml", ""),
