@@ -33,7 +33,7 @@ from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 
 from services.i18n_service import _
-from services.server_service import format_memory_mb
+from services.server_service import format_exit_info, format_memory_mb
 from services.server_session import (
     LOG_BUFFER_MAX_LINES,
     STATE_ERROR,
@@ -67,7 +67,7 @@ class ServersBridge(QObject):
     commandEcho = Signal(str, str)
     #: 命令发送失败（version, 已翻译的错误文案）。
     commandFailed = Signal(str, str)
-    #: 某台服务器退出了（version, exit code）。控制台据此弹退出质量确认。
+    #: 某台服务器退出了（version, exit code）。壳层据此弹退出质量确认（任意页面）。
     serverExited = Signal(str, int)
     #: 崩溃 AI 分析完成 / 失败（version, 正文或错误）。
     crashAnalysisReady = Signal(str, str)
@@ -521,6 +521,15 @@ class ServersBridge(QObject):
         if self._session is None or self._closing:
             return False
         return self._session.analyze_crash(str(version or ""), int(exitCode))
+
+    @Slot(int, result=str)
+    def formatExitInfo(self, exitCode: int) -> str:  # noqa: N802
+        """退出码的展示后缀；0 是空串，非 0 是 `` (exit_code=N)``。"""
+        try:
+            code = int(exitCode)
+        except (TypeError, ValueError):
+            code = -1
+        return format_exit_info(code)
 
     @Slot(str, result="QVariant")
     def takeExitPrompt(self, version: str) -> Any:  # noqa: N802

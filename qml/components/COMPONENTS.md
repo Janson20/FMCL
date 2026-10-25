@@ -65,6 +65,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `MessageDialog` | info / warning / error 三合一提示框 | `request` `level` `accept()` `cancel()` |
 | `ConfirmDialog` | 确认框（确定 -> true，取消 -> false）；页面内使用时可选遮罩与单按钮 | `request` `defaultIsConfirm` `cancelVisible` `modalScrim` `accept()` `cancel()` `activateDefault()` |
 | `ModReviewDialog` | 待确认模组的逐项选择框（阶段 3.12）：每项一个 `FmCheckBox`，「禁用 (N) / 模组管理 / 关闭」；`disableRequested(names)` 交给 `ServerMods.disableMods`。页面内浮层用 `Loader.active` 控制存在性 | `rows` `checked` `revision` `titleText` `hintText` `disableText` `manageText` `closeText` `disableRequested(names)` `manageRequested()` `cancelled()` |
+| `ServerExitDialog` | 服务器退出质量确认 + AI 分析（L-34；3.12 反馈从控制台页移到壳层）：任意页面都能弹，`是` / `否（AI 分析日志）`、分析中 / 结果 / 失败同卡切换；由 `App.qml` 直接驱动，不走 DialogHost 队列 | `serverId` `exitInfo` `analyzing` `resultText` `errorText` `promptError` `closeRequested()` `analyzeRequested()` |
 | `TextInputDialog` | 单行文本输入框（`ask_text`） | `request` `fieldText` `accept()` `cancel()` |
 | `ChoiceDialog` | 选项框（选项即按钮，点了立即作答） | `request` `options` `primaryIndex` `select(value)` |
 | `ProgressDialog` | 进度面板（确定进度 / 不确定转圈 / 可取消） | `request` `report` `cancellable` `requestCancel()` |

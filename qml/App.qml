@@ -68,6 +68,20 @@ FluWindow {
     property string crashActionLevel: "info"
     property string crashShareUrl: ""
 
+    //: 服务器退出质量确认（L-34；3.10 先在控制台页内，3.12 反馈改为壳层全局）。
+    //: 服务器不挑页面退出：首页、版本页、模组页都要能看见。服务层只在**非主动
+    //: 停止**时留下待确认退出码，这里取走并按到达顺序逐台询问；分析中 / 结果 /
+    //: 失败也放在壳层，页面切换不会丢掉这次退出。
+    property bool serverExitVisible: false
+    property string serverExitVersion: ""
+    property int serverExitCode: -1
+    property string serverExitInfo: ""
+    property bool serverExitAnalyzing: false
+    property string serverExitResultText: ""
+    property string serverExitErrorText: ""
+    property string serverExitPromptError: ""
+    property var serverExitQueue: []
+
     // `autoVisible: false` 是**必须**的：FluWindow 在自己的 `Component.onCompleted` 里
     // 会无条件 `show()`，那一步会把上面这条绑定覆盖掉，于是主窗口在启动画面期间
     // 就露出来了（用户截图里"两层窗口叠在一起"就是这么来的）。
@@ -146,6 +160,83 @@ FluWindow {
         for (var i = 0; i < items.length; ++i) {
             if (items[i])
                 app.setHitTestVisible(items[i])
+        }
+    }
+
+    // ── 服务器退出确认（阶段 3.10 L-34；3.12 反馈全局化）─────────────
+    // `takeExitPrompt` 是权威判据：主动停止不会留下待确认项，返回 null 时直接
+    // 忽略这次退出（用户点了停止，不需要再被问“服务器是否正常运行”）。
+    function enqueueServerExit(version, code) {
+        if (typeof Servers === "undefined" || !Servers)
+            return
+        var pending = null
+        try {
+            pending = Servers.takeExitPrompt(String(version || ""))
+        } catch (e) {
+            pending = null
+        }
+        if (pending === null || pending === undefined)
+            return
+        var nextCode = Number(pending)
+        if (isNaN(nextCode))
+            nextCode = Number(code)
+        var queue = app.serverExitQueue.slice()
+        queue.push({"version": String(version || ""), "code": nextCode})
+        app.serverExitQueue = queue
+        if (!app.serverExitVisible)
+            app.showNextServerExit()
+    }
+
+    function showNextServerExit() {
+        if (app.serverExitQueue.length === 0) {
+            app.serverExitVisible = false
+            return
+        }
+        var next = app.serverExitQueue[0]
+        app.serverExitQueue = app.serverExitQueue.slice(1)
+        app.serverExitVersion = String(next.version || "")
+        app.serverExitCode = Number(next.code)
+        app.serverExitInfo = ""
+        try {
+            if (typeof Servers !== "undefined" && Servers)
+                app.serverExitInfo = String(Servers.formatExitInfo(app.serverExitCode) || "")
+        } catch (e) {
+            app.serverExitInfo = ""
+        }
+        app.serverExitAnalyzing = false
+        app.serverExitResultText = ""
+        app.serverExitErrorText = ""
+        app.serverExitPromptError = ""
+        app.serverExitVisible = true
+    }
+
+    function closeServerExit() {
+        if (app.serverExitAnalyzing)
+            return
+        app.serverExitVisible = false
+        app.serverExitVersion = ""
+        app.serverExitCode = -1
+        app.serverExitInfo = ""
+        app.serverExitResultText = ""
+        app.serverExitErrorText = ""
+        app.serverExitPromptError = ""
+        Qt.callLater(app.showNextServerExit)
+    }
+
+    function analyzeServerExit() {
+        if (!app.serverExitVisible || app.serverExitAnalyzing)
+            return
+        if (typeof Servers === "undefined" || !Servers)
+            return
+        var target = app.serverExitVersion
+        var code = app.serverExitCode
+        app.serverExitPromptError = ""
+        if (Servers.analyzeCrash(target, code)) {
+            app.serverExitAnalyzing = true
+            app.serverExitResultText = ""
+            app.serverExitErrorText = ""
+        } else {
+            app.serverExitPromptError = Tr?.map["ai_search_login_required"] ?? "ai_search_login_required"
         }
     }
 
@@ -350,6 +441,41 @@ FluWindow {
         }
     }
 
+    // ── 服务器退出 / AI 分析（3.10 L-34；3.12 反馈移到壳层）─────────────
+    // 退出信号由 bridge 从 worker 队列投递到主线程；这里只排队和显示。分析结果
+    // 也按 version 对齐，避免 A 服的分析结果串到 B 服的确认框。
+    Connections {
+        target: (typeof Servers !== "undefined" && Servers) ? Servers : null
+
+        function onServerExited(version, code) {
+            app.enqueueServerExit(String(version), Number(code))
+        }
+
+        function onCrashAnalysisReady(version, text) {
+            if (!app.serverExitVisible || String(version) !== app.serverExitVersion)
+                return
+            app.serverExitAnalyzing = false
+            var content = String(text || "")
+            if (content.length === 0) {
+                app.serverExitResultText = ""
+                app.serverExitErrorText = (Tr?.map["crash_analyze_failed"] ?? "crash_analyze_failed")
+                        .split("{error}").join("")
+                return
+            }
+            app.serverExitResultText = content
+            app.serverExitErrorText = ""
+        }
+
+        function onCrashAnalysisFailed(version, error) {
+            if (!app.serverExitVisible || String(version) !== app.serverExitVersion)
+                return
+            app.serverExitAnalyzing = false
+            app.serverExitResultText = ""
+            app.serverExitErrorText = (Tr?.map["crash_analyze_failed"] ?? "crash_analyze_failed")
+                    .split("{error}").join(String(error || ""))
+        }
+    }
+
     // 版本页桥（3.2）只发状态条文案：游戏状态、崩溃提示、最小化仍然由**首页桥**发
     // （它是常驻的那个，见 `app/bridges/version_bridge.py` 模块文档第 1 条）——
     // 这里再挂一次 `onCrashDetected` 就会出现两个 Toast。
@@ -432,6 +558,30 @@ FluWindow {
         onShareRequested: {
             if (typeof Home !== "undefined" && Home)
                 Home.shareCrashLog()
+        }
+    }
+
+    // ── 服务器退出质量确认（3.10 L-34；3.12 反馈全局化）────────────────
+    // 与游戏崩溃窗同层：游戏崩溃优先（z 150），服务器退出在它下面排队；两者都
+    // 在任意页面可弹，不能塞进页面内容区。
+    // 用 Loader 按需创建：没有退出事件时连对象都不存在，既不给启动期增加
+    // 一批隐藏控件，也不会在不可见时继续吃键盘焦点（与 ModReviewDialog 同一纪律）。
+    Loader {
+        id: serverExitLoader
+        anchors.fill: parent
+        z: 145
+        active: app.serverExitVisible
+
+        sourceComponent: ServerExitDialog {
+            anchors.fill: parent
+            serverId: app.serverExitVersion
+            exitInfo: app.serverExitInfo
+            analyzing: app.serverExitAnalyzing
+            resultText: app.serverExitResultText
+            errorText: app.serverExitErrorText
+            promptError: app.serverExitPromptError
+            onCloseRequested: app.closeServerExit()
+            onAnalyzeRequested: app.analyzeServerExit()
         }
     }
 

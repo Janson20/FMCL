@@ -737,9 +737,9 @@ class ServerSession:
     def take_exit_prompt(self, version: str = "") -> Optional[int]:
         """取走某台服务器待确认的退出码（没有则返回 None）。
 
-        退出确认只问一次：界面取走之后不再重复弹；如果控制台页当时不在前台，
-        等用户下次进控制台再问（旧界面是每次退出都弹，这里把“什么时候看得见”
-        交给路由，但确认本身仍然只有一次）。
+        退出确认只问一次：界面取走之后不再重复弹。**主动停止**（停止按钮、删除
+        运行中的服务器、退出启动器）不留下待确认项 —— 用户已经知道这次退出，
+        不该再被问“服务器是否正常运行”；只有非主动退出才需要确认。
         """
         target = str(version or self.selected or "").strip()
         with self._lock:
@@ -1128,12 +1128,15 @@ class ServerSession:
             if version in self._running_order:
                 self._running_order.remove(version)
             self._watch_threads.pop(version, None)
+            stop_requested = version in self._stopping
             self._stopping.discard(version)
             self._last_exit_codes[version] = int(exit_code)
             self._last_exit_code = int(exit_code)
             self._console_players.get(version, []).clear()
-            # 退出质量确认只问一次；等控制台页来 take_exit_prompt 取走。
-            self._exit_prompts[version] = int(exit_code)
+            # 退出质量确认只问一次；主动停止不登记（见 take_exit_prompt）。
+            # 非主动退出（崩溃、进程被外部结束、服务器自己退出）才留给壳层询问。
+            if not stop_requested:
+                self._exit_prompts[version] = int(exit_code)
             if self._busy == BUSY_STOPPING:
                 self._busy = ""
         self._changed("run")

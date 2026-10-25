@@ -2,7 +2,9 @@
 //
 // 数据全部来自 Servers 桥：日志（按 version 隔离的增量 + 清屏游标）、运行状态、
 // 在线玩家、内存（每 2 秒采样一次，服务层用 psutil，不在主线程跑 tasklist）、
-// 命令发送、退出质量确认与崩溃 AI 分析。本页不碰服务、不保存业务状态。
+// 命令发送与退出信息展示。退出质量确认 / 崩溃 AI 分析已在 3.12 反馈中移到
+// 壳层（App.qml + ServerExitDialog），否则服务器在别的页面退出时看不见。
+// 本页不碰服务、不保存业务状态。
 //
 // 日志控件复用 qml/components/LogView.qml：只读、自动滚底、不换行、保留最近
 // Servers.consoleMaxLines 行（与 ServerConsoleWatcher 的 LOG_BUFFER_MAX_LINES 同源）。
@@ -31,13 +33,6 @@ FmPage {
     property string playerCountText: ""
     property string memoryText: ""
     property string exitInfo: ""
-    property bool exitDialogVisible: false
-    property int exitCode: -1
-    property string exitTitle: ""
-    property bool analyzing: false
-    property bool resultVisible: false
-    property string resultTitle: ""
-    property string resultText: ""
 
     contentState: (!page || !page.live) ? "error"
                   : (page.serverId.length === 0 ? "error" : "ready")
@@ -148,44 +143,6 @@ FmPage {
         if (!next.running && page.memoryText.length === 0)
             page.memoryText = "0 " + page.t("mb")
         page.exitInfo = String(next.exitInfo || "")
-        page.refreshExitTitle()
-        if (next.pendingExit && page.activeRoute()
-                && !page.exitDialogVisible && !page.analyzing) {
-            var pending = Servers.takeExitPrompt(page.serverId)
-            if (pending !== null && pending !== undefined)
-                page.showExit(Number(pending))
-        }
-    }
-
-    function refreshExitTitle() {
-        page.exitTitle = page.t("server_exit_question_title") + String(page.exitInfo || "")
-    }
-
-    function showExit(code) {
-        page.exitCode = Number(code)
-        page.refreshInfo()
-        page.refreshExitTitle()
-        page.exitDialogVisible = true
-    }
-
-    function handleExit(version, code) {
-        if (version !== page.serverId)
-            return
-        page.refreshInfo()
-        if (!page.activeRoute())
-            return
-        var pending = Servers.takeExitPrompt(page.serverId)
-        page.showExit(pending !== null && pending !== undefined ? Number(pending) : Number(code))
-    }
-
-    function startAnalyze() {
-        var target = page.serverId
-        var code = page.exitCode
-        page.exitDialogVisible = false
-        if (!page || !page.live || target.length === 0)
-            return
-        if (Servers.analyzeCrash(target, code))
-            page.analyzing = true
     }
 
     function sendCommand() {
@@ -266,11 +223,6 @@ FmPage {
                 page.refreshInfo()
         }
 
-        function onServerExited(version, code) {
-            if (page)
-                page.handleExit(String(version), Number(code))
-        }
-
         function onCommandEcho(version, command) {
             if (page && String(version) === page.serverId)
                 consoleLog.append("> " + String(command), "info")
@@ -279,20 +231,6 @@ FmPage {
         function onCommandFailed(version, message) {
             if (page && String(version) === page.serverId)
                 consoleLog.append(String(message), "error")
-        }
-
-        function onCrashAnalysisReady(version, text) {
-            if (!page || String(version) !== page.serverId)
-                return
-            page.analyzing = false
-            page.resultTitle = page.t("crash_analyze_success")
-            page.resultText = String(text)
-            page.resultVisible = true
-        }
-
-        function onCrashAnalysisFailed(version, error) {
-            if (page && String(version) === page.serverId)
-                page.analyzing = false
         }
 
         function onSelectionChanged() {
@@ -311,8 +249,6 @@ FmPage {
             if (!page || String(route) !== "servers/detail/console")
                 return
             page.refreshInfo()
-            if (page.exitDialogVisible)
-                page.refreshExitTitle()
         }
     }
 
@@ -321,11 +257,8 @@ FmPage {
         target: (typeof Tr !== "undefined" && Tr) ? Tr : null
 
         function onLanguageChanged() {
-            if (!page)
-                return
-            page.refreshInfo()
-            if (page.resultVisible)
-                page.resultTitle = page.t("crash_analyze_success")
+            if (page)
+                page.refreshInfo()
         }
     }
 
@@ -530,170 +463,6 @@ FmPage {
         onAccepted: {
             if (page && page.live && page.serverId.length > 0)
                 Servers.exportConsole(page.serverId, page.localPath(selectedFile))
-        }
-    }
-
-    // ── 退出质量确认（旧 L-34 的原生 Tk 自绘对话框；这里用自研件）──
-    Item {
-        objectName: "serverExitOverlay"
-        anchors.fill: parent
-        visible: page && page.exitDialogVisible
-        z: 50
-
-        Rectangle {
-            anchors.fill: parent
-            color: Theme?.bgDark ?? "transparent"
-            opacity: 0.55
-        }
-
-        MouseArea { anchors.fill: parent }
-
-        FmCard {
-            objectName: "serverExitDialog"
-            anchors.centerIn: parent
-            width: Math.min(480, Math.max(320, parent.width - 2 * (Theme?.spacingXl ?? 24)))
-            padding: Theme?.spacingLg ?? 16
-
-            Text {
-                objectName: "serverExitTitle"
-                Layout.fillWidth: true
-                text: page ? page.exitTitle : ""
-                color: Theme?.textPrimary ?? "transparent"
-                font.pixelSize: Theme?.fontSizeTitle ?? 18
-                font.bold: true
-                wrapMode: Text.WordWrap
-            }
-
-            Text {
-                objectName: "serverExitMessage"
-                Layout.fillWidth: true
-                text: Tr?.map["server_exit_question_msg"] ?? "server_exit_question_msg"
-                color: Theme?.textSecondary ?? "transparent"
-                font.pixelSize: Theme?.fontSizeBase ?? 12
-                wrapMode: Text.WordWrap
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme?.spacingSm ?? 8
-
-                Item { Layout.fillWidth: true }
-
-                FmButton {
-                    objectName: "serverExitAnalyzeButton"
-                    primary: true
-                    text: Tr?.map["server_exit_no_analyze"] ?? "server_exit_no_analyze"
-                    onClicked: {
-                        if (page)
-                            page.startAnalyze()
-                    }
-                }
-
-                FmButton {
-                    objectName: "serverExitYesButton"
-                    primary: false
-                    text: Tr?.map["server_exit_yes"] ?? "server_exit_yes"
-                    onClicked: {
-                        if (page)
-                            page.exitDialogVisible = false
-                    }
-                }
-            }
-        }
-    }
-
-    // ── AI 分析中 ──
-    Item {
-        objectName: "serverCrashAnalyzingOverlay"
-        anchors.fill: parent
-        visible: page && page.analyzing
-        z: 60
-
-        Rectangle {
-            anchors.fill: parent
-            color: Theme?.bgDark ?? "transparent"
-            opacity: 0.55
-        }
-
-        MouseArea { anchors.fill: parent }
-
-        FmCard {
-            objectName: "serverCrashAnalyzingCard"
-            anchors.centerIn: parent
-            width: Math.min(420, Math.max(300, parent.width - 2 * (Theme?.spacingXl ?? 24)))
-            height: 180
-
-            FmLoadingState {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                title: Tr?.map["crash_analyzing"] ?? "crash_analyzing"
-            }
-        }
-    }
-
-    // ── AI 分析结果（长文可滚动）──
-    Item {
-        objectName: "serverCrashResultOverlay"
-        anchors.fill: parent
-        visible: page && page.resultVisible
-        z: 70
-
-        Rectangle {
-            anchors.fill: parent
-            color: Theme?.bgDark ?? "transparent"
-            opacity: 0.55
-        }
-
-        MouseArea { anchors.fill: parent }
-
-        FmCard {
-            objectName: "serverCrashResultDialog"
-            anchors.centerIn: parent
-            width: Math.min(720, Math.max(360, parent.width - 2 * (Theme?.spacingXl ?? 24)))
-            height: Math.min(560, Math.max(280, parent.height - 2 * (Theme?.spacingXl ?? 24)))
-
-            Text {
-                objectName: "serverCrashResultTitle"
-                Layout.fillWidth: true
-                text: page ? page.resultTitle : ""
-                color: Theme?.textPrimary ?? "transparent"
-                font.pixelSize: Theme?.fontSizeTitle ?? 18
-                font.bold: true
-            }
-
-            FmScrollView {
-                id: resultScroll
-                objectName: "serverCrashResultScroll"
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-
-                Text {
-                    objectName: "serverCrashResultText"
-                    width: Math.max(0, resultScroll.availableWidth)
-                    text: page ? page.resultText : ""
-                    color: Theme?.textPrimary ?? "transparent"
-                    font.pixelSize: Theme?.fontSizeBase ?? 12
-                    wrapMode: Text.WordWrap
-                }
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-
-                Item { Layout.fillWidth: true }
-
-                FmButton {
-                    objectName: "serverCrashResultClose"
-                    primary: true
-                    text: Tr?.map["confirm"] ?? "confirm"
-                    onClicked: {
-                        if (page) {
-                            page.resultVisible = false
-                            page.resultText = ""
-                        }
-                    }
-                }
-            }
         }
     }
 }
