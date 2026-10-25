@@ -63,7 +63,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `DialogHost` | 对话框宿主：接 Dialogs 桥的请求、排队、按 kind 选组件、回填答案（`App.qml` 里挂一层） | `queue` `current` `markReady()` `markClosing()` |
 | `ToastHost` | 右下角 Toast 队列（`App.qml` 里挂一层；业务侧用 Dialogs.notify() 触发） | `itemHeight` `itemWidth` `itemGap` `itemMargin` `fadeInDuration` |
 | `MessageDialog` | info / warning / error 三合一提示框 | `request` `level` `accept()` `cancel()` |
-| `ConfirmDialog` | 确认框（确定 -> true，取消 -> false） | `request` `defaultIsConfirm` `accept()` `cancel()` `activateDefault()` |
+| `ConfirmDialog` | 确认框（确定 -> true，取消 -> false）；页面内使用时可选遮罩与单按钮 | `request` `defaultIsConfirm` `cancelVisible` `modalScrim` `accept()` `cancel()` `activateDefault()` |
 | `TextInputDialog` | 单行文本输入框（`ask_text`） | `request` `fieldText` `accept()` `cancel()` |
 | `ChoiceDialog` | 选项框（选项即按钮，点了立即作答） | `request` `options` `primaryIndex` `select(value)` |
 | `ProgressDialog` | 进度面板（确定进度 / 不确定转圈 / 可取消） | `request` `report` `cancellable` `requestCancel()` |

@@ -166,6 +166,8 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "app.bridges.modpack_bridge",
     # 阶段 3 任务 3.9 的服务器桥
     "app.bridges.servers_bridge",
+    # 阶段 3 任务 3.11 的服务器配置编辑器桥
+    "app.bridges.server_config_bridge",
     # app.bootstrap 的服务表（`_make_factory` 按 "模块:类名" 导入）
     "services.about_service",
     "services.account_service",

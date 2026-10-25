@@ -166,11 +166,21 @@ FluWindow {
         //   * 「取消」= 留下，`confirmLeave(false)` 取消那次导航。
         // 顺序不能反：先压栈再丢弃的话，用户会看到设置页一闪而过。
         function onLeaveBlocked(domain, routeId) {
-            var count = (typeof Settings !== "undefined" && Settings) ? Settings.changeCount : 0
-            var title = Tr?.map["settings_title"] ?? "settings_title"
+            var source = (typeof Nav !== "undefined" && Nav)
+                    ? String(Nav.pendingLeaveSource || "") : ""
+            var isConfig = source === "servers/detail/config"
+            var count = 0
+            if (isConfig && typeof ServerConfig !== "undefined" && ServerConfig)
+                count = ServerConfig.dirtyCount
+            else if (typeof Settings !== "undefined" && Settings)
+                count = Settings.changeCount
+            var title = isConfig
+                    ? (Tr?.map["server_config_close_confirm_title"] ?? "server_config_close_confirm_title")
+                    : (Tr?.map["settings_title"] ?? "settings_title")
+            var messageKey = isConfig ? "server_config_close_confirm_msg" : "settings_unsaved_confirm"
             var message = (typeof Tr !== "undefined" && Tr)
-                    ? Tr.tf("settings_unsaved_confirm", {"count": count})
-                    : "settings_unsaved_confirm"
+                    ? Tr.tf(messageKey, {"count": count})
+                    : messageKey
             dialogHost.showPrompt({"title": title, "message": message, "default": false})
         }
     }
@@ -180,13 +190,19 @@ FluWindow {
         target: dialogHost
 
         function onPromptAnswered(ok) {
+            var source = (typeof Nav !== "undefined" && Nav)
+                    ? String(Nav.pendingLeaveSource || "") : ""
             if (!ok) {
                 if (Nav)
                     Nav.confirmLeave(false)
                 return
             }
-            if (typeof Settings !== "undefined" && Settings)
+            if (source === "servers/detail/config") {
+                if (typeof ServerConfig !== "undefined" && ServerConfig)
+                    ServerConfig.discardDraft()
+            } else if (typeof Settings !== "undefined" && Settings) {
                 Settings.discardDraft()
+            }
             if (Nav)
                 Nav.confirmLeave(true)
         }

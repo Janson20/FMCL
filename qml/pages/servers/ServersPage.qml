@@ -289,6 +289,16 @@ FmPage {
                     }
 
                     FmToolButton {
+                        objectName: "serverRowConfigButton"
+                        iconName: "slider"
+                        iconSize: (Theme?.iconSize ?? 20) - 4
+                        onClicked: {
+                            if (page.live && typeof ServerConfig !== "undefined" && ServerConfig)
+                                ServerConfig.open(modelData.id)
+                        }
+                    }
+
+                    FmToolButton {
                         objectName: "serverRowFolderButton"
                         iconName: "folder-open"
                         iconSize: (Theme?.iconSize ?? 20) - 4

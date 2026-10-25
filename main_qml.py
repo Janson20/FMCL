@@ -91,6 +91,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Modpack", "app.bridges.modpack_bridge", "ModpackBridge"),
     # 服务器（阶段 3 任务 3.9）：列表 / 生命周期 / 安装进度 / 每服内存。
     ("Servers", "app.bridges.servers_bridge", "ServersBridge"),
+    # 服务器配置编辑器（阶段 3 任务 3.11）：草稿 / 分类搜索 / 校验 / 保存 / 原文。
+    ("ServerConfig", "app.bridges.server_config_bridge", "ServerConfigBridge"),
 )
 
 QML_MODULE_URI = "FMCL"

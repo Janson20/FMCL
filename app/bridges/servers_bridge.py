@@ -611,6 +611,15 @@ class ServersBridge(QObject):
             self._session.set_memory(str(memory or ""))
 
     @Slot(str)
+    def refreshConfig(self, version: str) -> None:  # noqa: N802
+        """配置编辑器保存后刷新内存缓存 / 端口快照（不重新扫描整个列表）。"""
+        if self._session is None or self._closing:
+            return
+        self._session.refresh_memory(str(version or ""))
+        self.listChanged.emit()
+        self.selectionChanged.emit()
+
+    @Slot(str)
     def openDir(self, version: str) -> None:  # noqa: N802
         if self._session is None or self._closing:
             return

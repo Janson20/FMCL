@@ -599,6 +599,15 @@ class ServerSession:
             self._memory_cache[target] = value
         return value
 
+    def refresh_memory(self, version: str = "") -> str:
+        """外部改了 .fmcl_server.json 后让缓存失效并重读（3.11 配置编辑器保存后调用）。"""
+        target = str(version or self.selected or "").strip()
+        if not target:
+            return DEFAULT_MEMORY
+        with self._lock:
+            self._memory_cache.pop(target, None)
+        return self.memory_for(target)
+
     def set_memory(self, memory: str, version: str = "") -> bool:
         """写入某台服务器的独立内存设置，并更新界面快照。"""
         target = str(version or self.selected or "").strip()

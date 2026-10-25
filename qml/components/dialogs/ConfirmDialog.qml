@@ -24,6 +24,11 @@ Item {
     objectName: "confirmDialog"
 
     property var request: ({})
+    //: 是否显示「取消」（默认 true）。阶段 3.11 的校验错误提示只需要一个「确定」。
+    property bool cancelVisible: true
+    //: 是否铺一层遮罩并吞掉卡片外的点击（默认 false：对话框宿主自己已有遮罩）。
+    //: 阶段 3.11 的页面内确认框打开它，避免底部动作条仍可点。
+    property bool modalScrim: false
 
     readonly property bool defaultIsConfirm: !!(request && request.default === true)
 
@@ -65,6 +70,20 @@ Item {
     Keys.onEscapePressed: dialog.cancel()
     Keys.onReturnPressed: dialog.activateDefault()
     Keys.onEnterPressed: dialog.activateDefault()
+
+    Rectangle {
+        objectName: "dialogScrim"
+        anchors.fill: parent
+        visible: dialog.modalScrim
+        color: Theme?.scrim ?? "transparent"
+    }
+
+    MouseArea {
+        objectName: "dialogScrimBlocker"
+        anchors.fill: parent
+        enabled: dialog.modalScrim
+        acceptedButtons: Qt.AllButtons
+    }
 
     Rectangle {
         id: card
@@ -162,8 +181,9 @@ Item {
                     FmButton {
                         id: cancelButton
                         objectName: "cancelButton"
+                        visible: dialog.cancelVisible
                         text: Tr?.map["cancel"] ?? "cancel"
-                        focus: !dialog.defaultIsConfirm
+                        focus: dialog.cancelVisible && !dialog.defaultIsConfirm
                         onClicked: dialog.cancel()
                     }
                 }

@@ -165,7 +165,8 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("servers/detail", "server_detail_title", "info", "servers", "pages/servers/ServerDetailPage.qml", ""),
     ("servers/detail/console", "server_log_title", "monitor", "servers/detail",
      "pages/servers/ServerConsolePage.qml", ""),
-    ("servers/detail/config", "server_config_panel_btn", "slider", "servers/detail", "pages/servers/ServersPage.qml", ""),
+    ("servers/detail/config", "server_config_panel_btn", "slider", "servers/detail",
+     "pages/servers/ServerConfigPage.qml", ""),
     ("servers/detail/mods", "server_mods_title", "mods", "servers/detail", "pages/servers/ServersPage.qml", ""),
     ("servers/detail/packs", "server_packs_title", "resourcepack", "servers/detail", "pages/servers/ServersPage.qml", ""),
     ("servers/install", "server_install_title", "download", "servers", "pages/servers/ServerInstallPage.qml", ""),
@@ -386,9 +387,17 @@ class NavBridge(QObject):
         #: 离开守卫：域 id → 该域有未保存改动（阶段 3 任务 3.4）。
         #: **默认空**：没有页面登记守卫时，导航行为与 3.3 之前**逐字一致**。
         self._leave_guards: Dict[str, bool] = {}
-        #: 被守卫挡下的那次导航（等 `confirmLeave` 裁决）
+        #: 页面级离开守卫：路由 id → 该页有未保存改动（阶段 3 任务 3.11）。
+        #:
+        #: 与域守卫的区别：域守卫只拦**跨域**导航，因为设置页 8 条路由共用一份草稿；
+        #: 服务器配置页只有一条路由，但它退到同域的 servers/detail 也必须拦下。
+        #: 两个表互相独立，没登记页面守卫时行为与 3.10 逐字一致。
+        self._route_guards: Dict[str, bool] = {}
+        #: 被守卫挡下的那次导航（等 confirmLeave 裁决）
         self._pending_push: Optional[Tuple[str, Dict[str, Any]]] = None
         self._pending_domain = ""
+        #: 挡下导航时**所在的**路由（阶段 3.11：壳层据此选择对应的提示文案）
+        self._pending_source = ""
         #: 正在执行"用户已确认"的那次压栈 —— 期间不再问守卫（见 `confirmLeave`）
         self._bypass_guard = False
 
@@ -558,10 +567,40 @@ class NavBridge(QObject):
         # 于是那次导航在到达 `confirmLeave` 之前就被清掉了（探针实测：
         # `invoke_accept=True`、提示框收起了、路由却停在原地）。
 
+    @Slot(str, bool)
+    def setRouteLeaveGuard(self, routeId: str, dirty: bool) -> None:  # noqa: N802
+        """登记/撤销某个**页面**的未保存标记（阶段 3.11）。
+
+        与 setLeaveGuard 的区别见 _route_guards 的说明：页面守卫对**任何**
+        离开当前路由的导航生效，包括退到同域的上一个页面。没有页面登记时，
+        行为与 3.10 完全一致。
+        """
+        rid = str(routeId or "").strip()
+        if not rid:
+            return
+        if dirty:
+            self._route_guards[rid] = True
+        else:
+            self._route_guards.pop(rid, None)
+
     @Slot(result="QVariantList")
     def guardedDomains(self) -> List[str]:  # noqa: N802
         """当前处于守卫状态的域（自检与测试用）。"""
         return sorted(self._leave_guards)
+
+    @Slot(result="QVariantList")
+    def guardedRoutes(self) -> List[str]:  # noqa: N802
+        """当前处于守卫状态的页面路由（自检与测试用）。"""
+        return sorted(self._route_guards)
+
+    @Property(str, notify=routeChanged)
+    def pendingLeaveSource(self) -> str:  # noqa: N802
+        """被守卫挡下时所在的页面路由（没有待裁决请求则为空串）。
+
+        壳层用它区分提示文案：settings 域用设置页的提示，服务器配置页用
+        server_config_close_confirm_*。返回值是**直接读**的，不依赖信号刷新。
+        """
+        return self._pending_source
 
     @Property(str, notify=routeChanged)
     def pendingLeaveRoute(self) -> str:  # noqa: N802
@@ -579,6 +618,7 @@ class NavBridge(QObject):
         domain = self._pending_domain
         self._pending_push = None
         self._pending_domain = ""
+        self._pending_source = ""
         if pending is None:
             logger.debug("没有待裁决的离开请求，confirmLeave 无事可做")
             return False
@@ -596,10 +636,19 @@ class NavBridge(QObject):
             self._bypass_guard = False
 
     def _guard_blocks(self, target_route_id: str) -> bool:
-        """这次导航该不该被守卫挡下。"""
-        if self._bypass_guard or not self._leave_guards:
+        """这次导航该不该被守卫挡下。
+
+        页面守卫优先：它拦下**任何**离开当前路由的导航（包括同域返回）；域守卫
+        只在跨域时拦。两者都默认不登记，没页面用时与旧行为逐字一致。
+        """
+        if self._bypass_guard:
             return False
-        current = _domain_of(self.currentRoute) if self._stack else ""
+        current_route = self.currentRoute if self._stack else ""
+        if current_route and self._route_guards.get(current_route):
+            return True
+        if not self._leave_guards:
+            return False
+        current = _domain_of(current_route)
         if not current or not self._leave_guards.get(current):
             return False
         target = _domain_of(target_route_id)
@@ -619,6 +668,7 @@ class NavBridge(QObject):
             return False
         self._pending_push = (route_id, params)
         self._pending_domain = domain
+        self._pending_source = self.currentRoute
         logger.info("离开 %s 域被守卫挡下：目标 %s 有未保存改动", domain, route_id)
         self.leaveBlocked.emit(domain, route_id)
         return False
