@@ -41,11 +41,11 @@
       "iconNearTextPrimary": 48
     },
     "online": {
-      "cardBgPct": 58.97,
-      "navBgPct": 17.42,
-      "windowBgPct": 19.15,
-      "meanLuma": 0.0215,
-      "distinct": 291,
+      "cardBgPct": 32.74,
+      "navBgPct": 18.64,
+      "windowBgPct": 36.88,
+      "meanLuma": 0.0228,
+      "distinct": 450,
       "iconOpaque": 324,
       "iconNearTextPrimary": 26
     },

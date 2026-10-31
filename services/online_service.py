@@ -808,6 +808,11 @@ class EasyTierManager:
     def base_dir(self) -> Path:
         return self._base_dir
 
+    @property
+    def scaffolding_server(self) -> Optional[ScaffoldingServer]:
+        """当前主机模式的陶瓦信令服务端；没有启动时返回 None（只读）。"""
+        return self._scf_server
+
     def precheck(self) -> int:
         if not self.is_installed:
             logger.error("EasyTier 不存在或不完整")

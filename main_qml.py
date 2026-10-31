@@ -97,6 +97,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("ServerMods", "app.bridges.server_mods_bridge", "ServerModsBridge"),
     # 服务端模组在线浏览（阶段 3 任务 3.12）：Modrinth 单源搜索 / AI / 安装到服务器。
     ("ServerModBrowser", "app.bridges.server_mod_browser_bridge", "ServerModBrowserBridge"),
+    # 联机（阶段 3 任务 3.13）：EasyTier 环境 / 创建与加入大厅 / 局域网 / 日志。
+    ("Online", "app.bridges.online_bridge", "OnlineBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -789,6 +791,16 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("停止服务器观察者失败: %s", e)
+        # 联机桥：停 EasyTier / 转发 / 广播 / 成员轮询（阶段 3.13）。旧 Tk 版退出时
+        # 没有这一步，EasyTier 可能残留；QML 侧按用户裁决收口。
+        online = bridges.get("Online")
+        if online is not None:
+            detach = getattr(online, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("停止联机会话失败: %s", e)
         if overlay is not None:
             shutdown = getattr(overlay, "shutdown", None)
             if callable(shutdown):
