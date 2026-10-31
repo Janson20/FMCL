@@ -99,6 +99,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("ServerModBrowser", "app.bridges.server_mod_browser_bridge", "ServerModBrowserBridge"),
     # 联机（阶段 3 任务 3.13）：EasyTier 环境 / 创建与加入大厅 / 局域网 / 日志。
     ("Online", "app.bridges.online_bridge", "OnlineBridge"),
+    # 存档备份（阶段 3 任务 3.14）：世界扫描 / 备份 / 恢复 / 校验 / 导出 / 设置。
+    ("Backups", "app.bridges.backup_bridge", "BackupBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -801,6 +803,15 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("停止联机会话失败: %s", e)
+        # 存档备份桥：取消在跑的扫描/备份/恢复任务（阶段 3.14）。
+        backups = bridges.get("Backups")
+        if backups is not None:
+            detach = getattr(backups, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("取消备份后台任务失败: %s", e)
         if overlay is not None:
             shutdown = getattr(overlay, "shutdown", None)
             if callable(shutdown):

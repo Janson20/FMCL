@@ -7,6 +7,7 @@
 import json
 import os
 import shutil
+import sys
 import tempfile
 import time
 import zipfile
@@ -118,6 +119,9 @@ class BackupManager:
         self.config = config
         self._backup_root: Optional[Path] = None
         self._indices: Dict[str, BackupIndex] = {}
+        #: 最近一次恢复实际采用的旧存档处理方式。`trash` 在系统回收站不可用时会
+        #: 降级成 `rename`，桥据此给用户一条明确提示，而不是静默换语义。
+        self.last_restore_mode: str = ""
 
     # ─── 路径管理 ───────────────────────────────────────────
 
@@ -182,6 +186,10 @@ class BackupManager:
                         return isolated_save
 
         return None
+
+    def list_worlds(self) -> List[Dict[str, Any]]:
+        """扫描所有存档（公开入口；旧界面直接调过私有方法）。"""
+        return self._find_all_world_dirs()
 
     def _find_all_world_dirs(self) -> List[Dict[str, Any]]:
         """扫描所有可用的存档目录"""
@@ -267,6 +275,32 @@ class BackupManager:
         except Exception as e:
             logger.warning(f"检查磁盘空间失败: {e}")
             return True, ""
+
+    # ─── 恢复策略 ───────────────────────────────────────────
+
+    def _restore_mode(self) -> str:
+        """读取并归一化恢复策略；坏值按旧的默认值 ``rename`` 处理。"""
+        mode = str(getattr(self.config, "backup_restore_mode", "rename") or "rename").strip().lower()
+        return mode if mode in {"rename", "overwrite", "trash"} else "rename"
+
+    def _move_world_aside(self, target_dir: Path) -> Path:
+        """把当前存档移到一个同级的 ``*_bak_时间戳`` 目录，返回该目录。"""
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        bak_dir = target_dir.parent / f"{target_dir.name}_bak_{ts}"
+        if bak_dir.exists():
+            bak_dir = target_dir.parent / f"{target_dir.name}_bak_{ts}_{uuid4().hex[:6]}"
+        shutil.move(str(target_dir), str(bak_dir))
+        return bak_dir
+
+    @staticmethod
+    def _remove_path(path: Path) -> None:
+        """删除文件或目录（恢复回滚用；路径不存在时什么也不做）。"""
+        if not path.exists():
+            return
+        if path.is_dir():
+            shutil.rmtree(str(path))
+        else:
+            path.unlink()
 
     # ─── 备份操作 ───────────────────────────────────────────
 
@@ -410,7 +444,17 @@ class BackupManager:
         self, entry_id: str, world_name: str, progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> Tuple[bool, str]:
         """
-        恢复存档备份
+        恢复存档备份。
+
+        config.backup_restore_mode 现在真正生效：
+
+        * rename    —— 当前存档改名为 *_bak_时间戳（旧行为，默认）；
+        * overwrite —— 恢复成功后删除临时保留的旧存档；
+        * trash     —— 恢复成功后把旧存档移入系统回收站；系统能力不可用时
+          降级为 rename，并记在 last_restore_mode 里供界面提示。
+
+        无论哪种模式，解压失败都会把旧存档原样放回；overwrite/trash
+        也先移开、成功后才处置，不会在解压前就把旧存档删掉。
 
         Args:
             entry_id: 备份记录 ID
@@ -444,6 +488,9 @@ class BackupManager:
         except zipfile.BadZipFile:
             return False, "备份文件不是有效的 ZIP 文件"
 
+        mode = self._restore_mode()
+        self.last_restore_mode = mode
+
         # 确定目标存档目录
         # 如果备份来自版本隔离目录（game_version 字段非空且含模组加载器关键字），
         # 则恢复到对应的版本隔离目录；否则恢复到全局 saves/
@@ -454,19 +501,25 @@ class BackupManager:
         saves_dir.mkdir(parents=True, exist_ok=True)
         target_dir = saves_dir / world_name
 
-        # 保护当前存档
+        # 保护当前存档：三种模式都先移开，成功后才按模式处置。
+        bak_dir: Optional[Path] = None
         if target_dir.exists():
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            bak_name = f"{world_name}_bak_{ts}"
-            bak_dir = target_dir.parent / bak_name
             try:
-                shutil.move(str(target_dir), str(bak_dir))
-                logger.info(f"当前存档已重命名: {bak_name}")
+                bak_dir = self._move_world_aside(target_dir)
+                logger.info(f"当前存档已移开: {bak_dir.name}")
             except Exception as e:
                 return False, f"无法保护当前存档: {e}"
 
         if progress_callback:
             progress_callback(0, total_files, "正在恢复存档...")
+
+        def _rollback() -> None:
+            try:
+                self._remove_path(target_dir)
+                if bak_dir is not None and bak_dir.exists():
+                    shutil.move(str(bak_dir), str(target_dir))
+            except Exception as rollback_error:
+                logger.error(f"恢复回滚失败: {rollback_error}")
 
         try:
             # 解压备份
@@ -489,31 +542,36 @@ class BackupManager:
 
             # 验证恢复结果
             if not (target_dir / "level.dat").exists():
-                # 回滚
-                if target_dir.exists():
-                    shutil.rmtree(str(target_dir))
-                if bak_dir.exists():
-                    shutil.move(str(bak_dir), str(target_dir))
+                _rollback()
                 return False, "恢复后未找到 level.dat，已回滚"
 
             if progress_callback:
                 progress_callback(total_files, total_files, "恢复完成")
 
-            logger.info(f"存档 {world_name} 已从备份恢复")
+            # 成功后才处置旧存档；处置失败不影响“已恢复”这个事实，但也绝不
+            # 把旧存档悄悄删掉。
+            suffix = ""
+            if bak_dir is not None:
+                if mode == "overwrite":
+                    try:
+                        shutil.rmtree(str(bak_dir))
+                    except Exception as e:
+                        logger.warning(f"删除旧存档失败，保留 {bak_dir.name}: {e}")
+                        suffix = f"（旧存档未能删除，已保留为 {bak_dir.name}）"
+                elif mode == "trash":
+                    if not _send_to_trash(bak_dir):
+                        self.last_restore_mode = "rename"
+                        logger.warning(f"移入回收站失败，保留旧存档: {bak_dir.name}")
+                        suffix = f"（旧存档未能移到回收站，已重命名为 {bak_dir.name}）"
+
+            logger.info(f"存档 {world_name} 已从备份恢复（mode={mode}）")
             slog.info("backup_restored", world_name=world_name, backup_entry=entry_id, size_bytes=entry.size_bytes)
-            return True, f"恢复成功: {world_name}"
+            return True, f"恢复成功: {world_name}{suffix}"
 
         except Exception as e:
             logger.error(f"恢复失败: {e}")
             slog.error("backup_restore_failed", world_name=world_name, reason=str(e)[:200])
-            # 回滚
-            try:
-                if target_dir.exists():
-                    shutil.rmtree(str(target_dir))
-                if bak_dir.exists():
-                    shutil.move(str(bak_dir), str(target_dir))
-            except Exception:
-                pass
+            _rollback()
             return False, f"恢复失败: {e}"
 
     def delete_backup(self, entry_id: str, world_name: str) -> Tuple[bool, str]:
@@ -624,6 +682,44 @@ class BackupManager:
             return True, f"已导出到: {dest_path}"
         except Exception as e:
             return False, f"导出失败: {e}"
+
+
+def _send_to_trash(path: Path) -> bool:
+    """把目录移入系统回收站；平台能力不可用时返回 False，由调用方降级。"""
+    import subprocess
+
+    target = str(path.resolve())
+    try:
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+
+            class _SHFILEOPSTRUCTW(ctypes.Structure):
+                _fields_ = [
+                    ("hwnd", wintypes.HWND),
+                    ("wFunc", wintypes.UINT),
+                    ("pFrom", wintypes.LPCWSTR),
+                    ("pTo", wintypes.LPCWSTR),
+                    ("fFlags", ctypes.c_ushort),
+                    ("fAnyOperationsAborted", wintypes.BOOL),
+                    ("hNameMappings", ctypes.c_void_p),
+                    ("lpszProgressTitle", wintypes.LPCWSTR),
+                ]
+
+            op = _SHFILEOPSTRUCTW()
+            op.wFunc = 3  # FO_DELETE
+            op.pFrom = target + "\0\0"
+            op.fFlags = 0x40 | 0x10 | 0x4 | 0x400  # ALLOWUNDO | NOCONFIRMATION | SILENT | NOERRORUI
+            result = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+            return result == 0 and not bool(op.fAnyOperationsAborted)
+        if sys.platform == "darwin":
+            import json
+
+            script = 'tell application "Finder" to delete POSIX file ' + json.dumps(target)
+            return subprocess.run(["osascript", "-e", script], capture_output=True, timeout=30).returncode == 0
+        return subprocess.run(["gio", "trash", target], capture_output=True, timeout=30).returncode == 0
+    except Exception:
+        return False
 
 
 def _sanitize_filename(name: str) -> str:

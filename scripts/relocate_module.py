@@ -497,14 +497,16 @@ REGISTERED_LINE_DELTAS: Dict[str, Tuple[int, str]] = {
         "（那里按**非空行**算，所以登记的是 +34）。",
     ),
     "services/backup_manager.py": (
-        11,
+        107,
         "D-112（阶段 1 第 11 轮）：同一秒内的两次备份会因文件名只有秒级精度（"
         "{存档名}_{YYYYmmdd_HHMMSS}.zip）而互相覆盖 —— 索引留下多条指向同一文件的记录，"
         "于是删一条会连带删掉另一条的备份文件、自动清理会删掉仅存的那个文件。"
         "修法是撞名时追加 6 位短后缀（一次备份 = 一个文件）+ 说明注释："
         "总行数 +11（非空行 +10，多出的 1 行是注释块前后的空行）。"
+        "3.14（2026-10-31）：补公开 list_worlds()、恢复策略 rename/overwrite/trash 与"
+        "失败回滚/回收站降级：总行再 +96（非空行 +79）。"
         "同一条偏差也登记在 tests/test_services_relocation.py 的 REGISTERED_LINE_DELTAS 里"
-        "（那里按**非空行**算，所以登记的是 +10）。",
+        "（那里按**非空行**算，所以登记的是 +89）。",
     ),
     "services/agent/engine.py": (
         1,

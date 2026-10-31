@@ -476,6 +476,17 @@ FluWindow {
         }
     }
 
+    // 存档备份（3.14）：Toast **只在这里挂一次**。备份页在主从 / 设置两条路由上
+    // 会同时存在两个页面实例，若各页都接 `noticeRequested`，一次保存/备份会弹两条。
+    Connections {
+        target: (typeof Backups !== "undefined" && Backups) ? Backups : null
+
+        function onNoticeRequested(message, level) {
+            if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.available)
+                Dialogs.notify({"level": String(level), "message": String(message), "icon": "backup"});
+        }
+    }
+
     // 版本页桥（3.2）只发状态条文案：游戏状态、崩溃提示、最小化仍然由**首页桥**发
     // （它是常驻的那个，见 `app/bridges/version_bridge.py` 模块文档第 1 条）——
     // 这里再挂一次 `onCrashDetected` 就会出现两个 Toast。

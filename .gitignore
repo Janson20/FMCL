@@ -46,7 +46,7 @@ htmlcov/
 # Minecraft Files
 .minecraft/
 config/
-backups/
+/backups/
 plugins/
 ModTranslations/
 .physics_mod_cache/

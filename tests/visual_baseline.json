@@ -50,11 +50,11 @@
       "iconNearTextPrimary": 26
     },
     "backups": {
-      "cardBgPct": 61.28,
-      "navBgPct": 17.38,
-      "windowBgPct": 17.33,
-      "meanLuma": 0.0215,
-      "distinct": 299,
+      "cardBgPct": 61.21,
+      "navBgPct": 16.86,
+      "windowBgPct": 16.59,
+      "meanLuma": 0.0224,
+      "distinct": 269,
       "iconOpaque": 324,
       "iconNearTextPrimary": 42
     },
