@@ -508,6 +508,21 @@ FluWindow {
         }
     }
 
+    // 音乐（3.16）：Toast / 状态条同样只在壳层挂一次；页面切本地/队列不重复。
+    Connections {
+        target: (typeof Music !== "undefined" && Music) ? Music : null
+
+        function onNoticeRequested(message, level) {
+            if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.available)
+                Dialogs.notify({"level": String(level), "message": String(message), "icon": "music"});
+        }
+
+        function onStatusMessage(text, level) {
+            if (typeof Shell !== "undefined" && Shell)
+                Shell.setStatus(String(text), String(level));
+        }
+    }
+
     // 版本页桥（3.2）只发状态条文案：游戏状态、崩溃提示、最小化仍然由**首页桥**发
     // （它是常驻的那个，见 `app/bridges/version_bridge.py` 模块文档第 1 条）——
     // 这里再挂一次 `onCrashDetected` 就会出现两个 Toast。

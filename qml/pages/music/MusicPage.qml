@@ -1,22 +1,194 @@
-// music 领域占位页（`02` 第 4.7 节 / 阶段 2 任务 2.12 的窗口骨架）。
+// MusicPage.qml —— 音乐（阶段 3.16：播放核心与本地音乐）。
 //
-// 这一版只剩下"把领域接到页面骨架上"：页头、三态（加载中 / 空数据 / 出错）与路由帧
-// 五件套都由 `qml/components/FmPage.qml` 提供。返工 C 组之前，这 12 个页面是同一份
-// 145 行代码各抄一遍（只有 `objectName` 与领域名不同），改一处要改十二处。
-//
-// 纪律：颜色只来自 `Theme.*`（闸门 R8）、图标走 FmIcon（闸门 R2）、文案走 `Tr.map[…]`
-// （闸门 R3/R4）、自研件一律用 `qml/components` 里的 `Fm*`（闸门 R9）。
-//
-// 阶段 3 的改法：把 `contentState` 绑到自己桥的状态上（例如 `VersionsPage.loadState`），
-// 把真实内容直接写在 `FmPage { }` 里（会自动进内容区，且只在 ready 时可见），
-// 然后删掉 `demoControlsVisible` 那两行（演示按钮是给验收的人手动切三态用的）。
+// 三条路由共用本页：music / music/playlist（队列）。3.17 起再接入在线搜索与歌单。
+// 后端是 fusion_music（从 tmp/FusionMusicPlayer 移植），本页只读 Music.player /
+// Music.library，不解析歌词、不拼播放规则。
 
+import QtQuick
+import QtQuick.Layouts
 import "../../components"
+import "../../components/music"
 
-FmPage {
+Item {
+    id: page
     objectName: "musicPage"
 
-    //: 阶段 2 手动切三态；阶段 3 换成页面自己桥的状态
-    contentState: "loading"
-    demoControlsVisible: true
+    // ── 路由帧（PageStack 只给声明过的属性赋值）────────────────
+    property string routeId: ""
+    property string routeTitleKey: ""
+    property string routeDescriptionKey: ""
+    property string routeIcon: ""
+    property var routeParams: ({})
+
+    readonly property bool live: (typeof Music !== "undefined" && Music) ? true : false
+    readonly property bool ready: page.live && Music.ready
+    readonly property var player: (page.live && Music.ready) ? Music.player : null
+    readonly property var lib: (page.live && Music.ready) ? Music.library : null
+    readonly property bool expanded: page.live && Music.expanded
+    readonly property bool failed: page.live && !page.ready && String(Music.errorText || "").length > 0
+    //: `FmPage` 同名的三态入口：强制切三态供冒烟/人工验收；正常时由后端状态派生。
+    property string contentState: "ready"
+    readonly property string effectiveState: page.contentState !== "ready"
+                                                 ? page.contentState
+                                                 : (!page.live ? "error"
+                                                    : (!page.ready ? (page.failed ? "error" : "loading")
+                                                       : "ready"))
+
+    property string viewMode: "local"
+
+    function routeMode() {
+        var id = String(page.routeId || "");
+        if (id.indexOf("music/playlist") >= 0)
+            return "queue";
+        return "local";
+    }
+
+    function syncMode() {
+        page.viewMode = page.routeMode();
+        if (page.live)
+            Music.setPage(page.viewMode);
+    }
+
+    function countText(count) {
+        return String(Tr?.map["music_song_count"] ?? "").replace("{count}", String(count));
+    }
+
+    onRouteIdChanged: Qt.callLater(page.syncMode)
+    Component.onCompleted: {
+        page.syncMode();
+        if (page.live)
+            Qt.callLater(Music.ensureReady);
+    }
+    onVisibleChanged: {
+        if (visible && page.live)
+            Qt.callLater(Music.ensureReady);
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: Theme?.spacingLg ?? 16
+        spacing: Theme?.spacingMd ?? 12
+
+        // ── 页头 ───────────────────────────────────────────
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme?.spacingSm ?? 8
+
+            FmIcon {
+                objectName: "pageIcon"
+                name: "music"
+                size: Theme?.fontSizeTitle ?? 18
+                color: Theme?.textPrimary ?? "transparent"
+                Layout.alignment: Qt.AlignTop
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 1
+
+                Text {
+                    objectName: "pageTitle"
+                    text: Tr?.map["tab_music"] ?? ""
+                    color: Theme?.textPrimary ?? "transparent"
+                    font.pixelSize: Theme?.fontSizeTitle ?? 18
+                    font.bold: true
+                }
+
+                Text {
+                    visible: text.length > 0
+                    text: page.ready
+                          ? (page.viewMode === "queue"
+                             ? (page.player ? page.countText(page.player.queueCount) : "")
+                             : (page.lib ? page.countText(page.lib.localModel.count) : ""))
+                          : ""
+                    color: Theme?.textTertiary ?? "transparent"
+                    font.pixelSize: Theme?.fontSizeSmall ?? 10
+                }
+            }
+
+            Item { Layout.fillWidth: true }
+
+            FmTabBar {
+                visible: page.ready
+                currentKey: page.viewMode
+                items: [
+                    {"key": "local", "labelKey": "music_tab_local"},
+                    {"key": "queue", "labelKey": "music_queue_title"}
+                ]
+                onTabRequested: function (key) {
+                    page.viewMode = String(key);
+                    if (page.live)
+                        Music.setPage(page.viewMode);
+                }
+            }
+        }
+
+        // ── 内容三态 / 两视图 ───────────────────────────────
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            StackLayout {
+                anchors.fill: parent
+                currentIndex: page.viewMode === "queue" ? 1 : 0
+                visible: page.effectiveState === "ready"
+
+                FmMusicLocalView {
+                    lib: page.lib
+                    player: page.player
+                }
+                Loader {
+                    active: page.viewMode === "queue"
+                    source: "../../components/music/FmMusicQueueView.qml"
+                    onLoaded: item.player = Qt.binding(function () { return page.player; })
+                }
+            }
+
+            FmLoadingState {
+                anchors.fill: parent
+                visible: page.effectiveState === "loading"
+                title: Tr?.map["plugin_state_loading"] ?? ""
+            }
+
+            FmEmptyState {
+                anchors.fill: parent
+                visible: page.effectiveState === "empty"
+                iconName: "folder-open"
+                title: Tr?.map["music_local_empty"] ?? ""
+                description: Tr?.map["music_local_empty_desc"] ?? ""
+            }
+
+            FmErrorState {
+                anchors.fill: parent
+                visible: page.effectiveState === "error"
+                title: Tr?.map["plugin_state_error"] ?? ""
+                description: page.live ? String(Music.errorText || "") : (Tr?.map["music_backend_failed"] ?? "")
+                retryText: page.live ? (Tr?.map["refresh"] ?? "") : ""
+                onRetried: {
+                    if (page.live)
+                        Music.ensureReady();
+                }
+            }
+        }
+
+        FmMusicPlayerBar {
+            Layout.fillWidth: true
+            player: page.player
+            expanded: page.expanded
+        }
+    }
+
+    Loader {
+        anchors.fill: parent
+        z: 20
+        active: page.effectiveState === "ready" && page.expanded
+        source: "../../components/music/FmMusicNowPlaying.qml"
+        onLoaded: {
+            item.player = Qt.binding(function () { return page.player; });
+            item.collapseRequested.connect(function () {
+                if (page.live)
+                    Music.setExpanded(false);
+            });
+        }
+    }
 }

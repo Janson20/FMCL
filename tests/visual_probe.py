@@ -41,6 +41,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -51,6 +52,9 @@ os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
 # `TypeError` / `Cannot find member data`（屏幕无可见损伤）。本探针也要切 5 个主题，
 # 所以和 `_smoke_driver.py` 用同一个规避（理由与复现方式写在那个文件里）。
 os.environ.setdefault("QML_DISABLE_DISK_CACHE", "1")
+# 音乐页首次进入会迁移旧 data/music.json；探针必须用临时目录，避免把开发机的
+# 真实歌单带进像素基线，也避免测试顺手写用户数据。
+os.environ.setdefault("FMCL_MUSIC_BASE_DIR", tempfile.mkdtemp(prefix="fmcl_visual_music_"))
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:

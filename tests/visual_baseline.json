@@ -59,11 +59,11 @@
       "iconNearTextPrimary": 42
     },
     "music": {
-      "cardBgPct": 61.28,
-      "navBgPct": 17.37,
-      "windowBgPct": 17.33,
-      "meanLuma": 0.0215,
-      "distinct": 297,
+      "cardBgPct": 52.55,
+      "navBgPct": 24.44,
+      "windowBgPct": 16.44,
+      "meanLuma": 0.0226,
+      "distinct": 462,
       "iconOpaque": 324,
       "iconNearTextPrimary": 31
     },

@@ -160,3 +160,17 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 
 > `FmTabBar` / `FmDropZone` 是阶段 3 任务 3.6 新增的两个通用件（登记见上表）；
 > `ResourceUpdateDialog` 是同一任务新增的第三个页内浮层（登记见 3.2 节）。
+
+## 六、音乐播放器组件（阶段 3.16）
+
+这五个件放在 `qml/components/music/`，只被音乐页组合使用；仍按通用件登记，
+页面才能通过 R5。它们不读服务、不解析歌词，数据一律由 ``Music.player`` /
+``Music.library`` 传入。
+
+| 组件 | 用途 | 关键属性 |
+|------|------|----------|
+| `FmMusicTrackRow` | 本地/队列共用的曲目行；不要用于卡片或详情 | `index` `uid` `name` `singer` `album` `durationText` `cover` `sourceText` `isLocal` `current` `activated()` |
+| `FmMusicLocalView` | 本地音乐：文件夹、扫描进度、曲库列表 | `lib` `player` |
+| `FmMusicQueueView` | 播放队列：跳转、上移、下移、移除 | `player` |
+| `FmMusicPlayerBar` | 页面底部播放栏：封面、传输、进度、音量、展开 | `player` `expanded` |
+| `FmMusicNowPlaying` | 展开播放页：大封面、歌词滚动、完整控制 | `player` `collapseRequested()` |

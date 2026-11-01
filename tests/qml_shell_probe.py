@@ -24,6 +24,10 @@ from typing import Any, Dict, List, Tuple
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
+# 骨架探针会点一遍 12 个一级导航（含音乐），必须把音乐数据根隔离掉：
+# 否则首次进入音乐页会把开发机的 data/music.json 迁移一遍，顺带把
+# “已迁移 … 个旧歌单”写进状态条，后面的“状态条能清空”判据就红了。
+os.environ.setdefault("FMCL_MUSIC_BASE_DIR", tempfile.mkdtemp(prefix="fmcl_shell_music_"))
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))

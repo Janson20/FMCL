@@ -53,6 +53,8 @@ os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
 # 是一个待裁决项，记在缺陷 D-150 与 `15-phase2-regression-report.md` 第七节。
 # 想复现：把这一行的 `setdefault` 改成显式 `os.environ["QML_DISK_CACHE"]`… 或直接删掉本行。
 os.environ.setdefault("QML_DISABLE_DISK_CACHE", "1")
+# 音乐页首次进入会迁移旧 data/music.json；冒烟用临时目录，避免写开发机的真实歌单。
+os.environ.setdefault("FMCL_MUSIC_BASE_DIR", tempfile.mkdtemp(prefix="fmcl_smoke_music_"))
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:

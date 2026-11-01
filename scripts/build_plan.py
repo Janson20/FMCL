@@ -177,6 +177,8 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "app.bridges.backup_bridge",
     # 阶段 3 任务 3.15 的基岩版桥
     "app.bridges.bedrock_bridge",
+    # 阶段 3 任务 3.16 的音乐桥
+    "app.bridges.music_bridge",
     # app.bootstrap 的服务表（`_make_factory` 按 "模块:类名" 导入）
     "services.about_service",
     "services.account_service",
@@ -218,6 +220,13 @@ TK_EXCLUDES: Tuple[str, ...] = (
 #: 其余与 tk 后端保持一致 —— 包括 `scipy`：今天两个产物都不含它（音效链的 EQ 依赖 scipy，
 #: D-151 已挂账"整条链在任何机器上都不跑"），修音效链时（阶段 3.18）两个产物一起评估，
 #: 现在偷偷只给 QML 产物加上会让两个产物行为不一致。
+#: QML 后端额外 hiddenimports：不在 main_qml 桥表 / 服务表里，但运行时才 import 的包。
+#: 单独一张表，避免污染 `QML_DYNAMIC_IMPORTS` 的"真源表"反向检查。
+QML_EXTRA_HIDDEN_IMPORTS: Tuple[str, ...] = (
+    "fusion_music.host",
+    "fusion_music.migration",
+)
+
 QML_EXCLUDES: Tuple[str, ...] = (
     "PyQt5",
     "PyQt6",
@@ -475,6 +484,8 @@ def plan(backend: Optional[str] = None, root: Optional[str] = None, platform: Op
         datas = datas + qml_datas(root_path)
 
     hidden = list(COMMON_HIDDEN_IMPORTS) + list(VOICE_HIDDEN_IMPORTS) + list(spec.hidden_imports)
+    if spec.with_qt:
+        hidden += list(QML_EXTRA_HIDDEN_IMPORTS)
     if resolved_platform == "win":
         hidden += ["pywintypes", "win32com", "win32com.client"]
     elif resolved_platform == "mac":
