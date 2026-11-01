@@ -101,6 +101,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Online", "app.bridges.online_bridge", "OnlineBridge"),
     # 存档备份（阶段 3 任务 3.14）：世界扫描 / 备份 / 恢复 / 校验 / 导出 / 设置。
     ("Backups", "app.bridges.backup_bridge", "BackupBridge"),
+    # 基岩版（阶段 3 任务 3.15）：已安装 / 下载 / 安装 / 启动 / 删除 / MSA 设备码。
+    ("Bedrock", "app.bridges.bedrock_bridge", "BedrockBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -651,7 +653,17 @@ def assemble(
                 servers_inject(engine)
             except Exception as e:  # noqa: BLE001
                 logger.warning("第二次注入引擎给 Servers 失败: %s", e)
-        logger.info("已把 Startup 注入给需要它的桥（Home / Versions / Servers）")
+        # 3.15 的基岩桥同样要接 Startup.chainFinished：桥在 register_bridges() 时绑定，
+        # 那一刻 launcher 还没进上下文；启动链跑完后必须再取一次，否则页面会一直停在
+        # "核心尚未就绪"（用户 2026-10-31 实测）。与 Servers 一样单列一段。
+        bedrock_obj = engine._fmcl_bridges.get("Bedrock")
+        bedrock_inject = getattr(bedrock_obj, "use_engine", None)
+        if callable(bedrock_inject):
+            try:
+                bedrock_inject(engine)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("第二次注入引擎给 Bedrock 失败: %s", e)
+        logger.info("已把 Startup 注入给需要它的桥（Home / Versions / Servers / Bedrock）")
     except Exception as e:  # noqa: BLE001 - 启动流程起不来也要能进界面（宁可没有启动画面）
         logger.error("StartupController 不可用（%s）—— 跳过启动画面与启动链条", e)
 
@@ -812,6 +824,15 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("取消备份后台任务失败: %s", e)
+        # 基岩版桥：取消在跑的加载/安装任务并恢复 on_progress 链（阶段 3.15）。
+        bedrock = bridges.get("Bedrock")
+        if bedrock is not None:
+            detach = getattr(bedrock, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("取消基岩版后台任务失败: %s", e)
         if overlay is not None:
             shutdown = getattr(overlay, "shutdown", None)
             if callable(shutdown):

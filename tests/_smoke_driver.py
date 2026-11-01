@@ -293,6 +293,34 @@ def settle(root: Any, timeout_ms: int = 1500) -> int:
     return waited
 
 
+def wait_route_ready(built: Any, route: str, timeout_ms: int = 5000) -> None:
+    """压栈后等这一页自己的异步数据落地，再开始三态走查。
+
+    为什么需要：冒烟会强制把 contentState 切成 loading / empty / error，
+    而真实页面的 contentState 是绑定到桥状态的。备份页的扫描如果在切三态的窗口里
+    完成，桥会发 viewChanged，绑定把强制的 error 覆写成真实 ready —— 不是三态渲染
+    坏了，是测试和数据加载抢跑。目前只有备份页在冒烟里需要等这一下。
+    """
+    if route != "backups":
+        QTest.qWait(SETTLE_MS)
+        return
+    bridge = (getattr(built.engine, "_fmcl_bridges", None) or {}).get("Backups")
+    if bridge is None:
+        QTest.qWait(SETTLE_MS)
+        return
+    deadline = time.time() + (timeout_ms / 1000.0)
+    while time.time() < deadline:
+        try:
+            busy = bool(bridge.property("busy"))
+            state = str(bridge.property("worldsState") or "")
+        except Exception:  # noqa: BLE001 - 诊断字段读不到就当已就绪
+            break
+        if not busy and state not in ("idle", "loading"):
+            break
+        QTest.qWait(50)
+    QTest.qWait(100)
+
+
 def tail_lines(path: Path, limit: int, max_bytes: int = 131072) -> List[str]:
     """读文件**尾部**若干行（不整份读进来：`latest.log` 有几百 KB 到几 MB）。"""
     if not path.is_file():
@@ -418,7 +446,7 @@ def phase_pages(smoke: Smoke, built: Any) -> None:
         QTest.qWait(SETTLE_MS)
         pushed = bool(nav.push(route))
         row["settleMs"] = settle(root)
-        QTest.qWait(SETTLE_MS)
+        wait_route_ready(built, route)
         row["pushed"] = pushed
         row["currentRoute"] = str(nav.property("currentRoute"))
         smoke.check(f"page.{route}.pushed", pushed, "push 返回 False")

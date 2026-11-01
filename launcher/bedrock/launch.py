@@ -38,6 +38,8 @@ APP_ENTRY_IDS = {
 }
 
 GDK_EXE = "Minecraft.Windows.exe"
+#: 所选 GDK 版本启动后观察多久；窗口内直接退出视为启动失败，回退已安装 Xbox 版本。
+LAUNCH_GRACE_SECONDS = 5.0
 
 
 class BedrockLaunchError(RuntimeError):
@@ -163,6 +165,25 @@ def _launch_gdk_injected(
     return game_pid
 
 
+def _official_launch_candidate() -> Optional[tuple]:
+    """已安装 Xbox/商店版的可启动候选；找不到返回 None。
+
+    只在所选版本缺失或启动失败后调用：正常路径不该为了一个兜底去跑
+    PowerShell / 扫所有盘。
+    """
+    try:
+        official_dir = find_official_minecraft_dir()
+    except Exception as e:  # noqa: BLE001 - 查不到官方版不阻断所选版本
+        logger.warning(f"查找官方版游戏失败: {e}")
+        return None
+    if official_dir is None:
+        return None
+    official_exe = official_dir / GDK_EXE
+    if not official_exe.exists():
+        return None
+    return official_exe, official_dir, "已安装 Xbox 版本"
+
+
 def launch_gdk(
     version_dir: Path,
     args: str = "",
@@ -190,25 +211,19 @@ def launch_gdk(
             )
         return _launch_gdk_injected(version_dir, msa_access_token, args, notify)
 
-    game_exe = version_dir / GDK_EXE
-    if not game_exe.exists():
-        raise BedrockLaunchError(f"未找到游戏主程序: {game_exe}（GDK 包可能未完整解压）")
+    selected_exe = version_dir / GDK_EXE
 
-    # 解压版 exe 与官方构建哈希一致（mcappx 同源），可直接启动。
-    # 历史崩溃（0x4ab8027）根因是解压器对 0 字节段不推进页偏移，
-    # 导致 MGE 标记文件之后的全部文件数据错位（.NET 解压器已修复），
-    # 修复后解压版可稳定运行。若系统存在官方版目录仍优先使用（兜底）。
-    try:
-        official_dir = find_official_minecraft_dir()
-        if official_dir is not None and (official_dir / GDK_EXE).exists():
-            game_exe = official_dir / GDK_EXE
-            logger.info(f"使用官方版游戏 exe: {game_exe}")
-            if notify:
-                notify("检测到官方版 Minecraft，使用官方构建启动...")
-        else:
-            logger.info("未找到官方版 Minecraft（商店版/Xbox 版），使用解压版 exe 启动（已修复 0 字节段错位，可稳定运行）")
-    except Exception as e:
-        logger.warning(f"查找官方版游戏失败（继续使用解压版）: {e}")
+    # 用户明确选择的版本优先；只有它缺失/启动失败时才去查并回退已安装 Xbox 版本。
+    # 官方目录查找要走 PowerShell/扫盘，正常启动不应为它付这笔时间。
+    attempts: list = []
+    if selected_exe.exists():
+        attempts.append((selected_exe, version_dir, "所选版本"))
+    else:
+        official = _official_launch_candidate()
+        if official is None:
+            raise BedrockLaunchError(f"未找到游戏主程序: {selected_exe}（GDK 包可能未完整解压）")
+        logger.warning(f"所选版本缺少主程序，回退已安装 Xbox 版本: {selected_exe}")
+        attempts.append(official)
 
     # GameInput 运行时在版本安装时已自动安装；启动时仅做缺失提示，不再跑 MSI
     # （缺失时游戏可能无法启动，但安装时已尽量补齐；这里不阻断启动）
@@ -217,18 +232,44 @@ def launch_gdk(
             notify("GameInput 运行时未安装，GDK 版可能无法启动（可重装版本补齐）...")
         logger.warning("GameInput 未安装，GDK 版可能无法启动")
 
-    logger.info(f"启动 GDK 游戏: {game_exe} args={args!r}")
-    if args:
-        # 与 .NET ProcessStartInfo.Arguments 一致：整串附加到可执行文件后，由 Windows 解析
-        cmdline = f'"{game_exe}" {args}'
-        proc = subprocess.Popen(
-            cmdline, cwd=str(version_dir), shell=True, creationflags=subprocess.CREATE_NO_WINDOW
-        )
-    else:
-        proc = subprocess.Popen(
-            [str(game_exe)], cwd=str(version_dir), creationflags=subprocess.CREATE_NO_WINDOW
-        )
-    return proc.pid
+    errors: list = []
+    while attempts:
+        game_exe, workdir, label = attempts.pop(0)
+        try:
+            logger.info(f"启动 {label} GDK 游戏: {game_exe} args={args!r}")
+            if args:
+                # 与 .NET ProcessStartInfo.Arguments 一致：整串附加到可执行文件后，由 Windows 解析
+                cmdline = f'"{game_exe}" {args}'
+                proc = subprocess.Popen(
+                    cmdline, cwd=str(workdir), shell=True, creationflags=subprocess.CREATE_NO_WINDOW
+                )
+            else:
+                proc = subprocess.Popen(
+                    [str(game_exe)], cwd=str(workdir), creationflags=subprocess.CREATE_NO_WINDOW
+                )
+        except Exception as e:
+            errors.append(f"{label}: {e}")
+            logger.warning(f"{label} 启动失败: {e}")
+        else:
+            # 观察窗口内直接退出 = 启动失败（例如 exe 依赖缺失/构建不匹配），回退。
+            try:
+                early_code = proc.wait(timeout=LAUNCH_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                if label != "所选版本" and notify:
+                    notify(f"所选版本启动失败，已回退到{label}启动")
+                return proc.pid
+            errors.append(f"{label}: 进程立即退出（代码 {early_code}）")
+            logger.warning(f"{label} 启动后立即退出，代码 {early_code}")
+
+        if label == "所选版本":
+            official = _official_launch_candidate()
+            if official is not None and official[0].resolve() != selected_exe.resolve():
+                attempts.append(official)
+                logger.info("所选版本启动失败，回退到已安装 Xbox 版本")
+                if notify:
+                    notify("所选版本启动失败，正在回退到已安装 Xbox 版本...")
+
+    raise BedrockLaunchError("GDK 启动失败: " + ("; ".join(errors) or "没有可用版本"))
 
 
 def launch_uwp(

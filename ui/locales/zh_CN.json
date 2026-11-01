@@ -1622,6 +1622,12 @@
   "bedrock_msa_code_hint": "已打开浏览器，请登录微软账户并输入代码：\n\n  {code}\n\n输入地址：\n{uri}\n\n登录完成后启动器会自动继续。",
   "bedrock_msa_success": "微软账户登录成功",
   "bedrock_msa_failed": "微软账户登录失败: {error}",
+  "bedrock_core_not_ready": "启动器核心尚未就绪，安装、启动与删除暂不可用。",
+  "bedrock_launch_busy": "已有基岩版启动流程正在执行，请稍候。",
+  "bedrock_preflight_failed": "前置检查失败，将继续安装: {error}",
+  "bedrock_msa_waiting": "等待在浏览器中完成微软账户登录...",
+  "bedrock_msa_instruction": "请在浏览器中输入以下代码完成登录：",
+  "bedrock_msa_copy_code": "复制代码",
 
   "server_config_panel_btn": "服务器配置",
   "server_config_title": "服务器配置 - {version}",

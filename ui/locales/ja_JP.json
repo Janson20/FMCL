@@ -1622,6 +1622,12 @@
   "bedrock_msa_code_hint": "ブラウザを開きました。Microsoft アカウントにログインしてコードを入力してください：\n\n  {code}\n\n入力先：\n{uri}\n\nログイン完了後、ランチャーが自動的に続行します。",
   "bedrock_msa_success": "Microsoft アカウントにログインしました",
   "bedrock_msa_failed": "Microsoft アカウントのログインに失敗: {error}",
+  "bedrock_core_not_ready": "ランチャーコアの準備ができていません。インストール・起動・削除は一時的に利用できません。",
+  "bedrock_launch_busy": "別の Bedrock 起動処理が実行中です。しばらくお待ちください。",
+  "bedrock_preflight_failed": "事前チェックに失敗しました。インストールを続行します: {error}",
+  "bedrock_msa_waiting": "ブラウザーでの Microsoft アカウントへのサインインを待っています...",
+  "bedrock_msa_instruction": "ブラウザーで次のコードを入力してサインインしてください:",
+  "bedrock_msa_copy_code": "コードをコピー",
 
   "server_config_panel_btn": "サーバー設定",
   "server_config_title": "サーバー設定 - {version}",

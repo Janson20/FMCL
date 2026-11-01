@@ -1622,6 +1622,12 @@
   "bedrock_msa_code_hint": "已開啟瀏覽器，請登入微軟帳戶並輸入代碼：\n\n  {code}\n\n輸入位址：\n{uri}\n\n登入完成後啟動器會自動繼續。",
   "bedrock_msa_success": "微軟帳戶登入成功",
   "bedrock_msa_failed": "微軟帳戶登入失敗: {error}",
+  "bedrock_core_not_ready": "啟動器核心尚未就緒，安裝、啟動與刪除暫時無法使用。",
+  "bedrock_launch_busy": "已有基岩版啟動流程正在執行，請稍候。",
+  "bedrock_preflight_failed": "前置檢查失敗，將繼續安裝：{error}",
+  "bedrock_msa_waiting": "正在等待在瀏覽器中完成 Microsoft 帳戶登入...",
+  "bedrock_msa_instruction": "請在瀏覽器中輸入以下代碼完成登入：",
+  "bedrock_msa_copy_code": "複製代碼",
 
   "server_config_panel_btn": "伺服器設定",
   "server_config_title": "伺服器設定 - {version}",

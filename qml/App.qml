@@ -487,6 +487,27 @@ FluWindow {
         }
     }
 
+    // 基岩版（3.15）：同样只在壳层挂一次 Toast / 状态条 / 浏览器打开。
+    // 页面不自己弹 Toast，避免主从、详情、下载三条路由复用同一个桥时重复提示。
+    Connections {
+        target: (typeof Bedrock !== "undefined" && Bedrock) ? Bedrock : null
+
+        function onNoticeRequested(message, level) {
+            if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.available)
+                Dialogs.notify({"level": String(level), "message": String(message), "icon": "bedrock"});
+        }
+
+        function onStatusMessage(text, level) {
+            if (typeof Shell !== "undefined" && Shell)
+                Shell.setStatus(String(text), String(level));
+        }
+
+        function onMsaCodeReady(code, uri) {
+            if (String(uri).length > 0)
+                Qt.openUrlExternally(String(uri));
+        }
+    }
+
     // 版本页桥（3.2）只发状态条文案：游戏状态、崩溃提示、最小化仍然由**首页桥**发
     // （它是常驻的那个，见 `app/bridges/version_bridge.py` 模块文档第 1 条）——
     // 这里再挂一次 `onCrashDetected` 就会出现两个 Toast。

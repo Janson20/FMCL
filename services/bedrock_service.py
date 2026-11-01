@@ -392,9 +392,19 @@ class BedrockService(Service):
         """
         return callbacks.get("bedrock_get_installed_versions", lambda: [])()
 
-    def load_available(self, callbacks: Dict[str, Callable]) -> List[Dict[str, Any]]:
-        """原 `_load_bedrock_available` 的取值部分（`:294`）。同上，异常不翻译。"""
-        return callbacks.get("bedrock_get_available_versions", lambda: [])()
+    def load_available(
+        self, callbacks: Dict[str, Callable], refresh: bool = False
+    ) -> List[Dict[str, Any]]:
+        """原 `_load_bedrock_available` 的取值部分（`:294`）。异常不翻译。
+
+        ``refresh=True`` 透传给核心的 `bedrock_get_available_versions(refresh=True)`，
+        也就是强制重拉版本库（页面上的"刷新"按钮）；自动加载用默认的 False，
+        保持旧界面的"缓存优先"语义。
+        """
+        fn = callbacks.get("bedrock_get_available_versions", lambda: [])
+        if refresh:
+            return fn(refresh=True)
+        return fn()
 
     def root_dir(self, callbacks: Dict[str, Callable]) -> str:
         """原 `_open_bedrock_folder` 的第一行（`:633`）。

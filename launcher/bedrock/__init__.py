@@ -488,6 +488,10 @@ class BedrockManager:
         if not folder.exists():
             raise BedrockError(f"版本 '{name}' 不存在")
         info = self._read_installed_info(folder)
+        # 先检查游戏是否在运行（占用 exe/dll 会导致目录删除失败）。
+        # 必须排在注销 AppX 包之前：运行中先注销包会留下"目录还在、包已不存在"的坏状态。
+        if self.is_game_running(info.get("game_type", "release") if info else "release"):
+            raise BedrockError(f"版本 '{name}' 正在运行，请先退出游戏再删除")
         if info and info.get("build_type") == "UWP":
             package_name = launch_mod.PACKAGE_NAMES.get(info.get("game_type", "release"))
             if package_name:
@@ -498,9 +502,6 @@ class BedrockManager:
                         appx_mod.remove_appx_package(package_name)
                 except Exception as e:
                     logger.warning(f"注销 AppX 包失败: {e}")
-        # 先检查游戏是否在运行（占用 exe/dll 会导致目录删除失败）
-        if self.is_game_running(info.get("game_type", "release") if info else "release"):
-            raise BedrockError(f"版本 '{name}' 正在运行，请先退出游戏再删除")
         try:
             shutil.rmtree(folder)
         except OSError as e:
