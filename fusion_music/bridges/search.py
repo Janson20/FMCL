@@ -3,19 +3,30 @@
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from typing import Dict, List
+
+try:
+    from shiboken6 import isValid as _qt_valid
+except Exception:  # pragma: no cover - 非 PySide 环境仅用于静态检查
+    def _qt_valid(_obj):
+        return True
 
 from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
 from ..core.models import Track, TrackListModel
-from ..sources import SOURCE_META, SOURCE_NAMES, search_all
+from ..sources import DEFAULT_SEARCH_SOURCES, SOURCE_META, SOURCE_NAMES, get_source, search_one
 from ..sources import netease
 
 logger = logging.getLogger(__name__)
 
+#: 搜索每页条数（与各音源 limits 的上限取小，界面分页按它算）
+SEARCH_PAGE_SIZE = 20
+
 class _Emitter(QObject):
-    done = Signal(int, object)
+    #: 单音源完成（seq, {source, results, total}）—— 每回来一个就刷一次列表。
+    groupDone = Signal(int, object)
     suggestions = Signal(int, object)
     tops = Signal(int, object)
 
@@ -24,6 +35,8 @@ class SearchController(QObject):
 
     resultsChanged = Signal()
     loadingChanged = Signal()
+    #: 搜索状态（是否搜过 / 最后一次失败原因）变化。
+    stateChanged = Signal()
     errorOccurred = Signal(str)
     sourceChanged = Signal()
     historyChanged = Signal()
@@ -44,7 +57,7 @@ class SearchController(QObject):
         super().__init__(parent)
         self._config = config
         self._emitter = _Emitter(self)
-        self._emitter.done.connect(self._on_done)
+        self._emitter.groupDone.connect(self._on_group_done)
         self._emitter.suggestions.connect(self._on_remote_suggestions)
         self._emitter.tops.connect(self._on_tops)
 
@@ -54,7 +67,7 @@ class SearchController(QObject):
         self._page = 1
         self._seq = 0
         self._current_source = "all"
-        self._last_page_size = 20
+        self._last_page_size = SEARCH_PAGE_SIZE
         self._by_source: Dict[str, List[Track]] = {}
         self._totals: Dict[str, int] = {}
         self._history: List[str] = list(config.get("search_history", []) or [])
@@ -64,6 +77,12 @@ class SearchController(QObject):
         self._suggest_cache: Dict[str, List[str]] = {}
         self._suggest_seq = 0
         self._has_more = False
+        self._has_searched = False
+        self._last_error = ""
+        self._page_count = 1
+        self._total_available = 0
+        self._pending_sources: set[str] = set()
+        self._alive = True
         self._top_artist: Dict = {}
         self._top_playlist: Dict = {}
 
@@ -107,6 +126,25 @@ class SearchController(QObject):
     def hasMore(self) -> bool:  # noqa: N802
         return self._has_more
 
+    @Property(bool, notify=stateChanged)
+    def hasSearched(self) -> bool:  # noqa: N802
+        """本次关键词是否已经有结果（成功或明确失败都算「搜过」）。"""
+        return self._has_searched
+
+    @Property(str, notify=stateChanged)
+    def lastError(self) -> str:  # noqa: N802
+        """最后一次搜索的机器可读状态码，翻译由桥负责。"""
+        return self._last_error
+
+    @Property(int, notify=resultsChanged)
+    def pageCount(self) -> int:  # noqa: N802
+        return self._page_count
+
+    @Property(int, notify=resultsChanged)
+    def totalCount(self) -> int:  # noqa: N802
+        """各音源上报的总数之和；接口不报总数时为 0。"""
+        return self._total_available
+
     @Property("QVariantList", notify=historyChanged)
     def history(self):  # noqa: N802
         return list(self._history)
@@ -131,14 +169,25 @@ class SearchController(QObject):
 
     @Property("QVariantList", notify=sourceChanged)
     def sourceTabs(self):  # noqa: N802
-        tabs = [{"id": "all", "name": "全部", "count": self._total_count()}]
+        tabs = [{
+            "id": "all",
+            "name": "全部",
+            "nameKey": "music_source_all",
+            "count": self._total_available or self._total_count(),
+        }]
         for meta in SOURCE_META:
             sid = meta["id"]
-            if sid not in self._by_source or not self._by_source[sid]:
+            tracks = self._by_source.get(sid) or []
+            # 当前选中的音源即使本页为空也要保留标签，否则用户会卡在一个
+            # 已经从标签条上消失的音源里（切不回去，也看不出为什么空）。
+            if not tracks and sid != self._current_source:
                 continue
-            tabs.append(
-                {"id": sid, "name": meta["short"], "count": len(self._by_source[sid])}
-            )
+            tabs.append({
+                "id": sid,
+                "name": meta["short"],
+                "nameKey": "music_source_" + sid,
+                "count": int(self._totals.get(sid, len(tracks)) or len(tracks)),
+            })
         return tabs
 
     def _total_count(self) -> int:
@@ -150,7 +199,9 @@ class SearchController(QObject):
     def search(self, keyword: str) -> None:  # noqa: A003
         keyword = (keyword or "").strip()
         if not keyword:
-            self.errorOccurred.emit("请输入搜索关键词")
+            self._last_error = "empty_keyword"
+            self.stateChanged.emit()
+            self.errorOccurred.emit("empty_keyword")
             return
         # 真发起搜索了就把联想收掉：防抖计时器停掉、在飞的请求作废，
         # 否则结果都出来了联想框还在下面杵着
@@ -162,16 +213,25 @@ class SearchController(QObject):
 
     @Slot()
     def nextPage(self) -> None:  # noqa: N802
-        if not self._keyword or self._loading:
-            return
-        self._page += 1
-        self._run()
+        self.goToPage(self._page + 1)
 
     @Slot()
     def prevPage(self) -> None:  # noqa: N802
-        if not self._keyword or self._loading or self._page <= 1:
+        self.goToPage(self._page - 1)
+
+    @Slot(int)
+    def goToPage(self, page: int) -> None:  # noqa: N802
+        """跳到指定页；页码夹在 [1, pageCount] 内，请求中不重复发。"""
+        if not self._keyword or self._loading:
             return
-        self._page -= 1
+        try:
+            value = int(page)
+        except (TypeError, ValueError):
+            return
+        value = max(1, min(value, self._page_count))
+        if value == self._page:
+            return
+        self._page = value
         self._run()
 
     @Slot(str)
@@ -179,6 +239,7 @@ class SearchController(QObject):
         self._current_source = source_id or "all"
         self._apply_filter()
         self.sourceChanged.emit()
+        self.resultsChanged.emit()
 
     @Slot()
     def retry(self) -> None:
@@ -195,12 +256,17 @@ class SearchController(QObject):
         self._totals.clear()
         self._model.clear()
         self._has_more = False
+        self._has_searched = False
+        self._last_error = ""
+        self._page_count = 1
+        self._total_available = 0
         self._loading = False
         self._top_artist = {}
         self._top_playlist = {}
         self.loadingChanged.emit()
         self.resultsChanged.emit()
         self.sourceChanged.emit()
+        self.stateChanged.emit()
         self.topsChanged.emit()
 
     @Slot(str)
@@ -231,16 +297,44 @@ class SearchController(QObject):
         keyword = self._keyword
         first_page = page == 1
 
+        self._has_searched = False
+        self._last_error = ""
         self._loading = True
+        self._by_source.clear()
+        self._totals.clear()
+        self._model.clear()
+        self._has_more = False
+        self._page_count = 1
+        self._total_available = 0
+
+        enabled = self._config.get("sources.enabled", None)
+        ids: List[str] = []
+        if isinstance(enabled, list) and enabled:
+            ids = [s for s in enabled if s in SOURCE_NAMES]
+        if not ids:
+            ids = list(DEFAULT_SEARCH_SOURCES)
+        self._pending_sources = set(ids)
+
         self.loadingChanged.emit()
+        self.resultsChanged.emit()
+        self.sourceChanged.emit()
+        self.stateChanged.emit()
         if first_page:
             # 置顶卡片跟着关键词换，先清掉旧结果避免显示上一条关键词的歌手
             self._top_artist = {}
             self._top_playlist = {}
             self.topsChanged.emit()
-        threading.Thread(
-            target=self._worker, args=(seq, keyword, page), daemon=True, name="search"
-        ).start()
+
+        if not ids:
+            self._finish_search(seq)
+            return
+        for sid in ids:
+            threading.Thread(
+                target=self._source_worker,
+                args=(seq, sid, keyword, page),
+                daemon=True,
+                name="search-" + sid,
+            ).start()
         if first_page:
             threading.Thread(
                 target=self._top_worker, args=(seq, keyword), daemon=True, name="search-top"
@@ -261,68 +355,98 @@ class SearchController(QObject):
                 payload["playlist"] = playlists[0]
         except Exception as e:
             logger.debug("置顶歌单搜索失败: %s", e)
-        self._emitter.tops.emit(seq, payload)
+        if self._alive and _qt_valid(self._emitter):
+            try:
+                self._emitter.tops.emit(seq, payload)
+            except RuntimeError:
+                pass
 
     @Slot(int, object)
     def _on_tops(self, seq: int, payload) -> None:
-        if seq != self._seq or not isinstance(payload, dict):
+        if not self._alive or seq != self._seq or not isinstance(payload, dict):
             return
         self._top_artist = dict(payload.get("artist") or {})
         self._top_playlist = dict(payload.get("playlist") or {})
         self.topsChanged.emit()
 
-    def _worker(self, seq: int, keyword: str, page: int) -> None:
+    def _source_worker(self, seq: int, source_id: str, keyword: str, page: int) -> None:
+        """单个音源搜完就投递结果；不等其它音源。
+
+        搜不到 / 抛异常都按空组投递，让「还有一个源没回来」的等待状态照常结束。
+        """
+        items = []
+        total = 0
         try:
-            enabled = self._config.get("sources.enabled", None)
-            ids = None
-            if isinstance(enabled, list) and enabled:
-                ids = [s for s in enabled if s in SOURCE_NAMES]
-            groups = search_all(keyword, page=page, limit=20, source_ids=ids)
-        except Exception as e:
-            logger.exception("搜索失败")
-            groups = []
-            self._emitter.done.emit(seq, {"error": str(e)})
-            return
-        self._emitter.done.emit(seq, {"groups": groups, "page": page})
+            src = get_source(source_id)
+            if src is not None:
+                items = search_one(source_id, keyword, page, SEARCH_PAGE_SIZE) or []
+                total = int(getattr(src, "last_search_total", 0) or 0)
+        except Exception as e:  # noqa: BLE001 - 单源失败不拖垮整次搜索
+            logger.debug("[%s] 搜索失败: %s", source_id, e)
+        if self._alive and _qt_valid(self._emitter):
+            try:
+                self._emitter.groupDone.emit(
+                    seq, {"source": source_id, "results": items, "total": total}
+                )
+            except RuntimeError:
+                pass
 
     @Slot(int, object)
-    def _on_done(self, seq: int, payload) -> None:
+    def _on_group_done(self, seq: int, payload) -> None:
+        if not self._alive or seq != self._seq or not isinstance(payload, dict):
+            return
+        sid = str(payload.get("source") or "")
+        if not sid:
+            return
+        tracks = [Track.from_music_info(mi) for mi in (payload.get("results") or [])]
+        self._by_source[sid] = tracks
+        self._totals[sid] = max(0, int(payload.get("total") or 0))
+        self._pending_sources.discard(sid)
+
+        self._last_page_size = SEARCH_PAGE_SIZE
+        # 增量追加，不重设整个模型：每回来一个音源就落到列表尾部，
+        # 也不会在 ListView 组装 delegate 时触发 DelegateModel::cancel。
+        if self._current_source == "all" or self._current_source == sid:
+            self._model.extend(tracks)
+        self._recompute_pages(self._page)
+        self.resultsChanged.emit()
+        self.sourceChanged.emit()
+        self.stateChanged.emit()
+
+        if not self._pending_sources:
+            self._finish_search(seq)
+
+    def _finish_search(self, seq: int) -> None:
         if seq != self._seq:
             return
         self._loading = False
+        self._has_searched = True
+        self._last_error = "" if self._by_source else "no_results"
+        # 接口不给总数时，用「是否有满页」判断还能不能翻页。
+        if not self._totals or max(self._totals.values(), default=0) <= 0:
+            self._has_more = any(
+                len(v) >= SEARCH_PAGE_SIZE - 5 for v in self._by_source.values()
+            )
+        self._recompute_pages(self._page)
         self.loadingChanged.emit()
-
-        if not isinstance(payload, dict) or "groups" not in payload:
-            self.errorOccurred.emit("搜索失败，请检查网络连接")
-            return
-
-        page = int(payload.get("page") or 1)
-        groups = payload.get("groups") or []
-        self._by_source.clear()
-        self._totals.clear()
-        any_total = 0
-        for g in groups:
-            sid = g.get("source") or ""
-            tracks = [Track.from_music_info(mi) for mi in (g.get("results") or [])]
-            if sid and tracks:
-                self._by_source[sid] = tracks
-                total = int(g.get("total") or 0)
-                self._totals[sid] = total
-                any_total = max(any_total, total)
-
-        self._last_page_size = 20
-        if any_total > 0:
-            self._has_more = page * self._last_page_size < any_total
-        else:
-            # 接口不提供总数时，只要还有任意音源返回满页就认为可能有下一页
-            self._has_more = any(len(v) >= 15 for v in self._by_source.values())
-
-        self._apply_filter()
         self.resultsChanged.emit()
         self.sourceChanged.emit()
-
+        self.stateChanged.emit()
         if not self._by_source:
-            self.errorOccurred.emit(f"没有找到「{self._keyword}」的相关结果")
+            self.errorOccurred.emit("no_results")
+
+    def _recompute_pages(self, page: int) -> None:
+        """按各音源上报的总数算总页数；没有总数时按「还有下一页」递增。"""
+        totals = [max(0, int(v or 0)) for v in self._totals.values()]
+        max_total = max(totals) if totals else 0
+        self._total_available = sum(totals)
+        if max_total > 0:
+            self._page_count = max(1, math.ceil(max_total / self._last_page_size))
+        elif self._by_source:
+            self._page_count = max(int(page), int(page) + (1 if self._has_more else 0))
+        else:
+            self._page_count = 1
+        self._has_more = int(page) < self._page_count
 
     def _apply_filter(self) -> None:
         if self._current_source == "all":
@@ -439,3 +563,16 @@ class SearchController(QObject):
         if 0 <= index < len(tracks):
             return tracks[index].to_dict()
         return None
+
+    def shutdown(self) -> None:
+        """窗口关闭时让在飞的搜索/联想结果作废并停掉防抖计时器。"""
+        self._alive = False
+        self._seq += 1
+        self._suggest_seq += 1
+        self._suggest_timer.stop()
+        try:
+            self._emitter.groupDone.disconnect()
+            self._emitter.suggestions.disconnect()
+            self._emitter.tops.disconnect()
+        except (RuntimeError, TypeError):
+            pass

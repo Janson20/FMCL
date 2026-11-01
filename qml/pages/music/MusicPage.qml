@@ -1,8 +1,8 @@
 // MusicPage.qml —— 音乐（阶段 3.16：播放核心与本地音乐）。
 //
-// 三条路由共用本页：music / music/playlist（队列）。3.17 起再接入在线搜索与歌单。
-// 后端是 fusion_music（从 tmp/FusionMusicPlayer 移植），本页只读 Music.player /
-// Music.library，不解析歌词、不拼播放规则。
+// 四条路由共用本页：music（发现首页）/ music/local（本地）/ music/playlist（队列）/
+// music/online（在线搜索）。默认页与 FMP 一样是发现页。后端是 fusion_music，
+// 本页只读 Music.player / Music.library / Music.search / Music.discover。
 
 import QtQuick
 import QtQuick.Layouts
@@ -24,6 +24,8 @@ Item {
     readonly property bool ready: page.live && Music.ready
     readonly property var player: (page.live && Music.ready) ? Music.player : null
     readonly property var lib: (page.live && Music.ready) ? Music.library : null
+    readonly property var search: (page.live && Music.ready) ? Music.search : null
+    readonly property var discover: (page.live && Music.ready) ? Music.discover : null
     readonly property bool expanded: page.live && Music.expanded
     readonly property bool failed: page.live && !page.ready && String(Music.errorText || "").length > 0
     //: `FmPage` 同名的三态入口：强制切三态供冒烟/人工验收；正常时由后端状态派生。
@@ -34,13 +36,17 @@ Item {
                                                     : (!page.ready ? (page.failed ? "error" : "loading")
                                                        : "ready"))
 
-    property string viewMode: "local"
+    property string viewMode: "discover"
 
     function routeMode() {
         var id = String(page.routeId || "");
         if (id.indexOf("music/playlist") >= 0)
             return "queue";
-        return "local";
+        if (id.indexOf("music/online") === 0)
+            return "online";
+        if (id.indexOf("music/local") === 0)
+            return "local";
+        return "discover";
     }
 
     function syncMode() {
@@ -97,9 +103,13 @@ Item {
                 Text {
                     visible: text.length > 0
                     text: page.ready
-                          ? (page.viewMode === "queue"
-                             ? (page.player ? page.countText(page.player.queueCount) : "")
-                             : (page.lib ? page.countText(page.lib.localModel.count) : ""))
+                          ? (page.viewMode === "discover"
+                             ? ""
+                             : (page.viewMode === "queue"
+                                ? (page.player ? page.countText(page.player.queueCount) : "")
+                                : (page.viewMode === "online"
+                                   ? (page.search ? page.countText(page.search.resultCount) : "")
+                                   : (page.lib ? page.countText(page.lib.localModel.count) : ""))))
                           : ""
                     color: Theme?.textTertiary ?? "transparent"
                     font.pixelSize: Theme?.fontSizeSmall ?? 10
@@ -112,7 +122,9 @@ Item {
                 visible: page.ready
                 currentKey: page.viewMode
                 items: [
+                    {"key": "discover", "labelKey": "music_tab_discover"},
                     {"key": "local", "labelKey": "music_tab_local"},
+                    {"key": "online", "labelKey": "music_tab_online"},
                     {"key": "queue", "labelKey": "music_queue_title"}
                 ]
                 onTabRequested: function (key) {
@@ -130,9 +142,15 @@ Item {
 
             StackLayout {
                 anchors.fill: parent
-                currentIndex: page.viewMode === "queue" ? 1 : 0
+                currentIndex: page.viewMode === "discover" ? 0
+                              : (page.viewMode === "local" ? 1
+                                 : (page.viewMode === "queue" ? 2 : 3))
                 visible: page.effectiveState === "ready"
 
+                FmMusicDiscoverView {
+                    discover: page.discover
+                    player: page.player
+                }
                 FmMusicLocalView {
                     lib: page.lib
                     player: page.player
@@ -141,6 +159,15 @@ Item {
                     active: page.viewMode === "queue"
                     source: "../../components/music/FmMusicQueueView.qml"
                     onLoaded: item.player = Qt.binding(function () { return page.player; })
+                }
+                Loader {
+                    active: page.viewMode === "online"
+                    source: "../../components/music/FmMusicOnlineView.qml"
+                    onLoaded: {
+                        item.search = Qt.binding(function () { return page.search; });
+                        item.player = Qt.binding(function () { return page.player; });
+                        item.lib = Qt.binding(function () { return page.lib; });
+                    }
                 }
             }
 
@@ -178,17 +205,4 @@ Item {
         }
     }
 
-    Loader {
-        anchors.fill: parent
-        z: 20
-        active: page.effectiveState === "ready" && page.expanded
-        source: "../../components/music/FmMusicNowPlaying.qml"
-        onLoaded: {
-            item.player = Qt.binding(function () { return page.player; });
-            item.collapseRequested.connect(function () {
-                if (page.live)
-                    Music.setExpanded(false);
-            });
-        }
-    }
 }

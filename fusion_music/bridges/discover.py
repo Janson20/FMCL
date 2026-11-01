@@ -6,6 +6,12 @@ import logging
 import threading
 from typing import Dict, List
 
+try:
+    from shiboken6 import isValid as _qt_valid
+except Exception:  # pragma: no cover - 非 PySide 环境仅用于静态检查
+    def _qt_valid(_obj):
+        return True
+
 from PySide6.QtCore import QObject, Property, Signal, Slot
 
 from ..core.models import Track, TrackListModel
@@ -44,6 +50,7 @@ class DiscoverController(QObject):
         self._detail_id = ""
         self._detail_meta: Dict = {}
         self._loaded_once = False
+        self._alive = True
 
     # ── 属性 ────────────────────────────────────────────────
 
@@ -128,10 +135,16 @@ class DiscoverController(QObject):
         except Exception as e:
             logger.debug("每日推荐加载失败: %s", e)
             result["daily"] = []
-        self._emitter.loaded.emit("discover", result)
+        if self._alive and _qt_valid(self._emitter):
+            try:
+                self._emitter.loaded.emit("discover", result)
+            except RuntimeError:
+                pass
 
     @Slot(str, object)
     def _on_loaded(self, _kind: str, result) -> None:
+        if not self._alive:
+            return
         self._loading = False
         self.loadingChanged.emit()
         if not isinstance(result, dict):
@@ -176,10 +189,16 @@ class DiscoverController(QObject):
             tracks = [Track.from_music_info(mi) for mi in netease.playlist_tracks(playlist_id)]
         except Exception as e:
             logger.debug("歌单歌曲加载失败: %s", e)
-        self._emitter.detailLoaded.emit(playlist_id, {"meta": meta, "tracks": tracks})
+        if self._alive and _qt_valid(self._emitter):
+            try:
+                self._emitter.detailLoaded.emit(playlist_id, {"meta": meta, "tracks": tracks})
+            except RuntimeError:
+                pass
 
     @Slot(str, object)
     def _on_detail_loaded(self, playlist_id: str, payload) -> None:
+        if not self._alive:
+            return
         if playlist_id != self._detail_id:
             return
         self._detail_loading = False
@@ -192,6 +211,15 @@ class DiscoverController(QObject):
         self.detailChanged.emit()
         if self._detail_model.length() == 0:
             self.errorOccurred.emit("该歌单没有可显示的歌曲（部分歌单需要登录后才能读取）")
+
+    def shutdown(self) -> None:
+        """窗口退出：让在飞网络线程回来后不要再碰已销毁的 QObject/模型。"""
+        self._alive = False
+        for signal in (self._emitter.loaded, self._emitter.detailLoaded):
+            try:
+                signal.disconnect()
+            except (RuntimeError, TypeError):
+                pass
 
     @Slot()
     def closePlaylist(self) -> None:  # noqa: N802

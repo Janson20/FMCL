@@ -100,9 +100,12 @@ class MusicBridge(QObject):
         self.readyChanged.emit()
         player = self._host.player
         player.errorOccurred.connect(self._on_player_error)
+        player.resolveFailed.connect(self._on_resolve_failed)
         player.statusMessage.connect(self._on_player_status)
+        player.fallbackUsed.connect(self._on_fallback)
         self._host.library_controller.errorOccurred.connect(self._on_library_error)
         self._host.library_controller.message.connect(self._on_library_message)
+        self._host.search.errorOccurred.connect(self._on_search_error)
         self._register_hotkeys()
         if self._host.migration.get("migrated"):
             counts = self._host.migration.get("counts") or {}
@@ -124,6 +127,14 @@ class MusicBridge(QObject):
     def library(self):
         return self._host.library_controller if self._host is not None else None
 
+    @Property(QObject, notify=readyChanged)
+    def search(self):
+        return self._host.search if self._host is not None else None
+
+    @Property(QObject, notify=readyChanged)
+    def discover(self):
+        return self._host.discover if self._host is not None else None
+
     @Property(str, notify=readyChanged)
     def errorText(self) -> str:  # noqa: N802
         return self._last_error
@@ -139,7 +150,7 @@ class MusicBridge(QObject):
     @Slot(str)
     def setPage(self, page: str) -> None:  # noqa: N802
         value = str(page or "").strip()
-        if value not in ("local", "queue") or value == self._page:
+        if value not in ("discover", "local", "queue", "online") or value == self._page:
             return
         self._page = value
         self.pageChanged.emit()
@@ -173,6 +184,25 @@ class MusicBridge(QObject):
         except Exception as exc:  # noqa: BLE001
             logger.warning("写入剪贴板失败: %s", exc)
             self.noticeRequested.emit(_("copy_failed").format(error=exc), "error")
+
+    @Slot(str, "QVariant", result=bool)
+    def addToPlaylist(self, playlist_id: str, value) -> bool:  # noqa: N802
+        """加入歌单；提示走 FMCL 的 i18n，不复用后端的中文 message。"""
+        if self._host is None:
+            return False
+        try:
+            added = self._host.library_controller.add_to_playlist(
+                str(playlist_id or ""), value, notify=False
+            )
+        except Exception as exc:  # noqa: BLE001 - 歌单失败不能打崩主线程
+            logger.warning("加入歌单失败: %s", exc)
+            self.noticeRequested.emit(_("music_library_failed"), "error")
+            return False
+        self.statusMessage.emit(
+            _("music_added_to_playlist") if added else _("music_already_in_playlist"),
+            "info",
+        )
+        return bool(added)
 
     @Slot()
     def scan(self) -> None:  # noqa: N802
@@ -238,6 +268,27 @@ class MusicBridge(QObject):
     def _on_player_error(self, detail: str) -> None:
         logger.warning("音乐播放失败: %s", detail)
         self.noticeRequested.emit(_("music_playback_failed"), "error")
+
+    @Slot(str)
+    def _on_resolve_failed(self, name: str) -> None:
+        logger.warning("音乐取流失败: %s", name)
+        self.noticeRequested.emit(_("music_url_failed"), "error")
+
+    @Slot(str)
+    def _on_fallback(self, source_id: str) -> None:
+        """跨源兜底成功后提示「实际从哪个音源播的」。"""
+        source = _("music_source_" + str(source_id or ""))
+        if not source or source == "music_source_" + str(source_id or ""):
+            source = str(source_id or "")
+        self.statusMessage.emit(_("music_fallback_status").format(source=source), "info")
+
+    @Slot(str)
+    def _on_search_error(self, code: str) -> None:
+        """搜索控制器只发机器码；翻译与「无结果不弹错」在这里决定。"""
+        if code == "no_results":
+            return
+        key = "music_search_enter_keyword" if code == "empty_keyword" else "music_search_failed"
+        self.noticeRequested.emit(_(key), "error")
 
     @Slot(str)
     def _on_player_status(self, detail: str) -> None:

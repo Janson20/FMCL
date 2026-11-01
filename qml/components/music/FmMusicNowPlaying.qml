@@ -26,6 +26,12 @@ Rectangle {
     Keys.onEscapePressed: control.collapseRequested()
     focus: true
 
+    // 覆盖层必须自己吃事件：根节点是普通 Item 时，空白处点击会穿到下面的页面。
+    FmMusicOverlayBackdrop {
+        anchors.fill: parent
+        blockerObjectName: "musicNowPlayingBlocker"
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme?.spacingLg ?? 16
@@ -118,9 +124,9 @@ Rectangle {
 
                 Text {
                     Layout.fillWidth: true
-                    text: control.player
-                          ? control.player.album + (control.player.qualityLabel.length > 0
-                              ? "  ·  " + control.player.qualityLabel : "")
+                    text: control.player && control.player.title.length > 0
+                          ? (control.player.album + (control.player.qualityLabel.length > 0
+                             ? "  ·  " + control.player.qualityLabel : ""))
                           : ""
                     color: Theme?.textTertiary ?? "transparent"
                     font.pixelSize: Theme?.fontSizeSmall ?? 10

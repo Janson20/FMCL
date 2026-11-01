@@ -632,6 +632,42 @@ FluWindow {
         }
     }
 
+    // ── 音乐歌单详情覆盖层（阶段 3.17）──────────────────────────────
+    // 与展开播放页同一层：从发现页打开后盖住导航 + 页面，避免点穿。
+    Loader {
+        anchors.fill: parent
+        z: 79
+        active: (typeof Music !== "undefined" && Music && Music.ready && Music.discover
+                 && String(Music.discover.detailId || "").length > 0) ? true : false
+        source: "components/music/FmMusicPlaylistDetail.qml"
+        onLoaded: {
+            item.discover = Qt.binding(function () { return Music ? Music.discover : null; });
+            item.player = Qt.binding(function () { return Music ? Music.player : null; });
+            item.closeRequested.connect(function () {
+                if (typeof Music !== "undefined" && Music && Music.discover)
+                    Music.discover.closePlaylist();
+            });
+        }
+    }
+
+    // ── 音乐展开播放页（阶段 3.17）──────────────────────────────────
+    // 放在壳层而不是音乐页里：FMP 的展开页盖住导航 + 页面，根节点必须有全屏
+    // 遮罩，否则点空白处会穿到下面的导航/页面。播放栏自己的展开按钮只改
+    // Music.expanded，这里统一实例化，样式与页面无关。
+    Loader {
+        anchors.fill: parent
+        z: 80
+        active: (typeof Music !== "undefined" && Music && Music.ready && Music.expanded) ? true : false
+        source: "components/music/FmMusicNowPlaying.qml"
+        onLoaded: {
+            item.player = Qt.binding(function () { return Music ? Music.player : null; });
+            item.collapseRequested.connect(function () {
+                if (typeof Music !== "undefined" && Music)
+                    Music.setExpanded(false);
+            });
+        }
+    }
+
     // ── 对话框宿主与 Toast（任务 2.13）──────────────────────────────
     // 两者在 Component.onCompleted 里调 Dialogs.markReady() —— 这是 QtUIPort 从
     // "整体退化为 NullUIPort" 切到"真的把请求送到 QML"的那一步（见 dialogs/README.md）。

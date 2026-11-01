@@ -310,6 +310,10 @@ class TrackListModel(QAbstractListModel):
                 return t.display_name
             if key == "qualityShort":
                 return t.quality_short
+            if key == "playCount":
+                # 数据类字段是 play_count，QML 角色是 playCount；不显式映射会
+                # 让在线结果行的播放量恒为 0（getattr(t, "playCount") 不存在）。
+                return t.play_count
             return getattr(t, key, None)
         if role == Qt.DisplayRole:
             return t.name

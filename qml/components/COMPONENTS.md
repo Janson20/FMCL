@@ -161,11 +161,11 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 > `FmTabBar` / `FmDropZone` 是阶段 3 任务 3.6 新增的两个通用件（登记见上表）；
 > `ResourceUpdateDialog` 是同一任务新增的第三个页内浮层（登记见 3.2 节）。
 
-## 六、音乐播放器组件（阶段 3.16）
+## 六、音乐播放器组件（阶段 3.16~3.17）
 
-这五个件放在 `qml/components/music/`，只被音乐页组合使用；仍按通用件登记，
+这十三个件放在 `qml/components/music/`，只被音乐页组合使用；仍按通用件登记，
 页面才能通过 R5。它们不读服务、不解析歌词，数据一律由 ``Music.player`` /
-``Music.library`` 传入。
+``Music.library`` / ``Music.search`` 传入。
 
 | 组件 | 用途 | 关键属性 |
 |------|------|----------|
@@ -174,3 +174,11 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `FmMusicQueueView` | 播放队列：跳转、上移、下移、移除 | `player` |
 | `FmMusicPlayerBar` | 页面底部播放栏：封面、传输、进度、音量、展开 | `player` `expanded` |
 | `FmMusicNowPlaying` | 展开播放页：大封面、歌词滚动、完整控制 | `player` `collapseRequested()` |
+| `FmMusicOnlineView` | 在线搜索：输入、音源标签、结果、分页、加入歌单、联想词 | `search` `player` `lib` |
+| `FmMusicOnlineRow` | 在线搜索结果行：序号、原唱、播放量、音质、加入歌单 | `index` `uid` `name` `singer` `source` `bestQuality` `isOriginal` `originalName` `playCount` `durationText` `cover` `activated()` `addRequested()` |
+| `FmMusicPager` | 在线搜索分页：全量页码横向滚动、上下页 | `page` `pageCount` `loading` `pageRequested(page)` |
+| `FmMusicPlaylistPicker` | 「加入歌单」页内浮层 | `opened` `playlists` `track` `closed()` `selected(playlistId, track)` |
+| `FmMusicDiscoverView` | 发现首页：推荐歌单/排行榜/每日推荐/最新音乐 | `discover` `player` |
+| `FmMusicPlaylistCard` | 发现页歌单卡片：封面、标题、副标题、播放入口 | `title` `subtitle` `cover` `trackCount` `activated()` `playRequested()` |
+| `FmMusicPlaylistDetail` | 歌单详情覆盖层：返回、元信息、播放全部/加入队列、曲目 | `discover` `player` `closeRequested()` |
+| `FmMusicOverlayBackdrop` | 覆盖层垫底：背景 + 全屏事件遮罩 | `blockerObjectName` |

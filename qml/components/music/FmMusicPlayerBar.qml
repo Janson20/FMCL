@@ -154,6 +154,27 @@ Rectangle {
                     font.pixelSize: Theme?.fontSizeSmall ?? 10
                     elide: Text.ElideRight
                 }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme?.spacingXs ?? 4
+                    visible: control.player && control.player.title.length > 0
+
+                    Text {
+                        text: control.player ? control.player.qualityLabel : ""
+                        color: Theme?.accent ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        font.bold: true
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: control.player ? control.player.sourceLabel : ""
+                        color: Theme?.textTertiary ?? "transparent"
+                        font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        elide: Text.ElideRight
+                    }
+                }
             }
         }
 

@@ -413,19 +413,28 @@ class LibraryController(QObject):
             self.errorOccurred.emit("系统歌单不可删除")
         return ok
 
-    @Slot(str, "QVariant", result=bool)
-    def addToPlaylist(self, playlist_id: str, value) -> bool:  # noqa: N802
+    def add_to_playlist(self, playlist_id: str, value, *, notify: bool = True) -> bool:
+        """把曲目加入歌单。
+
+        notify=False 供桥使用：桥会按 i18n 键发自己的提示，避免后端的中文
+        文案绕过四语言检查。QML 直接调 addToPlaylist 时行为不变。
+        """
         track = as_track(value)
         if not track or not track.name:
             return False
         added = self._library.add_to_playlist(playlist_id, track)
         self._library.save()
         self.playlistsChanged.emit()
-        if not added:
-            self.message.emit("该歌曲已在歌单中")
-        else:
-            self.message.emit("已添加到歌单")
+        if notify:
+            if not added:
+                self.message.emit("该歌曲已在歌单中")
+            else:
+                self.message.emit("已添加到歌单")
         return added
+
+    @Slot(str, "QVariant", result=bool)
+    def addToPlaylist(self, playlist_id: str, value) -> bool:  # noqa: N802
+        return self.add_to_playlist(playlist_id, value)
 
     @Slot(str, "QVariant", result=bool)
     def removeTrack(self, playlist_id: str, value) -> bool:  # noqa: N802

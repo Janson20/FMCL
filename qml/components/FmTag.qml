@@ -50,6 +50,13 @@ Rectangle {
         return Theme?.cardBorder ?? "transparent"
     }
 
+    //: 文字/图标颜色。neutral 的边框色与 bgLight 太接近，直接把 cardBorder
+    //: 当文字色会糊成一片（3.17 在线结果的音质标签实际踩到）；文字改用
+    //: textSecondary，边框仍保留中性描边。
+    readonly property color contentColor: level === "neutral"
+                                         ? (Theme?.textSecondary ?? "transparent")
+                                         : levelColor
+
     Row {
         id: row
         anchors.centerIn: parent
@@ -59,7 +66,7 @@ Rectangle {
             objectName: "fmTagIcon"
             visible: tag.iconName.length > 0
             name: tag.iconName
-            color: tag.enabled ? tag.levelColor : Theme?.textSecondary ?? "transparent"
+            color: tag.enabled ? tag.contentColor : Theme?.textSecondary ?? "transparent"
             size: Math.round((Theme?.fontSizeSmall ?? 10) * 1.2)
             anchors.verticalCenter: parent.verticalCenter
         }
@@ -68,7 +75,7 @@ Rectangle {
             objectName: "fmTagText"
             anchors.verticalCenter: parent.verticalCenter
             text: tag.text
-            color: tag.enabled ? tag.levelColor : Theme?.textSecondary ?? "transparent"
+            color: tag.enabled ? tag.contentColor : Theme?.textSecondary ?? "transparent"
             font.pixelSize: Theme?.fontSizeSmall ?? 10
         }
 

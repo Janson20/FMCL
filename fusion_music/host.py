@@ -16,7 +16,9 @@ from .config import Config
 from .core.loudness_service import LoudnessService
 from .core.player import PlayerEngine
 from .core.store import Library
+from .bridges.discover import DiscoverController
 from .bridges.library import LibraryController
+from .bridges.search import SearchController
 from .migration import apply_legacy_settings, migrate
 
 logger = logging.getLogger("fusion_music.host")
@@ -36,6 +38,11 @@ class MusicHost:
         if self.migration.get("migrated"):
             if apply_legacy_settings(self.config, self.migration.get("settings") or {}):
                 self.config.save()
+        # 3.17 起音质不再手动选：固定 auto，逐级探测最高可用档位
+        # （flac24bit → flac → 320k → 128k）。迁移可能带回旧的 320k/128k，
+        # 所以必须放在 apply_legacy_settings 之后纠正。
+        if str(self.config.get("playback.quality", "")) != "auto":
+            self.config.set("playback.quality", "auto")
 
         self.library = Library()
         self.library.load()
@@ -46,6 +53,8 @@ class MusicHost:
             logger.warning("音量均衡初始化失败，按 0 dB 播放: %s", exc)
         self.player = PlayerEngine(self.config, self.library, self.loudness)
         self.library_controller = LibraryController(self.config, self.library)
+        self.search = SearchController(self.config)
+        self.discover = DiscoverController(self.config)
         try:
             self.player.restoreSession()
         except Exception as exc:  # noqa: BLE001 - 会话损坏只影响恢复
@@ -61,6 +70,10 @@ class MusicHost:
         self.library_controller.scan()
 
     def shutdown(self) -> None:
+        for controller in (self.search, self.discover):
+            fn = getattr(controller, "shutdown", None)
+            if callable(fn):
+                fn()
         for name, obj in (
             ("player", self.player),
             ("loudness", self.loudness),

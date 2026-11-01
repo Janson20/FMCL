@@ -81,6 +81,9 @@ class PlayerEngine(QObject):
     lyricProgressChanged = Signal()
     loadingChanged = Signal()
     errorOccurred = Signal(str)
+    #: 取流阶段失败（所有音源都拿不到可播放地址）；与解码失败分开，
+    #: 桥据此提示「换音质/音源」而不是「文件坏了」。
+    resolveFailed = Signal(str)
     statusMessage = Signal(str)
     fallbackUsed = Signal(str)
     seekableChanged = Signal()
@@ -861,7 +864,9 @@ class PlayerEngine(QObject):
             self._loading = False
             self.loadingChanged.emit()
             name = self._requested.name if self._requested else "当前曲目"
-            self.errorOccurred.emit(f"无法播放「{name}」：所有音源均不可用")
+            # 取流失败只走 resolveFailed：再发一次 errorOccurred 会让桥弹两条
+            # Toast（一条「换音源」、一条「播放失败」），用户不知道该信哪条。
+            self.resolveFailed.emit(name)
             return
 
         resolved: Resolved = result
