@@ -114,8 +114,10 @@ class AccountManager(QObject):
     """网易云账号状态、登录流程与凭据续期。"""
 
     qrChanged = Signal()
+    qrStateChanged = Signal()
     statusChanged = Signal()
     loggedInChanged = Signal()
+    renewFinished = Signal(bool)
     profileChanged = Signal()
     playlistsChanged = Signal()
     playlistsFailedChanged = Signal()
@@ -139,6 +141,7 @@ class AccountManager(QObject):
         self._logged_in = False
         self._busy = False
         self._status = "未登录"
+        self._qr_state = "idle"
         self._qr_image = ""
         self._qr_key = ""
         self._qr_seq = 0
@@ -173,6 +176,15 @@ class AccountManager(QObject):
     def status(self) -> str:
         return self._status
 
+    @Property(str, notify=qrStateChanged)
+    def qrState(self) -> str:  # noqa: N802
+        """二维码登录的稳定状态：idle/generating/waiting/scanned/expired/error/success。
+
+        ``status`` 仍保留旧的中文诊断文本；QML 只读这个字段再查 i18n，
+        避免非中文界面直接露出服务层中文。
+        """
+        return self._qr_state
+
     @Property(str, notify=qrChanged)
     def qrImage(self) -> str:  # noqa: N802
         return self._qr_image
@@ -201,6 +213,21 @@ class AccountManager(QObject):
         if self._has_music_package or (self._vip_type & 1) == 1 or self._vip_type == 1:
             return VIP_LABELS[220]
         return VIP_LABELS.get(self._vip_type, "普通用户")
+
+    @Property(str, notify=profileChanged)
+    def vipQualityKey(self) -> str:  # noqa: N802
+        """当前账号可用音质的 i18n 键（旧设置页的 _wy_vip_display 同一张表）。"""
+        if not self._logged_in:
+            return ""
+        if self._is_svip or self._vip_type == 20:
+            return "wy_vip_quality_svip"
+        if self._has_black_vip or self._vip_type in (10, 11) or (self._vip_type & 10) == 10:
+            return "wy_vip_quality_vip"
+        if self._has_music_package or self._vip_type == 1 or (self._vip_type & 1) == 1:
+            return "wy_vip_quality_package"
+        if self._vip_type != 0:
+            return "wy_vip_quality_vip"
+        return "wy_vip_quality_free"
 
     @Property(bool, notify=profileChanged)
     def isVip(self) -> bool:  # noqa: N802
@@ -371,8 +398,15 @@ class AccountManager(QObject):
         return int(math.ceil(remaining / 86400))
 
     @Property(str, notify=credentialsChanged)
+    def credentialExpiryDate(self) -> str:  # noqa: N802
+        """凭据到期日（稳定格式 ``YYYY-MM-DD``，给 QML 走 i18n；空串=未知）。"""
+        if not self._expires_at:
+            return ""
+        return time.strftime("%Y-%m-%d", time.localtime(self._expires_at))
+
+    @Property(str, notify=credentialsChanged)
     def credentialExpiry(self) -> str:  # noqa: N802
-        """给设置页显示的一行有效期文案。"""
+        """旧诊断文案（含中文“还剩 N 天”）；新 QML 不要直接显示它。"""
         if not vault.exists():
             return "未保存凭据"
         if not self._expires_at:
@@ -480,6 +514,7 @@ class AccountManager(QObject):
         self._qr_seq += 1
         self._qr_running = True
         self._set_busy(True)
+        self._set_qr_state("generating")
         self._set_status("正在获取二维码…")
         self._qr_image = ""
         self.qrChanged.emit()
@@ -491,6 +526,7 @@ class AccountManager(QObject):
         self._qr_running = False
         self._qr_seq += 1
         self._set_busy(False)
+        self._set_qr_state("idle")
         self._set_status("已取消")
 
     def _qr_key_worker(self, seq: int) -> None:
@@ -508,6 +544,7 @@ class AccountManager(QObject):
             return
         if not key:
             self._set_busy(False)
+            self._set_qr_state("error")
             self._set_status("二维码获取失败")
             self.errorOccurred.emit("无法获取二维码，请检查网络后重试")
             return
@@ -515,6 +552,7 @@ class AccountManager(QObject):
         png = self._render_qr(key)
         if not png:
             self._set_busy(False)
+            self._set_qr_state("error")
             self._set_status("二维码生成失败")
             self.errorOccurred.emit("本地生成二维码失败（需要 qrcode 与 Pillow 依赖）")
             return
@@ -522,6 +560,7 @@ class AccountManager(QObject):
 
         self._qr_image = QUrl.fromLocalFile(png).toString()
         self.qrChanged.emit()
+        self._set_qr_state("waiting")
         self._set_status("请使用网易云音乐 App 扫描二维码")
         threading.Thread(
             target=self._qr_poll_worker, args=(seq, key), daemon=True, name="wy-qr-poll"
@@ -580,20 +619,29 @@ class AccountManager(QObject):
             return
         if code == QR_SUCCESS or (code == 200 and cookie):
             self._qr_running = False
+            self._set_qr_state("success")
             self._apply_login_cookie(cookie)
+            if not self._logged_in:
+                # 803 拿到空 Cookie / Cookie 无效：失败态要盖掉刚才的 success，
+                # 否则浮层会显示“成功”却没有登录。
+                self._set_qr_state("error")
         elif code == QR_EXPIRED:
+            self._set_qr_state("expired")
             self._set_status("二维码已失效，正在刷新…")
             self._qr_running = False
             self._qr_image = ""
             self.qrChanged.emit()
             threading.Timer(0.8, self.startQrLogin).start()
         elif code == QR_SCANNED:
+            self._set_qr_state("scanned")
             self._set_status("扫描成功，请在手机上确认登录")
         elif code == QR_WAIT_SCAN:
+            self._set_qr_state("waiting")
             self._set_status("等待扫码…")
         elif code == -1:
             self._qr_running = False
             self._set_busy(False)
+            self._set_qr_state("error")
             self._set_status("二维码已超时，请重新获取")
 
     # ── 手机号 / 验证码 / Cookie ────────────────────────────
@@ -870,11 +918,13 @@ class AccountManager(QObject):
     def _on_renew_done(self, cookies: str) -> None:
         self._set_busy(False)
         if not cookies:
+            self.renewFinished.emit(False)
             self.errorOccurred.emit("续期失败，请检查网络后重试（或重新登录）")
             return
         self._persist_credentials(cookies, {})
         self.message.emit("登录凭据已续期")
         self.credentialsChanged.emit()
+        self.renewFinished.emit(True)
 
     @Slot()
     def renewCredentials(self) -> None:  # noqa: N802
@@ -987,6 +1037,7 @@ class AccountManager(QObject):
             logger.warning("删除凭据失败: %s", e)
         self._reset_login_state()
         self._qr_image = ""
+        self._set_qr_state("idle")
         self._set_status("已退出登录")
         self._set_busy(False)
         self.qrChanged.emit()
@@ -996,6 +1047,7 @@ class AccountManager(QObject):
     def _reset_login_state(self) -> None:
         """清掉内存里的登录态（不含凭据文件）。"""
         self._logged_in = False
+        self._set_qr_state("idle")
         self._nickname = ""
         self._avatar = ""
         self._user_id = 0
@@ -1024,6 +1076,11 @@ class AccountManager(QObject):
         if text != self._status:
             self._status = text
             self.statusChanged.emit()
+
+    def _set_qr_state(self, state: str) -> None:
+        if state != self._qr_state:
+            self._qr_state = state
+            self.qrStateChanged.emit()
 
     def _set_busy(self, value: bool) -> None:
         if value != self._busy:

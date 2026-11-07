@@ -1297,6 +1297,12 @@ FmPage {
             readonly property var account: (musicAccountPane.live && Music.ready) ? Music.account : null
             readonly property bool loggedIn: !!(musicAccountPane.account && musicAccountPane.account.loggedIn)
             readonly property bool busy: !!(musicAccountPane.account && musicAccountPane.account.busy)
+            readonly property string credentialExpiry: (musicAccountPane.account
+                                                        ? String(musicAccountPane.account.credentialExpiryDate || "") : "")
+            readonly property string vipLabel: (musicAccountPane.account
+                                                ? String(musicAccountPane.account.vipLabel || "") : "")
+            readonly property string vipQualityKey: (musicAccountPane.account
+                                                      ? String(musicAccountPane.account.vipQualityKey || "") : "")
             property bool dialogOpen: false
             property string errorText: ""
             property string statusText: ""
@@ -1356,6 +1362,11 @@ FmPage {
                     musicAccountPane.account.logout()
             }
 
+            function renewLogin() {
+                if (musicAccountPane.account && !musicAccountPane.busy)
+                    musicAccountPane.account.renewCredentials()
+            }
+
             function syncNow() {
                 if (typeof Music !== "undefined" && Music)
                     Music.syncPlaylists()
@@ -1379,6 +1390,7 @@ FmPage {
                 function onLoggedInChanged() { musicAccountPane.refresh() }
                 function onBusyChanged() { musicAccountPane.refresh() }
                 function onProfileChanged() { musicAccountPane.refresh() }
+                function onCredentialsChanged() { musicAccountPane.refresh() }
                 function onPlaylistsFailedChanged() { musicAccountPane.refresh() }
             }
 
@@ -1452,6 +1464,36 @@ FmPage {
 
                         RowLayout {
                             Layout.fillWidth: true
+                            visible: musicAccountPane.loggedIn
+                            spacing: Theme?.spacingSm ?? 8
+
+                            FmTag {
+                                visible: musicAccountPane.vipLabel.length > 0
+                                text: musicAccountPane.vipLabel
+                                level: "accent"
+                                iconName: "crown"
+                            }
+
+                            FmTag {
+                                visible: musicAccountPane.vipQualityKey.length > 0
+                                text: Tr?.map[musicAccountPane.vipQualityKey] ?? ""
+                                level: "neutral"
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: musicAccountPane.loggedIn
+                                         && musicAccountPane.credentialExpiry.length > 0
+                                text: musicAccountPane.format("settings_wy_credential_expiry",
+                                                             {"date": musicAccountPane.credentialExpiry})
+                                color: Theme?.textTertiary ?? "transparent"
+                                font.pixelSize: Theme?.fontSizeSmall ?? 10
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
                             spacing: Theme?.spacingSm ?? 8
 
                             FmButton {
@@ -1474,6 +1516,16 @@ FmPage {
                             }
 
                             FmButton {
+                                objectName: "settingsMusicRenewButton"
+                                visible: musicAccountPane.loggedIn
+                                primary: false
+                                iconName: "timer"
+                                text: Tr?.map["settings_wy_renew_btn"] ?? ""
+                                enabled: !musicAccountPane.busy
+                                onClicked: musicAccountPane.renewLogin()
+                            }
+
+                            FmButton {
                                 objectName: "settingsMusicLogoutButton"
                                 visible: musicAccountPane.loggedIn
                                 primary: false
@@ -1483,6 +1535,30 @@ FmPage {
                             }
 
                             Item { Layout.fillWidth: true }
+                        }
+                    }
+
+                    FmCard {
+                        Layout.fillWidth: true
+
+                        FmSwitch {
+                            objectName: "settingsMusicBaikeSwitch"
+                            Layout.fillWidth: true
+                            enabled: (typeof Music !== "undefined" && Music) ? Music.ready : false
+                            text: Tr?.map["settings_music_baike_original"] ?? ""
+                            checked: (typeof Music !== "undefined" && Music) ? Music.baikeOriginal : true
+                            onToggled: {
+                                if (typeof Music !== "undefined" && Music)
+                                    Music.setBaikeOriginal(checked);
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: Tr?.map["settings_music_baike_original_desc"] ?? ""
+                            color: Theme?.textTertiary ?? "transparent"
+                            font.pixelSize: Theme?.fontSizeSmall ?? 10
+                            wrapMode: Text.WordWrap
                         }
                     }
                 }

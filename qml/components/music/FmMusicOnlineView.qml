@@ -175,6 +175,18 @@ Item {
             }
 
             Item { Layout.fillWidth: true }
+
+            FmSwitch {
+                objectName: "musicBaikeOriginalSwitch"
+                Layout.maximumWidth: 250
+                enabled: (typeof Music !== "undefined" && Music) ? Music.ready : false
+                text: Tr?.map["settings_music_baike_original"] ?? ""
+                checked: (typeof Music !== "undefined" && Music) ? Music.baikeOriginal : true
+                onToggled: {
+                    if (typeof Music !== "undefined" && Music)
+                        Music.setBaikeOriginal(checked);
+                }
+            }
         }
 
         FmInfoBar {
@@ -332,6 +344,17 @@ Item {
                         iconName: "play"
                         visible: control.hasResults
                         onClicked: control.playAll()
+                    }
+
+                    FmButton {
+                        objectName: "musicOriginalFeedbackButton"
+                        primary: false
+                        text: Tr?.map["music_original_feedback"] ?? ""
+                        visible: control.hasResults
+                        onClicked: {
+                            if (typeof Music !== "undefined" && Music)
+                                Music.openOriginalFeedback();
+                        }
                     }
                 }
 

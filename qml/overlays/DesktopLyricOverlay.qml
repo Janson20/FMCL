@@ -23,10 +23,51 @@ Window {
     // 锁定态：桥里存的锁定规则来自 services.desktop_lyric.toggle_lock
     readonly property bool locked: bridgeReady ? Overlay.lyricLocked : false
 
-    // 歌词两行。**桥不解析歌词**（红线 2）：文本由阶段 3 的歌词服务推过来，
-    // 这里先给占位；旧 Tk 实现的 prev/next 初始也是空串，行为一致。
+    // 歌词三行。**桥不解析歌词**（红线 2）：文本直接读 Music.player 已经
+    // 解析好的 lyricLines/lyricIndex；旧 Tk 实现的 prev/next 初始也是空串。
+    property string previousLine: ""
     property string currentLine: ""
     property string nextLine: ""
+
+    // 阶段 3.19：桌面歌词真正接上当前播放器。测试/独立加载时 Music 可能不存在，
+    // 所以每个读取都判空；没有 player 时保留调用方手动设置的 currentLine/nextLine。
+    readonly property var player: (typeof Music !== "undefined" && Music && Music.ready)
+                                   ? Music.player : null
+    readonly property bool noLyrics: !!lyricWin.player && !lyricWin.player.hasLyrics
+                                     && !lyricWin.player.loading
+
+    function syncLyrics() {
+        var p = lyricWin.player
+        if (!p)
+            return
+        var lines = p.lyricLines || []
+        var index = Number(p.lyricIndex)
+        if (lines.length === 0) {
+            lyricWin.previousLine = ""
+            lyricWin.currentLine = ""
+            lyricWin.nextLine = ""
+            return
+        }
+        if (index < 0) {
+            lyricWin.previousLine = ""
+            lyricWin.currentLine = ""
+            lyricWin.nextLine = String(lines[0].text || "")
+            return
+        }
+        if (index >= lines.length)
+            index = lines.length - 1
+        lyricWin.previousLine = index > 0 ? String(lines[index - 1].text || "") : ""
+        lyricWin.currentLine = String(lines[index].text || "")
+        lyricWin.nextLine = index + 1 < lines.length ? String(lines[index + 1].text || "") : ""
+    }
+
+    onPlayerChanged: lyricWin.syncLyrics()
+
+    Connections {
+        target: lyricWin.player
+        function onLyricChanged() { lyricWin.syncLyrics() }
+        function onLyricIndexChanged() { lyricWin.syncLyrics() }
+    }
 
     // 两段式可见性：onCompleted 里打完 Win32 补丁才允许显示
     property bool hostReady: false
@@ -55,6 +96,7 @@ Window {
         lyricWin.y = geo.y
         Overlay.applyNoActivate("lyric")
         lyricWin.hostReady = true
+        Qt.callLater(lyricWin.syncLyrics)
     }
 
     onVisibleChanged: {
@@ -268,7 +310,21 @@ Window {
                 }
             }
 
-            // ── 歌词第一行：当前行（没有数据时显示 i18n 占位）──
+            // ── 歌词上一行（K-53：上一行/当前行/下一行三行滚动）──
+            Text {
+                id: previousLineText
+                objectName: "lyricPreviousLine"
+                width: parent.width
+                height: 22
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                text: lyricWin.previousLine
+                color: Theme?.textTertiary ?? "transparent"
+                font.pixelSize: Theme?.fontSizeSmall ?? 10
+                elide: Text.ElideRight
+            }
+
+            // ── 歌词当前行（没有数据时显示 i18n 占位）──
             Text {
                 id: currentLineText
                 objectName: "lyricCurrentLine"
@@ -278,7 +334,10 @@ Window {
                 verticalAlignment: Text.AlignVCenter
                 text: lyricWin.currentLine !== ""
                       ? lyricWin.currentLine
-                      : (lyricWin.i18nReady ? Tr?.map["music_lyric_loading"] : "")
+                      : (lyricWin.i18nReady
+                         ? (lyricWin.noLyrics ? Tr?.map["music_lyric_empty"]
+                                              : Tr?.map["music_lyric_loading"])
+                         : "")
                 color: Theme?.accent ?? "transparent"
                 font.pixelSize: Theme?.fontSizeLarge ?? 14
                 font.bold: true

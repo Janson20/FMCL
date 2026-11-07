@@ -279,6 +279,8 @@ Rectangle {
                 onClicked: {
                     if (control.player)
                         control.player.toggleMute();
+                    if (typeof Music !== "undefined" && Music)
+                        Music.noteVolumeAdjustment();
                 }
             }
 
@@ -292,6 +294,23 @@ Rectangle {
                 onMoved: {
                     if (control.player)
                         control.player.setVolume(Math.round(value));
+                }
+                // K-59：一次拖动只记一次音量调整，不能按每个像素计数。
+                onPressedChanged: {
+                    if (!pressed && control.player && typeof Music !== "undefined" && Music)
+                        Music.noteVolumeAdjustment();
+                }
+            }
+
+            FmToolButton {
+                objectName: "musicDesktopLyricButton"
+                iconName: "lyrics"
+                iconSize: 15
+                side: 28
+                selected: (typeof Music !== "undefined" && Music) ? Music.desktopLyricVisible : false
+                onClicked: {
+                    if (typeof Music !== "undefined" && Music)
+                        Music.toggleDesktopLyric();
                 }
             }
 

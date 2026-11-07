@@ -109,7 +109,10 @@ def legacy_settings(base_dir: Path) -> Dict[str, Any]:
         if folder:
             out["folder"] = folder
     if isinstance(raw.get("music_baike_original_enabled"), bool):
-        out["prefer_original"] = bool(raw["music_baike_original_enabled"])
+        # 旧键是“百度百科原唱兜底”，不是“搜索排序优先原唱”；两者语义不同，
+        # 3.19 起分开存（K-57）。旧迁移已经把真值写进 prefer_original 的用户
+        # 也不会丢：这里额外写一份 baike_original，prefer_original 保持不动。
+        out["baike_original"] = bool(raw["music_baike_original_enabled"])
     return out
 
 
@@ -214,6 +217,9 @@ def apply_legacy_settings(config: Any, values: Dict[str, Any]) -> bool:
                 changed = True
         if "prefer_original" in values:
             config.set("sources.prefer_original", bool(values["prefer_original"]))
+            changed = True
+        if "baike_original" in values:
+            config.set("sources.baike_original", bool(values["baike_original"]))
             changed = True
     except Exception as exc:  # noqa: BLE001 - 迁移设置失败不应阻止页面
         logger.warning("应用旧音乐设置失败: %s", exc)

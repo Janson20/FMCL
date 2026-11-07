@@ -331,6 +331,8 @@ Rectangle {
                 onClicked: {
                     if (control.player)
                         control.player.toggleMute();
+                    if (typeof Music !== "undefined" && Music)
+                        Music.noteVolumeAdjustment();
                 }
             }
         }

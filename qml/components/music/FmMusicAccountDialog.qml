@@ -21,6 +21,16 @@ Item {
 
     readonly property bool loggedIn: !!(dialog.account && dialog.account.loggedIn)
     readonly property bool busy: !!(dialog.account && dialog.account.busy)
+    readonly property string qrState: dialog.account ? String(dialog.account.qrState || "idle") : "idle"
+    readonly property string qrStatusKey: {
+        if (dialog.qrState === "waiting")
+            return "wy_login_qr_waiting";
+        if (dialog.qrState === "scanned")
+            return "wy_login_qr_scanned";
+        if (dialog.qrState === "expired")
+            return "wy_login_qr_expired";
+        return "";
+    }
 
     signal closed()
 
@@ -143,8 +153,11 @@ Item {
                     FmLoadingState {
                         anchors.fill: parent
                         visible: !dialog.loggedIn && !qr.visible
-                        title: dialog.busy ? (Tr?.map["wy_login_qr_generating"] ?? "")
-                                           : (Tr?.map["wy_login_qr_fetch_failed"] ?? "")
+                        title: dialog.qrState === "error"
+                               ? (Tr?.map["wy_login_qr_fetch_failed"] ?? "")
+                               : (dialog.qrState === "expired"
+                                  ? (Tr?.map["wy_login_qr_expired"] ?? "")
+                                  : (Tr?.map["wy_login_qr_generating"] ?? ""))
                     }
 
                     ColumnLayout {
@@ -171,12 +184,39 @@ Item {
 
                         Text {
                             Layout.alignment: Qt.AlignHCenter
+                            text: dialog.account ? String(dialog.account.vipLabel || "") : ""
+                            color: Theme?.textSecondary ?? "transparent"
+                            font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        }
+
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            text: (dialog.account && dialog.account.vipQualityKey)
+                                  ? (Tr?.map[String(dialog.account.vipQualityKey)] ?? "") : ""
+                            color: Theme?.textTertiary ?? "transparent"
+                            font.pixelSize: Theme?.fontSizeSmall ?? 10
+                        }
+
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
                             text: Tr?.map["music_wy_playlists"] ?? ""
                             color: Theme?.textTertiary ?? "transparent"
                             font.pixelSize: Theme?.fontSizeSmall ?? 10
                         }
                     }
                 }
+            }
+
+            Text {
+                objectName: "musicAccountQrStatus"
+                Layout.fillWidth: true
+                visible: !dialog.loggedIn && qr.visible && dialog.qrStatusKey.length > 0
+                horizontalAlignment: Text.AlignHCenter
+                text: Tr?.map[dialog.qrStatusKey] ?? ""
+                color: dialog.qrState === "scanned" ? (Theme?.success ?? "transparent")
+                                                    : (Theme?.textSecondary ?? "transparent")
+                font.pixelSize: Theme?.fontSizeBase ?? 12
+                wrapMode: Text.WordWrap
             }
 
             Text {

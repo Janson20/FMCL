@@ -65,6 +65,8 @@ class PlayerEngine(QObject):
 
     # ── 信号 ────────────────────────────────────────────────
     trackChanged = Signal()
+    #: 一首曲目**真正开始播放**时发一次（会话恢复只摆曲目不算；暂停恢复不重复）
+    trackStarted = Signal()
     positionChanged = Signal()
     durationChanged = Signal()
     playingChanged = Signal()
@@ -134,6 +136,7 @@ class PlayerEngine(QObject):
         self._lyric_roma = ""
 
         self._seq = 0
+        self._started_seq = 0
         self._emitter = _Emitter(self)
         self._emitter.resolved.connect(self._on_resolved)
         self._emitter.lyricReady.connect(self._on_lyric_ready)
@@ -1069,6 +1072,11 @@ class PlayerEngine(QObject):
         self._playing, self._paused = playing, paused
         if playing:
             self._progress_timer.start()
+            # 成就用的「真正起播」信号：同一首歌暂停/恢复不重复，换歌才 +1。
+            # 会话恢复出来的曲目在用户按播放前不会走到这里。
+            if self._started_seq != self._seq:
+                self._started_seq = self._seq
+                self.trackStarted.emit()
         if changed:
             self.playingChanged.emit()
             self.pausedChanged.emit()

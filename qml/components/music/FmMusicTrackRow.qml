@@ -48,11 +48,14 @@ Rectangle {
     property bool showOriginal: true
     property bool showPlayCount: true
 
-    signal activated()
-    signal addRequested()
-    signal removeRequested()
-    signal moveUpRequested()
-    signal moveDownRequested()
+    // 这些信号必须带上当前行的 index：FmMusicTrackList 的 delegate 把 index
+    // 当作“第几首”转给页面。只发无参信号时，QML 会把 undefined 转成 0，
+    // 结果就是“点哪首都是第一首”（3.19 验收反馈修复）。
+    signal activated(int index)
+    signal addRequested(int index)
+    signal removeRequested(int index)
+    signal moveUpRequested(int index)
+    signal moveDownRequested(int index)
     signal contextRequested(int index, real sceneX, real sceneY)
 
     function sourceLabel() {
@@ -116,7 +119,7 @@ Rectangle {
         acceptedButtons: Qt.LeftButton
         onEntered: control.hovered = true
         onExited: control.hovered = false
-        onClicked: control.activated()
+        onClicked: control.activated(control.index)
     }
 
     MouseArea {
@@ -260,7 +263,7 @@ Rectangle {
             iconName: "add"
             iconSize: 13
             side: 26
-            onClicked: control.addRequested()
+            onClicked: control.addRequested(control.index)
         }
 
         FmToolButton {
@@ -271,7 +274,7 @@ Rectangle {
             side: 26
             opacity: control.hovered ? 1 : 0
             enabled: control.hovered && control.canMoveUp
-            onClicked: control.moveUpRequested()
+            onClicked: control.moveUpRequested(control.index)
         }
 
         FmToolButton {
@@ -282,7 +285,7 @@ Rectangle {
             side: 26
             opacity: control.hovered ? 1 : 0
             enabled: control.hovered && control.canMoveDown
-            onClicked: control.moveDownRequested()
+            onClicked: control.moveDownRequested(control.index)
         }
 
         FmToolButton {
@@ -293,7 +296,7 @@ Rectangle {
             side: 26
             opacity: control.hovered ? 1 : 0
             enabled: control.hovered
-            onClicked: control.removeRequested()
+            onClicked: control.removeRequested(control.index)
         }
 
         FmToolButton {

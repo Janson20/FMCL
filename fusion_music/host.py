@@ -52,6 +52,9 @@ class MusicHost:
             self.loudness = LoudnessService(self.config)
         except Exception as exc:  # noqa: BLE001 - 没有解码器时退化为不均衡
             logger.warning("音量均衡初始化失败，按 0 dB 播放: %s", exc)
+        # 3.19 K-57：把“百度百科原唱兜底”从旧 config.json 的独立键迁进新配置，
+        # 并在音源实例创建前同步；音源默认值是 True，缺失时保持旧默认。
+        self.apply_baike_original()
         self.player = PlayerEngine(self.config, self.library, self.loudness)
         self.library_controller = LibraryController(self.config, self.library)
         self.search = SearchController(self.config)
@@ -75,6 +78,15 @@ class MusicHost:
             len(self.library.playlists()),
             len(self.library.local_tracks()),
         )
+
+    def apply_baike_original(self) -> None:
+        enabled = bool(self.config.get("sources.baike_original", True))
+        try:
+            from .sources import wy_source
+
+            wy_source().set_baike_enabled(enabled)
+        except Exception as exc:  # noqa: BLE001 - 音源还没加载时只影响兜底识别
+            logger.warning("同步百度百科原唱开关失败: %s", exc)
 
     def _sync_remote_playlists(self) -> None:
         if not hasattr(self, "library_controller"):

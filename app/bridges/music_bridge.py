@@ -15,14 +15,17 @@ import os
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
-from PySide6.QtCore import Property, QObject, Signal, Slot
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices, QGuiApplication
 
 from services.i18n_service import _
 
 logger = logging.getLogger("app.bridges.music_bridge")
 
 QML_NAME = "Music"
+
+#: 原唱错标反馈外链（旧 ui/app_music.py 的 MUSIC_ORIGINAL_FEEDBACK_URL）。
+MUSIC_ORIGINAL_FEEDBACK_URL = "https://doc.weixin.qq.com/forms/AKgAhAf7ABQAUoAtgbcAHkCNf0v0B41mf"
 
 #: 旧界面的 7 组音乐热键（名字统一加 music_ 前缀，避免与监控热键撞名）。
 #: 静音改成 Ctrl+Shift+Alt+M：Ctrl+Shift+M 已经被监控悬浮窗占用，两个回调同时
@@ -44,6 +47,8 @@ class MusicBridge(QObject):
     readyChanged = Signal()
     pageChanged = Signal()
     expandedChanged = Signal()
+    desktopLyricChanged = Signal()
+    baikeOriginalChanged = Signal()
     statusMessage = Signal(str, str)
     noticeRequested = Signal(str, str)
 
@@ -60,6 +65,11 @@ class MusicBridge(QObject):
         self._engine: Any = None
         self._hotkeys: Any = None
         self._hotkeys_bound = False
+        self._overlay: Any = None
+        self._overlay_bound = False
+        self._syncing_desktop_lyric = False
+        self._achievement: Any = None
+        self._modes_used: set[str] = set()
 
     # ── 装配 ────────────────────────────────────────────────
 
@@ -75,11 +85,17 @@ class MusicBridge(QObject):
         override = os.environ.get("FMCL_MUSIC_BASE_DIR")
         if override:
             self._base_dir = Path(override)
+        self._achievement = None
+        try:
+            self._achievement = context.try_get("achievement") if context is not None else None
+        except Exception as exc:  # noqa: BLE001 - 成就服务缺席不应让音乐页打不开
+            logger.warning("取成就服务失败: %s", exc)
 
     def use_engine(self, engine: Any) -> None:
         self._engine = engine
         registry = getattr(engine, "_fmcl_bridges", None) or {}
         self._hotkeys = registry.get("Hotkeys")
+        self._overlay = registry.get("Overlay")
 
     @Slot()
     def ensureReady(self) -> None:  # noqa: N802 - QML 槽名
@@ -103,9 +119,20 @@ class MusicBridge(QObject):
         player.resolveFailed.connect(self._on_resolve_failed)
         player.statusMessage.connect(self._on_player_status)
         player.fallbackUsed.connect(self._on_fallback)
+        player.trackStarted.connect(self._on_track_started)
+        player.modeChanged.connect(self._on_mode_changed)
+        self._host.account.renewFinished.connect(self._on_renew_finished)
         self._host.library_controller.errorOccurred.connect(self._on_library_error)
         self._host.library_controller.message.connect(self._on_library_message)
         self._host.search.errorOccurred.connect(self._on_search_error)
+        try:
+            self._modes_used = set(self._host.config.get("playback.modes_used", []) or [])
+        except (TypeError, ValueError):
+            self._modes_used = set()
+        if {"sequential", "loop_list", "loop_single", "shuffle"}.issubset(self._modes_used):
+            self._check_achievement("music_mode_master")
+        self._bind_overlay()
+        self._restore_desktop_lyric()
         self._register_hotkeys()
         if self._host.migration.get("migrated"):
             counts = self._host.migration.get("counts") or {}
@@ -138,6 +165,23 @@ class MusicBridge(QObject):
     @Property(QObject, notify=readyChanged)
     def account(self):
         return self._host.account if self._host is not None else None
+
+    @Property(bool, notify=desktopLyricChanged)
+    def desktopLyricVisible(self) -> bool:  # noqa: N802
+        if self._overlay is not None:
+            try:
+                return bool(self._overlay.lyricVisible)
+            except Exception:  # noqa: BLE001 - 窗口还没建好时按配置读
+                pass
+        if self._host is None:
+            return False
+        return bool(self._host.config.get("lyrics.desktop_lyric", False))
+
+    @Property(bool, notify=baikeOriginalChanged)
+    def baikeOriginal(self) -> bool:  # noqa: N802
+        if self._host is None:
+            return True
+        return bool(self._host.config.get("sources.baike_original", True))
 
     @Property(str, notify=readyChanged)
     def errorText(self) -> str:  # noqa: N802
@@ -306,6 +350,45 @@ class MusicBridge(QObject):
         self._host.account.syncPlaylists()
 
     @Slot()
+    def toggleDesktopLyric(self) -> None:  # noqa: N802
+        """播放栏的桌面歌词开关；可见性变化由 Overlay 信号回写配置。"""
+        if self._overlay is None:
+            return
+        try:
+            self._overlay.toggleLyric()
+        except Exception as exc:  # noqa: BLE001 - 悬浮窗失败不影响播放
+            logger.warning("切换桌面歌词失败: %s", exc)
+            self.noticeRequested.emit(_("music_desktop_lyric_failed"), "error")
+
+    @Slot(bool)
+    def setBaikeOriginal(self, enabled: bool) -> None:  # noqa: N802
+        """设置页与在线搜索共用的百度百科原唱兜底开关。"""
+        if self._host is None:
+            return
+        value = bool(enabled)
+        self._host.config.set("sources.baike_original", value)
+        self._host.config.save()
+        try:
+            self._host.apply_baike_original()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("同步百度百科原唱开关失败: %s", exc)
+        self.baikeOriginalChanged.emit()
+
+    @Slot()
+    def openOriginalFeedback(self) -> None:  # noqa: N802
+        """打开原唱错标/漏标反馈表单（旧界面同一个 URL）。"""
+        try:
+            QDesktopServices.openUrl(QUrl(MUSIC_ORIGINAL_FEEDBACK_URL))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("打开原唱反馈链接失败: %s", exc)
+            self.noticeRequested.emit(_("music_original_feedback_failed"), "error")
+
+    @Slot()
+    def noteVolumeAdjustment(self) -> None:  # noqa: N802
+        """由音量滑块释放/热键/静音调用；同一次拖动只记一次。"""
+        self._trigger_achievement("music_volume_tweaker")
+
+    @Slot()
     def scan(self) -> None:  # noqa: N802
         if self._host is not None:
             self._host.scan()
@@ -322,6 +405,108 @@ class MusicBridge(QObject):
     @Slot()
     def detach(self) -> None:
         self.shutdown()
+
+    # ── 桌面歌词 / 百度百科 / 成就 ──────────────────────────
+
+    def _bind_overlay(self) -> None:
+        if self._overlay is None or self._overlay_bound:
+            return
+        try:
+            self._overlay.lyricVisibleChanged.connect(self._on_desktop_lyric_visibility_changed)
+            self._overlay_bound = True
+        except Exception as exc:  # noqa: BLE001 - 悬浮窗缺席时只影响这一个开关
+            logger.warning("连接桌面歌词可见性失败: %s", exc)
+
+    def _restore_desktop_lyric(self) -> None:
+        if self._overlay is None or self._host is None:
+            return
+        want = bool(self._host.config.get("lyrics.desktop_lyric", False))
+        if not want:
+            return
+        self._syncing_desktop_lyric = True
+        try:
+            self._overlay.showLyric()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("恢复桌面歌词失败: %s", exc)
+        finally:
+            self._syncing_desktop_lyric = False
+        self.desktopLyricChanged.emit()
+
+    @Slot()
+    def _on_desktop_lyric_visibility_changed(self) -> None:
+        if self._syncing_desktop_lyric or self._host is None:
+            return
+        try:
+            visible = bool(self._overlay.lyricVisible) if self._overlay is not None else False
+            self._host.config.set("lyrics.desktop_lyric", visible)
+            self._host.config.save()
+        except Exception as exc:  # noqa: BLE001 - 配置坏掉不该影响窗口
+            logger.warning("保存桌面歌词可见性失败: %s", exc)
+        self.desktopLyricChanged.emit()
+
+    @Slot()
+    def _on_track_started(self) -> None:
+        self._trigger_achievement("music_first_play")
+        self._trigger_achievement("music_play_count")
+
+    @Slot()
+    def _on_mode_changed(self) -> None:
+        if self._host is None:
+            return
+        try:
+            name = str(self._host.player.modeName or "")
+        except Exception:  # noqa: BLE001
+            return
+        modes = set(self._modes_used)
+        modes.add(name)
+        if modes == self._modes_used:
+            return
+        self._modes_used = modes
+        try:
+            self._host.config.set("playback.modes_used", sorted(modes))
+            self._host.config.save()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("保存播放模式历史失败: %s", exc)
+        if {"sequential", "loop_list", "loop_single", "shuffle"}.issubset(modes):
+            self._check_achievement("music_mode_master")
+
+    @Slot(bool)
+    def _on_renew_finished(self, ok: bool) -> None:
+        key = "settings_wy_renew_success" if ok else "settings_wy_renew_failed"
+        self.statusMessage.emit(_(key), "success" if ok else "error")
+
+    def _achievement_engine(self) -> Any:
+        service = self._achievement
+        if service is None:
+            return None
+        try:
+            getter = getattr(service, "engine", None)
+            return getter() if callable(getter) else None
+        except Exception as exc:  # noqa: BLE001 - 成就失败不影响播放
+            logger.warning("取成就引擎失败: %s", exc)
+            return None
+
+    def _trigger_achievement(self, achievement_id: str, value: int = 1) -> bool:
+        engine = self._achievement_engine()
+        if engine is None:
+            return False
+        try:
+            engine.update_progress(achievement_id, value=value, trigger_type="increment")
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("触发成就 %s 失败: %s", achievement_id, exc)
+            return False
+
+    def _check_achievement(self, achievement_id: str) -> bool:
+        engine = self._achievement_engine()
+        if engine is None:
+            return False
+        try:
+            engine.check_and_unlock(achievement_id, True)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("检查成就 %s 失败: %s", achievement_id, exc)
+            return False
 
     # ── 全局热键 ────────────────────────────────────────────
 
@@ -356,10 +541,13 @@ class MusicBridge(QObject):
                 player.stop()
             elif action == "music_vol_up":
                 player.setVolume(min(100, player.volume + 5))
+                self.noteVolumeAdjustment()
             elif action == "music_vol_down":
                 player.setVolume(max(0, player.volume - 5))
+                self.noteVolumeAdjustment()
             elif action == "music_vol_mute":
                 player.toggleMute()
+                self.noteVolumeAdjustment()
         except Exception as exc:  # noqa: BLE001 - 热键回调不能把主线程打崩
             logger.warning("音乐热键 %s 执行失败: %s", action, exc)
 

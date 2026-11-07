@@ -93,6 +93,10 @@ DEFAULTS: Dict[str, Any] = {
         "priority": ["netease", "local"],
         "fallback": True,           # 播放失败时跨音源兜底
         "prefer_original": True,    # 优先原唱
+        # 网易云原唱识别兜底：算法无法判定时异步查百度百科（3.19 K-57）。
+        # 旧 config.json 的 music_baike_original_enabled 迁移到这里，不与
+        # prefer_original（“搜索结果排序优先原唱”）混用。
+        "baike_original": True,
         "concurrency": 6,
     },
     # ── 网易云账号 ──────────────────────────────────────────

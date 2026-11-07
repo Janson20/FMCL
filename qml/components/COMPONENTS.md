@@ -169,18 +169,18 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 
 | 组件 | 用途 | 关键属性 |
 |------|------|----------|
-| `FmMusicTrackRow` | 所有曲目列表共用的行：本地/歌单/队列/在线/发现 | `index` `uid` `name` `singer` `album` `durationText` `cover` `source` `bestQuality` `isOriginal` `originalName` `playCount` `current` `showSequence` `showAdd` `showRemove` `showMove` `showCopy` `showQuality` `showOriginal` `showPlayCount` `activated()` `addRequested()` `removeRequested()` `moveUpRequested()` `moveDownRequested()` `contextRequested()` |
+| `FmMusicTrackRow` | 所有曲目列表共用的行：本地/歌单/队列/在线/发现 | `index` `uid` `name` `singer` `album` `durationText` `cover` `source` `bestQuality` `isOriginal` `originalName` `playCount` `current` `showSequence` `showAdd` `showRemove` `showMove` `showCopy` `showQuality` `showOriginal` `showPlayCount` `activated(index)` `addRequested(index)` `removeRequested(index)` `moveUpRequested(index)` `moveDownRequested(index)` `contextRequested(index, sceneX, sceneY)` |
 | `FmMusicTrackList` | 所有曲目列表共用的 ListView + 空/加载/错误状态 | `model` `player` `variant` `showSequence` `showAdd` `showRemove` `showMove` `showStates` `showEmpty` `emptyTitle` `loading` `error` `retryText` `activated(index)` `addRequested(index)` `removeRequested(index)` `moveUpRequested(index)` `moveDownRequested(index)` `retryRequested()` |
 | `FmMusicAddToPlaylist` | 全局“加入歌单”宿主：浮层 + 新建并加入，页面只放一份 | `openFor(track)` `opened` `closed()` |
 | `FmMusicLocalView` | 本地音乐：文件夹、扫描进度、曲库列表 | `lib` `player` `addHost` |
 | `FmMusicPlaylistSidebar` | 歌单管理左侧栏：系统/自建/网易云歌单、登录与同步入口 | `lib` `account` `playlistActivated()` `playlistContextRequested()` `createRequested()` `loginRequested()` `syncRequested()` |
 | `FmMusicLibraryView` | 歌单管理整页：侧边栏 + 曲目 + 排序 + 新建/重命名/删除 + 加入歌单 | `lib` `player` `account` `addHost` |
 | `FmMusicMenu` | 音乐页内右键浮动菜单（点空白/Escape/5 秒关闭） | `opened` `items` `openAtScene(x,y)` `close()` `selected(key)` `closed()` |
-| `FmMusicAccountDialog` | 网易云扫码登录浮层（歌单侧边栏入口；3.19 扩展详情） | `opened` `account` `closed()` |
+| `FmMusicAccountDialog` | 网易云扫码登录浮层（歌单侧边栏/设置入口；3.19 增加二维码状态与 VIP/音质详情） | `opened` `account` `closed()` |
 | `FmMusicQueueView` | 播放队列：单击跳转、上移、下移、移除、加入歌单 | `player` `addHost` |
-| `FmMusicPlayerBar` | 页面底部播放栏：封面、传输、进度、音量、展开 | `player` `expanded` |
+| `FmMusicPlayerBar` | 页面底部播放栏：封面、传输、进度、音量、桌面歌词开关、展开 | `player` `expanded` |
 | `FmMusicNowPlaying` | 展开播放页：大封面、歌词滚动、完整控制 | `player` `collapseRequested()` |
-| `FmMusicOnlineView` | 在线搜索：输入、音源标签、结果、分页、加入歌单、联想词 | `search` `player` `lib` `addHost` |
+| `FmMusicOnlineView` | 在线搜索：输入、音源标签、结果、分页、加入歌单、联想词、原唱兜底开关与反馈外链 | `search` `player` `lib` `addHost` |
 | `FmMusicPager` | 在线搜索分页：全量页码横向滚动、上下页 | `page` `pageCount` `loading` `pageRequested(page)` |
 | `FmMusicPlaylistPicker` | 「加入歌单」页内浮层；勾选已在歌单中的曲目，无歌单时就地新建 | `opened` `playlists` `containedIds` `track` `creating` `closed()` `selected(playlistId, track)` `createRequested(name, track)` |
 | `FmMusicDiscoverView` | 发现首页：推荐歌单/排行榜/每日推荐/最新音乐 | `discover` `player` `addHost` |

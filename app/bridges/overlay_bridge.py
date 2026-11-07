@@ -949,6 +949,8 @@ class OverlayBridge(QObject):
             current = float(self._props[kind]["opacity"])
             value = increase_alpha(current) if direction > 0 else decrease_alpha(current)
             self._props[kind]["opacity"] = value
+        # K-Q3：透明度点一下就该记住，不能等下次拖拽才落盘。
+        self._persist_overlay_prop(kind, "opacity", float(value))
         self.configChanged.emit()
         return value
 
@@ -970,9 +972,38 @@ class OverlayBridge(QObject):
         with self._lock:
             locked = toggle_lock(bool(self._props["lyric"]["locked"]))
             self._props["lyric"]["locked"] = locked
+        self._persist_overlay_prop("lyric", "locked", bool(locked))
         self.lyricLockChanged.emit()
         self.configChanged.emit()
         return locked
+
+    def _persist_overlay_prop(self, kind: str, key: str, value: Any) -> None:
+        """立即把单个窗口属性合并进 ``overlay_geometry``。
+
+        只用于“点一下就该记住”的属性（透明度 / 锁定）；位置仍由拖拽结束时的
+        ``savePosition()`` 批量写，避免拖动过程中每帧写盘。
+        单独的私有方法而不是直接调 ``savePosition()``：后者还会写三个窗口的位置，
+        而锁定/透明度变化与位置无关，没必要扩大写盘面。
+        """
+        cfg = self._config_object()
+        if cfg is None or kind not in KINDS:
+            return
+        raw = getattr(cfg, CONFIG_FIELD, None)
+        payload: Dict[str, Any] = {
+            name: dict(entry) for name, entry in (raw.items() if isinstance(raw, dict) else [])
+            if isinstance(entry, dict)
+        }
+        entry = payload.get(kind, {})
+        entry[key] = value
+        payload[kind] = entry
+        try:
+            setattr(cfg, CONFIG_FIELD, payload)
+            save = getattr(cfg, "save_config", None)
+            if callable(save):
+                save()
+        except Exception as e:  # noqa: BLE001 - 写盘失败不该影响窗口
+            logger.warning("写悬浮窗属性失败: %s", e)
+            self.overlayFailed.emit(f"悬浮窗属性写盘失败: {e}")
 
     # ─── 位置与持久化 ────────────────────────────────────────
 
@@ -1063,6 +1094,9 @@ class OverlayBridge(QObject):
                 "width": int(props[kind]["width"]), "height": int(props[kind]["height"]),
                 "opacity": float(props[kind]["opacity"]),
             })
+            if kind == "lyric":
+                # K-Q3：只有桌面歌词有锁定态；不要给 monitor/toast 写多余字段。
+                entry["locked"] = bool(props[kind]["locked"])
             payload[kind] = entry
         try:
             setattr(cfg, CONFIG_FIELD, payload)
