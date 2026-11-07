@@ -169,40 +169,35 @@ Item {
             border.width: 1
             border.color: Theme?.cardBorder ?? "transparent"
 
-            ListView {
-                id: detailList
+            FmMusicTrackList {
                 anchors.fill: parent
                 anchors.margins: Theme?.spacingSm ?? 8
-                clip: true
-                spacing: 1
                 model: control.model
-                boundsBehavior: Flickable.StopAtBounds
-                ScrollBar.vertical: FmScrollBar { }
-
-                delegate: FmMusicTrackRow {
-                    width: detailList.width
-                    current: !!(control.player && control.player.currentTrack
-                             && control.player.currentTrack.uid === uid)
-                    onActivated: {
-                        if (control.player && control.model)
-                            control.player.playTrackInList(control.model.allItems(), index)
-                    }
+                player: control.player
+                variant: "playlist"
+                showSequence: true
+                showAdd: true
+                loading: control.loading
+                loadingTitle: Tr?.map["plugin_state_loading"] ?? ""
+                emptyTitle: Tr?.map["music_playlist_detail_empty"] ?? ""
+                emptyDescription: Tr?.map["music_playlist_detail_empty_desc"] ?? ""
+                listObjectName: "musicPlaylistDetailList"
+                onActivated: function (rowIndex) {
+                    if (control.player && control.model)
+                        control.player.playTrackInList(control.model.allItems(), rowIndex)
+                }
+                onAddRequested: function (rowIndex) {
+                    var track = control.model ? control.model.get(rowIndex) : null
+                    if (track)
+                        addHost.openFor(track)
                 }
             }
-
-            FmLoadingState {
-                anchors.fill: parent
-                visible: control.loading
-                title: Tr?.map["plugin_state_loading"] ?? ""
-            }
-
-            FmEmptyState {
-                anchors.fill: parent
-                visible: !control.loading && control.model && control.model.count === 0
-                iconName: "note"
-                title: Tr?.map["music_playlist_detail_empty"] ?? ""
-                description: Tr?.map["music_playlist_detail_empty_desc"] ?? ""
-            }
         }
+    }
+
+    FmMusicAddToPlaylist {
+        id: addHost
+        anchors.fill: parent
+        z: 30
     }
 }

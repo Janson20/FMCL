@@ -1,10 +1,11 @@
 // SettingsPage.qml —— 设置域（阶段 3 任务 3.4；IA 见 `docs/refactor/02` 第 4.12 节）。
 //
-// ## 一、一页承载 8 条路由
+// ## 一、一页承载 9 条二级路由
 //
-// 路由表（`app/bridges/nav_bridge.py`）把设置拆成 8 条二级路由，全部指向本文件：
-// `settings`（= 启动器）、`settings/launcher`、`settings/java`、`settings/theme`、
-// `settings/log`、`settings/about`、`settings/account`、`settings/ai`、`settings/plugin`。
+// 路由表（`app/bridges/nav_bridge.py`）把设置拆成 9 条二级路由，全部指向本文件
+//（另有 `settings` 根路由，等同 `settings/launcher`）：`settings/launcher`、
+// `settings/java`、`settings/theme`、`settings/music`、`settings/log`、`settings/about`、
+// `settings/account`、`settings/ai`、`settings/plugin`。
 // 本文件按 `routeId` 切左侧分区导航 + 右侧内容（`Loader`），**一屏一个分区**。
 // 分区清单**从 `Nav.routes()` 现取**（`parent === "settings"`），不写死在 QML 里 ——
 // 路由表加一条，这里就多一个分区，不会出现"路由进得去但导航里看不见"。
@@ -62,7 +63,7 @@ FmPage {
 
     //: 显示顺序：先做好的五个分区在上，三个占位分区在下 —— 打开设置先看到能用的东西。
     //: 清单之外的 id 追加在末尾（路由表加新分区时不会漏，只是排在后面）。
-    readonly property var sectionOrder: ["launcher", "java", "theme", "log", "about",
+    readonly property var sectionOrder: ["launcher", "java", "theme", "music", "log", "about",
                                           "account", "ai", "plugin"]
 
     // ── 页面状态（全部在 `refreshUi()` 里赋值）────────────────
@@ -146,6 +147,8 @@ FmPage {
             return javaSection
         if (name === "theme")
             return themeSection
+        if (name === "music")
+            return musicAccountSection
         if (name === "log")
             return logSection
         if (name === "about")
@@ -1276,7 +1279,234 @@ FmPage {
         }
     }
 
-    // ══ 分区六：账户（阶段 3 任务 3.5 落地；M-13 / M-26 ~ M-29）══
+    // ══ 分区六：音乐账号（阶段 3.18；旧设置里的网易云登录入口）══
+    //
+    // 用户反馈“登录入口要好找，或像旧版放设置里”：这里给设置域一条独立分区
+    // `settings/music`，路由标题复用 `settings_wy_login_title`。只负责登录态、
+    // 扫码入口、重新同步与退出；VIP 等级、续期、账号详情仍归 3.19。
+    // 账号与二维码逻辑全在 `Music.account`（AccountManager），本分区不碰凭据与网络。
+
+    Component {
+        id: musicAccountSection
+
+        Item {
+            id: musicAccountPane
+            objectName: "musicAccountSection"
+
+            readonly property bool live: (typeof Music !== "undefined" && Music) ? true : false
+            readonly property var account: (musicAccountPane.live && Music.ready) ? Music.account : null
+            readonly property bool loggedIn: !!(musicAccountPane.account && musicAccountPane.account.loggedIn)
+            readonly property bool busy: !!(musicAccountPane.account && musicAccountPane.account.busy)
+            property bool dialogOpen: false
+            property string errorText: ""
+            property string statusText: ""
+
+            function t(key) {
+                return Tr ? (Tr.map[key] ?? key) : key
+            }
+
+            function format(key, params) {
+                var text = musicAccountPane.t(key)
+                if (!params)
+                    return text
+                for (var name in params)
+                    text = text.replace("{" + name + "}", String(params[name]))
+                return text
+            }
+
+            function displayStatus() {
+                if (!musicAccountPane.loggedIn)
+                    return musicAccountPane.t("settings_wy_not_logged_in")
+                var name = musicAccountPane.account
+                        ? String(musicAccountPane.account.nickname || "") : ""
+                return name.length > 0
+                        ? musicAccountPane.format("settings_wy_logged_in_as", {"name": name})
+                        : musicAccountPane.t("settings_wy_logged_in")
+            }
+
+            function refresh() {
+                if (!musicAccountPane.live) {
+                    musicAccountPane.errorText = musicAccountPane.t("music_backend_failed")
+                    return
+                }
+                musicAccountPane.statusText = musicAccountPane.displayStatus()
+                if (!musicAccountPane.account) {
+                    musicAccountPane.errorText = Music.ready ? musicAccountPane.t("music_backend_failed") : ""
+                    return
+                }
+                musicAccountPane.errorText = ""
+            }
+
+            function openLogin() {
+                if (!musicAccountPane.live)
+                    return
+                if (!Music.ready)
+                    Music.ensureReady()
+                musicAccountPane.refresh()
+                if (!Music.ready || !Music.account) {
+                    musicAccountPane.errorText = musicAccountPane.t("music_backend_failed")
+                    return
+                }
+                musicAccountPane.errorText = ""
+                musicAccountPane.dialogOpen = true
+            }
+
+            function logout() {
+                if (musicAccountPane.account)
+                    musicAccountPane.account.logout()
+            }
+
+            function syncNow() {
+                if (typeof Music !== "undefined" && Music)
+                    Music.syncPlaylists()
+            }
+
+            onAccountChanged: musicAccountPane.refresh()
+
+            Component.onCompleted: {
+                if (musicAccountPane.live && !Music.ready)
+                    Music.ensureReady()
+                musicAccountPane.refresh()
+            }
+
+            Connections {
+                target: (typeof Music !== "undefined" && Music) ? Music : null
+                function onReadyChanged() { musicAccountPane.refresh() }
+            }
+
+            Connections {
+                target: musicAccountPane.account
+                function onLoggedInChanged() { musicAccountPane.refresh() }
+                function onBusyChanged() { musicAccountPane.refresh() }
+                function onProfileChanged() { musicAccountPane.refresh() }
+                function onPlaylistsFailedChanged() { musicAccountPane.refresh() }
+            }
+
+            Connections {
+                target: (typeof Tr !== "undefined" && Tr) ? Tr : null
+                function onLanguageChanged() { musicAccountPane.refresh() }
+            }
+
+            FmScrollView {
+                id: musicAccountScroll
+                anchors.fill: parent
+                contentWidth: availableWidth
+
+                ColumnLayout {
+                    width: musicAccountScroll.availableWidth
+                    spacing: Theme?.spacingMd ?? 12
+
+                    FmCard {
+                        Layout.fillWidth: true
+                        title: Tr?.map["settings_wy_login_title"] ?? ""
+                        subtitle: Tr?.map["settings_wy_login_desc"] ?? ""
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme?.spacingSm ?? 8
+
+                            FmIcon {
+                                name: "account"
+                                size: 22
+                                color: musicAccountPane.loggedIn
+                                       ? (Theme?.success ?? "transparent")
+                                       : (Theme?.textTertiary ?? "transparent")
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: musicAccountPane.statusText
+                                color: Theme?.textPrimary ?? "transparent"
+                                font.pixelSize: Theme?.fontSizeBase ?? 12
+                                elide: Text.ElideRight
+                            }
+
+                            FmProgressRing {
+                                visible: musicAccountPane.busy
+                                Layout.preferredWidth: 16
+                                Layout.preferredHeight: 16
+                                lineWidth: 2
+                                indeterminate: true
+                            }
+
+                            FmTag {
+                                visible: musicAccountPane.loggedIn
+                                text: Tr?.map["settings_wy_logged_in"] ?? ""
+                                level: "success"
+                                iconName: "check"
+                            }
+
+                            FmTag {
+                                visible: musicAccountPane.loggedIn && musicAccountPane.account
+                                         && musicAccountPane.account.playlistsFailed
+                                text: Tr?.map["music_wy_sync_failed"] ?? ""
+                                level: "error"
+                            }
+                        }
+
+                        FmInfoBar {
+                            visible: musicAccountPane.errorText.length > 0
+                            level: "error"
+                            text: musicAccountPane.errorText
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme?.spacingSm ?? 8
+
+                            FmButton {
+                                objectName: "settingsMusicLoginButton"
+                                visible: !musicAccountPane.loggedIn
+                                primary: true
+                                iconName: "account"
+                                text: Tr?.map["settings_wy_login_btn"] ?? ""
+                                onClicked: musicAccountPane.openLogin()
+                            }
+
+                            FmButton {
+                                objectName: "settingsMusicSyncButton"
+                                visible: musicAccountPane.loggedIn
+                                primary: false
+                                iconName: "refresh"
+                                text: Tr?.map["music_wy_sync_now"] ?? ""
+                                enabled: !musicAccountPane.busy
+                                onClicked: musicAccountPane.syncNow()
+                            }
+
+                            FmButton {
+                                objectName: "settingsMusicLogoutButton"
+                                visible: musicAccountPane.loggedIn
+                                primary: false
+                                danger: true
+                                text: Tr?.map["settings_wy_logout_btn"] ?? ""
+                                onClicked: musicAccountPane.logout()
+                            }
+
+                            Item { Layout.fillWidth: true }
+                        }
+                    }
+                }
+            }
+
+            Loader {
+                id: musicAccountDialogLoader
+                anchors.fill: parent
+                active: musicAccountPane.dialogOpen
+                source: "../../components/music/FmMusicAccountDialog.qml"
+                onLoaded: {
+                    item.account = musicAccountPane.account
+                    item.opened = true
+                }
+            }
+
+            Connections {
+                target: musicAccountDialogLoader.item
+                function onClosed() { musicAccountPane.dialogOpen = false }
+            }
+        }
+    }
+
+    // ══ 分区七：账户（阶段 3 任务 3.5 落地；M-13 / M-26 ~ M-29）══
     //
     // 旧界面是一个**独立窗口**（`ui/windows/account_manager.py` 的 `AccountManagerWindow`，
     // 580x650 的 `CTkToplevel` + `grab_set`）；新架构里它是 `settings/account` 这条路由的
@@ -2150,7 +2380,7 @@ FmPage {
         }
     }
 
-    // ══ 分区七~八：AI / 插件（占位，随 3.22 / 3.23 迁）══
+    // ══ 分区八~九：AI / 插件（占位，随 3.22 / 3.23 迁）══
     //
     // 用户 2026-10-06 裁决 A：3.4 只做「启动器 / Java / 主题 / 日志 / 关于」。
     // 这两块在旧界面里是同一个设置窗口的另外两个标签页（AI 模型 / 插件），

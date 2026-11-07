@@ -11,6 +11,8 @@
 //     **密码不做 strip**（空格可能是密码的一部分）；
 //   * 取消 / Esc / 关闭 -> 兜底值（ask_text 的 fallback 是 None）。
 //   * `password=true` 时输入框按掩码显示（旧实现在 `_ask_password` 里用 `show="*"`）。
+//   * 页面内直接实例化时把 `modalScrim: true` 打开：自己铺遮罩并吞掉卡片外点击；
+//     DialogHost 队列里的实例保持默认 false（宿主已有一层遮罩，避免叠暗两次）。
 
 import QtQuick
 import QtQuick.Controls
@@ -21,6 +23,15 @@ Item {
     objectName: "textInputDialog"
 
     property var request: ({})
+
+    //: 页面自己发起的输入框（没有桥的 id）用这两个信号收答案；
+    //: 桥队列里的请求仍以 `Dialogs.submitDialog/cancelDialog` 回填，两边互不影响。
+    signal submitted(string value)
+    signal cancelled()
+
+    //: 页面内直接实例化时打开它：自己铺遮罩并吞掉卡片外的点击。
+    //: DialogHost 队列里的实例保持 false（宿主已经有一层遮罩）。
+    property bool modalScrim: false
 
     readonly property bool isPassword: !!(request && request.password)
 
@@ -35,12 +46,16 @@ Item {
     }
 
     function cancel() {
-        if (typeof Dialogs !== "undefined" && Dialogs && request && request.id !== undefined)
+        dialog.cancelled()
+        if (typeof Dialogs !== "undefined" && Dialogs && request && request.id !== undefined
+                && Number(request.id) >= 0)
             Dialogs.cancelDialog(request.id)
     }
 
     function submit(value) {
-        if (typeof Dialogs !== "undefined" && Dialogs && request && request.id !== undefined)
+        dialog.submitted(String(value))
+        if (typeof Dialogs !== "undefined" && Dialogs && request && request.id !== undefined
+                && Number(request.id) >= 0)
             Dialogs.submitDialog(request.id, value)
     }
 
@@ -53,13 +68,34 @@ Item {
 
     onRequestChanged: syncInitial()
     Component.onCompleted: syncInitial()
+    onVisibleChanged: {
+        if (dialog.visible) {
+            Qt.callLater(dialog.forceActiveFocus)
+            Qt.callLater(field.forceActiveFocus)
+        }
+    }
 
-    focus: true
+    focus: dialog.visible
     Keys.onEscapePressed: dialog.cancel()
+
+    Rectangle {
+        objectName: "dialogScrim"
+        anchors.fill: parent
+        visible: dialog.modalScrim
+        color: Theme?.scrim ?? "transparent"
+    }
+
+    MouseArea {
+        objectName: "dialogScrimBlocker"
+        anchors.fill: parent
+        enabled: dialog.modalScrim
+        acceptedButtons: Qt.AllButtons
+    }
 
     Rectangle {
         id: card
         objectName: "dialogCard"
+        z: 1
         anchors.centerIn: parent
         width: Math.min(480, Math.max(280, parent.width - 2 * Theme?.spacingXl ?? 0))
         height: layout.implicitHeight + 2 * Theme?.spacingLg ?? 0

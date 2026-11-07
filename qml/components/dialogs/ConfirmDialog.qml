@@ -70,7 +70,7 @@ Item {
             cancel()
     }
 
-    focus: true
+    focus: dialog.visible
     Keys.onEscapePressed: dialog.cancel()
     Keys.onReturnPressed: dialog.activateDefault()
     Keys.onEnterPressed: dialog.activateDefault()

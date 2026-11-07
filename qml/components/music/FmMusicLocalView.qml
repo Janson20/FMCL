@@ -14,6 +14,7 @@ Item {
 
     property var lib: null
     property var player: null
+    property var addHost: null
 
     function countText(count) {
         return String(Tr?.map["music_song_count"] ?? "").replace("{count}", String(count));
@@ -50,7 +51,8 @@ Item {
                     }
 
                     Text {
-                        text: control.lib ? control.countText(control.lib.localModel.count) : ""
+                        text: control.lib && control.lib.localModel
+                              ? control.countText(control.lib.localModel.count) : ""
                         color: Theme?.textTertiary ?? "transparent"
                         font.pixelSize: Theme?.fontSizeSmall ?? 10
                     }
@@ -174,7 +176,7 @@ Item {
                         primary: false
                         text: Tr?.map["music_play_all"] ?? ""
                         iconName: "play"
-                        visible: control.lib && control.lib.localModel.count > 0
+                        visible: control.lib && control.lib.localModel && control.lib.localModel.count > 0
                         onClicked: {
                             if (control.player && control.lib)
                                 control.player.playTrackInList(control.lib.localModel.allItems(), 0);
@@ -186,36 +188,31 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
-                    ListView {
-                        id: localList
+                    FmMusicTrackList {
                         anchors.fill: parent
-                        clip: true
-                        spacing: 1
                         model: control.lib ? control.lib.localModel : null
-                        boundsBehavior: Flickable.StopAtBounds
-                        ScrollBar.vertical: FmScrollBar { }
-
-                        delegate: FmMusicTrackRow {
-                            width: localList.width
-                            current: !!(control.player && control.player.currentTrack
-                                     && control.player.currentTrack.uid === uid)
-                            onActivated: {
-                                if (control.player && control.lib)
-                                    control.player.playTrackInList(control.lib.localModel.allItems(), index);
-                            }
+                        player: control.player
+                        variant: "local"
+                        showSequence: false
+                        showAdd: true
+                        showEmpty: !!(control.lib && !control.lib.scanning)
+                        emptyIcon: "folder-open"
+                        emptyTitle: Tr?.map["music_local_empty"] ?? ""
+                        emptyDescription: Tr?.map["music_local_empty_desc"] ?? ""
+                        emptyActionText: Tr?.map["music_add_folder"] ?? ""
+                        emptyActionPrimary: true
+                        listObjectName: "musicLocalList"
+                        onEmptyActionTriggered: folderDialog.open()
+                        onActivated: function (rowIndex) {
+                            if (control.player && control.lib)
+                                control.player.playTrackInList(control.lib.localModel.allItems(), rowIndex);
                         }
-                    }
-
-                    FmEmptyState {
-                        objectName: "musicLocalEmpty"
-                        anchors.fill: parent
-                        visible: control.lib && !control.lib.scanning && control.lib.localModel.count === 0
-                        iconName: "folder-open"
-                        title: Tr?.map["music_local_empty"] ?? ""
-                        description: Tr?.map["music_local_empty_desc"] ?? ""
-                        actionText: Tr?.map["music_add_folder"] ?? ""
-                        actionPrimary: true
-                        onActionTriggered: folderDialog.open()
+                        onAddRequested: function (rowIndex) {
+                            var track = control.lib && control.lib.localModel
+                                    ? control.lib.localModel.get(rowIndex) : null
+                            if (track && control.addHost)
+                                control.addHost.openFor(track)
+                        }
                     }
                 }
             }

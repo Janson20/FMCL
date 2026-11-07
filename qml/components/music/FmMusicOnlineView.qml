@@ -15,9 +15,7 @@ Item {
     property var search: null
     property var player: null
     property var lib: null
-
-    property bool pickerOpen: false
-    property var pickerTrack: null
+    property var addHost: null
 
     //: 联想词高亮项（-1 = 不选，回车搜输入框原文）
     property int suggestIndex: -1
@@ -94,23 +92,6 @@ Item {
         if (!control.search)
             return ""
         return String(Tr?.map["music_song_count"] ?? "").replace("{count}", String(control.search.totalCount))
-    }
-
-    function openPicker(track) {
-        if (!track)
-            return
-        control.pickerTrack = track
-        control.pickerOpen = true
-    }
-
-    function userPlaylists() {
-        var all = control.lib ? control.lib.playlists : []
-        var out = []
-        for (var i = 0; i < all.length; ++i) {
-            if (!all[i].system)
-                out.push(all[i])
-        }
-        return out
     }
 
     Component.onCompleted: {
@@ -358,25 +339,23 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
-                    ListView {
-                        id: resultsList
-                        objectName: "musicOnlineResults"
+                    FmMusicTrackList {
                         anchors.fill: parent
-                        clip: true
-                        spacing: 1
                         model: control.search ? control.search.model : null
-                        boundsBehavior: Flickable.StopAtBounds
-                        ScrollBar.vertical: FmScrollBar { }
-
-                        delegate: FmMusicOnlineRow {
-                            width: resultsList.width
-                            current: !!(control.player && control.player.currentTrack
-                                     && control.player.currentTrack.uid === uid)
-                            onActivated: control.playAt(index)
-                            onAddRequested: {
-                                if (control.search)
-                                    control.openPicker(control.search.model.get(index))
-                            }
+                        player: control.player
+                        variant: "online"
+                        showStates: false
+                        showSequence: true
+                        showAdd: true
+                        showQuality: true
+                        showOriginal: true
+                        showPlayCount: true
+                        listObjectName: "musicOnlineResults"
+                        onActivated: function (rowIndex) { control.playAt(rowIndex) }
+                        onAddRequested: function (rowIndex) {
+                            var track = control.search ? control.search.model.get(rowIndex) : null
+                            if (track && control.addHost)
+                                control.addHost.openFor(track)
                         }
                     }
 
@@ -527,15 +506,4 @@ Item {
         }
     }
 
-    FmMusicPlaylistPicker {
-        anchors.fill: parent
-        opened: control.pickerOpen
-        track: control.pickerTrack
-        playlists: control.userPlaylists()
-        onClosed: control.pickerOpen = false
-        onSelected: function (playlistId, track) {
-            if (typeof Music !== "undefined" && Music)
-                Music.addToPlaylist(String(playlistId), track)
-        }
-    }
 }

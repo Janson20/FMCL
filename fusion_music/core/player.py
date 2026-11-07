@@ -29,7 +29,7 @@ from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from . import cache
 from . import session as play_session
 from .lyrics import Lyrics
-from .models import Track, format_duration, quality_short
+from .models import Track, TrackListModel, format_duration, quality_short
 from .queue import PlayMode, mode_from_name, PLAY_MODE_LABELS, PLAY_MODE_NAMES
 from .trackutil import as_track
 from .resolver import Resolved, resolve
@@ -102,6 +102,7 @@ class PlayerEngine(QObject):
         self._player.setAudioOutput(self._output)
 
         self._queue = None  # 延迟导入避免循环
+        self._queue_model = TrackListModel()
         from .queue import PlayQueue
 
         self._queue = PlayQueue(on_changed=self._on_queue_changed)
@@ -238,6 +239,11 @@ class PlayerEngine(QObject):
         return self._current.source_text
 
     @Property(str, notify=trackChanged)
+    def fallbackSource(self) -> str:  # noqa: N802
+        """跨源兜底实际使用的音源 id；空串 = 没有兜底。QML 用它走 i18n。"""
+        return self._fallback_source or ""
+
+    @Property(str, notify=trackChanged)
     def qualityLabel(self) -> str:  # noqa: N802
         """实际播放档位的短名（与列表角标同一张表，见 models.QUALITY_SHORT_LABELS）。"""
         return quality_short(self._current_quality)
@@ -344,6 +350,11 @@ class PlayerEngine(QObject):
     @Property("QVariantList", notify=queueChanged)
     def queueItems(self):  # noqa: N802
         return [t.to_dict() for t in self._queue.tracks()]
+
+    @Property(QObject, constant=True)
+    def queueModel(self):  # noqa: N802
+        """队列的 TrackListModel 视图（与所有曲目列表共用角色模型）。"""
+        return self._queue_model
 
     @Property(int, notify=queueChanged)
     def queueIndex(self) -> int:  # noqa: N802
@@ -1137,6 +1148,7 @@ class PlayerEngine(QObject):
     # ── 队列通知 ────────────────────────────────────────────
 
     def _on_queue_changed(self) -> None:
+        self._queue_model.set_tracks(self._queue.tracks())
         self.queueChanged.emit()
         self._session_timer.start()
 

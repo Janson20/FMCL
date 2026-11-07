@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 
 from . import paths
 from .config import Config
+from .core.account import AccountManager
 from .core.loudness_service import LoudnessService
 from .core.player import PlayerEngine
 from .core.store import Library
@@ -55,10 +56,19 @@ class MusicHost:
         self.library_controller = LibraryController(self.config, self.library)
         self.search = SearchController(self.config)
         self.discover = DiscoverController(self.config)
+        # 网易云账号：3.18 起只负责“有凭据就恢复登录态 + 把远程歌单推给曲库”，
+        # 扫码 / VIP / 续期界面归 3.19；这里先建好，避免 K-41 的远程歌单是死代码。
+        self.account = AccountManager(self.config)
+        self.account.playlistsChanged.connect(self._sync_remote_playlists)
+        self.account.loggedInChanged.connect(self._sync_remote_playlists)
         try:
             self.player.restoreSession()
         except Exception as exc:  # noqa: BLE001 - 会话损坏只影响恢复
             logger.warning("恢复播放会话失败: %s", exc)
+        try:
+            self.account.restore()
+        except Exception as exc:  # noqa: BLE001 - 凭据损坏只影响远程歌单
+            logger.warning("恢复网易云登录态失败: %s", exc)
         logger.info(
             "音乐后端就绪：%s（歌单 %d / 本地 %d）",
             self.music_root,
@@ -66,14 +76,29 @@ class MusicHost:
             len(self.library.local_tracks()),
         )
 
+    def _sync_remote_playlists(self) -> None:
+        if not hasattr(self, "library_controller"):
+            return
+        self.library_controller.set_remote_state(
+            list(self.account.remotePlaylists),
+            bool(self.account.playlistsFailed),
+        )
+
     def scan(self) -> None:
         self.library_controller.scan()
 
     def shutdown(self) -> None:
-        for controller in (self.search, self.discover):
+        for controller in (self.search, self.discover, self.library_controller):
             fn = getattr(controller, "shutdown", None)
             if callable(fn):
-                fn()
+                try:
+                    fn()
+                except Exception as exc:  # noqa: BLE001 - 退出路径不再抛
+                    logger.warning("关闭音乐控制器失败: %s", exc)
+        try:
+            self.account.cancelQrLogin()
+        except Exception:
+            pass
         for name, obj in (
             ("player", self.player),
             ("loudness", self.loudness),

@@ -12,6 +12,7 @@ Item {
     objectName: "musicQueueView"
 
     property var player: null
+    property var addHost: null
 
     ColumnLayout {
         anchors.fill: parent
@@ -46,145 +47,46 @@ Item {
             border.width: 1
             border.color: Theme?.cardBorder ?? "transparent"
 
-            ListView {
-                id: queueList
+            FmMusicTrackList {
                 anchors.fill: parent
                 anchors.margins: Theme?.spacingSm ?? 8
-                clip: true
-                spacing: 1
-                model: control.player ? control.player.queueItems : []
-                boundsBehavior: Flickable.StopAtBounds
-                ScrollBar.vertical: FmScrollBar { }
-
-                delegate: Rectangle {
-                    id: qrow
-                    required property var modelData
-                    required property int index
-                    width: queueList.width
-                    height: 52
-                    radius: Theme?.radiusSm ?? 0
-                    color: control.player && control.player.queueIndex === index
-                           ? (Theme?.accentSoft ?? "transparent")
-                           : (qmouse.containsMouse ? (Theme?.cardHover ?? "transparent") : "transparent")
-
-                    MouseArea {
-                        id: qmouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onDoubleClicked: {
-                            if (control.player)
-                                control.player.playQueueAt(index);
-                        }
-                    }
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 10
-                        anchors.rightMargin: 6
-                        spacing: Theme?.spacingSm ?? 8
-
-                        Text {
-                            Layout.preferredWidth: 26
-                            Layout.alignment: Qt.AlignVCenter
-                            horizontalAlignment: Text.AlignRight
-                            text: String(index + 1)
-                            color: control.player && control.player.queueIndex === index
-                                   ? (Theme?.accent ?? "transparent") : (Theme?.textTertiary ?? "transparent")
-                            font.pixelSize: Theme?.fontSizeSmall ?? 10
-                        }
-
-                        Rectangle {
-                            Layout.preferredWidth: 34
-                            Layout.preferredHeight: 34
-                            Layout.alignment: Qt.AlignVCenter
-                            radius: Theme?.radiusSm ?? 0
-                            color: Theme?.bgLight ?? "transparent"
-
-                            FmIcon {
-                                anchors.centerIn: parent
-                                name: "music"
-                                size: 16
-                                color: Theme?.textTertiary ?? "transparent"
-                            }
-                            Image {
-                                anchors.fill: parent
-                                source: String(modelData.cover || "")
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                visible: String(modelData.cover || "").length > 0 && status === Image.Ready
-                            }
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: String(modelData.name || "")
-                                color: control.player && control.player.queueIndex === index
-                                       ? (Theme?.accent ?? "transparent") : (Theme?.textPrimary ?? "transparent")
-                                font.pixelSize: Theme?.fontSizeBase ?? 12
-                                font.bold: control.player && control.player.queueIndex === index
-                                elide: Text.ElideRight
-                            }
-                            Text {
-                                Layout.fillWidth: true
-                                text: {
-                                    var a = String(modelData.singer || "");
-                                    var b = String(modelData.album || "");
-                                    return (a.length > 0 && b.length > 0) ? a + "  ·  " + b : (a || b);
-                                }
-                                color: Theme?.textSecondary ?? "transparent"
-                                font.pixelSize: Theme?.fontSizeSmall ?? 10
-                                elide: Text.ElideRight
-                            }
-                        }
-
-                        Text {
-                            Layout.preferredWidth: 46
-                            Layout.alignment: Qt.AlignVCenter
-                            horizontalAlignment: Text.AlignRight
-                            text: String(modelData.durationText || "")
-                            color: Theme?.textTertiary ?? "transparent"
-                            font.pixelSize: Theme?.fontSizeSmall ?? 10
-                        }
-
-                        FmToolButton {
-                            iconName: "chevron-up"
-                            iconSize: 12
-                            side: 26
-                            enabled: index > 0
-                            opacity: qmouse.containsMouse ? 1 : 0
-                            onClicked: control.player.moveQueueItem(index, index - 1)
-                        }
-                        FmToolButton {
-                            iconName: "chevron-down"
-                            iconSize: 12
-                            side: 26
-                            enabled: control.player && index < control.player.queueCount - 1
-                            opacity: qmouse.containsMouse ? 1 : 0
-                            onClicked: control.player.moveQueueItem(index, index + 1)
-                        }
-                        FmToolButton {
-                            iconName: "close"
-                            iconSize: 11
-                            side: 26
-                            opacity: qmouse.containsMouse ? 1 : 0
-                            onClicked: control.player.removeQueueIndex(index)
-                        }
-                    }
+                model: control.player ? control.player.queueModel : null
+                player: control.player
+                variant: "queue"
+                showSequence: true
+                showAdd: true
+                showRemove: true
+                showMove: true
+                showQuality: true
+                showOriginal: true
+                showPlayCount: false
+                emptyIcon: "note"
+                emptyTitle: Tr?.map["music_queue_empty"] ?? ""
+                emptyDescription: Tr?.map["music_queue_empty_desc"] ?? ""
+                listObjectName: "musicQueueList"
+                onActivated: function (rowIndex) {
+                    if (control.player)
+                        control.player.playQueueAt(rowIndex);
                 }
-            }
-
-            FmEmptyState {
-                objectName: "musicQueueEmpty"
-                anchors.fill: parent
-                visible: !control.player || control.player.queueCount === 0
-                iconName: "note"
-                title: Tr?.map["music_queue_empty"] ?? ""
-                description: Tr?.map["music_queue_empty_desc"] ?? ""
+                onAddRequested: function (rowIndex) {
+                    if (!control.player || !control.addHost)
+                        return
+                    var track = control.player.queueItems[rowIndex]
+                    if (track)
+                        control.addHost.openFor(track)
+                }
+                onRemoveRequested: function (rowIndex) {
+                    if (control.player)
+                        control.player.removeQueueIndex(rowIndex)
+                }
+                onMoveUpRequested: function (rowIndex) {
+                    if (control.player)
+                        control.player.moveQueueItem(rowIndex, rowIndex - 1)
+                }
+                onMoveDownRequested: function (rowIndex) {
+                    if (control.player)
+                        control.player.moveQueueItem(rowIndex, rowIndex + 1)
+                }
             }
         }
     }

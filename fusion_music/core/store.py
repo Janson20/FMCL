@@ -39,7 +39,9 @@ SCHEMA_VERSION = 1
 
 FAVORITES_ID = "__favorites__"
 HISTORY_ID = "__history__"
-MAX_HISTORY = 300
+#: 播放历史保留条数。旧实现 `ui/music_playlist.py` 写死 200；新曲库沿用同一上限，
+#: 迁移与运行期截断都以这里为准（FMP 默认 300 是另一个产品，不可直接照搬）。
+MAX_HISTORY = 200
 
 SORT_ADD_TIME_ASC = "add_time_asc"
 SORT_ADD_TIME_DESC = "add_time_desc"
@@ -54,22 +56,51 @@ SORT_LABELS = {
     SORT_NAME_DESC: "名称 Z→A",
 }
 
-try:  # 可选：中文按拼音排序
-    from pypinyin import lazy_pinyin as _lazy_pinyin  # type: ignore
+try:  # 可选：中文按拼音首字母排序（与旧 music_playlist.py 一致）
+    from pypinyin import Style as _PinyinStyle  # type: ignore
+    from pypinyin import pinyin as _pinyin  # type: ignore
 except Exception:  # pragma: no cover
-    _lazy_pinyin = None
+    _PinyinStyle = None
+    _pinyin = None
 
 def name_sort_key(title: str) -> str:
-    """名称排序键：有 pypinyin 时按拼音，否则退化为大小写不敏感的原串。"""
+    """名称排序键：中文取拼音**首字母**，非中文取小写原字符。
+
+    旧实现 ``services/music_playlist.py::_name_sort_key`` 是逐字取
+    ``Style.FIRST_LETTER``，不是整串拼音：同一首字母组内的顺序由加入顺序
+    （稳定排序）决定。这里保持同一规则；没有 pypinyin 时退化为小写原串。
+    """
     t = (title or "").strip()
     if not t:
         return ""
-    if _lazy_pinyin is not None:
+    if _pinyin is not None:
         try:
-            return "".join(_lazy_pinyin(t)).lower()
+            out = []
+            for char in t:
+                if "\u4e00" <= char <= "\u9fff":
+                    py = _pinyin(char, style=_PinyinStyle.FIRST_LETTER)
+                    out.append(py[0][0].lower() if py and py[0] else char.lower())
+                else:
+                    out.append(char.lower())
+            return "".join(out)
         except Exception:
             pass
     return t.lower()
+
+
+def sort_tracks(tracks: List[Track], mode: str) -> None:
+    """按 ``mode`` 就地排序曲目；未知模式保持原序。
+
+    歌单排序与网易云远程歌单的内存排序共用同一份规则。
+    """
+    if mode == SORT_ADD_TIME_ASC:
+        tracks.sort(key=lambda s: s.added_at)
+    elif mode == SORT_ADD_TIME_DESC:
+        tracks.sort(key=lambda s: s.added_at, reverse=True)
+    elif mode == SORT_NAME_ASC:
+        tracks.sort(key=lambda s: name_sort_key(s.name))
+    elif mode == SORT_NAME_DESC:
+        tracks.sort(key=lambda s: name_sort_key(s.name), reverse=True)
 
 # ──────────────────────────────────────────────────────────────
 # 通用 JSON 读写
@@ -163,6 +194,12 @@ class Library:
 
     def add_listener(self, fn: Callable[[str], None]) -> None:
         self._listeners.append(fn)
+
+    def remove_listener(self, fn: Callable[[str], None]) -> None:
+        try:
+            self._listeners.remove(fn)
+        except ValueError:
+            pass
 
     def _emit(self, what: str) -> None:
         for fn in list(self._listeners):
@@ -352,14 +389,7 @@ class Library:
             return True
 
     def _sort_internal(self, pl: Playlist) -> None:
-        if pl.sort_mode == SORT_ADD_TIME_ASC:
-            pl.songs.sort(key=lambda s: s.added_at)
-        elif pl.sort_mode == SORT_ADD_TIME_DESC:
-            pl.songs.sort(key=lambda s: s.added_at, reverse=True)
-        elif pl.sort_mode == SORT_NAME_ASC:
-            pl.songs.sort(key=lambda s: name_sort_key(s.name))
-        elif pl.sort_mode == SORT_NAME_DESC:
-            pl.songs.sort(key=lambda s: name_sort_key(s.name), reverse=True)
+        sort_tracks(pl.songs, pl.sort_mode)
 
     def playlists_containing(self, track: Track) -> List[str]:
         """返回包含该曲目的用户歌单 id 列表（跳过系统歌单）。"""

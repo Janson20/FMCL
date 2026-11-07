@@ -8,7 +8,13 @@ import os
 import threading
 from typing import Dict, List
 
-from PySide6.QtCore import QObject, Property, Signal, Slot
+try:
+    from shiboken6 import isValid as _qt_valid
+except Exception:  # pragma: no cover - 非 PySide 环境仅用于静态检查
+    def _qt_valid(_obj):
+        return True
+
+from PySide6.QtCore import QObject, Property, QTimer, Signal, Slot
 
 from ..core import localmatch
 from ..core.models import Track, TrackListModel
@@ -16,9 +22,14 @@ from ..core.resolver import AUDIO_EXTENSIONS, resolve_local_metadata, scan_local
 from ..core.store import (
     FAVORITES_ID,
     HISTORY_ID,
+    SORT_ADD_TIME_ASC,
+    SORT_ADD_TIME_DESC,
     SORT_LABELS,
+    SORT_NAME_ASC,
+    SORT_NAME_DESC,
     Library,
     name_sort_key,
+    sort_tracks,
 )
 from ..core.trackutil import as_track
 # 文件夹选择器给的 URL 与手输路径的归一在 paths 里（下载目录也用它）
@@ -56,8 +67,11 @@ class LibraryController(QObject):
     message = Signal(str)
     errorOccurred = Signal(str)
     selectionChanged = Signal()
+    remotePageChanged = Signal()
 
     REMOTE_PREFIX = "wy:"
+    #: 网易云远程歌单每页首数。旧实现 `_MUSIC_WY_PAGE_SIZE` 写死 20。
+    REMOTE_PAGE_SIZE = 20
 
     def __init__(self, config, library: Library, parent=None):
         super().__init__(parent)
@@ -72,6 +86,9 @@ class LibraryController(QObject):
         self._favorites_model = TrackListModel()
         self._history_model = TrackListModel()
         self._local_model = TrackListModel()
+        #: 远程歌单每页模型：tracksModel 仍保留整张歌单（播放/计数用），
+        #: 列表只渲染这一页 20 首。
+        self._remote_page_model = TrackListModel()
 
         self._selected_id: str = ""
         self._selected_name: str = ""
@@ -84,8 +101,19 @@ class LibraryController(QObject):
         self._remote: List[Dict] = []
         self._remote_cache: Dict[str, List[Track]] = {}
         self._remote_loading = False
+        self._remote_error = ""
+        self._remote_sync_failed = False
+        self._remote_page = 1
+        self._remote_sort_mode = SORT_ADD_TIME_DESC
+        self._alive = True
 
         self._library.add_listener(self._on_library_event)
+        # 旧实现的 30 秒兜底落盘：桥的每个改歌单入口已经立即 save()，
+        # 这个计时器只负责把任何漏网的 dirty 状态在退出前补写一次。
+        self._save_timer = QTimer(self)
+        self._save_timer.setInterval(30_000)
+        self._save_timer.timeout.connect(self._save_if_dirty)
+        self._save_timer.start()
         self.refresh_all()
 
     # ── 属性 ────────────────────────────────────────────────
@@ -106,29 +134,36 @@ class LibraryController(QObject):
     def localModel(self):  # noqa: N802
         return self._local_model
 
+    @Property(QObject, constant=True)
+    def remotePageModel(self):  # noqa: N802
+        return self._remote_page_model
+
     @Property("QVariantList", notify=playlistsChanged)
     def playlists(self):  # noqa: N802
         out = [
             {
                 "id": FAVORITES_ID,
                 "name": "我喜欢的音乐",
+                "nameKey": "music_favorites",
                 "count": self._favorites_model.length(),
                 "system": True,
-                "icon": "Heart",
+                "icon": "heart",
             },
             {
                 "id": HISTORY_ID,
                 "name": "最近播放",
+                "nameKey": "music_recent_played",
                 "count": self._history_model.length(),
                 "system": True,
-                "icon": "History",
+                "icon": "history",
             },
             {
                 "id": "__local__",
                 "name": "本地音乐",
+                "nameKey": "music_all_songs",
                 "count": self._local_model.length(),
                 "system": True,
-                "icon": "Folder",
+                "icon": "folder",
             },
         ]
         for pl in self._library.playlists():
@@ -160,14 +195,61 @@ class LibraryController(QObject):
     def selectedIsRemote(self) -> bool:  # noqa: N802
         return self._selected_id.startswith(self.REMOTE_PREFIX)
 
+    @Property(bool, notify=selectionChanged)
+    def selectedIsSystem(self) -> bool:  # noqa: N802
+        pid = self._selected_id
+        if pid in (FAVORITES_ID, HISTORY_ID, "__local__"):
+            return True
+        pl = self._library.get_playlist(pid) if pid else None
+        return bool(pl and pl.is_system)
+
+    @Property(bool, notify=selectionChanged)
+    def selectedIsUser(self) -> bool:  # noqa: N802
+        """当前选中的是不是可编辑的自建歌单（排序、重命名、删除的准入条件）。"""
+        pid = self._selected_id
+        if not pid or pid.startswith(self.REMOTE_PREFIX) or self.selectedIsSystem:
+            return False
+        return self._library.get_playlist(pid) is not None
+
+    @Property(bool, notify=selectionChanged)
+    def selectedIsReadOnly(self) -> bool:  # noqa: N802
+        return self.selectedIsRemote
+
+    @Property(str, notify=selectionChanged)
+    def selectedSortMode(self) -> str:  # noqa: N802
+        if self.selectedIsRemote:
+            return self._remote_sort_mode
+        pl = self._library.get_playlist(self._selected_id) if self._selected_id else None
+        return pl.sort_mode if pl is not None else ""
+
     @Property(bool, notify=remoteChanged)
     def remoteLoading(self) -> bool:  # noqa: N802
         return self._remote_loading
+
+    @Property(str, notify=remoteChanged)
+    def remoteError(self) -> str:  # noqa: N802
+        return self._remote_error
+
+    @Property(bool, notify=remoteChanged)
+    def remoteSyncFailed(self) -> bool:  # noqa: N802
+        return self._remote_sync_failed
 
     @Property("QVariantList", notify=remoteChanged)
     def remotePlaylists(self):  # noqa: N802
         """登录用户的网易云歌单（含「我喜欢的音乐」）。"""
         return list(self._remote)
+
+    @Property(int, notify=remotePageChanged)
+    def remotePage(self) -> int:  # noqa: N802
+        return self._remote_page
+
+    @Property(int, notify=remotePageChanged)
+    def remotePageCount(self) -> int:  # noqa: N802
+        return max(1, (self._tracks_model.length() + self.REMOTE_PAGE_SIZE - 1) // self.REMOTE_PAGE_SIZE)
+
+    @Property(int, constant=True)
+    def remotePageSize(self) -> int:  # noqa: N802
+        return self.REMOTE_PAGE_SIZE
 
     @Property(int, notify=tracksChanged)
     def selectedCount(self) -> int:  # noqa: N802
@@ -215,10 +297,22 @@ class LibraryController(QObject):
             return
         self._selected_id = playlist_id
         self._selected_name = ""
+        self._remote_error = ""
+        self._remote_page = 1
+        self._remote_page_model.clear()
+        self.remotePageChanged.emit()
         self._reload_tracks()
         self.selectionChanged.emit()
 
     # ── 网易云歌单 ──────────────────────────────────────────
+
+    def set_remote_state(self, items, failed: bool = False) -> None:
+        """由宿主推送网易云歌单同步结果（列表 + 失败标记）。
+
+        QML 不直接调它；宿主在 AccountManager 的 `playlistsChanged` 上调用。
+        """
+        self._remote_sync_failed = bool(failed)
+        self.setRemotePlaylists(items)
 
     @Slot(object)
     def setRemotePlaylists(self, items) -> None:
@@ -242,6 +336,20 @@ class LibraryController(QObject):
         self._remote = [x for x in out if x["id"]]
         # 歌单列表变了，缓存的曲目可能已过期
         self._remote_cache.clear()
+        # 当前正在看的远程歌单被删 / 退出登录：回到空选择，避免停在幽灵列表上
+        if self.selectedIsRemote:
+            remote_id = self._selected_id[len(self.REMOTE_PREFIX):]
+            if not any(x["id"] == remote_id for x in self._remote):
+                self._selected_id = ""
+                self._selected_name = ""
+                self._remote_error = ""
+                self._remote_loading = False
+                self._remote_page = 1
+                self._tracks_model.clear()
+                self._remote_page_model.clear()
+                self.tracksChanged.emit()
+                self.selectionChanged.emit()
+                self.remotePageChanged.emit()
         self.remoteChanged.emit()
 
     @Slot(str, str)
@@ -250,23 +358,99 @@ class LibraryController(QObject):
         playlist_id = str(playlist_id or "")
         if not playlist_id:
             return
-        self._selected_id = self.REMOTE_PREFIX + playlist_id
+        target_id = self.REMOTE_PREFIX + playlist_id
+        if target_id != self._selected_id:
+            self._remote_sort_mode = SORT_ADD_TIME_DESC
+        self._selected_id = target_id
         self._selected_name = name or self._name_of_remote(playlist_id)
+        self._remote_error = ""
+        self._remote_page = 1
         self.selectionChanged.emit()
+        # `remoteError` 的 NOTIFY 是 remoteChanged；这里必须发一次，否则从失败态
+        # 重试成功后错误页会一直留在界面上（3.18 探针复现）。
+        self.remoteChanged.emit()
 
         cached = self._remote_cache.get(playlist_id)
         if cached is not None:
-            self._tracks_model.set_tracks(cached)
+            tracks = list(cached)
+            self._tracks_model.set_tracks(tracks)
+            self._apply_remote_page(1)
             self.tracksChanged.emit()
             return
 
         self._tracks_model.clear()
+        self._remote_page_model.clear()
         self._remote_loading = True
         self.tracksChanged.emit()
         self.remoteChanged.emit()
         threading.Thread(
             target=self._remote_worker, args=(playlist_id,), daemon=True, name="wy-playlist"
         ).start()
+
+    def _apply_remote_page(self, page: int) -> None:
+        total = self._tracks_model.length()
+        pages = max(1, (total + self.REMOTE_PAGE_SIZE - 1) // self.REMOTE_PAGE_SIZE)
+        page = max(1, min(int(page), pages))
+        start = (page - 1) * self.REMOTE_PAGE_SIZE
+        stop = start + self.REMOTE_PAGE_SIZE
+        self._remote_page = page
+        self._remote_page_model.set_tracks(self._tracks_model.tracks()[start:stop])
+        self.remotePageChanged.emit()
+
+    @Slot(int)
+    def goRemotePage(self, page: int) -> None:  # noqa: N802
+        if not self.selectedIsRemote:
+            return
+        self._apply_remote_page(int(page))
+
+    @Slot(int, result="QVariant")
+    def selectedTrackAt(self, index: int):  # noqa: N802
+        """取当前歌单整表里的曲目（远程分页下 index 是真实下标）。"""
+        track = self._tracks_model.track_at(int(index))
+        return track.to_dict() if track is not None else None
+
+    @Slot(str)
+    def toggleSort(self, field: str) -> None:  # noqa: N802
+        """排序：同字段再点切换方向，换字段用该字段的默认方向。
+
+        * 加入时间默认倒序（新加的在前，与旧界面一致）；
+        * 歌名默认正序（中文按拼音，`name_sort_key` 已处理）。
+        """
+        field = str(field or "")
+        if field not in ("add_time", "name"):
+            return
+        if self.selectedIsRemote:
+            current = self._remote_sort_mode
+            target = self._next_sort_mode(current, field)
+            tracks = self._tracks_model.tracks()
+            sort_tracks(tracks, target)
+            self._remote_sort_mode = target
+            self._tracks_model.set_tracks(tracks)
+            cache_key = self._selected_id[len(self.REMOTE_PREFIX):]
+            self._remote_cache[cache_key] = list(tracks)
+            self._apply_remote_page(1)
+            self.tracksChanged.emit()
+            self.selectionChanged.emit()
+            return
+        if not self.selectedIsUser:
+            return
+        pl = self._library.get_playlist(self._selected_id)
+        if pl is None:
+            return
+        target = self._next_sort_mode(pl.sort_mode, field)
+        if self._library.set_sort_mode(pl.id, target):
+            self._library.save()
+            self._reload_tracks()
+            self.selectionChanged.emit()
+
+    def _next_sort_mode(self, current: str, field: str) -> str:
+        if field == "add_time":
+            if current in (SORT_ADD_TIME_ASC, SORT_ADD_TIME_DESC):
+                return SORT_ADD_TIME_ASC if current == SORT_ADD_TIME_DESC else SORT_ADD_TIME_DESC
+            return SORT_ADD_TIME_DESC
+        if current in (SORT_NAME_ASC, SORT_NAME_DESC):
+            return SORT_NAME_DESC if current == SORT_NAME_ASC else SORT_NAME_ASC
+        return SORT_NAME_ASC
 
     def _name_of_remote(self, playlist_id: str) -> str:
         for p in self._remote:
@@ -282,33 +466,58 @@ class LibraryController(QObject):
 
             infos = netease.playlist_tracks(playlist_id)
             tracks = [Track.from_music_info(mi) for mi in (infos or [])]
+            if infos is None:
+                error = "empty response"
         except Exception as e:
             logger.warning("拉取网易云歌单失败 (%s): %s", playlist_id, e)
             error = str(e)
-        self._emitter.remoteTracks.emit((playlist_id, tracks, error))
+        if self._alive and _qt_valid(self._emitter):
+            try:
+                self._emitter.remoteTracks.emit((playlist_id, tracks, error))
+            except RuntimeError:
+                pass
 
     @Slot(object)
     def _on_remote_tracks(self, payload) -> None:
+        if not self._alive:
+            return
         playlist_id, tracks, error = payload
         self._remote_loading = False
-        self.remoteChanged.emit()
 
-        if not error:
-            self._remote_cache[playlist_id] = list(tracks)
-
-        # 期间用户可能已经切走了
+        # 期间用户可能已经切走了：成功结果只入缓存，不污染当前视图
         if self._selected_id != self.REMOTE_PREFIX + playlist_id:
+            if not error:
+                self._remote_cache[playlist_id] = list(tracks)
+            self.remoteChanged.emit()
             return
 
-        self._tracks_model.set_tracks(tracks)
-        self.tracksChanged.emit()
         if error:
+            # 顺序很关键：先写错误，再发 remoteChanged —— QML 的 remoteError
+            # 绑定就是靠这个 NOTIFY 重算的（先发信号会永远显示旧值）。
+            self._remote_error = str(error)
+            self._tracks_model.clear()
+            self._remote_page_model.clear()
+            self._remote_page = 1
+            self.remoteChanged.emit()
+            self.tracksChanged.emit()
+            self.remotePageChanged.emit()
             self.errorOccurred.emit(f"拉取歌单失败：{error}")
-        elif not tracks:
+            return
+
+        self._remote_error = ""
+        self._remote_cache[playlist_id] = list(tracks)
+        self._tracks_model.set_tracks(tracks)
+        self._apply_remote_page(1)
+        self.remoteChanged.emit()
+        self.tracksChanged.emit()
+        if not tracks:
             self.message.emit("这个歌单没有可显示的歌曲")
 
     def _reload_tracks(self) -> None:
         pid = self._selected_id
+        # 远程歌单由自己的异步结果维护；歌单列表 / 收藏变化不该把当前视图清空。
+        if pid.startswith(self.REMOTE_PREFIX):
+            return
         if pid == FAVORITES_ID:
             self._tracks_model.set_tracks(self._library.favorites())
         elif pid == HISTORY_ID:
@@ -639,6 +848,8 @@ class LibraryController(QObject):
 
     @Slot(object)
     def _on_scan_progress(self, payload) -> None:
+        if not self._alive:
+            return
         try:
             done, total, phase = payload
         except (TypeError, ValueError):
@@ -650,6 +861,8 @@ class LibraryController(QObject):
 
     @Slot(object)
     def _on_scan_done(self, payload) -> None:
+        if not self._alive:
+            return
         self._scanning = False
         self._scan_phase = ""
         self.scanningChanged.emit()
@@ -668,3 +881,26 @@ class LibraryController(QObject):
             )
         else:
             self.message.emit(f"扫描完成，共 {len(tracks)} 首本地歌曲")
+
+    def _save_if_dirty(self) -> None:
+        try:
+            self._library.save_if_dirty()
+        except Exception as exc:  # noqa: BLE001 - 兜底落盘失败不能打崩界面
+            logger.warning("定时保存音乐库失败: %s", exc)
+
+    def shutdown(self) -> None:
+        """窗口关闭：让在飞的远程歌单结果作废，并断开监听。"""
+        self._alive = False
+        self._save_timer.stop()
+        self._save_if_dirty()
+        self._remote_cache.clear()
+        try:
+            self._library.remove_listener(self._on_library_event)
+        except Exception:
+            pass
+        try:
+            self._emitter.remoteTracks.disconnect()
+            self._emitter.scanDone.disconnect()
+            self._emitter.scanProgress.disconnect()
+        except (RuntimeError, TypeError):
+            pass

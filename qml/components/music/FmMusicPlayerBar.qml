@@ -65,6 +65,25 @@ Rectangle {
         control.player.seek(Math.round(ratio * control.player.duration));
     }
 
+    function sourceText() {
+        if (!control.player)
+            return ""
+        var fallback = String(control.player.fallbackSource || "")
+        if (fallback.length > 0) {
+            var fbLabel = Tr?.map["music_source_" + fallback] ?? fallback
+            return String(Tr?.map["music_fallback_status"] ?? "").replace("{source}", String(fbLabel))
+        }
+        var track = control.player.currentTrack
+        if (!track)
+            return ""
+        var source = String(track.source || "")
+        if (source === "local")
+            return Tr?.map["music_source_local"] ?? String(control.player.sourceLabel || "")
+        var key = "music_source_" + source
+        var label = Tr?.map[key] ?? ""
+        return label.length > 0 ? label : String(control.player.sourceLabel || "")
+    }
+
     function modeIcon(name) {
         if (name === "order") return "arrow-right";
         if (name === "loop_single") return "repeat-one";
@@ -169,7 +188,7 @@ Rectangle {
 
                     Text {
                         Layout.fillWidth: true
-                        text: control.player ? control.player.sourceLabel : ""
+                        text: control.sourceText()
                         color: Theme?.textTertiary ?? "transparent"
                         font.pixelSize: Theme?.fontSizeSmall ?? 10
                         elide: Text.ElideRight

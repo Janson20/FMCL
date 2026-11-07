@@ -230,6 +230,8 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("settings/java", "settings_java_title", "bolt", "settings", "pages/settings/SettingsPage.qml", ""),
     ("settings/ai", "settings_tab_ai", "agent", "settings", "pages/settings/SettingsPage.qml", ""),
     ("settings/theme", "settings_theme", "theme", "settings", "pages/settings/SettingsPage.qml", ""),
+    ("settings/music", "settings_wy_login_title", "music", "settings", "pages/settings/SettingsPage.qml",
+     "settings_wy_login_desc"),
     ("settings/plugin", "plugin_manager_title", "plugin", "settings", "pages/settings/SettingsPage.qml", ""),
     ("settings/log", "launcher_log", "note", "settings", "pages/settings/SettingsPage.qml", ""),
     ("settings/about", "about_title", "info", "settings", "pages/settings/SettingsPage.qml", ""),

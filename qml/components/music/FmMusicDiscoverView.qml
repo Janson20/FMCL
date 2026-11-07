@@ -14,6 +14,7 @@ Item {
 
     property var discover: null
     property var player: null
+    property var addHost: null
 
     readonly property int cardWidth: 154
     readonly property int cardStep: control.cardWidth + 70 + 14
@@ -23,9 +24,15 @@ Item {
     readonly property var newModel: control.discover ? control.discover.newSongsModel : null
     readonly property var dailyModel: control.discover ? control.discover.dailyModel : null
     readonly property bool loading: control.discover ? control.discover.loading : false
-    readonly property bool hasContent: control.recommend.length + control.toplists.length
-                                       + (control.newModel ? control.newModel.count : 0)
-                                       + (control.dailyModel ? control.dailyModel.count : 0) > 0
+    //: 组件销毁时上下文属性/自身绑定会先被拆掉，readonly 数组可能读成 undefined；
+    //: 这里的每一项都按“可能为空”处理（3.18 视觉回归抓到的退出期 TypeError）。
+    readonly property bool hasContent: {
+        var rec = control.recommend ? control.recommend.length : 0
+        var top = control.toplists ? control.toplists.length : 0
+        var fresh = control.newModel ? control.newModel.count : 0
+        var daily = control.dailyModel ? control.dailyModel.count : 0
+        return rec + top + fresh + daily > 0
+    }
     function greeting() {
         var hour = new Date().getHours()
         if (hour < 6)
@@ -133,7 +140,7 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme?.spacingSm ?? 8
-                visible: control.dailyModel && control.dailyModel.count > 0
+                visible: !!(control.dailyModel && control.dailyModel.count > 0)
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -162,21 +169,24 @@ Item {
                     border.width: 1
                     border.color: Theme?.cardBorder ?? "transparent"
 
-                    ListView {
-                        id: dailyList
+                    FmMusicTrackList {
                         anchors.fill: parent
                         anchors.margins: Theme?.spacingSm ?? 8
-                        clip: true
-                        spacing: 1
                         model: control.dailyModel
-                        boundsBehavior: Flickable.StopAtBounds
-                        ScrollBar.vertical: FmScrollBar { }
-
-                        delegate: FmMusicTrackRow {
-                            width: dailyList.width
-                            current: !!(control.player && control.player.currentTrack
-                                     && control.player.currentTrack.uid === uid)
-                            onActivated: control.playModel(control.dailyModel, index)
+                        player: control.player
+                        variant: "compact"
+                        showStates: false
+                        showSequence: false
+                        showAdd: true
+                        showQuality: false
+                        showOriginal: false
+                        showPlayCount: false
+                        listObjectName: "musicDiscoverDailyList"
+                        onActivated: function (rowIndex) { control.playModel(control.dailyModel, rowIndex) }
+                        onAddRequested: function (rowIndex) {
+                            var track = control.dailyModel ? control.dailyModel.get(rowIndex) : null
+                            if (track && control.addHost)
+                                control.addHost.openFor(track)
                         }
                     }
                 }
@@ -186,7 +196,7 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme?.spacingSm ?? 8
-                visible: control.recommend.length > 0
+                visible: !!(control.recommend && control.recommend.length > 0)
 
                 Text {
                     Layout.fillWidth: true
@@ -198,13 +208,13 @@ Item {
 
                 GridView {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.min(2, Math.ceil(control.recommend.length / control.gridColumns))
+                    Layout.preferredHeight: Math.min(2, Math.ceil((control.recommend ? control.recommend.length : 0) / control.gridColumns))
                                             * control.cardStep + 2
                     cellWidth: control.cardWidth + 14
                     cellHeight: control.cardStep
                     interactive: false
                     clip: true
-                    model: control.recommend
+                    model: control.recommend || []
 
                     delegate: FmMusicPlaylistCard {
                         required property var modelData
@@ -223,7 +233,7 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme?.spacingSm ?? 8
-                visible: control.toplists.length > 0
+                visible: !!(control.toplists && control.toplists.length > 0)
 
                 Text {
                     Layout.fillWidth: true
@@ -235,13 +245,13 @@ Item {
 
                 GridView {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Math.min(2, Math.ceil(control.toplists.length / control.gridColumns))
+                    Layout.preferredHeight: Math.min(2, Math.ceil((control.toplists ? control.toplists.length : 0) / control.gridColumns))
                                             * control.cardStep + 2
                     cellWidth: control.cardWidth + 14
                     cellHeight: control.cardStep
                     interactive: false
                     clip: true
-                    model: control.toplists
+                    model: control.toplists || []
 
                     delegate: FmMusicPlaylistCard {
                         required property var modelData
@@ -260,7 +270,7 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme?.spacingSm ?? 8
-                visible: control.newModel && control.newModel.count > 0
+                visible: !!(control.newModel && control.newModel.count > 0)
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -289,21 +299,24 @@ Item {
                     border.width: 1
                     border.color: Theme?.cardBorder ?? "transparent"
 
-                    ListView {
-                        id: newList
+                    FmMusicTrackList {
                         anchors.fill: parent
                         anchors.margins: Theme?.spacingSm ?? 8
-                        clip: true
-                        spacing: 1
                         model: control.newModel
-                        boundsBehavior: Flickable.StopAtBounds
-                        ScrollBar.vertical: FmScrollBar { }
-
-                        delegate: FmMusicTrackRow {
-                            width: newList.width
-                            current: !!(control.player && control.player.currentTrack
-                                     && control.player.currentTrack.uid === uid)
-                            onActivated: control.playModel(control.newModel, index)
+                        player: control.player
+                        variant: "compact"
+                        showStates: false
+                        showSequence: false
+                        showAdd: true
+                        showQuality: false
+                        showOriginal: false
+                        showPlayCount: false
+                        listObjectName: "musicDiscoverNewList"
+                        onActivated: function (rowIndex) { control.playModel(control.newModel, rowIndex) }
+                        onAddRequested: function (rowIndex) {
+                            var track = control.newModel ? control.newModel.get(rowIndex) : null
+                            if (track && control.addHost)
+                                control.addHost.openFor(track)
                         }
                     }
                 }

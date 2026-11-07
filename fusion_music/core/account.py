@@ -118,6 +118,7 @@ class AccountManager(QObject):
     loggedInChanged = Signal()
     profileChanged = Signal()
     playlistsChanged = Signal()
+    playlistsFailedChanged = Signal()
     busyChanged = Signal()
     credentialsChanged = Signal()
     message = Signal(str)
@@ -153,6 +154,7 @@ class AccountManager(QObject):
         self._red_vip_level = 0
         self._red_vip_annual_count = 0
         self._remote_playlists: list = []
+        self._playlists_failed = False
         # 凭据有效期（unix 秒）：登录 / 续期时从 Set-Cookie 读，读不到就按 180 天估
         self._obtained_at = 0
         self._expires_at = 0
@@ -236,6 +238,11 @@ class AccountManager(QObject):
     @Property("QVariantList", notify=playlistsChanged)
     def remotePlaylists(self):  # noqa: N802
         return self._remote_playlists
+
+    @Property(bool, notify=playlistsFailedChanged)
+    def playlistsFailed(self) -> bool:  # noqa: N802
+        """上一次同步是否失败。空列表 + False 才是真的「没有歌单」。"""
+        return self._playlists_failed
 
     @Property(bool, constant=True)
     def hasSavedCredentials(self) -> bool:  # noqa: N802
@@ -919,12 +926,18 @@ class AccountManager(QObject):
         threading.Thread(target=self._playlists_worker, daemon=True, name="wy-playlists").start()
 
     def _playlists_worker(self) -> None:
+        error = ""
+        items = None
         try:
             items = wy_get_user_playlists()
         except Exception as e:
             logger.warning("拉取网易云歌单失败: %s", e)
-            items = None
-        self._emitter.playlistsDone.emit(items if items is not None else [])
+            error = str(e)
+        if items is None and not error:
+            error = "empty response"
+        # 工作线程只发信号：失败要区分「空账号」与「网络/接口失败」，否则
+        # 侧边栏会把同步失败静默显示成「还没有歌单」。
+        self._emitter.playlistsDone.emit((list(items or []), error))
 
     @Slot()
     def syncPlaylists(self) -> None:  # noqa: N802
@@ -932,14 +945,36 @@ class AccountManager(QObject):
         if not self._logged_in:
             self.errorOccurred.emit("请先登录网易云账号")
             return
+        self._set_playlists_failed(False)
         self._set_busy(True)
         self._set_status("正在同步歌单…")
         threading.Thread(target=self._playlists_worker, daemon=True, name="wy-playlists").start()
 
     @Slot(object)
-    def _on_playlists_done(self, items) -> None:
-        self._remote_playlists = list(items or [])
+    def _on_playlists_done(self, payload) -> None:
+        items = []
+        error = ""
+        if isinstance(payload, tuple):
+            items = list(payload[0] or [])
+            error = str(payload[1] or "")
+        else:  # 兼容旧调用方 / 测试替身直接发列表
+            items = list(payload or [])
+        # 同步失败时保留上一次成功的列表：网络抖一下不该把侧边栏清空，
+        # 界面用 remoteSyncFailed 标记提示重试。第一次就失败时列表本来就是空的。
+        if not error:
+            self._remote_playlists = items
+        self._set_playlists_failed(bool(error))
+        if error:
+            logger.warning("网易云歌单同步失败: %s", error)
         self.playlistsChanged.emit()
+        self._set_busy(False)
+
+    def _set_playlists_failed(self, value: bool) -> None:
+        value = bool(value)
+        if value == self._playlists_failed:
+            return
+        self._playlists_failed = value
+        self.playlistsFailedChanged.emit()
 
     # ── 登出 ────────────────────────────────────────────────
 
@@ -971,6 +1006,7 @@ class AccountManager(QObject):
         self._red_vip_level = 0
         self._red_vip_annual_count = 0
         self._remote_playlists = []
+        self._set_playlists_failed(False)
         self.loggedInChanged.emit()
         self.profileChanged.emit()
         self.playlistsChanged.emit()

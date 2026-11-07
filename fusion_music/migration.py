@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .core.store import MAX_HISTORY
+
 logger = logging.getLogger("fusion_music.migration")
 
 MARKER = ".migrated-from-music-json"
@@ -165,8 +167,9 @@ def migrate(base_dir: Path, music_root: Path) -> Dict[str, Any]:
             }
         )
 
+    history_out = history[:MAX_HISTORY]
     _write_json(music_root / "playlists.json", {"version": 1, "playlists": playlists_out})
-    _write_json(music_root / "history.json", history[:300])
+    _write_json(music_root / "history.json", history_out)
     _write_json(music_root / "favorites.json", [])
     _write_json(music_root / "local.json", local_out)
     _write_json(
@@ -175,20 +178,20 @@ def migrate(base_dir: Path, music_root: Path) -> Dict[str, Any]:
             "version": 1,
             "migrated_at": int(time.time()),
             "playlists": len(playlists_out),
-            "history": len(history),
+            "history": len(history_out),
             "local": len(local_out),
             "source": str(old_path),
         },
     )
     logger.info(
         "旧音乐数据已迁移：%d 个歌单 / %d 条历史 / %d 首本地",
-        len(playlists_out), len(history), len(local_out),
+        len(playlists_out), len(history_out), len(local_out),
     )
     return {
         "migrated": True,
         "reason": "ok",
         "settings": settings,
-        "counts": {"playlists": len(playlists_out), "history": len(history), "local": len(local_out)},
+        "counts": {"playlists": len(playlists_out), "history": len(history_out), "local": len(local_out)},
     }
 
 

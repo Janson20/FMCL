@@ -90,13 +90,20 @@ Item {
             Layout.fillWidth: true
             spacing: Theme?.spacingSm ?? 0
 
-            FmIcon {
-                objectName: "pageIcon"
-                visible: page.resolvedIcon.length > 0
-                name: page.resolvedIcon
-                color: Theme?.textPrimary ?? "transparent"
-                size: Theme?.fontSizeTitle ?? 18
+            Loader {
+                id: pageIconLoader
+                objectName: "pageIconLoader"
+                active: page.resolvedIcon.length > 0
+                visible: active
                 Layout.alignment: Qt.AlignVCenter
+                sourceComponent: Component {
+                    FmIcon {
+                        objectName: "pageIcon"
+                        name: page.resolvedIcon
+                        color: Theme?.textPrimary ?? "transparent"
+                        size: Theme?.fontSizeTitle ?? 18
+                    }
+                }
             }
 
             Text {
@@ -121,32 +128,43 @@ Item {
             wrapMode: Text.WordWrap
         }
 
-        // ── 三态演示按钮（阶段 2 占位页；阶段 3 删） ──
-        RowLayout {
-            objectName: "pageDemoControls"
+        // ── 三态演示按钮（阶段 2 占位页；阶段 3 真页不创建） ──
+        //
+        // 用 Loader 按需创建：真实页面 demoControlsVisible 为 false，不再在
+        // 每个 FmPage 里白建三个 FmButton。3.18 设置页加分区后，主题切换时
+        // Qt 在销毁这些从未显示过的按钮会刷 "Cannot find member data"。
+        Loader {
+            id: demoControlsLoader
+            objectName: "pageDemoControlsLoader"
             Layout.fillWidth: true
-            visible: page.demoControlsVisible
-            spacing: Theme?.spacingSm ?? 0
+            active: page.demoControlsVisible
+            visible: active
+            sourceComponent: Component {
+                RowLayout {
+                    objectName: "pageDemoControls"
+                    spacing: Theme?.spacingSm ?? 0
 
-            FmButton {
-                objectName: "demoLoadingButton"
-                primary: false
-                text: page.loadingText
-                onClicked: page.contentState = "loading"
-            }
+                    FmButton {
+                        objectName: "demoLoadingButton"
+                        primary: false
+                        text: page.loadingText
+                        onClicked: page.contentState = "loading"
+                    }
 
-            FmButton {
-                objectName: "demoEmptyButton"
-                primary: false
-                text: page.emptyText
-                onClicked: page.contentState = "empty"
-            }
+                    FmButton {
+                        objectName: "demoEmptyButton"
+                        primary: false
+                        text: page.emptyText
+                        onClicked: page.contentState = "empty"
+                    }
 
-            FmButton {
-                objectName: "demoErrorButton"
-                primary: false
-                text: page.errorText
-                onClicked: page.contentState = "error"
+                    FmButton {
+                        objectName: "demoErrorButton"
+                        primary: false
+                        text: page.errorText
+                        onClicked: page.contentState = "error"
+                    }
+                }
             }
         }
 

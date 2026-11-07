@@ -53,7 +53,7 @@ class MusicBridge(QObject):
         self._host: Any = None
         self._base_dir: Path = Path.cwd()
         self._ready = False
-        self._page = "local"
+        self._page = "discover"
         self._expanded = False
         self._closing = False
         self._last_error = ""
@@ -135,6 +135,10 @@ class MusicBridge(QObject):
     def discover(self):
         return self._host.discover if self._host is not None else None
 
+    @Property(QObject, notify=readyChanged)
+    def account(self):
+        return self._host.account if self._host is not None else None
+
     @Property(str, notify=readyChanged)
     def errorText(self) -> str:  # noqa: N802
         return self._last_error
@@ -150,7 +154,7 @@ class MusicBridge(QObject):
     @Slot(str)
     def setPage(self, page: str) -> None:  # noqa: N802
         value = str(page or "").strip()
-        if value not in ("discover", "local", "queue", "online") or value == self._page:
+        if value not in ("discover", "library", "local", "queue", "online") or value == self._page:
             return
         self._page = value
         self.pageChanged.emit()
@@ -203,6 +207,103 @@ class MusicBridge(QObject):
             "info",
         )
         return bool(added)
+
+    @Slot(str, result="QVariant")
+    def createPlaylist(self, name: str):  # noqa: N802
+        """新建歌单；成功返回 ``{id, name, count}``，失败返回 None。"""
+        if self._host is None:
+            return None
+        value = str(name or "").strip()
+        if not value:
+            self.noticeRequested.emit(_("music_playlist_name_empty"), "error")
+            return None
+        try:
+            playlist = self._host.library_controller.createPlaylist(value)
+        except Exception as exc:  # noqa: BLE001 - 歌单失败不能打崩主线程
+            logger.warning("新建歌单失败: %s", exc)
+            self.noticeRequested.emit(_("music_library_failed"), "error")
+            return None
+        if playlist:
+            self.statusMessage.emit(_("music_playlist_created").format(name=value), "info")
+        return playlist
+
+    @Slot(str, str, result=bool)
+    def renamePlaylist(self, playlist_id: str, new_name: str) -> bool:  # noqa: N802
+        if self._host is None:
+            return False
+        value = str(new_name or "").strip()
+        if not value:
+            self.noticeRequested.emit(_("music_playlist_name_empty"), "error")
+            return False
+        try:
+            ok = self._host.library_controller.renamePlaylist(str(playlist_id or ""), value)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("重命名歌单失败: %s", exc)
+            ok = False
+        self.statusMessage.emit(
+            _("music_playlist_renamed") if ok else _("music_system_playlist_readonly"),
+            "info" if ok else "error",
+        )
+        return bool(ok)
+
+    @Slot(str, result=bool)
+    def deletePlaylist(self, playlist_id: str) -> bool:  # noqa: N802
+        if self._host is None:
+            return False
+        try:
+            ok = self._host.library_controller.deletePlaylist(str(playlist_id or ""))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("删除歌单失败: %s", exc)
+            ok = False
+        self.statusMessage.emit(
+            _("music_playlist_deleted") if ok else _("music_system_playlist_readonly"),
+            "info" if ok else "error",
+        )
+        return bool(ok)
+
+    @Slot(str, str, result=bool)
+    def clearPlaylist(self, playlist_id: str) -> bool:  # noqa: N802
+        if self._host is None:
+            return False
+        try:
+            ok = self._host.library_controller.clearPlaylist(str(playlist_id or ""))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("清空歌单失败: %s", exc)
+            ok = False
+        if ok:
+            self.statusMessage.emit(_("music_playlist_cleared"), "info")
+        return bool(ok)
+
+    @Slot(str, "QVariant", result=bool)
+    def removeFromPlaylist(self, playlist_id: str, value) -> bool:  # noqa: N802
+        if self._host is None:
+            return False
+        try:
+            ok = self._host.library_controller.removeTrack(str(playlist_id or ""), value)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("从歌单移除失败: %s", exc)
+            ok = False
+        if ok:
+            self.statusMessage.emit(_("music_removed_from_playlist"), "info")
+        return bool(ok)
+
+    @Slot(str, str)
+    def toggleSort(self, playlist_id: str, field: str) -> None:  # noqa: N802
+        if self._host is None:
+            return
+        try:
+            self._host.library_controller.toggleSort(str(field or ""))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("歌单排序失败: %s", exc)
+
+    @Slot()
+    def syncPlaylists(self) -> None:  # noqa: N802
+        if self._host is None:
+            return
+        if not self._host.account.loggedIn:
+            self.noticeRequested.emit(_("settings_wy_not_logged_in"), "error")
+            return
+        self._host.account.syncPlaylists()
 
     @Slot()
     def scan(self) -> None:  # noqa: N802
