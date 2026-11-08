@@ -86,11 +86,11 @@
       "iconNearTextPrimary": 51
     },
     "agent": {
-      "cardBgPct": 58.98,
-      "navBgPct": 17.44,
-      "windowBgPct": 19.74,
-      "meanLuma": 0.0212,
-      "distinct": 306,
+      "cardBgPct": 50.74,
+      "navBgPct": 20.98,
+      "windowBgPct": 15.95,
+      "meanLuma": 0.0244,
+      "distinct": 579,
       "iconOpaque": 324,
       "iconNearTextPrimary": 18
     },

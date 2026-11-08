@@ -82,8 +82,14 @@ def _search_mods(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
             description = mod.get("description", "")
             if len(description) > 100:
                 description = description[:100] + "..."
-            versions = mod.get("versions", [])
-            version_str = f" (支持 {len(versions)} 个版本)" if versions else ""
+            versions = [str(v) for v in (mod.get("versions") or []) if str(v).strip()]
+            if versions:
+                preview = ", ".join(versions[:6])
+                if len(versions) > 6:
+                    preview += " ..."
+                version_str = f"{preview}（共 {len(versions)} 个）"
+            else:
+                version_str = "未知"
             output += (
                 f"\n{i}. {title}\n"
                 f"   项目ID: {project_id}\n"

@@ -52,7 +52,8 @@ FluAppBar {
 
     // 顶栏上用到的可交互项，供 `App.qml` 登记进 FluFrameless 的命中测试白名单。
     // **顺序无关**，但必须齐全：漏一个，那个按钮就点不动（见文件头）。
-    readonly property var interactiveItems: [backButton, searchField, notifyButton, languageButton, accountButton]
+    readonly property var interactiveItems: [backButton, agentQuickInput, searchField,
+                                            notifyButton, languageButton, accountButton]
 
     RowLayout {
         objectName: "appBarContent"
@@ -81,6 +82,28 @@ FluAppBar {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.leftMargin: Theme?.spacingXs ?? 0
+        }
+
+        //: AGENT 快速提问（阶段 3.22 / A-02）。只在已登录且窗口足够宽时出现；
+        //: 回车后先切到 AGENT 页，再由 Agent.quickAsk 把文本交给对话桥。
+        FmTextField {
+            id: agentQuickInput
+            objectName: "agentQuickInput"
+            Layout.preferredWidth: 210
+            Layout.preferredHeight: 30
+            visible: (typeof Agent !== "undefined" && Agent)
+                     ? (Agent.available && bar.width >= 1180) : false
+            placeholder: Tr?.map["agent_quick_input_placeholder"] ?? "agent_quick_input_placeholder"
+            onAccepted: {
+                var value = String(text || "").trim()
+                if (value.length === 0 || typeof Agent === "undefined" || !Agent)
+                    return
+                if (typeof Nav !== "undefined" && Nav
+                        && String(Nav.currentRoute || "").indexOf("agent") !== 0)
+                    Nav.push("agent")
+                if (Agent.quickAsk(value))
+                    text = ""
+            }
         }
 
         FmSearchField {

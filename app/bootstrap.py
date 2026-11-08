@@ -44,6 +44,7 @@ SERVICE_FACTORIES: Tuple[Tuple[str, str], ...] = (
     ("achievement", "services.achievement_service:AchievementService"),
     ("jingdu_account", "services.jingdu_account_service:JingduAccountService"),
     ("agent", "services.agent_service:AgentService"),
+    ("agent_chat", "services.agent_chat_service:AgentChatService"),
     ("bedrock", "services.bedrock_service:BedrockService"),
     ("crash", "services.crash_service:CrashService"),
     ("game", "services.game_service:GameService"),

@@ -330,8 +330,8 @@ def main() -> int:
     report["hitTest"] = {
         "declared": sorted(name for name in declared if name),
         "present": sorted(
-            name for name in ("backButton", "globalSearchBox", "notificationButton",
-                              "languageButton", "accountButton")
+            name for name in ("backButton", "agentQuickInput", "globalSearchBox",
+                              "notificationButton", "languageButton", "accountButton")
             if item(name) is not None
         ),
     }

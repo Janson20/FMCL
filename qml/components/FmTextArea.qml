@@ -23,10 +23,14 @@ Item {
     property alias readOnly: input.readOnly
     //: 可视行数（控件的初始高度按它算，用户可以自己给 height）
     property int lines: 4
+    //: 回车是否直接提交（默认关：普通多行输入的回车就是换行）。
+    //: 打开后 Enter 发 submitted()，Shift+Enter 仍换行。
+    property bool submitOnEnter: false
 
     readonly property bool hasError: errorText.length > 0
 
     signal edited(string value)
+    signal submitted()
 
     //: 选中全部文本（与 `FmTextField` 同一个转发理由：根节点是 `Item`，
     //: 原生 `TextArea.selectAll()` 在包装器上不存在）
@@ -81,6 +85,17 @@ Item {
             }
 
             onTextChanged: area.edited(text)
+
+            Keys.onPressed: function (event) {
+                if (!area.submitOnEnter)
+                    return
+                if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter)
+                    return
+                if (event.modifiers & Qt.ShiftModifier)
+                    return
+                event.accepted = true
+                area.submitted()
+            }
         }
 
         Text {

@@ -68,6 +68,16 @@ REGISTERED_LINE_DELTAS: dict[str, tuple[int, str]] = {
         1,
         "同上（agent 执行 shell 命令的那条路径）。",
     ),
+    "services/agent/tools/mods.py": (
+        6,
+        "3.22 工具测试反馈：search_mods 的版本字段原本只输出“(支持 N 个版本)”，"
+        "没有版本号；补上前 6 个游戏版本与总数。判据不变，仅登记这次合法修复的行数。",
+    ),
+    "services/agent/tools/web_search.py": (
+        67,
+        "3.22 工具测试反馈：原默认 DuckDuckGo HTML 在本机 ConnectTimeout；新增 Bing 网页 "
+        "HTML 后端（无需 Key）与解析/格式化辅助，DuckDuckGo 降为兜底。判据不变，仅登记行数。",
+    ),
 }
 
 

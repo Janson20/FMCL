@@ -111,6 +111,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Achievements", "app.bridges.achievements_bridge", "AchievementsBridge"),
     # 净读账号（3.21 设置补充）：登录 / 退出 / 用户信息。
     ("Jingdu", "app.bridges.jingdu_bridge", "JingduBridge"),
+    # AGENT 对话（阶段 3 任务 3.22）：会话 / 流式 / 工具确认 / 待办 / 语音按钮。
+    ("Agent", "app.bridges.agent_bridge", "AgentBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -868,6 +870,15 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("注销成就桥失败: %s", e)
+        # AGENT 对话桥：取消在跑的流式任务、放行工具确认、注销语音监听（阶段 3.22）。
+        agent_bridge = bridges.get("Agent")
+        if agent_bridge is not None:
+            detach = getattr(agent_bridge, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("停止 AGENT 对话后台任务失败: %s", e)
         # 净读账号桥：取消仍在跑的登录/信息刷新任务（阶段 3.21 设置补充）。
         jingdu_bridge = bridges.get("Jingdu")
         if jingdu_bridge is not None:

@@ -2509,7 +2509,7 @@ FmPage {
     FileDialog {
         id: javaDialog
         objectName: "settingsJavaDialog"
-        title: page.t("settings_java_custom_path")
+        title: page ? page.t("settings_java_custom_path") : ""
         nameFilters: ["*.exe", "*"]
         onAccepted: {
             if (page && page.live)
@@ -2521,7 +2521,7 @@ FmPage {
     FileDialog {
         id: themeDialog
         objectName: "settingsThemeDialog"
-        title: page.t("settings_theme_import_title")
+        title: page ? page.t("settings_theme_import_title") : ""
         nameFilters: ["*.json"]
         onAccepted: {
             if (page && page.live)
@@ -2532,7 +2532,7 @@ FmPage {
     FileDialog {
         id: logDialog
         objectName: "settingsLogDialog"
-        title: page.t("settings_log_export_title")
+        title: page ? page.t("settings_log_export_title") : ""
         fileMode: FileDialog.SaveFile
         defaultSuffix: "log"
         nameFilters: ["*.log"]

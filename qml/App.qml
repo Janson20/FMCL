@@ -476,6 +476,26 @@ FluWindow {
         }
     }
 
+    // 净读登录状态变化后让 AGENT 桥重读 Token（顶栏快速提问的可见性靠它）。
+    Connections {
+        target: (typeof Jingdu !== "undefined" && Jingdu) ? Jingdu : null
+
+        function onChanged() {
+            if (typeof Agent !== "undefined" && Agent)
+                Agent.refresh();
+        }
+    }
+
+    // AGENT（3.22）：错误、Token 过期与语音不可用都从桥发到壳层，页面切走也不会丢。
+    Connections {
+        target: (typeof Agent !== "undefined" && Agent) ? Agent : null
+
+        function onNoticeRequested(message, level) {
+            if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.available)
+                Dialogs.notify({"level": String(level), "message": String(message), "icon": "agent"});
+        }
+    }
+
     // 成就（3.21）：解锁 Toast 与同步结果都只在壳层挂一次。
     // 页面会在分类 / 详情 / 云端三条路由上同时存在，各页自己接会重复弹。
     Connections {

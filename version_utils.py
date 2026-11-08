@@ -267,6 +267,21 @@ def parse_mc_version_from_json(text: str) -> Optional[str]:
     Returns:
         提取到的版本号，未找到返回 None
     """
+    # 优先读**顶层**字段。版本 JSON 里第一个 `"id"` 往往是 assetIndex 的
+    # `"id": "1.12"`，直接正则 `search` 会把 1.12.2 截成 1.12。
+    try:
+        obj = json.loads(text)
+    except (TypeError, ValueError):
+        obj = None
+    if isinstance(obj, dict):
+        for key in ("clientVersion", "id", "jar"):
+            raw = obj.get(key)
+            if not isinstance(raw, str):
+                continue
+            parsed = parse_mc_version_from_id(raw)
+            if parsed:
+                return parsed
+
     m = _MC_JSON_VERSION_RE.search(text)
     if m:
         if m.group("snapshot"):
@@ -840,22 +855,19 @@ def parse_mc_version_from_json_full(
     if m:
         return m.group(1)
 
-    # 策略 8: id 字段
-    m = re.search(r'"id"\s*:\s*"([^"]+)"', json_text)
-    if m:
-        id_value = m.group(1)
-        mc_v = parse_mc_version_from_json(id_value)
-        if mc_v:
-            return mc_v
+    # 策略 8: JSON 顶层 id（不是 assetIndex 的 id）
+    mc_v = parse_mc_version_from_json(json_text)
+    if mc_v:
+        return mc_v
 
     # 策略 9: 文件夹名
     if folder_name:
-        mc_v = parse_mc_version_from_json(folder_name)
+        mc_v = parse_mc_version_from_id(folder_name)
         if mc_v:
             return mc_v
 
-    # 策略 10: 在整个 JSON 中搜索版本号
-    mc_v = parse_mc_version_from_json(json_text)
+    # 策略 10: 非 JSON / 残片兜底
+    mc_v = parse_mc_version_from_json(folder_name or "")
     if mc_v:
         return mc_v
 

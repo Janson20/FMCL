@@ -209,3 +209,23 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `FmJingduAccountSection` | 设置 AI 分区的净读账号：未登录表单、登录中/失败提示、登录后的用户名/UUID/等级/签名/AI 积分、刷新与退出 | 无外部属性；读 Jingdu 桥的 `available` `loggedIn` `username` `busy` `errorText` `userInfo`，动作走 `Jingdu.login/logout/refreshInfo` |
 
 > 登录是**即时动作**，不属于设置草稿；因此本区块不受底部「保存/取消」影响。
+
+
+## 九、AGENT 对话组件（阶段 3.22）
+
+这些件放在 `qml/components/agent/`，只被 Agent 页组合使用。它们不直接读服务：
+消息、工具卡、待办全部由 Agent 桥传入，确认对话框只发 `answered`。
+
+| 组件 | 用途 | 关键属性 |
+|------|------|----------|
+| `FmAgentMarkdown` | Markdown 块渲染：标题/段落/引用/列表/表格/代码/水平线 | `blocks` `linkActivated(link)` `copyRequested(text)` |
+| `FmAgentMessage` | 用户气泡与助手消息：Markdown、思考折叠、复制/重发 | `message` `isLast` `canRetry` `copyRequested(messageId)` `copyTextRequested(text)` `retryRequested()` `linkActivated(link)` |
+| `FmAgentToolCard` | 工具调用卡：名称、参数、状态、结果展开与复制 | `message` `expanded` `copyRequested(text)` |
+| `FmAgentSessionList` | 会话列表：新建、选择、重命名、删除入口 | `sessions` `currentSessionId` `busy` `newRequested()` `selectRequested(id)` `renameRequested(id,title)` `deleteRequested(id,title)` |
+| `FmAgentTodoPanel` | 待办面板：完成数、状态图标、内容 | `todos` |
+| `FmAgentComposer` | 输入区：多行输入、发送/停止、语音按钮、免责声明 | `text` `busy` `loggedIn` `voiceState` `sendRequested(text)` `stopRequested()` `voiceRequested()` `focusInput()` |
+| `FmAgentApprovalDialog` | 高危命令/文件修改确认；关闭即拒绝 | `request` `answered(bool)` |
+| `FmAgentAskDialog` | ask_user 多问题：单选/多选/自定义/上一题/下一题 | `request` `answered(bool, answers)` |
+
+> 思考块默认收起，避免长推理占满首屏；工具参数与结果也默认收起。所有颜色只来自
+> `Theme.*`，代码/参数的等宽字体是本件唯一的字体族声明。

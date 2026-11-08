@@ -183,11 +183,14 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "app.bridges.tools_bridge",
     "app.bridges.achievements_bridge",
     "app.bridges.jingdu_bridge",
+    # 阶段 3 任务 3.22 的 AGENT 对话桥
+    "app.bridges.agent_bridge",
     # app.bootstrap 的服务表（`_make_factory` 按 "模块:类名" 导入）
     "services.about_service",
     "services.account_service",
     "services.achievement_service",
     "services.agent_service",
+    "services.agent_chat_service",
     "services.bedrock_service",
     "services.crash_service",
     "services.game_service",

@@ -1,11 +1,15 @@
 """WebSearch 工具 - 联网搜索
 
-支持两种后端：
-1. DuckDuckGo Instant Answer（免费，无需 API Key）
-2. Bing Web Search API（需配置 BING_API_KEY）
+后端按可用性回退：
+1. Bing Web Search API（配置了 BING_API_KEY）
+2. Bing 网页搜索（免费，无需 Key；本机实测可达）
+3. DuckDuckGo HTML（免费后端，部分网络会超时）
 """
 
+import html
 import json
+import re
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Callable, Dict, List, Optional
@@ -47,13 +51,23 @@ def _web_search(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     if not query:
         return "错误: 缺少 query 参数"
 
-    num = min(int(params.get("num", 5)), 20)
+    try:
+        num = int(params.get("num", 5))
+    except (TypeError, ValueError):
+        num = 5
+    num = min(max(num, 1), 20)
 
     bing_key = _get_bing_api_key(callbacks)
     if bing_key:
         return _search_bing(query, num, bing_key)
-    else:
-        return _search_duckduckgo(query, num)
+
+    results = _search_bing_html(query, num)
+    if results:
+        return _format_results(query, results, "Bing")
+
+    # Bing 网页偶发被风控时再试 DuckDuckGo；它的后端在本机经常连接超时，
+    # 因此只作为最后兜底，且把真实失败原因带回给模型。
+    return _search_duckduckgo(query, num)
 
 
 def _get_bing_api_key(callbacks: Dict[str, Callable]) -> str:
@@ -62,6 +76,59 @@ def _get_bing_api_key(callbacks: Dict[str, Callable]) -> str:
         config = callbacks["get_config"]()
         return config.get("bing_api_key", "") if isinstance(config, dict) else ""
     return ""
+
+
+def _search_bing_html(query: str, num: int = 5) -> Optional[List[dict]]:
+    # 免费 Bing 网页搜索；部分网络下 Bing 网页可达而 DuckDuckGo 会 ConnectTimeout。
+    try:
+        params = urllib.parse.urlencode({"q": query, "count": str(min(max(num, 1), 20)), "setlang": "zh-Hans"})
+        req = urllib.request.Request(
+            "https://www.bing.com/search?" + params,
+            headers={
+                "User-Agent": DEFAULT_UA,
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            },
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            page = resp.read().decode("utf-8", errors="replace")
+
+        results: List[dict] = []
+        blocks = re.findall(r'<li[^>]*class="[^"]*\bb_algo\b[^"]*"[^>]*>.*?</li>', page, re.DOTALL | re.IGNORECASE)
+        for block in blocks:
+            title_match = re.search(
+                r'<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', block, re.DOTALL | re.IGNORECASE
+            )
+            if not title_match:
+                continue
+            url = html.unescape(title_match.group(1)).strip()
+            if url.startswith("/"):
+                url = "https://www.bing.com" + url
+            title = _clean_html(title_match.group(2))
+            snippet_match = re.search(r"<p[^>]*>(.*?)</p>", block, re.DOTALL | re.IGNORECASE)
+            snippet = _clean_html(snippet_match.group(1)) if snippet_match else ""
+            if title and url:
+                results.append({"title": title, "url": url, "snippet": snippet or "(无简介)"})
+            if len(results) >= num:
+                break
+        return results
+    except Exception as e:  # noqa: BLE001 - 网络失败交给上层回退
+        logger.warning(f"Bing 网页搜索失败: {e}")
+        return None
+
+
+def _clean_html(value: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", value)).strip()
+
+
+def _format_results(query: str, results: List[dict], backend: str) -> str:
+    output = f"搜索: {query}\n找到 {len(results)} 条结果 ({backend}):\n\n"
+    for i, item in enumerate(results, 1):
+        output += f"{i}. {item['title']}\n"
+        output += f"   URL: {item['url']}\n"
+        output += f"   {item['snippet']}\n\n"
+    return output
 
 
 def _search_duckduckgo(query: str, num: int = 5) -> str:
