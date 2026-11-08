@@ -23,8 +23,8 @@ import requests
 
 logger = logging.getLogger("services.notice")
 
-#: 公告地址（与旧实现逐字一致）
-NOTICE_URL = "https://jingdu.qzz.io/static/fmcl-notice.txt"
+#: 公告地址（净读根域；已随域名迁移更新）
+NOTICE_URL = "https://jingdu.org/static/fmcl-notice.txt"
 
 #: 超时（与旧实现逐字一致）
 TIMEOUT_S = 10

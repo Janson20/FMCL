@@ -2900,7 +2900,7 @@ class MinecraftLauncher:
             import requests
 
             resp = requests.get(
-                "https://jingdu.qzz.io/api/user/info",
+                "https://jingdu.org/api/user/info",
                 headers={
                     "Authorization": f"Bearer {token}",
                     "User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)",

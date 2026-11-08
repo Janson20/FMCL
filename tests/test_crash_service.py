@@ -548,7 +548,7 @@ class TestAnalyzeCrash:
         assert content == "## 崩溃原因分析\n内存不足"
 
         call = transport.calls[-1]
-        assert call["url"] == AI_ENDPOINT == "https://jingdu.qzz.io/api/deepseek/v1/chat/completions"
+        assert call["url"] == AI_ENDPOINT == "https://jingdu.org/api/deepseek/v1/chat/completions"
         assert call["timeout"] == 120
         assert call["headers"] == {
             "Content-Type": "application/json",

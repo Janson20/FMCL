@@ -58,8 +58,8 @@ from services.errors import InvalidArgument, NetworkError, NotFound
 if TYPE_CHECKING:  # pragma: no cover - 仅供类型检查
     from app.context import AppContext
 
-#: AI 分析接口地址（与改造前 ``ui/app_crash.py`` 的字面量逐字一致）
-AI_ENDPOINT = "https://jingdu.qzz.io/api/deepseek/v1/chat/completions"
+#: AI 分析接口地址（净读根域；已随域名迁移更新）
+AI_ENDPOINT = "https://jingdu.org/api/deepseek/v1/chat/completions"
 
 #: 可注入的传输实现：``(url, data, headers, timeout) -> 解析后的 JSON dict``
 Transport = Callable[[str, bytes, Dict[str, str], int], Any]

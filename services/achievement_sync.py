@@ -12,7 +12,7 @@ from typing import Callable, Optional
 import requests
 from logzero import logger
 
-STORAGE_API = "https://jingdu.qzz.io/api/db/storage"
+STORAGE_API = "https://jingdu.org/api/db/storage"
 MAX_SIZE = 1 * 1024 * 1024
 RATE_LIMIT_WINDOW = 3600
 MAX_REQUESTS_PER_WINDOW = 30

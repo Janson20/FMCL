@@ -1,6 +1,6 @@
 """净读 AI 提供商 - 封装净读 AI API（DeepSeek V4 后端）
 
-API 端点: https://jingdu.qzz.io/api/deepseek/v1/chat/completions
+API 端点: https://jingdu.org/api/deepseek/v1/chat/completions
 兼容 OpenAI chat/completions 格式。
 
 模型更新 (2026/06):
@@ -24,7 +24,7 @@ from services.agent.models import get_model_by_id
 from services.agent.provider import BaseProvider
 from services.agent.stream import SSEEventType, SSEParser
 
-JDZ_DEFAULT_API_URL = "https://jingdu.qzz.io/api/deepseek/v1/chat/completions"
+JDZ_DEFAULT_API_URL = "https://jingdu.org/api/deepseek/v1/chat/completions"
 JDZ_DEFAULT_MODEL = "deepseek-v4-flash"
 
 

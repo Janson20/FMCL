@@ -361,15 +361,16 @@ def main() -> int:
     # 1) 点一遍 12 个一级导航项
     report["walk"] = walk()
 
-    # 2) 三态演示（点页面里的三个按钮 → 读**渲染出来的**状态件）
+    # 2) 三态演示：3.20 起工具箱是真实页面，不再带阶段 2 的演示按钮；
+    #    直接切 FmPage.contentState，读**渲染出来的**状态件（判据与旧驱动一致）。
     NAV.reset()
     click(nav_delegates().get("navItem_tools"))
     settle()
     states = []
     page = current_page()
-    for button_name, expected in (("demoEmptyButton", "empty"), ("demoErrorButton", "error"),
-                                  ("demoLoadingButton", "loading")):
-        click(page.findChild(QQuickItem, button_name))
+    for expected in ("empty", "error", "loading"):
+        page.setProperty("contentState", expected)
+        QTest.qWait(60)
         readout = state_readout()
         states.append({
             "expected": expected,

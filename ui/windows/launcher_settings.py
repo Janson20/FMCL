@@ -770,7 +770,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
             hover_color=COLORS["accent_hover"],
             text_color=COLORS["text_primary"],
             anchor="w",
-            command=lambda: webbrowser.open("https://jingdu.qzz.io/register"),
+            command=lambda: webbrowser.open("https://jingdu.org/register"),
         )
         register_btn.pack(anchor="w", padx=12, pady=(5, 10))
 
@@ -1267,7 +1267,7 @@ class LauncherSettingsWindow(ctk.CTkToplevel):
                 import requests
 
                 resp = requests.post(
-                    "https://jingdu.qzz.io/api/auth/login",
+                    "https://jingdu.org/api/auth/login",
                     json={"username": username, "password": password},
                     headers={"User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)"},
                     timeout=15,

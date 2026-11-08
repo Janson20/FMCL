@@ -298,7 +298,7 @@ def run_login(username: str, password: str | None):
     try:
         req_data = json.dumps({"username": username, "password": password}).encode("utf-8")
         req = urllib.request.Request(
-            "https://jingdu.qzz.io/api/auth/login",
+            "https://jingdu.org/api/auth/login",
             data=req_data,
             headers={"Content-Type": "application/json", "User-Agent": "FMCL/1.0 (Minecraft Launcher; crash-analyzer)"},
             method="POST",

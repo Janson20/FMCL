@@ -75,18 +75,23 @@ i18n：本模块通过 ``services.i18n_service._`` 取词（与 ``ui.i18n._`` �
    副作用却是**一个时钟刻度内跑完的下载一次回调都不发**（Windows 上 ``time.time()`` 步长约
    0.5 ms，内存/局域网的小文件很容易撞上）——界面进度条全程不动，而文件其实已经下好了。
    现在只把"算速率"留在判断里（没跨过刻度给 ``0.0``），``emit`` **每块都发**。
-   这是本文件里**唯一一处故意与搬运前不一致的行为**，其余各点都保持逐字等价；
-   实证与钉子见 ``poc/_probe_tool_progress_tick.py`` 与
+   这是本文件里**第一处故意与搬运前不一致的行为**；3.20 又补了跨进程续传与暂停
+   （见第 10 条）。其余各点保持逐字等价；D-154 的实证与钉子见
+   ``poc/_probe_tool_progress_tick.py`` 与
    ``tests/test_tool_service.py::test_download_multi_reports_progress_even_without_a_clock_tick``。
+10. 3.20 下载器：新增 ``<dest>.fmcl-resume.json`` 元数据、按分片实际大小续传、
+    ``pause_check``（保留分片）与 ``cancel_check``（清理分片）两套语义；线程异常
+    不再被吞掉，合并前校验分片与最终长度。旧 ``ui/app_tools.py`` 的 Tk 界面仍只
+    调用旧参数，行为不变；QML 工具箱通过 ``ToolsSession`` 启用新能力。
 
 ----
 
 「记录现状、疑为缺陷」（**未修**，按"只搬家不改逻辑"要求原样保留）：
 
 - ``_dl_cancel_flag`` 在整个 ``ui/app_tools.py`` 里只被赋值为 ``False``，没有任何地方
-  置 ``True`` —— 多线程下载器的取消机制在当前界面下**不可达**；
-  ``tool_download_cancelled`` 文案因此永远显示不出来。
-  :func:`download_multi` 原样保留了这套机制并把它参数化为 ``cancel_check``。
+  置 ``True`` —— **旧 Tk 界面**的取消机制不可达；3.20 的 QML 工具箱已经用
+  ``ToolsSession`` / ``ToolsBridge`` 接上真正的暂停与取消。
+  :func:`download_multi` 把旧机制参数化为 ``cancel_check``，并新增 ``pause_check``。
 - ``save_quiz_questions`` 把 ``path.parent.mkdir(...)`` 放在 ``try`` **之外**：
   建目录失败会直接抛出，而写文件失败只记日志、静默返回。
   日志文本硬编码为 "保存 quiz.json 失败"，即使实际路径不是 quiz.json。
@@ -1009,20 +1014,194 @@ def drop_question(questions: List[Dict], index: int) -> None:
 class DownloadOutcome(NamedTuple):
     """一次下载的结局。"""
 
-    #: ``"success"`` 或 ``"cancelled"``
+    #: "success" / "cancelled" / "paused"
     status: str
-    #: 最终落盘路径（取消时是"本该落盘"的路径）
+    #: 最终落盘路径（未完成时是"本该落盘"的路径）
     path: str
-    #: 总字节数
+    #: 总字节数（单流回退时是实际写入的字节数）
     size: int
+
+
+class DownloadResumeError(RuntimeError):
+    """续传元数据与远端文件对不上（URL / 大小 / ETag / Last-Modified 变化）。"""
+
+
+#: 分片续传元数据的后缀。与 dest.partN 放在同一目录，成功后一起删除。
+RESUME_META_SUFFIX = ".fmcl-resume.json"
 
 
 def _never_cancelled() -> bool:
     return False
 
 
+def _never_paused() -> bool:
+    return False
+
+
 def _ignore_progress(downloaded: int, total: int, speed: float) -> None:
     return None
+
+
+def _part_ranges(total_size: int, threads: int) -> List[Tuple[int, int]]:
+    """按 threads 切分 [0, total_size)，返回闭区间列表。
+
+    total_size < threads 时自动把线程数降到 total_size，避免出现
+    bytes=0--1 这种空段（旧实现的记录现状，本次续传实现顺带修掉）。
+    """
+    total_size = int(total_size)
+    if total_size <= 0:
+        return []
+    count = max(1, min(int(threads), total_size))
+    part_size = total_size // count
+    ranges: List[Tuple[int, int]] = []
+    for i in range(count):
+        start = i * part_size
+        end = start + part_size - 1 if i < count - 1 else total_size - 1
+        ranges.append((start, end))
+    return ranges
+
+
+def _resume_meta_path(dest: str) -> str:
+    return f"{dest}{RESUME_META_SUFFIX}"
+
+
+def _read_resume_meta(dest: str) -> Optional[Dict[str, Any]]:
+    path = _resume_meta_path(dest)
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    if not isinstance(data, dict) or data.get("version") != 1:
+        return None
+    try:
+        total_size = int(data.get("total", 0))
+        threads = int(data.get("threads", 0))
+    except (TypeError, ValueError):
+        return None
+    if total_size <= 0 or threads < 1:
+        return None
+    return data
+
+
+def _write_resume_meta(dest: str, meta: Dict[str, Any]) -> None:
+    path = Path(_resume_meta_path(dest))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _remove_resume_meta(dest: str) -> None:
+    try:
+        os.remove(_resume_meta_path(dest))
+    except OSError:
+        pass
+
+
+def _part_path(dest: str, index: int) -> str:
+    return f"{dest}.part{index}"
+
+
+def _iter_part_files(dest: str):
+    """逐个产出 dest.partN（包括元数据里已不存在的旧分片）。"""
+    path = Path(dest)
+    parent = path.parent
+    prefix = path.name + ".part"
+    try:
+        children = list(parent.iterdir())
+    except OSError:
+        return
+    for child in children:
+        if child.name.startswith(prefix):
+            suffix = child.name[len(prefix):]
+            if suffix.isdigit():
+                yield child
+
+
+def cleanup_download_parts(dest: str) -> None:
+    """删除 dest 的全部分片、续传元数据与合并临时文件（不动 dest 本身）。"""
+    for child in list(_iter_part_files(dest)):
+        try:
+            child.unlink()
+        except OSError:
+            pass
+    _remove_resume_meta(dest)
+    for name in (dest + ".fmcl-merge.tmp", _resume_meta_path(dest) + ".tmp"):
+        try:
+            Path(name).unlink()
+        except OSError:
+            pass
+
+
+def download_resume_state(dest: str) -> Optional[Dict[str, Any]]:
+    """返回某个落盘路径的未完成状态；没有元数据时返回 None。
+
+    分片大小直接读磁盘，不依赖内存中的计数。进程被杀、重启后，已经完整写进
+    分片文件的字节仍然算数。
+    """
+    meta = _read_resume_meta(dest)
+    if meta is None:
+        return None
+    try:
+        total_size = int(meta["total"])
+        threads = int(meta["threads"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    ranges = _part_ranges(total_size, threads)
+    downloaded = 0
+    complete = 0
+    for index, (start, end) in enumerate(ranges):
+        expected = end - start + 1
+        try:
+            size = os.path.getsize(_part_path(dest, index))
+        except OSError:
+            size = 0
+        size = min(max(size, 0), expected)
+        downloaded += size
+        if size == expected:
+            complete += 1
+    return {
+        "version": 1,
+        "url": str(meta.get("url", "") or ""),
+        "dest": str(meta.get("dest", dest) or dest),
+        "total": total_size,
+        "threads": len(ranges),
+        "downloaded": downloaded,
+        "completeParts": complete,
+        "partCount": len(ranges),
+        "etag": str(meta.get("etag", "") or ""),
+        "lastModified": str(meta.get("last_modified", "") or ""),
+    }
+
+
+def _merge_parts(dest: str, ranges: Sequence[Tuple[int, int]]) -> None:
+    tmp = dest + ".fmcl-merge.tmp"
+    try:
+        with open(tmp, "wb") as outf:
+            for index, (start, end) in enumerate(ranges):
+                part = _part_path(dest, index)
+                expected = end - start + 1
+                try:
+                    actual = os.path.getsize(part)
+                except OSError:
+                    actual = 0
+                if actual != expected:
+                    raise RuntimeError(f"分片 {index} 长度不正确: {actual}/{expected}")
+                with open(part, "rb") as inf:
+                    while True:
+                        chunk = inf.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        outf.write(chunk)
+        if os.path.getsize(tmp) != sum(end - start + 1 for start, end in ranges):
+            raise RuntimeError("合并后的文件长度不正确")
+        os.replace(tmp, dest)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def download_multi(
@@ -1033,58 +1212,123 @@ def download_multi(
     threads: int = 4,
     session: Optional[Any] = None,
     cancel_check: Optional[Callable[[], bool]] = None,
+    pause_check: Optional[Callable[[], bool]] = None,
     on_progress: Optional[Callable[[int, int, float], None]] = None,
 ) -> DownloadOutcome:
-    """多线程（HTTP Range 分段）下载到 ``dest``（阻塞式，应在工作线程调用）。
+    """多线程（HTTP Range 分段）下载到 dest（阻塞式，应在工作线程调用）。
 
-    搬运自 ``_on_start_download`` 内 ``_task``，**逐字保留**，只有一处**刻意偏离**：
+    在旧实现的基础上补齐跨进程续传与暂停/取消两套语义：
 
-    * **进度回调不再被时钟刻度挡住**（缺陷 D-154）。原实现在 ``if elapsed > 0:`` 里同时
-      干"算速率"和"发进度"两件事，那层本意只是给除法防零，副作用却是**同一个时钟刻度内
-      下完的文件一次回调都不发**（界面进度条全程不动，而文件已经落盘）。
-      现在速率只在跨过刻度时才算（没跨过给 ``0.0``），``emit`` **每块都发**。
+    * 续传：每次分段下载会在 dest.fmcl-resume.json 写入 URL / 总长度 /
+      线程数 / ETag / Last-Modified；已写进 dest.partN 的字节就是进度。
+      再次调用时先校验远端是否仍是同一个文件，再从各分片末尾继续。
+    * 暂停（pause_check）：停止各分片线程，保留分片与元数据，返回
+      status="paused"；下次调用可接着下。
+    * 取消（cancel_check）：删除分片、元数据与合并临时文件，返回
+      status="cancelled"（与旧行为一致）。
+    * 进度回调不再被时钟刻度挡住（缺陷 D-154）；每个收到的块都会发一次。
+    * 线程异常不再被吞掉：任一分片失败会让本次调用抛错，不会把残缺分片当成功合并。
 
-    其余步骤：
+    其余步骤与旧实现一致：
 
-    1. ``HEAD`` 取 ``Content-Length``（超时 15s）。
-    2. 拿不到长度（``0``）时退化为**单流 GET** 一次性落盘（超时 30s）。
-    3. 否则切成 ``threads`` 段并发 GET（超时 60s）写 ``<dest>.partN``，
+    1. HEAD 取 Content-Length（超时 15s）。
+    2. HEAD 返回 405/501 时改用 `Range: bytes=0-0` 的 GET 探测总长度；若服务器连
+       Range 也忽略（返回 200），本次退化为单流落盘。
+    3. 拿不到长度（0）时退化为单流 GET 一次性落盘（超时 30s）；
+       该分支没有总长度，无法跨进程续传。
+    4. 否则切成 threads 段并发 GET（超时 60s）写 dest.partN，
        全部结束后按序拼接并删掉分片。
-    4. 取消发生在拼接之前时删掉分片并返回 ``status="cancelled"``。
 
     Args:
         url: 下载地址。
-        dest: **最终落盘文件路径**（由调用方经 :func:`resolve_download_target` 决定）。
-        user_agent: 请求头 ``User-Agent``。
-        threads: 分段数。
-        session: 可注入的 HTTP 会话（默认 ``requests`` 模块本身），
-            需提供 ``head`` / ``get``，单测注入假实现即可完全离线。
-        cancel_check: 返回是否已取消；默认永不取消。
-        on_progress: ``(downloaded, total, speed) -> None``，在**分段下载的写锁内**
-            按块触发（与原来 ``self.after(0, _update)`` 的位置一致）；
-            **每块都发**（不因"没跨过时钟刻度"而跳过，见 D-154）；默认空实现。
-            单流回退分支（拿不到 ``Content-Length``）**不发**进度 —— 原实现如此。
+        dest: 最终落盘文件路径（由调用方经 resolve_download_target 决定）。
+        user_agent: 请求头 User-Agent。
+        threads: 分段数；续传时以元数据里的线程数为准，保证分片边界不变。
+        session: 可注入的 HTTP 会话（默认 requests 模块本身）。
+        cancel_check: 返回是否已取消；默认永不取消。取消会清理分片。
+        pause_check: 返回是否要暂停；默认永不暂停。暂停保留分片。
+        on_progress: (downloaded, total, speed) -> None，在写锁内按块触发。
 
     Raises:
-        Exception: 底层 ``requests`` / 文件 IO 异常原样向上抛，由调用方决定怎么提示
-            （界面侧就是 ``except Exception as e`` → ``tool_download_error``）。
-        Exception("cancelled"): 单流分支中途被取消。**这是原实现的写法，原样保留**
-            ——调用方沿用 ``if str(e) == "cancelled": return`` 的静默处理。
-            （记录现状：界面里没有任何地方把取消标志置 True，此路径不可达。）
-
-    .. note::
-        ``total_size < threads`` 时 ``part_size`` 为 0，除最后一段外都会退化成
-        ``Range: bytes=0--1``。这是**搬运前就有的行为**，未修（记录现状）。
+        DownloadResumeError: 远端大小 / ETag / Last-Modified 与续传元数据不一致。
+        Exception: 底层 HTTP / 文件 IO 异常原样向上抛。
     """
     http = requests if session is None else session
     is_cancelled = _never_cancelled if cancel_check is None else cancel_check
+    is_paused = _never_paused if pause_check is None else pause_check
     emit = _ignore_progress if on_progress is None else on_progress
+    threads = max(1, int(threads))
 
-    resp = http.head(url, headers={"User-Agent": user_agent}, timeout=15)
-    resp.raise_for_status()
+    meta = _read_resume_meta(dest)
+    if meta is not None:
+        if str(meta.get("url", "")) != url or str(meta.get("dest", dest)) != dest:
+            raise DownloadResumeError("续传元数据与下载地址不匹配")
+        try:
+            meta_total = int(meta.get("total", 0))
+            meta_threads = int(meta.get("threads", 0))
+        except (TypeError, ValueError):
+            meta_total = 0
+            meta_threads = 0
+        if meta_total <= 0 or meta_threads <= 0:
+            raise DownloadResumeError("续传元数据损坏")
+        threads = meta_threads
 
-    total_size = int(resp.headers.get("Content-Length", 0))
+    etag = ""
+    last_modified = ""
+    total_size = 0
+    try:
+        resp = http.head(url, headers={"User-Agent": user_agent}, timeout=15)
+        resp.raise_for_status()
+        total_size = int(resp.headers.get("Content-Length", 0))
+        etag = str(resp.headers.get("ETag", "") or "")
+        last_modified = str(resp.headers.get("Last-Modified", "") or "")
+    except requests.HTTPError as e:
+        status_code = int(getattr(getattr(e, "response", None), "status_code", 0) or 0)
+        if status_code not in (405, 501):
+            raise
+        # 有些服务器不允许 HEAD（405），但允许 Range GET；用 0-0 探测总长度。
+        probe = http.get(
+            url,
+            headers={"User-Agent": user_agent, "Range": "bytes=0-0"},
+            stream=True,
+            timeout=30,
+        )
+        try:
+            probe.raise_for_status()
+            probe_status = int(getattr(probe, "status_code", 0) or 0)
+            etag = str(probe.headers.get("ETag", "") or "")
+            last_modified = str(probe.headers.get("Last-Modified", "") or "")
+            if probe_status == 206:
+                content_range = str(probe.headers.get("Content-Range", "") or "")
+                try:
+                    total_size = int(content_range.rsplit("/", 1)[1])
+                except (IndexError, TypeError, ValueError):
+                    total_size = 0
+                if total_size <= 0:
+                    raise DownloadResumeError("服务器返回了无法解析的 Content-Range")
+            elif probe_status == 200:
+                if meta is not None:
+                    raise DownloadResumeError("服务器不支持 Range，无法续传")
+                # Range 也被忽略：本次直接把这个完整响应流式落盘。
+                declared = int(probe.headers.get("Content-Length", 0) or 0)
+                actual = 0
+                with open(dest, "wb") as f:
+                    for chunk in probe.iter_content(chunk_size=8192):
+                        if is_cancelled():
+                            raise Exception("cancelled")
+                        if chunk:
+                            f.write(chunk)
+                            actual += len(chunk)
+                            emit(actual, declared or actual, 0.0)
+                return DownloadOutcome(status="success", path=dest, size=actual)
+            else:
+                raise DownloadResumeError("服务器不支持 HEAD，且无法探测文件长度")
+        finally:
+            probe.close()
+
     if total_size == 0:
+        if meta is not None:
+            raise DownloadResumeError("远端文件长度不可用，无法续传")
         resp2 = http.get(url, headers={"User-Agent": user_agent}, stream=True, timeout=30)
         resp2.raise_for_status()
         chunks = []
@@ -1099,41 +1343,106 @@ def download_multi(
             f.write(content)
         return DownloadOutcome(status="success", path=dest, size=total_size)
 
-    downloaded = 0
-    lock = threading.Lock()
-    start_time = time.time()
-    part_size = total_size // threads
+    if meta is not None:
+        if int(meta.get("total", 0)) != total_size:
+            raise DownloadResumeError("远端文件大小已变化，无法续传")
+        old_etag = str(meta.get("etag", "") or "")
+        old_last_modified = str(meta.get("last_modified", "") or "")
+        if etag and old_etag and etag != old_etag:
+            raise DownloadResumeError("远端文件 ETag 已变化，无法续传")
+        if last_modified and old_last_modified and last_modified != old_last_modified:
+            raise DownloadResumeError("远端文件修改时间已变化，无法续传")
+    else:
+        # 没有元数据却残留旧分片：来源不可考，重新开始。
+        for child in list(_iter_part_files(dest)):
+            try:
+                child.unlink()
+            except OSError:
+                pass
+        threads = max(1, min(threads, total_size))
+        meta = {
+            "version": 1,
+            "url": url,
+            "dest": dest,
+            "total": total_size,
+            "threads": threads,
+            "etag": etag,
+            "last_modified": last_modified,
+        }
+        _write_resume_meta(dest, meta)
 
-    def _dl_part(start: int, end: int, idx: int):
+    ranges = _part_ranges(total_size, threads)
+    if not ranges:
+        raise RuntimeError("文件长度无效，无法分段下载")
+
+    offsets: List[int] = []
+    downloaded = 0
+    for index, (start, end) in enumerate(ranges):
+        expected = end - start + 1
+        part = _part_path(dest, index)
+        try:
+            size = os.path.getsize(part)
+        except OSError:
+            size = 0
+        if size > expected:
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+            size = 0
+        offsets.append(size)
+        downloaded += size
+
+    if is_cancelled():
+        cleanup_download_parts(dest)
+        return DownloadOutcome(status="cancelled", path=dest, size=total_size)
+    if is_paused():
+        return DownloadOutcome(status="paused", path=dest, size=total_size)
+
+    lock = threading.Lock()
+    errors: List[BaseException] = []
+    start_time = time.time()
+
+    def _dl_part(start: int, end: int, index: int, offset: int):
         nonlocal downloaded
-        headers = {"User-Agent": user_agent, "Range": f"bytes={start}-{end}"}
-        part_file = f"{dest}.part{idx}"
+        expected = end - start + 1
+        if offset >= expected:
+            return
+        headers = {"User-Agent": user_agent, "Range": f"bytes={start + offset}-{end}"}
+        part_file = _part_path(dest, index)
         try:
             r = http.get(url, headers=headers, stream=True, timeout=60)
             r.raise_for_status()
-            with open(part_file, "wb") as pf:
+            if offset > 0 and int(getattr(r, "status_code", 206) or 0) != 206:
+                raise DownloadResumeError("服务器没有按 Range 返回分片，无法续传")
+            written = offset
+            with open(part_file, "ab" if offset else "wb") as pf:
                 for chunk in r.iter_content(chunk_size=8192):
-                    if is_cancelled():
+                    if is_cancelled() or is_paused():
                         r.close()
                         return
-                    if chunk:
-                        pf.write(chunk)
-                        with lock:
-                            downloaded += len(chunk)
-                            elapsed = time.time() - start_time
-                            # D-154：`emit` 不许再被这个防除零的判断挡住 ——
-                            # 一个时钟刻度内下完的文件也要报进度（理由与实测见函数文档）。
-                            speed = downloaded / elapsed if elapsed > 0 else 0.0
-                            emit(downloaded, total_size, speed)
-        except Exception as e:
-            logger.error(f"分段下载 {idx} 失败: {e}")
-            raise
+                    if not chunk:
+                        continue
+                    written += len(chunk)
+                    if written > expected:
+                        raise DownloadResumeError(f"分片 {index} 返回了超出范围的数据")
+                    pf.write(chunk)
+                    with lock:
+                        downloaded += len(chunk)
+                        elapsed = time.time() - start_time
+                        speed = downloaded / elapsed if elapsed > 0 else 0.0
+                        emit(downloaded, total_size, speed)
+        except BaseException as e:  # noqa: BLE001 - 统一交给 join 后的主线程决定怎么报
+            logger.error(f"分段下载 {index} 失败: {e}")
+            with lock:
+                errors.append(e)
 
     threads_list = []
-    for i in range(threads):
-        start_byte = i * part_size
-        end_byte = start_byte + part_size - 1 if i < threads - 1 else total_size - 1
-        t = threading.Thread(target=_dl_part, args=(start_byte, end_byte, i))
+    for index, (start, end) in enumerate(ranges):
+        offset = offsets[index]
+        if offset >= end - start + 1:
+            continue
+        t = threading.Thread(target=_dl_part, args=(start, end, index, offset))
         t.daemon = True
         threads_list.append(t)
         t.start()
@@ -1142,22 +1451,31 @@ def download_multi(
         t.join()
 
     if is_cancelled():
-        for i in range(threads):
-            pf = f"{dest}.part{i}"
-            if os.path.exists(pf):
-                os.remove(pf)
+        cleanup_download_parts(dest)
         return DownloadOutcome(status="cancelled", path=dest, size=total_size)
+    if is_paused():
+        return DownloadOutcome(status="paused", path=dest, size=total_size)
+    if errors:
+        raise errors[0]
 
-    with open(dest, "wb") as outf:
-        for i in range(threads):
-            pf = f"{dest}.part{i}"
-            if os.path.exists(pf):
-                with open(pf, "rb") as inf:
-                    outf.write(inf.read())
-                os.remove(pf)
+    for index, (start, end) in enumerate(ranges):
+        expected = end - start + 1
+        try:
+            actual = os.path.getsize(_part_path(dest, index))
+        except OSError:
+            actual = 0
+        if actual != expected:
+            raise RuntimeError(f"分片 {index} 长度不正确: {actual}/{expected}")
 
+    _merge_parts(dest, ranges)
+    for index in range(len(ranges)):
+        try:
+            os.remove(_part_path(dest, index))
+        except OSError:
+            pass
+    _remove_resume_meta(dest)
+    emit(total_size, total_size, 0.0)
     return DownloadOutcome(status="success", path=dest, size=total_size)
-
 
 # ═══════════════════════════════════════════════════════════════════
 # 服务门面
@@ -1357,6 +1675,14 @@ class ToolService(Service):
         """转发 :func:`ensure_directory`。"""
         ensure_directory(path)
 
+    def download_resume_state(self, dest: str) -> Optional[Dict[str, Any]]:
+        """转发 :func:`download_resume_state`。"""
+        return download_resume_state(dest)
+
+    def cleanup_download_parts(self, dest: str) -> None:
+        """转发 :func:`cleanup_download_parts`。"""
+        cleanup_download_parts(dest)
+
     def download_multi(
         self,
         url: str,
@@ -1366,6 +1692,7 @@ class ToolService(Service):
         threads: int = 4,
         session: Optional[Any] = None,
         cancel_check: Optional[Callable[[], bool]] = None,
+        pause_check: Optional[Callable[[], bool]] = None,
         on_progress: Optional[Callable[[int, int, float], None]] = None,
     ) -> DownloadOutcome:
         """转发 :func:`download_multi`（``session`` 缺省时用构造期注入的那个）。"""
@@ -1376,6 +1703,7 @@ class ToolService(Service):
             threads=threads,
             session=session or self._session,
             cancel_check=cancel_check,
+            pause_check=pause_check,
             on_progress=on_progress,
         )
 
@@ -1385,6 +1713,7 @@ __all__ = [
     "CoordinateResult",
     "DeleteResult",
     "DownloadOutcome",
+    "DownloadResumeError",
     "FortuneResult",
     "HASH_ALGORITHMS",
     "JunkGroup",
@@ -1398,11 +1727,13 @@ __all__ = [
     "ToolService",
     "check_choice_answer",
     "check_text_answer",
+    "cleanup_download_parts",
     "convert_coordinates",
     "daily_fortune",
     "decode_favicon_data",
     "delete_junk_files",
     "download_multi",
+    "download_resume_state",
     "drop_question",
     "ensure_directory",
     "fact_of_the_day",

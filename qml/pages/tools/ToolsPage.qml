@@ -1,22 +1,105 @@
-// tools 领域占位页（`02` 第 4.8 节 / 阶段 2 任务 2.12 的窗口骨架）。
+// ToolsPage.qml —— 工具箱首页（阶段 3 任务 3.20）。
 //
-// 这一版只剩下"把领域接到页面骨架上"：页头、三态（加载中 / 空数据 / 出错）与路由帧
-// 五件套都由 `qml/components/FmPage.qml` 提供。返工 C 组之前，这 12 个页面是同一份
-// 145 行代码各抄一遍（只有 `objectName` 与领域名不同），改一处要改十二处。
-//
-// 纪律：颜色只来自 `Theme.*`（闸门 R8）、图标走 FmIcon（闸门 R2）、文案走 `Tr.map[…]`
-// （闸门 R3/R4）、自研件一律用 `qml/components` 里的 `Fm*`（闸门 R9）。
-//
-// 阶段 3 的改法：把 `contentState` 绑到自己桥的状态上（例如 `VersionsPage.loadState`），
-// 把真实内容直接写在 `FmPage { }` 里（会自动进内容区，且只在 ready 时可见），
-// 然后删掉 `demoControlsVisible` 那两行（演示按钮是给验收的人手动切三态用的）。
+// 8 个工具各自是独立二级页（03 的 C-09）。这里只做入口卡片，不承载任何工具逻辑；
+// 卡片本身不可点，打开动作由卡内的 FmButton 触发（FmCard 的既有约束）。
 
+import QtQuick
+import QtQuick.Layouts
 import "../../components"
 
 FmPage {
+    id: page
     objectName: "toolsPage"
 
-    //: 阶段 2 手动切三态；阶段 3 换成页面自己桥的状态
-    contentState: "loading"
-    demoControlsVisible: true
+    readonly property bool live: (typeof Tools !== "undefined" && Tools && Tools.available) ? true : false
+
+    //: 顺序与 02 第 4.8 节的 L2 页面一致。
+    readonly property var entries: [
+        {"key": "junk", "route": "tools/junk", "titleKey": "tool_clean_junk_title", "descKey": "tool_clean_junk_desc", "icon": "trash"},
+        {"key": "port", "route": "tools/port", "titleKey": "tool_port_title", "descKey": "tool_port_desc", "icon": "target"},
+        {"key": "hash", "route": "tools/hash", "titleKey": "tool_hash_title", "descKey": "tool_hash_desc", "icon": "file"},
+        {"key": "coord", "route": "tools/coord", "titleKey": "tool_coord_title", "descKey": "tool_coord_desc", "icon": "world"},
+        {"key": "fortune", "route": "tools/fortune", "titleKey": "tool_fortune_title", "descKey": "tool_fortune_desc", "icon": "dice"},
+        {"key": "fact", "route": "tools/fact", "titleKey": "tool_fact_title", "descKey": "tool_fact_desc", "icon": "bulb"},
+        {"key": "quiz", "route": "tools/quiz", "titleKey": "tool_quiz_title", "descKey": "tool_quiz_desc", "icon": "guide"},
+        {"key": "download", "route": "tools/download", "titleKey": "tool_download_title", "descKey": "tool_download_desc", "icon": "download"}
+    ]
+
+    contentState: !(page ? page.live : false) ? "error" : (Tools.available ? "ready" : "error")
+    errorText: Tr?.map["plugin_state_error"] ?? "plugin_state_error"
+    errorDetail: Tr?.map["tool_unavailable"] ?? "tool_unavailable"
+
+    function t(key) {
+        return Tr ? (Tr?.map[key] ?? key) : key
+    }
+
+    FmScrollView {
+        id: scroller
+        anchors.fill: parent
+        contentWidth: availableWidth
+
+        GridLayout {
+            width: scroller.availableWidth
+            columns: page.width >= 900 ? 2 : 1
+            columnSpacing: Theme?.spacingMd ?? 12
+            rowSpacing: Theme?.spacingMd ?? 12
+
+            Repeater {
+                model: page.entries
+
+                FmCard {
+                    objectName: "toolCard_" + modelData.key
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 156
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme?.spacingSm ?? 8
+
+                        FmIcon {
+                            objectName: "toolCardIcon_" + modelData.key
+                            name: modelData.icon
+                            color: Theme?.accent ?? "transparent"
+                            size: Theme?.iconSize ?? 20
+                            Layout.alignment: Qt.AlignTop
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme?.spacingXs ?? 4
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: page && page.t(modelData.titleKey)
+                                color: Theme?.textPrimary ?? "transparent"
+                                font.pixelSize: Theme?.fontSizeLarge ?? 14
+                                font.bold: true
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: page && page.t(modelData.descKey)
+                                color: Theme?.textSecondary ?? "transparent"
+                                font.pixelSize: Theme?.fontSizeSmall ?? 10
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 3
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+
+                    Item { Layout.fillHeight: true }
+
+                    FmButton {
+                        objectName: "toolOpen_" + modelData.key
+                        Layout.alignment: Qt.AlignRight
+                        primary: false
+                        text: page && page.t("tool_open")
+                        onClicked: Nav.push(modelData.route)
+                    }
+                }
+            }
+        }
+    }
 }

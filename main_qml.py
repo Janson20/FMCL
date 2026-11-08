@@ -105,6 +105,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Bedrock", "app.bridges.bedrock_bridge", "BedrockBridge"),
     # 音乐（阶段 3 任务 3.16）：播放核心 / 本地曲库 / 队列 / 歌词。
     ("Music", "app.bridges.music_bridge", "MusicBridge"),
+    # 工具箱（阶段 3 任务 3.20）：8 个工具 / 异步任务 / 问答 / 续传下载。
+    ("Tools", "app.bridges.tools_bridge", "ToolsBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -844,6 +846,15 @@ def assemble(
                     shutdown()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("关闭音乐后端失败: %s", e)
+        # 工具箱桥：请求暂停下载并取消其余任务（阶段 3.20）。
+        tools_bridge = bridges.get("Tools")
+        if tools_bridge is not None:
+            detach = getattr(tools_bridge, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("停止工具箱后台任务失败: %s", e)
         if overlay is not None:
             shutdown = getattr(overlay, "shutdown", None)
             if callable(shutdown):

@@ -18,8 +18,8 @@ from logzero import logger
 
 from app.ports import Choice, ProgressReport, UIPort
 
-PREDOWNLOAD_URL = "https://jingdu.qzz.io/static/fmcl/minecraft.rar"
-PREDOWNLOAD_LITE_URL = "https://jingdu.qzz.io/static/fmcl/lite.rar"
+PREDOWNLOAD_URL = "https://jingdu.org/static/fmcl/minecraft.rar"
+PREDOWNLOAD_LITE_URL = "https://jingdu.org/static/fmcl/lite.rar"
 PREDOWNLOAD_MARKER = "predownloaded"
 
 RESULT_CANCELLED = "cancelled"

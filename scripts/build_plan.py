@@ -179,6 +179,8 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "app.bridges.bedrock_bridge",
     # 阶段 3 任务 3.16 的音乐桥
     "app.bridges.music_bridge",
+    # 阶段 3 任务 3.20 的工具箱桥
+    "app.bridges.tools_bridge",
     # app.bootstrap 的服务表（`_make_factory` 按 "模块:类名" 导入）
     "services.about_service",
     "services.account_service",
