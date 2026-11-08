@@ -476,6 +476,31 @@ FluWindow {
         }
     }
 
+    // 成就（3.21）：解锁 Toast 与同步结果都只在壳层挂一次。
+    // 页面会在分类 / 详情 / 云端三条路由上同时存在，各页自己接会重复弹。
+    Connections {
+        target: (typeof Achievements !== "undefined" && Achievements) ? Achievements : null
+
+        function onUnlockNotice(payload) {
+            if (!payload || typeof Dialogs === "undefined" || !Dialogs || !Dialogs.available)
+                return;
+            var title = String(payload.title || "");
+            Dialogs.notify({
+                "level": "success",
+                "title": title,
+                "message": title,
+                "subtitle": String(payload.subtitle || ""),
+                "icon": String(payload.icon || "trophy"),
+                "duration_ms": 6000
+            });
+        }
+
+        function onNoticeRequested(message, level) {
+            if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.available)
+                Dialogs.notify({"level": String(level), "message": String(message), "icon": "trophy"});
+        }
+    }
+
     // 存档备份（3.14）：Toast **只在这里挂一次**。备份页在主从 / 设置两条路由上
     // 会同时存在两个页面实例，若各页都接 `noticeRequested`，一次保存/备份会弹两条。
     Connections {

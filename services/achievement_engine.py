@@ -76,7 +76,21 @@ class AchievementEngine:
                 conn.commit()
 
     def register_unlock_callback(self, callback: Callable[[AchievementDef, int, str], None]):
-        self._unlock_callbacks.append(callback)
+        with self._lock:
+            if callback not in self._unlock_callbacks:
+                self._unlock_callbacks.append(callback)
+
+    def unregister_unlock_callback(self, callback: Callable[[AchievementDef, int, str], None]):
+        """注销解锁回调（阶段 3.21）。
+
+        QML 桥在退出链里必须摘掉自己：引擎是进程级单例，QObject 却会先销毁；
+        不摘的话下一次 ``update_progress`` 会往已析构的桥发信号。
+        """
+        with self._lock:
+            try:
+                self._unlock_callbacks.remove(callback)
+            except ValueError:
+                pass
 
     def _get_conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path))
@@ -526,7 +540,10 @@ class AchievementEngine:
         return item
 
     def _notify_unlock(self, d: AchievementDef, stage: int, stage_name: str):
-        for cb in self._unlock_callbacks:
+        # 拷贝一份再遍历：回调里若触发注销（退出链）不能改动正在迭代的列表。
+        with self._lock:
+            callbacks = list(self._unlock_callbacks)
+        for cb in callbacks:
             try:
                 cb(d, stage, stage_name)
             except Exception as e:

@@ -107,6 +107,10 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Music", "app.bridges.music_bridge", "MusicBridge"),
     # 工具箱（阶段 3 任务 3.20）：8 个工具 / 异步任务 / 问答 / 续传下载。
     ("Tools", "app.bridges.tools_bridge", "ToolsBridge"),
+    # 成就（阶段 3 任务 3.21）：总览 / 分类 / 详情 / 云同步与重置 / 解锁通知。
+    ("Achievements", "app.bridges.achievements_bridge", "AchievementsBridge"),
+    # 净读账号（3.21 设置补充）：登录 / 退出 / 用户信息。
+    ("Jingdu", "app.bridges.jingdu_bridge", "JingduBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -855,6 +859,24 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("停止工具箱后台任务失败: %s", e)
+        # 成就桥：注销引擎解锁回调（引擎是进程级单例，QObject 会先销毁，阶段 3.21）。
+        achievements_bridge = bridges.get("Achievements")
+        if achievements_bridge is not None:
+            detach = getattr(achievements_bridge, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("注销成就桥失败: %s", e)
+        # 净读账号桥：取消仍在跑的登录/信息刷新任务（阶段 3.21 设置补充）。
+        jingdu_bridge = bridges.get("Jingdu")
+        if jingdu_bridge is not None:
+            detach = getattr(jingdu_bridge, "detach", None)
+            if callable(detach):
+                try:
+                    detach()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("停止净读账号后台任务失败: %s", e)
         if overlay is not None:
             shutdown = getattr(overlay, "shutdown", None)
             if callable(shutdown):

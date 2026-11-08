@@ -521,7 +521,7 @@ REGISTERED_LINE_DELTAS: Dict[str, Tuple[int, str]] = {
         "它不在这张表的文件清单里（本表只覆盖 `scripts/relocate_module.py::MOVES` 里的条目）。",
     ),
     "services/achievement_engine.py": (
-        28,
+        45,
         "阶段 3 任务 3.1（缺陷 D-155）：每日签到的「连续 N 天」提示**一次都没显示过** —— "
         "`checkin()` 返回的是 `update_progress()` 的成就条目（`_build_item` 的键是 "
         "`progress_current` / `progress_stage` 那一套），既没有 `success` 也没有 `streak`，"
@@ -530,8 +530,11 @@ REGISTERED_LINE_DELTAS: Dict[str, Tuple[int, str]] = {
         "`get_checkin_streak()`：它读的就是 `checkin()` 自己写的那一行 "
         "`achievement_state.checkin_streak`，于是「签到成功! 连续 N 天」终于有真实来源。"
         "总行数 +28（非空行 +24，多出的 4 行是函数之间的空行与 docstring 分段）。"
+        "3.21（2026-11-08）：QML 成就桥退出时要注销解锁回调，新增 "
+        "`unregister_unlock_callback()`，并让 `_notify_unlock()` 先拷贝回调列表再遍历；"
+        "总行再 +17（非空行再 +15，累计总行 +45 / 非空 +39）。"
         "同一条偏差也登记在 tests/test_services_relocation.py 的 REGISTERED_LINE_DELTAS 里"
-        "（那里按**非空行**算，所以登记的是 +24）。",
+        "（那里按**非空行**算，所以登记的是 +39）。",
     ),
 }
 

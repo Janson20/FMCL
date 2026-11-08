@@ -11,7 +11,7 @@
 // 路由表加一条，这里就多一个分区，不会出现"路由进得去但导航里看不见"。
 //
 // 3.4 只做「启动器 / Java / 主题 / 日志 / 关于」五个分区（用户 2026-10-06 裁决 A）；
-// 账户 / AI / 插件三个分区按 D-174 的先例给**占位内容**，随 3.5 / 3.22 / 3.23 迁。
+// 账户在 3.5 落地；净读账号登录在 3.21 补进 AI 分区；插件分区仍按 D-174 留占位。
 //
 // ## 二、草稿范式（M-Q1 的 B1/B2/B6，用户 2026-10-06 裁决）
 //
@@ -43,6 +43,7 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 import "../../components"
 import "../../components/dialogs"
+import "../../components/settings"
 
 FmPage {
     id: page
@@ -153,9 +154,12 @@ FmPage {
             return logSection
         if (name === "about")
             return aboutSection
-        //: 账户分区在阶段 3.5 落地（M-13 / M-26 ~ M-29），其余两个仍是占位
+        //: 账户分区在阶段 3.5 落地（M-13 / M-26 ~ M-29）；AI 分区先有净读登录（3.21），
+        //: 模型/工具权限等 3.23 内容以后再加；插件分区仍是占位。
         if (name === "account")
             return accountSection
+        if (name === "ai")
+            return jingduSection
         return placeholderSection
     }
 
@@ -2462,6 +2466,15 @@ FmPage {
     // 这两块在旧界面里是同一个设置窗口的另外两个标签页（AI 模型 / 插件），
     // 内容分别属于 3.22 / 3.23 —— 这里按 D-174 的先例给一个明确的占位，
     // **不留白屏**（"这个页面还没做好"比"点了没反应"强得多）。
+
+    // ══ 分区八：净读账号登录（3.21）══════════════════════════
+    Component {
+        id: jingduSection
+
+        FmJingduAccountSection {
+            objectName: "settingsJingduSection"
+        }
+    }
 
     Component {
         id: placeholderSection

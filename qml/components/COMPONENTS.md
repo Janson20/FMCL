@@ -187,3 +187,25 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `FmMusicPlaylistCard` | 发现页歌单卡片：封面、标题、副标题、播放入口 | `title` `subtitle` `cover` `trackCount` `activated()` `playRequested()` |
 | `FmMusicPlaylistDetail` | 歌单详情覆盖层：返回、元信息、播放全部/加入队列、曲目/加入歌单 | `discover` `player` `closeRequested()` |
 | `FmMusicOverlayBackdrop` | 覆盖层垫底：背景 + 全屏事件遮罩 | `blockerObjectName` |
+
+## 七、成就页组件（阶段 3.21）
+
+这些件放在 `qml/components/achievements/`，只被成就四条路由组合使用；仍按通用件
+登记，页面才能通过 R5。它们不读服务，数据一律由 Achievements 桥传入。
+
+| 组件 | 用途 | 关键属性 |
+|------|------|----------|
+| `FmAchievementSummary` | 成就总览卡：总进度、上次同步、登录提示、同步/云端入口 | `summary` `lastSyncAt` `loggedIn` `syncState` `statusText` `statusLevel` `showActions` `syncRequested()` `cloudRequested()` `loginRequested()` |
+| `FmAchievementRow` | 成就分类列表行：图标、名称、描述、阶段进度、解锁/满级徽章 | `achievement` `activated()` |
+| `FmAchievementResetDialog` | 重置云存档/本地成就的两步确认：危险确认 → 输入短语；不匹配不关窗 | `step1Title` `step1Message` `step2Title` `step2Message` `phrase` `continueText` `confirmText` `cancelText` `mismatchText` `open()` `close()` `confirmed()` `cancelled()` |
+
+> 阶段名由"成就名 + 罗马数字"生成，不显示定义表里的中文 `stage_names`：那会让
+> en_US / ja_JP 出现硬编码中文。解锁 Toast 的图标同样由桥按成就 id 换成单色 SVG。
+
+## 八、设置页组件（阶段 3.21）
+
+| 组件 | 用途 | 关键属性 |
+|------|------|----------|
+| `FmJingduAccountSection` | 设置 AI 分区的净读账号：未登录表单、登录中/失败提示、登录后的用户名/UUID/等级/签名/AI 积分、刷新与退出 | 无外部属性；读 Jingdu 桥的 `available` `loggedIn` `username` `busy` `errorText` `userInfo`，动作走 `Jingdu.login/logout/refreshInfo` |
+
+> 登录是**即时动作**，不属于设置草稿；因此本区块不受底部「保存/取消」影响。

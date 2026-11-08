@@ -199,6 +199,8 @@ class ServerSession:
         self._log_lines: Dict[str, List[str]] = {}
         #: 正在执行用户 stop 的版本：包装进程被 pause 卡住时按“正常停止”收尾。
         self._stopping: set = set()
+        #: 每台服务器的启动时刻（monotonic），退出时算 server_uptime。
+        self._started_at: Dict[str, float] = {}
 
         #: 控制台（3.10）：全部按 version 隔离，绝不读“最近启动”的全局状态。
         self._console_started: set = set()
@@ -999,11 +1001,13 @@ class ServerSession:
                 self._console_cleared[version] = 0
                 self._console_players[version] = []
                 self._exit_prompts.pop(version, None)
+                self._started_at[version] = time.monotonic()
         if not ok or proc is None:
             self._status("server_start_failed", "error", version=version)
             self._changed("run")
             return
         self._status("server_started", "success", version=version)
+        self._trigger_achievement("server_first_server")
         self._changed("run")
         self._emit("on_started", version)
         if proc is not None:
@@ -1132,6 +1136,7 @@ class ServerSession:
             self._stopping.discard(version)
             self._last_exit_codes[version] = int(exit_code)
             self._last_exit_code = int(exit_code)
+            started_at = self._started_at.pop(version, None)
             self._console_players.get(version, []).clear()
             # 退出质量确认只问一次；主动停止不登记（见 take_exit_prompt）。
             # 非主动退出（崩溃、进程被外部结束、服务器自己退出）才留给壳层询问。
@@ -1140,6 +1145,10 @@ class ServerSession:
             if self._busy == BUSY_STOPPING:
                 self._busy = ""
         self._changed("run")
+        if started_at is not None:
+            uptime_hours = int(max(0.0, time.monotonic() - started_at) / 3600.0)
+            if uptime_hours > 0:
+                self._trigger_achievement("server_uptime", value=uptime_hours)
         if exit_code == 0:
             self._status("server_stopped", "info")
         else:
@@ -1325,6 +1334,8 @@ class ServerSession:
             with self._lock:
                 self._busy = ""
             self._changed("run")
+            if ok:
+                self._trigger_achievement("server_cross_play")
             if not ok:
                 if detail == "version_install_failed":
                     self._status("version_install_failed", "error", version=target)
@@ -1371,7 +1382,7 @@ class ServerSession:
 
     # ─── 成就 ───────────────────────────────────────────────
 
-    def _trigger_achievement(self, achievement_id: str) -> bool:
+    def _trigger_achievement(self, achievement_id: str, value: int = 1) -> bool:
         """推进一次成就进度（引擎是全局单例；取不到就静默跳过）。
 
         调用口子与旧界面一致：优先走 AppContext 里注册的 AchievementService.engine()，
@@ -1395,7 +1406,7 @@ class ServerSession:
         if engine is None:
             return False
         try:
-            engine.update_progress(achievement_id, value=1, trigger_type="increment")
+            engine.update_progress(achievement_id, value=int(value), trigger_type="increment")
         except Exception as e:  # noqa: BLE001
             logger.warning("触发成就 %s 失败: %s", achievement_id, e)
             return False

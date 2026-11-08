@@ -167,6 +167,8 @@ class ModpackBridge(QObject):
         self._versions = _new_versions_state()
         self._files: Dict[str, Dict[str, Any]] = {key: _new_file_state() for key in TARGETS}
         self._pending_files: Dict[str, str] = {key: "" for key in TARGETS}
+        #: 当前文件是否来自在线浏览器的下载（决定 modder_lazy / modder_diy）。
+        self._file_origins: Dict[str, bool] = {key: False for key in TARGETS}
         self._selected: Dict[str, List[str]] = {key: [] for key in TARGETS}
         self._server_names: Dict[str, str] = {key: "" for key in TARGETS}
         self._naming = False
@@ -308,7 +310,7 @@ class ModpackBridge(QObject):
         if not path:
             return
         self._pending_files[self._mode] = ""
-        self.setFilePath(path)
+        self._set_file_path(path, from_browser=True)
 
     # ─── 搜索：属性 ─────────────────────────────────────────
 
@@ -639,7 +641,12 @@ class ModpackBridge(QObject):
 
     @Slot(str)
     def setFilePath(self, path: str) -> None:  # noqa: N802
-        """选定文件：清掉旧元数据并后台解析（六种格式的探测在服务层）。"""
+        """选定文件（FileDialog / 拖放）：清掉旧元数据并后台解析。"""
+        self._set_file_path(path, from_browser=False)
+
+    def _set_file_path(self, path: str, *, from_browser: bool) -> None:
+        """选定文件的唯一实现；from_browser 记录来源，供安装完成后的成就判定。"""
+        self._file_origins[self._mode] = bool(from_browser)
         wanted = os.path.abspath(str(path or "")) if str(path or "").strip() else ""
         state = self._file()
         if wanted == state["path"] and state["state"] in (STATE_LOADING, STATE_READY):
@@ -935,6 +942,7 @@ class ModpackBridge(QObject):
     # ─── 内部：文件 / 元数据 ────────────────────────────────
 
     def _select_path(self, path: str) -> None:
+        self._file_origins[self._mode] = False
         state = self._file()
         state.update({"path": str(path or ""), "state": STATE_IDLE, "error": "", "raw": {}, "info": {}, "seq": 0})
         self._selected[self._mode] = []
@@ -1174,9 +1182,14 @@ class ModpackBridge(QObject):
                     self.serverModsNeedReview.emit(str(detail or ""), review_rows, len(review_rows))
             if self._service is not None:
                 try:
-                    self._service.trigger_achievement(
-                        "server_modpack_server" if target == TARGET_SERVER else "modder_lazy"
-                    )
+                    if target == TARGET_SERVER:
+                        self._service.trigger_achievement("server_modpack_server")
+                    else:
+                        # 旧桥对所有客户端整合包安装都触发 modder_lazy（既有行为，
+                        # 测试也钉着）；本版额外为“本地文件”补上 modder_diy。
+                        self._service.trigger_achievement("modder_lazy")
+                        if not self._file_origins.get(target, False):
+                            self._service.trigger_achievement("modder_diy")
                 except Exception as e:  # noqa: BLE001 - 成就失败不影响安装结果
                     logger.warning("触发整合包成就失败: %s", e)
             if target == TARGET_CLIENT and self._versions_bridge is not None:

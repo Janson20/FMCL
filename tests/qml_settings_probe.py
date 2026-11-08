@@ -111,6 +111,34 @@ class FakeConfig:
         return True
 
 
+class FakeJingdu:
+    """净读账号服务的替身：探针只验证设置里的登录表单，不发起真实网络。"""
+
+    def current_token(self) -> str:
+        return ""
+
+    def current_username(self) -> str:
+        return ""
+
+    def cached_info(self) -> Dict[str, Any]:
+        return {}
+
+    def login(self, username: str, password: str) -> Dict[str, Any]:
+        return {"token": "probe", "info": {"username": username}}
+
+    def fetch_user_info(self, token: str) -> Dict[str, Any]:
+        return {"username": "probe"}
+
+    def save_session(self, token: str, info: Any, username: str = "") -> Tuple[bool, str]:
+        return True, ""
+
+    def logout(self) -> Tuple[bool, str]:
+        return True, ""
+
+    def cache_info(self, info: Any) -> None:
+        pass
+
+
 class FakeLauncher:
     """`MinecraftLauncher` 的替身：9 个 getter/setter + Java 扫描。
 
@@ -268,6 +296,7 @@ CONTEXT = build_context(config=None, register=True, set_current=False)
 CONTEXT.register_instance("settings", SETTINGS_SERVICE, replace=True)
 CONTEXT.register_instance("log", LOG_SERVICE, replace=True)
 CONTEXT.register_instance("about", ABOUT_SERVICE, replace=True)
+CONTEXT.register_instance("jingdu_account", FakeJingdu(), replace=True)
 
 ENGINE = main_qml.build_engine()
 install_icon_provider(ENGINE)
@@ -818,11 +847,10 @@ REPORT["opened_urls"] = list(URLS)
 check("外链打开了第一条鸣谢的 url",
       URLS[:1] == ["https://github.com/PCL-community/PCL-CE"], str(URLS))
 
-# ══ 10. 分区六~八（阶段 3.5 起账户分区是真的内容，AI / 插件仍是占位）══
+# ══ 10. 分区六~八（3.5 账户、3.21 净读登录、插件仍是占位）══
 #
-# 3.4 时三个都是占位（账户 / AI / 插件）。3.5 把账户分区做成了真页面，所以这里改成：
-#   * `settings/account` —— 断言**不再**是占位，而且账号页的控件真的在树里；
-#   * `settings/ai` / `settings/plugin` —— 仍按 3.4 的裁决断言占位（随 3.22 / 3.23 迁）。
+# 3.4 时三个都是占位（账户 / AI / 插件）。3.5 把账户分区做成了真页面；
+# 3.21 把 AI 分区换成净读账号登录；只剩插件分区还是占位（随 3.23 迁）。
 
 goto("settings/account")
 _account_placeholder = item("settingsPlaceholder")
@@ -832,18 +860,27 @@ check("账户分区的标题在树里", item("accountTitle") is not None, "accou
 check("账户分区的动作条在树里", item("accountActionRow") is not None, "accountActionRow")
 check("账户分区的账号列表在树里", item("accountListView") is not None, "accountListView")
 
-placeholder_titles = []
-placeholder_hints = []
-for _route in ("settings/ai", "settings/plugin"):
-    goto(_route)
-    _placeholder = item("settingsPlaceholder")
-    placeholder_titles.append("" if _placeholder is None else str(_placeholder.property("title")))
-    placeholder_hints.append("" if _placeholder is None else str(_placeholder.property("description")))
+goto("settings/ai")
+check("AI 分区不再是占位（3.21 已交付）", item("settingsPlaceholder") is None,
+      "settingsPlaceholder 还在 —— AI 分区可能没接上")
+check("AI 分区显示净读登录区块", item("settingsJingduSection") is not None,
+      "settingsJingduSection")
+check("净读用户名输入框在树里", item("jingduUsernameField") is not None,
+      "jingduUsernameField")
+check("净读密码输入框在树里", item("jingduPasswordField") is not None,
+      "jingduPasswordField")
+check("净读登录按钮在树里", item("jingduLoginButton") is not None,
+      "jingduLoginButton")
+shot("settings_ai_jingdu")
+
+goto("settings/plugin")
+_placeholder = item("settingsPlaceholder")
+placeholder_titles = ["" if _placeholder is None else str(_placeholder.property("title"))]
+placeholder_hints = ["" if _placeholder is None else str(_placeholder.property("description"))]
 REPORT["placeholder_titles"] = placeholder_titles
 REPORT["placeholder_hints"] = placeholder_hints
-check("AI / 插件两个占位分区都显示占位内容", all(title for title in placeholder_titles), str(placeholder_titles))
-check("两个占位分区标题各不相同", len(set(placeholder_titles)) == 2, str(placeholder_titles))
-check("占位分区带说明文案（不是白屏）", all(hint for hint in placeholder_hints), str(placeholder_hints))
+check("插件分区显示占位内容", bool(placeholder_titles[0]), str(placeholder_titles))
+check("占位分区带说明文案（不是白屏）", bool(placeholder_hints[0]), str(placeholder_hints))
 shot("settings_placeholder")
 
 # ══ 11. 保存并重启（M-24 / B5）════════════════════════════════

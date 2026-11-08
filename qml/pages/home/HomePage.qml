@@ -370,6 +370,17 @@ FmPage {
                                 Home.openNotice()
                         }
                     }
+
+                    FmButton {
+                        objectName: "homeAchievementsButton"
+                        primary: false
+                        text: page.t("ach_open")
+                        iconName: "trophy"
+                        onClicked: {
+                            if (typeof Nav !== "undefined" && Nav)
+                                Nav.push("achievements")
+                        }
+                    }
                 }
             }
 

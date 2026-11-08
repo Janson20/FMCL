@@ -45,6 +45,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -137,6 +138,9 @@ class VersionService(Service):
         self._lock = threading.RLock()
         #: 装完待选中的版本 id（`note_installed()` 写、`consume_pending_selection()` 取）
         self._pending_select = ""
+        #: 下一次扫描完成后是否要重算安装类成就（只有 note_installed 置位）。
+        #: 不能每次扫描都算：用户重置本地成就后，下一次普通刷新会把它们立刻解锁回来。
+        self._pending_ach_install = False
         #: 正在跑的修复任务句柄（取消用）
         self._repair_handle: Any = None
 
@@ -235,8 +239,64 @@ class VersionService(Service):
         if error:
             self._emit_status("version_load_failed", "error", {"error": error})
         else:
+            if self._pending_ach_install:
+                self._pending_ach_install = False
+                self._trigger_install_achievements(rows)
             self._emit_status("version_loaded", "success", {"count": len(rows)})
         self._emit("on_versions", list(rows), error)
+
+    def _trigger_install_achievements(self, rows: List[Dict[str, Any]]) -> None:
+        """F-10：安装完成后重算“安装类”成就。
+
+        旧实现只在安装完成时调用 ``_trigger_ach_install``；这里由
+        ``note_installed()`` 置“待重算”标记，下一次扫描完成后再算一次。
+        不能每次扫描都算：用户重置本地成就后，下一次普通刷新会把它们立刻
+        解锁回来（3.21 探针实测）。``set`` 型收集成就不依赖调用次数；
+        条件型只在条件成立时写库。
+        """
+        if not rows:
+            return
+        try:
+            from services.achievement_engine import get_achievement_engine
+
+            engine = get_achievement_engine()
+            if engine is None:
+                return
+            count = len(rows)
+            engine.update_progress("gamer_version_collector", value=count, trigger_type="set")
+
+            states = {str(row.get("state", "") or "") for row in rows}
+            has_release = "original" in states or "release" in states
+            has_snapshot = "snapshot" in states
+            if has_release and has_snapshot:
+                engine.check_and_unlock("gamer_cross_era", True)
+
+            retro = False
+            frontier = False
+            for row in rows:
+                text = " ".join(
+                    [
+                        str(row.get("vanilla", "") or ""),
+                        str(row.get("id", "") or ""),
+                        str(row.get("state", "") or ""),
+                    ]
+                ).lower()
+                if not retro:
+                    match = re.search(r"(?:^|\D)1\.(\d{1,2})(?:\D|$)", text)
+                    if match and int(match.group(1)) <= 12:
+                        retro = True
+                if not frontier and (
+                    "snapshot" in text or "-pre" in text or "-rc" in text or "pre-release" in text
+                ):
+                    frontier = True
+                if retro and frontier:
+                    break
+            if retro:
+                engine.check_and_unlock("gamer_retro", True)
+            if frontier:
+                engine.check_and_unlock("gamer_frontier", True)
+        except Exception as e:  # noqa: BLE001 - 成就不该拖垮版本列表
+            self.log.warning("触发版本安装成就失败: %s", e)
 
     def filtered(self, text: str = "", sort_key: str = SORT_NAME) -> List[Dict[str, Any]]:
         """按关键词过滤 + 排序（B-19）。纯函数，只用最近一次扫描的结果。"""
@@ -489,6 +549,7 @@ class VersionService(Service):
         if vid:
             with self._lock:
                 self._pending_select = vid
+                self._pending_ach_install = True
         return self.load(force=True)
 
     def consume_pending_selection(self) -> str:

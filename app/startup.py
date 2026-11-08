@@ -454,7 +454,23 @@ class StartupController(QObject):
 
     def _init_achievements(self) -> None:
         try:
-            self._achievements_factory()
+            engine = self._achievements_factory()
+            # 3.21：把解锁回调挂到 QML 桥。必须在签到/同步之前做，否则启动期的
+            # checkin 解锁只能等到下次启动才被界面看到。桥缺席（测试/旧装配）时跳过。
+            bridge = self._service_bridge("Achievements")
+            attach = getattr(bridge, "attach_engine", None) if bridge is not None else None
+            if callable(attach):
+                try:
+                    attach(engine)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("成就桥挂接引擎失败: %s", e)
+            # 立刻读一次，页面不必等云同步/签到跑完才从 loading/error 变 ready。
+            refresh = getattr(bridge, "refresh", None) if bridge is not None else None
+            if callable(refresh):
+                try:
+                    refresh()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("初始化成就桥失败: %s", e)
             self._chrono.append(("achievements_ready", int((self._clock() - self._started_at) * 1000)))
         except Exception as e:  # noqa: BLE001 - 成就初始化失败**不影响启动**（旧实现同）
             logger.error("成就引擎初始化失败: %s", e)
@@ -605,6 +621,13 @@ class StartupController(QObject):
             # 已签到时**不发提示**（旧实现同样什么都不显示），但天数仍然要显示在首页上
 
         self._publish_achievements(service)
+        bridge = self._service_bridge("Achievements")
+        refresh = getattr(bridge, "refresh", None) if bridge is not None else None
+        if callable(refresh):
+            try:
+                refresh()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("刷新成就桥失败: %s", e)
 
     def _publish_achievements(self, service: Any) -> None:
         """把成就总览交给首页桥（少查一次库；桥缺席时静默跳过）。"""
