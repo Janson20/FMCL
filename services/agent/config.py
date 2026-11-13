@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 
 from logzero import logger
 
-from services.agent.permission import DEFAULT_RULES, PermissionManager
+
 
 
 @dataclass
@@ -36,6 +36,10 @@ class AgentConfig:
 
     # 当前选中的模型（按提供商存储）
     active_models: Dict[str, str] = field(default_factory=dict)
+
+    # 思考模式与强度（按模型 id 存储；缺省值取 ModelInfo.thinking_default / "high"）
+    thinking: Dict[str, bool] = field(default_factory=dict)
+    reasoning_efforts: Dict[str, str] = field(default_factory=dict)
 
     # 权限规则（ask/deny 必须在 allow 通配符之前）
     permissions: List[dict] = field(
@@ -92,6 +96,8 @@ class AgentConfig:
         return {
             "active_provider": self.active_provider,
             "active_models": self.active_models,
+            "thinking": self.thinking,
+            "reasoning_efforts": self.reasoning_efforts,
             "providers": {
                 pid: {
                     "enabled": pc.enabled,
@@ -116,8 +122,10 @@ class AgentConfig:
             return cls()
 
         config = cls()
-        config.active_provider = data.get("active_provider", "jingdu")
-        config.active_models = data.get("active_models", {})
+        config.active_provider = data.get("active_provider") or "jingdu"
+        config.active_models = data.get("active_models") or {}
+        config.thinking = data.get("thinking") or {}
+        config.reasoning_efforts = data.get("reasoning_efforts") or {}
         config.max_iterations = data.get("max_iterations", 50)
         config.stream_enabled = data.get("stream_enabled", True)
         config.compact_auto = data.get("compact_auto", True)
@@ -184,6 +192,8 @@ class AgentConfig:
             main_config["agent"] = {
                 "active_provider": self.active_provider,
                 "active_models": self.active_models,
+                "thinking": self.thinking,
+                "reasoning_efforts": self.reasoning_efforts,
                 "providers": providers_safe,
                 "permissions": self.permissions,
                 "max_iterations": self.max_iterations,

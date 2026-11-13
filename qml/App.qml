@@ -57,6 +57,37 @@ FluWindow {
 
     //: 游戏崩溃弹窗（GameCrashDialog）：由 Home.crashDialogRequested 打开，
     //: 分析中 / 结果 / 错误三份状态也放在壳层，页面切换不会丢掉这次崩溃。
+    //: 3.23：AI 处理中关闭窗口要先确认；确认后置 true 再 close()。
+    property bool allowClose: false
+    property bool closeConfirmVisible: false
+
+    onClosing: function (close) {
+        if (app.allowClose || typeof Agent === "undefined" || !Agent || !Agent.busy)
+            return
+        close.accepted = false
+        app.closeConfirmVisible = true
+    }
+
+    ConfirmDialog {
+        anchors.fill: parent
+        objectName: "agentCloseConfirm"
+        visible: app.closeConfirmVisible
+        modalScrim: true
+        z: 200
+        request: ({"title": Tr?.map["agent_title"] ?? "agent_title",
+                   "message": Tr?.map["agent_close_confirm"] ?? "agent_close_confirm",
+                   "default": false})
+        onAnswered: function (value) {
+            app.closeConfirmVisible = false
+            if (value) {
+                if (typeof Agent !== "undefined" && Agent)
+                    Agent.stop()
+                app.allowClose = true
+                app.close()
+            }
+        }
+    }
+
     property bool crashDialogVisible: false
     property var crashInfo: ({})
     property bool crashAnalyzing: false

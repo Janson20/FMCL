@@ -42,6 +42,7 @@ import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 import "../../components"
+import "../../components/agent"
 import "../../components/dialogs"
 import "../../components/settings"
 
@@ -2467,11 +2468,11 @@ FmPage {
     // 内容分别属于 3.22 / 3.23 —— 这里按 D-174 的先例给一个明确的占位，
     // **不留白屏**（"这个页面还没做好"比"点了没反应"强得多）。
 
-    // ══ 分区八：净读账号登录（3.21）══════════════════════════
+    // ══ 分区八：AI 模型 / 工具权限 / Skills / 语音 / 净读账号（3.23）══
     Component {
         id: jingduSection
 
-        FmJingduAccountSection {
+        FmAgentSettingsSection {
             objectName: "settingsJingduSection"
         }
     }

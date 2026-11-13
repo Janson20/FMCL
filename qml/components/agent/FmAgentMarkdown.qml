@@ -252,6 +252,7 @@ Item {
                     spacing: 0
 
                     Flickable {
+                        id: tableFlick
                         width: parent.width
                         height: Math.max(32, tableColumn.implicitHeight)
                         clip: true
@@ -260,7 +261,7 @@ Item {
 
                         ScrollBar.horizontal: FmScrollBar {
                             thickness: 5
-                            policy: contentWidth > width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                            policy: tableFlick.contentWidth > tableFlick.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
                         }
 
                         Column {

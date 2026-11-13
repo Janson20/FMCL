@@ -52,7 +52,7 @@ FluAppBar {
 
     // 顶栏上用到的可交互项，供 `App.qml` 登记进 FluFrameless 的命中测试白名单。
     // **顺序无关**，但必须齐全：漏一个，那个按钮就点不动（见文件头）。
-    readonly property var interactiveItems: [backButton, agentQuickInput, searchField,
+    readonly property var interactiveItems: [backButton, agentQuickInput, agentQuickVoice, searchField,
                                             notifyButton, languageButton, accountButton]
 
     RowLayout {
@@ -104,6 +104,17 @@ FluAppBar {
                 if (Agent.quickAsk(value))
                     text = ""
             }
+        }
+
+        FmToolButton {
+            id: agentQuickVoice
+            objectName: "agentQuickVoice"
+            iconName: (typeof Agent !== "undefined" && Agent && Agent.voiceState === "recording")
+                      ? "stop" : "microphone"
+            visible: (typeof Agent !== "undefined" && Agent)
+                     ? (Agent.available && bar.width >= 1180) : false
+            onClicked: if (typeof Agent !== "undefined" && Agent)
+                           Agent.toggleVoice()
         }
 
         FmSearchField {
@@ -172,6 +183,22 @@ FluAppBar {
                 if (Nav)
                     Nav.push("settings/account")
             }
+        }
+    }
+
+    Connections {
+        target: (typeof Agent !== "undefined" && Agent) ? Agent : null
+
+        function onVoiceText(text) {
+            // 只在不在 AGENT 页时把识别结果填到顶栏快速提问框；在 AGENT 页时
+            // 由 AgentPage 自己的监听填输入区，避免同一段文字填两处。
+            if (!Nav || String(Nav.currentRoute || "").indexOf("agent") === 0)
+                return
+            var value = String(text || "")
+            if (value.length === 0)
+                return
+            var current = String(agentQuickInput.text || "")
+            agentQuickInput.text = current.length > 0 ? current + " " + value : value
         }
     }
 }

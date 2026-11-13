@@ -30,7 +30,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from logzero import logger
 
 from services.agent.models import get_default_model, get_model_by_id
-from services.agent.permission import check_permission
+from services.agent.permission import check_permission, init_permission_manager
 from services.agent.providers.jingdu import JingduProvider
 from services.agent.session import AgentSession
 from services.agent.tool_registry import get_registry
@@ -158,11 +158,27 @@ class AgentChatService(Service):
         try:
             agent = self._agent()
             if agent is not None:
-                agent.init_config(os.path.join(os.getcwd(), "config.json"))
+                path = ""
+                try:
+                    path = str(getattr(self.context.config, "config_file", "") or "")
+                except Exception:
+                    path = ""
+                agent.init_config(path or os.path.join(os.getcwd(), "config.json"))
+                try:
+                    init_permission_manager(agent.get_config().permissions)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[AgentChat] 初始化权限规则失败: %s", e)
             self._config_ready = True
         except Exception as e:  # noqa: BLE001
             logger.warning("[AgentChat] 初始化配置失败: %s", e)
             self._config_ready = True
+
+    def reload_permissions(self) -> None:
+        cfg = self.agent_config()
+        try:
+            init_permission_manager(cfg.permissions if cfg is not None else None)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[AgentChat] 重载权限规则失败: %s", e)
 
     def system_prompt(self) -> str:
         self.ensure_config()
@@ -174,24 +190,91 @@ class AgentChatService(Service):
                 logger.warning("[AgentChat] 组装系统提示词失败: %s", e)
         return ""
 
-    def model_id(self) -> str:
-        """当前模型：3.23 之前固定净读默认模型；配置里有效则沿用。"""
+    def agent_config(self):
+        """当前 AgentConfig（桥与设置 UI 共用；失败返回 None）。"""
         self.ensure_config()
         agent = self._agent()
-        if agent is not None:
-            try:
-                configured = str((agent.get_config().active_models or {}).get("jingdu", "") or "")
-                if configured and get_model_by_id(configured):
-                    return configured
-            except Exception:
-                pass
+        try:
+            return agent.get_config() if agent is not None else None
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[AgentChat] 读取 Agent 配置失败: %s", e)
+            return None
+
+    def provider_id(self) -> str:
+        cfg = self.agent_config()
+        pid = str(getattr(cfg, "active_provider", "jingdu") or "jingdu")
+        return pid if pid in ("jingdu", "openai", "anthropic", "custom") else "jingdu"
+
+    def provider_ready(self, provider_id: str = "") -> bool:
+        pid = provider_id or self.provider_id()
+        if pid == "jingdu":
+            return bool(self.token())
+        cfg = self.agent_config()
+        pc = cfg.providers.get(pid) if cfg is not None else None
+        return bool(pc and pc.api_key)
+
+    def model_id(self) -> str:
+        """当前 provider 的模型；没有显式配置时取该 provider 的默认模型。"""
+        pid = self.provider_id()
+        cfg = self.agent_config()
+        configured = ""
+        if cfg is not None:
+            configured = str((cfg.active_models or {}).get(pid, "") or "")
+        if configured:
+            info = get_model_by_id(configured)
+            if pid == "custom" or (info is not None and info.provider_id == pid):
+                return configured
+        default = get_default_model(pid)
+        if default is not None:
+            return default.id
+        if pid == "custom" and cfg is not None:
+            pc = cfg.providers.get("custom")
+            values = list(getattr(pc, "custom_models", []) or []) if pc else []
+            if values:
+                return str(values[0])
         return "deepseek-v4-flash"
 
     def model_label(self) -> str:
-        info = get_model_by_id(self.model_id())
+        model = self.model_id()
+        info = get_model_by_id(model)
         if info is None:
-            info = get_default_model("jingdu")
-        return str(getattr(info, "name", "") or self.model_id())
+            return model
+        return str(getattr(info, "name", "") or model)
+
+    def provider_label(self) -> str:
+        return {"jingdu": "净读 AI", "openai": "OpenAI", "anthropic": "Anthropic", "custom": "自定义"}.get(
+            self.provider_id(), self.provider_id()
+        )
+
+    def thinking_supported(self) -> bool:
+        info = get_model_by_id(self.model_id())
+        return bool(info and info.supports_reasoning)
+
+    def thinking_enabled(self) -> bool:
+        info = get_model_by_id(self.model_id())
+        default = bool(getattr(info, "thinking_default", False)) if info is not None else False
+        cfg = self.agent_config()
+        try:
+            return bool((cfg.thinking or {}).get(self.model_id(), default))
+        except Exception:
+            return default
+
+    def reasoning_effort(self) -> str:
+        cfg = self.agent_config()
+        try:
+            value = str((cfg.reasoning_efforts or {}).get(self.model_id(), "") or "")
+        except Exception:
+            value = ""
+        return value or ("max" if self.provider_id() == "jingdu" else "high")
+
+    @staticmethod
+    def effort_options(provider_id: str) -> List[str]:
+        return {
+            "jingdu": ["high", "max"],
+            "openai": ["none", "low", "medium", "high", "xhigh"],
+            "anthropic": ["low", "medium", "high", "xhigh", "max"],
+            "custom": ["low", "medium", "high"],
+        }.get(provider_id, ["medium", "high"])
 
     def token(self) -> str:
         if self._context is None:
@@ -202,14 +285,15 @@ class AgentChatService(Service):
             return ""
 
     def logged_in(self) -> bool:
-        return bool(self.token())
+        """当前 provider 是否可发请求（净读看 Token，其它 provider 看 API Key）。"""
+        return self.provider_ready()
 
     # ─── 会话 ────────────────────────────────────────────────
 
     def new_session(self) -> AgentSession:
         self.ensure_config()
         return AgentSession.create_new(
-            provider_id="jingdu", model_id=self.model_id(), system_prompt=self.system_prompt()
+            provider_id=self.provider_id(), model_id=self.model_id(), system_prompt=self.system_prompt()
         )
 
     def list_sessions(self) -> List[Dict]:
@@ -387,12 +471,29 @@ class AgentChatService(Service):
 
     # ─── Provider / 工具回调 ────────────────────────────────
 
-    def build_provider(self) -> JingduProvider:
-        token = self.token()
-        if not token:
-            raise AgentChatError("no_token")
+    def build_provider(self):
+        """按当前 provider 建实例；净读走账号 Token，其它 provider 走 API Key。"""
+        pid = self.provider_id()
+        thinking = bool(self.thinking_enabled())
+        effort = self.reasoning_effort() if thinking else ""
         try:
-            return JingduProvider(api_key=token)
+            if pid == "jingdu":
+                token = self.token()
+                if not token:
+                    raise AgentChatError("no_token")
+                return JingduProvider(api_key=token, thinking_enabled=thinking, reasoning_effort=effort)
+            cfg = self.agent_config()
+            pc = cfg.providers.get(pid) if cfg is not None else None
+            if pc is None or not pc.api_key:
+                raise AgentChatError("no_provider", pid)
+            from services.agent_service import build_provider as _build_provider
+
+            provider = _build_provider(pid, pc, thinking, effort)
+            if provider is None:
+                raise AgentChatError("no_provider", pid)
+            return provider
+        except AgentChatError:
+            raise
         except Exception as e:  # noqa: BLE001
             raise AgentChatError("provider", str(e)) from e
 
@@ -478,7 +579,7 @@ class AgentChatService(Service):
         registry = get_registry()
         cbs = callbacks if callbacks is not None else self.build_callbacks(None, session)
         model = self.model_id()
-        session.provider_id = "jingdu"
+        session.provider_id = self.provider_id()
         session.model_id = model
         started = time.monotonic()
         total_usage: Dict[str, Any] = {}

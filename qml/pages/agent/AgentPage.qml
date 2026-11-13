@@ -35,9 +35,6 @@ FmPage {
     property bool todosVisible: true
     property string sideMode: ""
     property bool followTail: true
-    property bool initialScrollDone: false
-    property bool autoScrolling: false
-    property real scrollTargetY: 0
     property string lastSessionId: ""
     property string renameId: ""
     property string deleteId: ""
@@ -195,62 +192,60 @@ FmPage {
         return Theme?.textSecondary ?? "transparent"
     }
 
+    // ─── 追底 ────────────────────────────────────────────────
+    //
+    // 这里**刻意不用 ListView**：ListView 的 contentHeight 对变高委托是估算值。
+    // 实测长 Markdown 会话里，委托在滚动/创建过程中被反复测量，一旦某次按窄宽度
+    // 量出超高的高度，contentHeight 会被撑到真实值的 3 倍（6015px vs 1955px），
+    // positionViewAtEnd() 就把视口停在没有任何委托的空白区 —— 症状正是"整块白屏，
+    // 拖动时内容闪一下、松手又没了"。
+    //
+    // Flickable + Column 把当前会话的消息全部实例化，contentHeight 恒等于列高，
+    // 是真实值而不是估算值；追底、流式增长、窗口缩放都不会落空。会话页的消息量级
+    // （几十条）用全量布局足够，也换掉了原先那一套 forceLayout/positionViewAtEnd
+    // 的补丁式追底。
+
+    function endY() {
+        // contentHeight 在首帧之前是 NaN，直接参与 Math.max 会写成 NaN。
+        var total = Number(messageFlick.contentHeight)
+        if (!isFinite(total) || total <= 0)
+            return 0
+        return Math.max(0, total - messageFlick.height)
+    }
+
     function scrollToEnd(immediate) {
-        if (!page.live || messageList.count === 0)
+        if (!page.live || messageRepeater.count === 0)
             return
         if (immediate) {
             scrollTicker.stop()
-            page.autoScrolling = false
             page.followTail = true
-            messageList.positionViewAtEnd()
+            messageFlick.contentY = page.endY()
             return
         }
-        if (!page.followTail)
+        if (!page.followTail || scrollTicker.running)
             return
-        scrollCoalesce.restart()
-    }
-
-    function animateScroll() {
-        if (!page.followTail || messageList.count === 0)
-            return
-        page.scrollTargetY = Math.max(0, messageList.contentHeight - messageList.height)
-        if (Math.abs(page.scrollTargetY - messageList.contentY) <= 0.5) {
-            scrollTicker.stop()
-            return
-        }
-        if (!scrollTicker.running)
-            scrollTicker.start()
+        // 不在这里做 60ms 防抖：流式输出每 40–60ms 就长高一次，防抖永远等不到
+        // 触发，视口会落后一两屏。ticker 每帧重算目标，本身就是节流。
+        scrollTicker.start()
     }
 
     function tickScroll() {
         if (!page.followTail) {
             scrollTicker.stop()
-            page.autoScrolling = false
             return
         }
-        var target = Math.max(0, messageList.contentHeight - messageList.height)
-        page.scrollTargetY = target
-        var current = messageList.contentY
-        var distance = target - current
-        if (Math.abs(distance) <= 0.5) {
+        var target = page.endY()
+        var distance = target - messageFlick.contentY
+        if (Math.abs(distance) <= 1.0) {
+            messageFlick.contentY = target
             scrollTicker.stop()
-            page.autoScrolling = false
             return
         }
         // 指数逼近；每 16ms 最多推进剩余距离的 32%，内容继续长高时目标同步更新。
         var step = distance * 0.32
         if (Math.abs(step) < 0.8)
             step = distance > 0 ? 0.8 : -0.8
-        page.autoScrolling = true
-        messageList.contentY = current + step
-    }
-
-    Timer {
-        id: scrollCoalesce
-        objectName: "agentScrollTimer"
-        interval: 60
-        repeat: false
-        onTriggered: page.animateScroll()
+        messageFlick.contentY = messageFlick.contentY + step
     }
 
     Timer {
@@ -260,6 +255,19 @@ FmPage {
         repeat: true
         running: false
         onTriggered: page.tickScroll()
+    }
+
+    //: 一轮回答结束/切换会话后再落一次底：字体与富文本的 implicitHeight 会在
+    //: 排版最后一拍才稳定，早一拍设置 contentY 会差几个像素。
+    Timer {
+        id: endSettle
+        objectName: "agentEndSettle"
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (page.followTail)
+                messageFlick.contentY = page.endY()
+        }
     }
 
     RowLayout {
@@ -331,6 +339,13 @@ FmPage {
                     level: "accent"
                 }
 
+                FmToolButton {
+                    objectName: "agentSettingsButton"
+                    iconName: "settings-gear"
+                    onClicked: if (typeof Nav !== "undefined" && Nav)
+                                   Nav.push("settings/ai")
+                }
+
                 Text {
                     Layout.preferredWidth: Math.min(100, page.width * 0.15)
                     Layout.minimumWidth: 0
@@ -364,7 +379,8 @@ FmPage {
                 Layout.fillWidth: true
                 visible: page.live && !Agent.loggedIn
                 level: "warning"
-                text: page.t("agent_no_token_hint")
+                text: page.live && Agent.activeProvider !== "jingdu"
+                      ? page.t("agent_provider_unready_hint") : page.t("agent_no_token_hint")
                 actionText: page.t("ach_sync_login_action")
                 onActionTriggered: {
                     if (typeof Nav !== "undefined" && Nav)
@@ -388,83 +404,91 @@ FmPage {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
-                ListView {
-                    id: messageList
+                Flickable {
+                    id: messageFlick
                     objectName: "agentMessageList"
                     anchors.fill: parent
                     visible: page.live && Agent.messages.length > 0
                     clip: true
-                    spacing: Theme?.spacingMd ?? 10
-                    model: page.live ? Agent.messages : []
-                    onCountChanged: {
-                        if (!page.initialScrollDone) {
-                            page.followTail = true
-                        } else {
-                            page.followTail = true
-                            page.scrollToEnd(false)
-                        }
-                    }
+                    boundsBehavior: Flickable.StopAtBounds
+                    flickableDirection: Flickable.VerticalFlick
+                    contentWidth: width
+                    contentHeight: messageColumn.implicitHeight
+
                     onContentHeightChanged: {
-                        if (!page.initialScrollDone && messageList.count > 0 && messageList.contentHeight > 0) {
-                            page.initialScrollDone = true
-                            page.followTail = true
-                            page.scrollToEnd(true)
-                        } else if (page.initialScrollDone && page.followTail) {
+                        if (messageFlick.contentY > page.endY())
+                            messageFlick.contentY = page.endY()
+                        if (page.followTail)
                             page.scrollToEnd(false)
-                        }
                     }
-                    onFlickStarted: {
+                    //: 输入框长高/窗口缩放会改变可见高度，跟随时要重新贴底。
+                    onHeightChanged: {
+                        if (page.followTail)
+                            messageFlick.contentY = page.endY()
+                    }
+                    onMovementStarted: {
                         // 只有用户真正拖拽/甩动才退出跟随；内容长高本身不能让跟随失效。
                         scrollTicker.stop()
-                        page.autoScrolling = false
                         page.followTail = false
                     }
-                    onMovementEnded: {
-                        if (!page.autoScrolling)
-                            page.followTail = messageList.atYEnd
-                    }
+                    onMovementEnded: page.followTail = messageFlick.atYEnd
 
                     ScrollBar.vertical: FmScrollBar {
                         thickness: 6
                     }
 
-                    delegate: Item {
-                        id: delegateRoot
-                        required property int index
-                        required property var modelData
+                    Column {
+                        id: messageColumn
+                        width: messageFlick.width
+                        spacing: Theme?.spacingMd ?? 10
 
-                        width: messageList.width
-                        height: loader.implicitHeight
-
-                        function applyStream(content, blocks, thinking) {
-                            if (loader.item && loader.item.applyStream) {
-                                loader.item.applyStream(content, blocks, thinking)
-                                return
+                        Repeater {
+                            id: messageRepeater
+                            model: page.live ? Agent.messages : []
+                            onCountChanged: {
+                                page.followTail = true
+                                page.scrollToEnd(false)
                             }
-                            var next = {}
-                            for (var key in loader.messageData)
-                                next[key] = loader.messageData[key]
-                            next.content = String(content || "")
-                            next.blocks = blocks || []
-                            next.thinking = String(thinking || "")
-                            loader.messageData = next
-                        }
 
-                        Loader {
-                            id: loader
-                            property var messageData: delegateRoot.modelData
-                            width: parent.width
-                            sourceComponent: String(delegateRoot.modelData && delegateRoot.modelData.role || "") === "tool"
-                                             ? toolComponent : messageComponent
+                            delegate: Item {
+                                id: delegateRoot
+                                required property int index
+                                required property var modelData
 
-                            onLoaded: page.bindMessageItem(
-                                          item,
-                                          messageData,
-                                          delegateRoot.index,
-                                          String(messageData && messageData.role || ""))
-                            onMessageDataChanged: {
-                                if (item)
-                                    page.updateMessageItem(item, messageData, delegateRoot.index)
+                                width: messageColumn.width
+                                height: loader.implicitHeight
+
+                                function applyStream(content, blocks, thinking) {
+                                    if (loader.item && loader.item.applyStream) {
+                                        loader.item.applyStream(content, blocks, thinking)
+                                        return
+                                    }
+                                    var next = {}
+                                    for (var key in loader.messageData)
+                                        next[key] = loader.messageData[key]
+                                    next.content = String(content || "")
+                                    next.blocks = blocks || []
+                                    next.thinking = String(thinking || "")
+                                    loader.messageData = next
+                                }
+
+                                Loader {
+                                    id: loader
+                                    property var messageData: delegateRoot.modelData
+                                    width: parent.width
+                                    sourceComponent: String(delegateRoot.modelData && delegateRoot.modelData.role || "") === "tool"
+                                                     ? toolComponent : messageComponent
+
+                                    onLoaded: page.bindMessageItem(
+                                                  item,
+                                                  messageData,
+                                                  delegateRoot.index,
+                                                  String(messageData && messageData.role || ""))
+                                    onMessageDataChanged: {
+                                        if (item)
+                                            page.updateMessageItem(item, messageData, delegateRoot.index)
+                                    }
+                                }
                             }
                         }
                     }
@@ -569,7 +593,7 @@ FmPage {
             return
         item.message = data
         if (item.isLast !== undefined)
-            item.isLast = index === messageList.count - 1
+            item.isLast = index === messageRepeater.count - 1
         if (item.canRetry !== undefined)
             item.canRetry = page.live ? Agent.canRetry : false
     }
@@ -684,9 +708,11 @@ FmPage {
             var sessionId = page.live ? Agent.currentSessionId : ""
             if (sessionId !== page.lastSessionId) {
                 page.lastSessionId = sessionId
-                page.initialScrollDone = false
-                if (page.live && Agent.messages.length > 0)
+                page.followTail = true
+                if (page.live && Agent.messages.length > 0) {
                     Qt.callLater(function () { page.scrollToEnd(true) })
+                    endSettle.restart()
+                }
             } else if (page.followTail) {
                 page.scrollToEnd(false)
             }
@@ -694,8 +720,13 @@ FmPage {
                 approvalLoader.item.request = Agent.pendingApproval
         }
 
+        function onBusyChanged() {
+            if (page.live && !Agent.busy && page.followTail)
+                endSettle.restart()
+        }
+
         function onStreamUpdated(index, content, blocks, thinking) {
-            var item = messageList.itemAtIndex(index)
+            var item = messageRepeater.itemAt(index)
             if (item && item.applyStream)
                 item.applyStream(content, blocks, thinking)
             if (page.followTail)

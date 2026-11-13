@@ -226,6 +226,11 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `FmAgentComposer` | 输入区：多行输入、发送/停止、语音按钮、免责声明 | `text` `busy` `loggedIn` `voiceState` `sendRequested(text)` `stopRequested()` `voiceRequested()` `focusInput()` |
 | `FmAgentApprovalDialog` | 高危命令/文件修改确认；关闭即拒绝 | `request` `answered(bool)` |
 | `FmAgentAskDialog` | ask_user 多问题：单选/多选/自定义/上一题/下一题 | `request` `answered(bool, answers)` |
+| `FmAgentSettingsSection` | 设置 AI 分区：模型 / 工具权限 / Skills / 语音 / 净读账号五个页签 | `tab` |
+| `FmAgentProviderSettings` | 提供商、API Key/端点、模型、思考开关与强度 | 无（读 Agent 桥） |
+| `FmAgentToolSettings` | 33 个工具的三级权限（allow/ask/deny） | 无（读 Agent.tools） |
+| `FmAgentSkillSettings` | Skills 列表、新建、打开目录/单项 | 无（读 Agent.skills） |
+| `FmAgentVoiceSettings` | 语音模型状态、下载进度、ZIP 导入、打开目录 | 无（读 Agent.voice*） |
 
 > 思考块默认收起，避免长推理占满首屏；工具参数与结果也默认收起。所有颜色只来自
 > `Theme.*`，代码/参数的等宽字体是本件唯一的字体族声明。

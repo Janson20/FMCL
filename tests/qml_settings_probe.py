@@ -863,8 +863,10 @@ check("账户分区的账号列表在树里", item("accountListView") is not Non
 goto("settings/ai")
 check("AI 分区不再是占位（3.21 已交付）", item("settingsPlaceholder") is None,
       "settingsPlaceholder 还在 —— AI 分区可能没接上")
-check("AI 分区显示净读登录区块", item("settingsJingduSection") is not None,
+check("AI 分区显示设置页", item("settingsJingduSection") is not None,
       "settingsJingduSection")
+click(item("fmTabBarItem-account"))
+QTest.qWait(120)
 check("净读用户名输入框在树里", item("jingduUsernameField") is not None,
       "jingduUsernameField")
 check("净读密码输入框在树里", item("jingduPasswordField") is not None,

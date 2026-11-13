@@ -23,10 +23,13 @@
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
 import threading
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Property, QObject, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import Property, QObject, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices
 
 from services.agent_chat_service import AgentChatError, AgentChatService
 from services.i18n_service import _
@@ -103,6 +106,8 @@ class AgentBridge(QObject):
         self._voice_listener: Optional[_VoiceListener] = None
         self._voice_state = "idle"
         self._voice_error = ""
+        self._voice_progress = 0.0
+        self._voice_busy = False
         self._voice_timer = QTimer(self)
         self._voice_timer.setInterval(VOICE_POLL_MS)
         self._voice_timer.timeout.connect(self._poll_voice)
@@ -258,6 +263,208 @@ class AgentBridge(QObject):
     @Property(str, notify=changed)
     def voiceError(self) -> str:  # noqa: N802
         return self._voice_error
+
+    # ─── 3.23 设置（Provider / 思考 / 工具权限 / Skills / 语音）────
+
+    def _agent_config(self):
+        if self._service is None:
+            return None
+        try:
+            return self._service.agent_config()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("取 Agent 配置失败: %s", e)
+            return None
+
+    @Property("QVariantList", notify=changed)
+    def providers(self) -> List[Dict[str, Any]]:
+        from services.agent.models import get_default_model, get_models_by_provider, get_provider_names
+
+        cfg = self._agent_config()
+        rows: List[Dict[str, Any]] = []
+        for item in get_provider_names():
+            pid = str(item.get("id") or "")
+            pc = cfg.providers.get(pid) if cfg is not None else None
+            if pid == "custom":
+                ids = [str(v) for v in ((pc.custom_models if pc else []) or []) if str(v).strip()]
+                models = [{"id": value, "name": value} for value in ids]
+            else:
+                models = [
+                    {"id": m.id, "name": m.name, "reasoning": bool(m.supports_reasoning)}
+                    for m in get_models_by_provider(pid)
+                ]
+            default = get_default_model(pid)
+            rows.append(
+                {
+                    "id": pid,
+                    "name": str(item.get("name") or pid),
+                    "needsKey": pid != "jingdu",
+                    "keyConfigured": (
+                        bool(self._service and self._service.provider_ready(pid))
+                        if pid == "jingdu"
+                        else bool(pc and pc.api_key)
+                    ),
+                    "apiUrl": str(getattr(pc, "api_url", "") or ""),
+                    "defaultModel": str(getattr(pc, "default_model", "") or (default.id if default else "")),
+                    "models": models,
+                    "active": bool(cfg is not None and cfg.active_provider == pid),
+                }
+            )
+        return rows
+
+    @Property(str, notify=changed)
+    def activeProvider(self) -> str:  # noqa: N802
+        if self._service is None:
+            return "jingdu"
+        try:
+            return self._service.provider_id()
+        except Exception:
+            return "jingdu"
+
+    @Property(str, notify=changed)
+    def activeModel(self) -> str:  # noqa: N802
+        if self._service is None:
+            return ""
+        try:
+            return self._service.model_id()
+        except Exception:
+            return ""
+
+    @Property(str, notify=changed)
+    def providerLabel(self) -> str:  # noqa: N802
+        if self._service is None:
+            return ""
+        try:
+            return self._service.provider_label()
+        except Exception:
+            return ""
+
+    @Property(bool, notify=changed)
+    def thinkingSupported(self) -> bool:  # noqa: N802
+        if self._service is None:
+            return False
+        try:
+            return self._service.thinking_supported()
+        except Exception:
+            return False
+
+    @Property(bool, notify=changed)
+    def thinkingEnabled(self) -> bool:  # noqa: N802
+        if self._service is None:
+            return False
+        try:
+            return self._service.thinking_enabled()
+        except Exception:
+            return False
+
+    @Property(str, notify=changed)
+    def thinkingEffort(self) -> str:  # noqa: N802
+        if self._service is None:
+            return ""
+        try:
+            return self._service.reasoning_effort()
+        except Exception:
+            return ""
+
+    @Property("QVariantList", notify=changed)
+    def thinkingEfforts(self) -> List[str]:  # noqa: N802
+        if self._service is None:
+            return []
+        try:
+            return list(self._service.effort_options(self._service.provider_id()))
+        except Exception:
+            return []
+
+    @Property("QVariantList", notify=changed)
+    def tools(self) -> List[Dict[str, Any]]:
+        from services.agent.permission import get_permission_manager, init_permission_manager
+        from services.agent.tool_registry import get_registry
+
+        cfg = self._agent_config()
+        rules = list(getattr(cfg, "permissions", []) or []) if cfg is not None else []
+        if rules:
+            try:
+                init_permission_manager(rules)
+            except Exception:
+                pass
+        manager = get_permission_manager()
+        rows: List[Dict[str, Any]] = []
+        for tool in sorted(get_registry().get_all(), key=lambda t: (t.category, t.name)):
+            try:
+                effect = str(manager.check(tool.permission_action) or "allow")
+            except Exception:
+                effect = "allow"
+            rows.append(
+                {
+                    "name": tool.name,
+                    "displayName": tool.display_name or tool.name,
+                    "category": tool.category,
+                    "description": tool.description,
+                    "effect": effect,
+                }
+            )
+        return rows
+
+    @Property("QVariantList", notify=changed)
+    def skills(self) -> List[Dict[str, Any]]:
+        try:
+            from services.agent.skill import load_all_skills
+
+            return [
+                {
+                    "name": skill.name,
+                    "description": skill.description,
+                    "directory": skill.directory,
+                    "fileCount": len(skill.files),
+                }
+                for skill in load_all_skills()
+            ]
+        except Exception as e:  # noqa: BLE001
+            logger.warning("读取 Skills 失败: %s", e)
+            return []
+
+    @Property(str, notify=changed)
+    def skillsDir(self) -> str:  # noqa: N802
+        try:
+            from services.agent.skill import _get_skills_dir
+
+            return _get_skills_dir()
+        except Exception:
+            return ""
+
+    @Property(bool, notify=changed)
+    def voiceModelReady(self) -> bool:  # noqa: N802
+        try:
+            from services.voice.models import is_model_ready
+
+            return bool(is_model_ready())
+        except Exception:
+            return False
+
+    @Property(str, notify=changed)
+    def voiceModelVersion(self) -> str:  # noqa: N802
+        try:
+            from services.voice.models import model_version
+
+            return str(model_version())
+        except Exception:
+            return ""
+
+    @Property(str, notify=changed)
+    def voiceModelDir(self) -> str:  # noqa: N802
+        try:
+            from services.voice.models import model_dir
+
+            return str(model_dir())
+        except Exception:
+            return ""
+
+    @Property(float, notify=changed)
+    def voiceProgress(self) -> float:  # noqa: N802
+        return float(self._voice_progress)
+
+    @Property(bool, notify=changed)
+    def voiceBusy(self) -> bool:  # noqa: N802
+        return bool(self._voice_busy)
 
     # ─── 会话 ───────────────────────────────────────────────
 
@@ -623,6 +830,17 @@ class AgentBridge(QObject):
         if kind == "voice":
             self._apply_voice(payload)
             return
+        if kind == "settings":
+            self._apply_settings_event(payload)
+            return
+
+    def _apply_settings_event(self, payload: Dict[str, Any]) -> None:
+        if str(payload.get("event") or "") != "test":
+            return
+        if bool(payload.get("ok")):
+            self.noticeRequested.emit(_("settings_ai_test_ok"), "success")
+        else:
+            self.noticeRequested.emit(_("settings_ai_test_failed", err=str(payload.get("message") or "")), "error")
 
     def _apply_event(self, event: Dict[str, Any]) -> None:
         kind = str(event.get("type") or "")
@@ -743,7 +961,7 @@ class AgentBridge(QObject):
             blocks = event.get("blocks")
             if isinstance(blocks, list):
                 message["blocks"] = blocks
-        # 原地替换同一条消息；**不重新赋值 self._messages**，ListView 就不会把
+        # 原地替换同一条消息；**不重新赋值 self._messages**，消息视图就不会把
         # 整段历史的消息委托全部销毁重建。QML 只收 streamUpdated 更新当前气泡。
         self._messages[index] = message
         self.streamUpdated.emit(
@@ -879,6 +1097,331 @@ class AgentBridge(QObject):
         except Exception:
             pass
 
+    # ─── 3.23 设置写入口 ────────────────────────────────────
+
+    def _save_agent_config(self) -> bool:
+        cfg = self._agent_config()
+        if cfg is None:
+            return False
+        path = ""
+        try:
+            path = str(getattr(self._config, "config_file", "") or "")
+        except Exception:
+            path = ""
+        try:
+            cfg.save_to_file(path)
+            if self._service is not None:
+                self._service.reload_permissions()
+            self._refresh_login()
+            self.changed.emit()
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("保存 Agent 配置失败: %s", e)
+            self.noticeRequested.emit(str(e), "error")
+            return False
+
+    def _open_path(self, path: str) -> bool:
+        value = str(path or "")
+        if not value:
+            return False
+        try:
+            if QDesktopServices.openUrl(QUrl.fromLocalFile(value)):
+                return True
+        except Exception:
+            pass
+        try:
+            if os.name == "nt":
+                os.startfile(value)  # type: ignore[attr-defined]
+            elif os.name == "posix":
+                subprocess.Popen(["xdg-open", value])
+            else:
+                subprocess.Popen(["open", value])
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("打开路径失败: %s", e)
+            return False
+
+    @Slot()
+    def refreshSettings(self) -> None:  # noqa: N802
+        self.changed.emit()
+
+    @Slot(str)
+    def setProvider(self, provider_id: str) -> None:  # noqa: N802
+        from services.agent.models import get_default_model
+
+        cfg = self._agent_config()
+        pid = str(provider_id or "")
+        if cfg is None or pid not in ("jingdu", "openai", "anthropic", "custom"):
+            return
+        cfg.active_provider = pid
+        if not str((cfg.active_models or {}).get(pid, "") or ""):
+            default = get_default_model(pid)
+            if default is not None:
+                cfg.active_models[pid] = default.id
+        self._save_agent_config()
+
+    @Slot(str, str)
+    def setModel(self, provider_id: str, model_id: str) -> None:  # noqa: N802
+        cfg = self._agent_config()
+        pid = str(provider_id or "")
+        model = str(model_id or "")
+        if cfg is None or not pid or not model:
+            return
+        cfg.set_active_model(pid, model)
+        self._save_agent_config()
+
+    @Slot(str, str, str, str, str)
+    def saveProviderConfig(
+        self, provider_id: str, api_key: str, api_url: str, default_model: str, custom_models: str
+    ) -> None:  # noqa: N802
+        from services.agent.config import ProviderConfig
+
+        cfg = self._agent_config()
+        pid = str(provider_id or "")
+        if cfg is None or pid not in ("jingdu", "openai", "anthropic", "custom"):
+            return
+        pc = cfg.providers.get(pid) or ProviderConfig()
+        pc.enabled = True
+        if pid != "jingdu" and str(api_key or "").strip():
+            pc.api_key = str(api_key).strip()
+        pc.api_url = str(api_url or "").strip()
+        pc.default_model = str(default_model or "").strip()
+        if pid == "custom":
+            values = [part.strip() for part in str(custom_models or "").replace(",", "\n").splitlines() if part.strip()]
+            pc.custom_models = values
+        cfg.providers[pid] = pc
+        if pc.default_model:
+            cfg.active_models.setdefault(pid, pc.default_model)
+        self._save_agent_config()
+
+    def _test_provider_work(self, provider_id: str) -> None:
+        message = ""
+        ok = False
+        try:
+            from services.agent.models import get_default_model, get_model_by_id
+            from services.agent.providers.anthropic import AnthropicProvider
+            from services.agent.providers.custom import CustomProvider
+            from services.agent.providers.jingdu import JingduProvider
+            from services.agent.providers.openai import OpenAIProvider
+
+            cfg = self._agent_config()
+            pc = cfg.providers.get(provider_id) if cfg is not None else None
+            model = self._service.model_id() if self._service is not None else ""
+            if provider_id == "jingdu":
+                token = self._service.token() if self._service is not None else ""
+                if not token:
+                    raise RuntimeError(_("agent_no_token_hint"))
+                provider = JingduProvider(api_key=token)
+            elif provider_id == "openai" and pc and pc.api_key:
+                provider = OpenAIProvider(api_key=pc.api_key, api_url=pc.api_url)
+            elif provider_id == "anthropic" and pc and pc.api_key:
+                provider = AnthropicProvider(api_key=pc.api_key, api_url=pc.api_url)
+            elif provider_id == "custom" and pc and pc.api_key:
+                provider = CustomProvider(
+                    api_key=pc.api_key, api_url=pc.api_url, custom_models=pc.custom_models or None
+                )
+            else:
+                raise RuntimeError(_("settings_ai_key_required"))
+            info = get_model_by_id(model)
+            if info is None or info.provider_id != provider_id:
+                default = get_default_model(provider_id)
+                model = default.id if default is not None else ""
+            if provider_id == "custom" and pc and pc.custom_models:
+                model = str(pc.custom_models[0])
+            provider.chat(messages=[{"role": "user", "content": "ping"}], model=model, max_tokens=1)
+            ok = True
+            message = "OK"
+        except Exception as e:  # noqa: BLE001
+            message = str(e)[:300]
+        self._post({"kind": "settings", "event": "test", "ok": ok, "message": message, "provider": provider_id})
+
+    @Slot(str)
+    def testProvider(self, provider_id: str) -> None:  # noqa: N802
+        if self._tasks is None:
+            return
+        try:
+            self._tasks.submit(self._test_provider_work, str(provider_id), name="agent.test_provider")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("提交连接测试失败: %s", e)
+
+    @Slot(bool)
+    def setThinking(self, enabled: bool) -> None:  # noqa: N802
+        cfg = self._agent_config()
+        if cfg is None or self._service is None:
+            return
+        cfg.thinking[self._service.model_id()] = bool(enabled)
+        self._save_agent_config()
+
+    @Slot(str)
+    def setThinkingEffort(self, effort: str) -> None:  # noqa: N802
+        cfg = self._agent_config()
+        if cfg is None or self._service is None:
+            return
+        value = str(effort or "").strip()
+        if value:
+            cfg.reasoning_efforts[self._service.model_id()] = value
+            self._save_agent_config()
+
+    @Slot(str, str)
+    def setToolEffect(self, name: str, effect: str) -> None:  # noqa: N802
+        cfg = self._agent_config()
+        action = str(name or "").strip()
+        value = str(effect or "").strip()
+        if cfg is None or not action or value not in ("allow", "ask", "deny"):
+            return
+        rules = [dict(item) for item in (cfg.permissions or []) if isinstance(item, dict)]
+        rules = [item for item in rules if str(item.get("action") or "") != action]
+        insert_at = len(rules)
+        for index, item in enumerate(rules):
+            if str(item.get("action") or "") == "*" and str(item.get("resource") or "*") == "*":
+                insert_at = index
+                break
+        rules.insert(insert_at, {"action": action, "resource": "*", "effect": value})
+        cfg.permissions = rules
+        self._save_agent_config()
+
+    @Slot(str)
+    def createSkill(self, name: str) -> None:  # noqa: N802
+        from services.agent.skill import _get_skills_dir
+
+        value = str(name or "").strip().lower().replace(" ", "-")
+        if not value:
+            return
+        root = _get_skills_dir()
+        path = os.path.join(root, value)
+        if os.path.exists(path):
+            self.noticeRequested.emit(_("skills_exists"), "warning")
+            return
+        try:
+            os.makedirs(path, exist_ok=True)
+            body = "# Skill: %s\n\n此技能为 '%s' 的使用说明。\n\n## 用途\n\n描述此技能的用途。\n\n## 指令\n\nAI 加载此技能后应遵循的指令。\n" % (
+                value,
+                value,
+            )
+            with open(os.path.join(path, "SKILL.md"), "w", encoding="utf-8") as handle:
+                handle.write(body)
+            self.noticeRequested.emit(_("skills_created", name=value), "success")
+            self._open_path(path)
+            self.changed.emit()
+        except Exception as e:  # noqa: BLE001
+            self.noticeRequested.emit(_("skills_create_failed", err=str(e)), "error")
+
+    @Slot()
+    def openSkillsDir(self) -> None:  # noqa: N802
+        from services.agent.skill import _get_skills_dir
+
+        self._open_path(_get_skills_dir())
+
+    @Slot(str)
+    def openSkill(self, name: str) -> None:  # noqa: N802
+        from services.agent.skill import _get_skills_dir
+
+        path = os.path.join(_get_skills_dir(), str(name or ""))
+        self._open_path(path)
+
+    @Slot(str)
+    def openSkillFile(self, name: str) -> None:  # noqa: N802
+        from services.agent.skill import _get_skills_dir
+
+        path = os.path.join(_get_skills_dir(), str(name or ""), "SKILL.md")
+        self._open_path(path)
+
+    @Slot()
+    def openVoiceModelDir(self) -> None:  # noqa: N802
+        try:
+            from services.voice.models import model_dir
+
+            self._open_path(str(model_dir()))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("打开语音模型目录失败: %s", e)
+
+    def _voice_service_of(self):
+        if self._voice_service is None and self._context is not None:
+            try:
+                self._voice_service = self._context.try_get("voice")
+            except Exception as e:  # noqa: BLE001
+                logger.warning("取语音服务失败: %s", e)
+        return self._voice_service
+
+    def _ensure_voice_listener(self, service) -> bool:
+        if self._voice_listener is None:
+            self._voice_listener = _VoiceListener(self._post)
+            try:
+                service.register(self._voice_listener)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("注册语音监听失败: %s", e)
+                self._voice_listener = None
+                return False
+        try:
+            service.set_session_runner(lambda fn: self._tasks.submit(fn, name="agent.voice.admin"))
+        except Exception:
+            pass
+        self._voice_timer.start()
+        return True
+
+    @Slot()
+    def downloadVoiceModel(self) -> None:  # noqa: N802
+        service = self._voice_service_of()
+        if service is None or self._tasks is None:
+            self.noticeRequested.emit(_("voice_btn_unavailable"), "error")
+            return
+        if self._voice_busy:
+            return
+        if not self._ensure_voice_listener(service):
+            return
+        self._voice_busy = True
+        self._voice_progress = 0.0
+        self._voice_error = ""
+        self._voice_state = "loading"
+        self.changed.emit()
+
+        def work():
+            ok = False
+            message = ""
+            try:
+                ok = bool(service._ensure_model())
+                if not ok:
+                    message = _("voice_error_download", err="")
+            except Exception as e:  # noqa: BLE001
+                message = str(e)
+            self._post({"kind": "voice", "event": "download_done", "ok": ok, "message": message})
+
+        try:
+            self._tasks.submit(work, name="agent.voice.download")
+        except Exception as e:  # noqa: BLE001
+            self._voice_busy = False
+            self.noticeRequested.emit(str(e), "error")
+            self.changed.emit()
+
+    @Slot(str)
+    def importVoiceModel(self, path: str) -> None:  # noqa: N802
+        service = self._voice_service_of()
+        target = str(path or "")
+        if service is None or self._tasks is None or not target:
+            return
+        if self._voice_busy:
+            return
+        self._voice_busy = True
+        self._voice_error = ""
+        self.changed.emit()
+
+        def work():
+            message = ""
+            ok = False
+            try:
+                message = str(service.import_model_zip(target) or "")
+                ok = not message.lower().startswith(("错误", "error"))
+            except Exception as e:  # noqa: BLE001
+                message = str(e)
+            self._post({"kind": "voice", "event": "import_done", "ok": ok, "message": message})
+
+        try:
+            self._tasks.submit(work, name="agent.voice.import")
+        except Exception as e:  # noqa: BLE001
+            self._voice_busy = False
+            self.noticeRequested.emit(str(e), "error")
+            self.changed.emit()
+
     # ─── 剪贴板 / 积分 / 语音 ───────────────────────────────
 
     @Slot(str, result=bool)
@@ -979,9 +1522,9 @@ class AgentBridge(QObject):
             from services.voice.models import is_model_ready
 
             if not is_model_ready():
-                self._voice_state = "unavailable"
-                self._voice_error = _("agent_voice_model_missing")
-                self.changed.emit()
+                # 旧行为是首次使用自动下载；这里转给设置层同一条下载任务，
+                # 完成后再点一次即可录音（不阻塞主线程）。
+                self.downloadVoiceModel()
                 return
         except Exception as e:  # noqa: BLE001
             self._voice_state = "unavailable"
@@ -1074,4 +1617,29 @@ class AgentBridge(QObject):
             return
         if kind == "progress":
             self._voice_state = "loading"
+            try:
+                self._voice_progress = float(payload.get("percent") or 0)
+            except Exception:
+                self._voice_progress = 0.0
+            self.changed.emit()
+            return
+        if kind in ("download_done", "import_done"):
+            self._voice_busy = False
+            self._voice_state = "idle"
+            self._voice_timer.stop()
+            ok = bool(payload.get("ok"))
+            message = str(payload.get("message") or "")
+            if ok:
+                self._voice_progress = 100.0
+                self._voice_error = ""
+                if kind == "import_done":
+                    try:
+                        from services.voice.models import model_version
+
+                        self.noticeRequested.emit(_("settings_voice_import_ok", ver=model_version()), "success")
+                    except Exception:
+                        self.noticeRequested.emit(_("settings_voice_import_ok", ver=""), "success")
+            else:
+                self._voice_error = message or _("voice_error_download", err="")
+                self.noticeRequested.emit(self._voice_error, "error")
             self.changed.emit()
