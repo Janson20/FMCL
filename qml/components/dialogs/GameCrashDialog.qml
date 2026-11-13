@@ -21,6 +21,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Dialogs
 import ".."
+import "../agent"
 
 Item {
     id: root
@@ -29,6 +30,9 @@ Item {
     property var crashInfo: ({})
     property bool analyzing: false
     property string resultText: ""
+    //: AI 分析正文的 Markdown 块（App.qml 用 Agent.markdownBlocks 解析后传进来）。
+    //: 为空时回退纯文本显示 —— 解析失败不能让结果凭空消失。
+    property var resultBlocks: []
     property string errorText: ""
     property bool exporting: false
     property bool sharing: false
@@ -36,6 +40,7 @@ Item {
     property string actionLevel: "info"
     property string shareUrl: ""
     property string exportFileName: ""
+    property string saveFileName: ""
 
     readonly property bool busy: exporting || sharing
 
@@ -44,12 +49,18 @@ Item {
     signal openFileRequested(string kind)
     signal exportRequested(string path)
     signal shareRequested()
+    signal saveResultRequested(string path)
+    //: Markdown 代码块的复制按钮（转给壳层写剪贴板并显示提示）。
+    signal copyRequested(string text)
 
     readonly property var diagnoses: (crashInfo && crashInfo.diagnoses) ? crashInfo.diagnoses : []
     readonly property bool hasResult: resultText.length > 0
     readonly property bool canAnalyze: !!(crashInfo && crashInfo.canAnalyze)
     readonly property bool hasCrashReport: !!(crashInfo && crashInfo.hasCrashReport)
     readonly property bool hasGameLog: !!(crashInfo && crashInfo.hasGameLog)
+    readonly property bool hasJvmCrashLog: !!(crashInfo && crashInfo.hasJvmCrashLog)
+    //: 三种“能打开的现场文件”都没有时，给一句旧实现同义的说明。
+    readonly property bool hasAnyArtifact: hasCrashReport || hasGameLog || hasJvmCrashLog
     readonly property string messageText: (crashInfo && crashInfo.message)
                                           ? String(crashInfo.message) : ""
 
@@ -126,7 +137,24 @@ Item {
                 level: "warning"
             }
 
+            FmTag {
+                objectName: "gameCrashJvmTag"
+                visible: root.hasJvmCrashLog
+                text: Tr?.map["crash_jvm_log"] ?? "crash_jvm_log"
+                level: "warning"
+            }
+
             Item { Layout.fillWidth: true }
+        }
+
+        Text {
+            objectName: "gameCrashNoReportHint"
+            Layout.fillWidth: true
+            visible: !root.hasAnyArtifact && !root.analyzing
+            text: Tr?.map["crash_no_report_hint"] ?? "crash_no_report_hint"
+            color: Theme?.textSecondary ?? "transparent"
+            font.pixelSize: Theme?.fontSizeSmall ?? 11
+            wrapMode: Text.WordWrap
         }
 
         FmLoadingState {
@@ -220,9 +248,22 @@ Item {
                         font.bold: true
                     }
 
+                    //: 复用 AGENT 的 Markdown 渲染件（标题/段落/列表/表格/代码）：
+                    //: AI 分析正文本来就是 Markdown，按块渲染比整段纯文本可读。
+                    FmAgentMarkdown {
+                        objectName: "gameCrashResultMarkdown"
+                        width: parent.width
+                        visible: root.hasResult && root.resultBlocks.length > 0
+                        blocks: root.resultBlocks
+                        onLinkActivated: function (link) { root.openLink(String(link)) }
+                        onCopyRequested: function (text) { root.copyRequested(String(text)) }
+                    }
+
+                    //: 解析失败/空文本时的兜底：结果原文照旧可读（保存 TXT 不受影响）。
                     Text {
                         objectName: "gameCrashResultText"
                         width: parent.width
+                        visible: root.hasResult && root.resultBlocks.length === 0
                         text: root.resultText
                         color: Theme?.textPrimary ?? "transparent"
                         font.pixelSize: Theme?.fontSizeBase ?? 12
@@ -335,6 +376,16 @@ Item {
             Item { Layout.fillWidth: true }
 
             FmButton {
+                objectName: "gameCrashSaveResultButton"
+                visible: root.hasResult
+                primary: false
+                text: Tr?.map["crash_save_result"] ?? "crash_save_result"
+                iconName: "save"
+                enabled: !root.busy
+                onClicked: root.suggestSave()
+            }
+
+            FmButton {
                 objectName: "gameCrashCloseButton"
                 primary: false
                 text: Tr?.map["close"] ?? "close"
@@ -366,6 +417,16 @@ Item {
         }
     }
 
+    FileDialog {
+        id: crashSaveDialog
+        objectName: "gameCrashSaveDialog"
+        title: Tr?.map["crash_save_result"] ?? "crash_save_result"
+        fileMode: FileDialog.SaveFile
+        defaultSuffix: "txt"
+        nameFilters: ["*.txt"]
+        onAccepted: root.acceptSavePath(selectedFile)
+    }
+
     function suggestExport() {
         root.exportFileName = "FMCL-crash-" + Qt.formatDateTime(new Date(), "yyyyMMdd_HHmmss") + ".zip"
         var folder = String(crashExportDialog.currentFolder)
@@ -375,6 +436,32 @@ Item {
             crashExportDialog.currentFile = folder + root.exportFileName
         }
         crashExportDialog.open()
+    }
+
+    function suggestSave() {
+        root.saveFileName = "FMCL-AI-analysis-" + Qt.formatDateTime(new Date(), "yyyyMMdd_HHmmss") + ".txt"
+        var folder = String(crashSaveDialog.currentFolder)
+        if (folder.length > 0) {
+            if (folder.charAt(folder.length - 1) !== "/")
+                folder += "/"
+            crashSaveDialog.currentFile = folder + root.saveFileName
+        }
+        crashSaveDialog.open()
+    }
+
+    //: 保存对话框选中路径后的落地（独立成函数：FileDialog 的 onAccepted 只转一次手，
+    //: 探针也能走同一条路径验证"选路径 → 发信号 → 桥写盘"）。
+    function acceptSavePath(url) {
+        var target = root.localPath(url)
+        if (target.length > 0)
+            root.saveResultRequested(target)
+    }
+
+    //: 只放行 http(s)/mailto（与 AGENT 页面同一条白名单），AI 文本里的其它协议不执行。
+    function openLink(link) {
+        var value = String(link || "")
+        if (/^https?:\/\//i.test(value) || /^mailto:/i.test(value))
+            Qt.openUrlExternally(value)
     }
 
     function localPath(url) {

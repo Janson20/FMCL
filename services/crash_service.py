@@ -510,6 +510,77 @@ def export_crash_report(
     return {"path": str(target), "entries": entries, "skipped": skipped, "bytes": size}
 
 
+def save_ai_analysis(content: str, dest: str) -> Dict[str, Any]:
+    """把一次 AI 崩溃分析的正文写成 TXT（旧界面 ``_show_ai_result_dialog`` 的“保存为 TXT”）。
+
+    文件正文与旧实现同构：标题 + 生成时间 + 50 个等号的分隔线 + 分析全文。
+    编码固定 UTF-8（不写 BOM）。标题用工程内导出文件的既有写法（英文 ASCII，
+    与 :func:`export_crash_report` 写进 ZIP 的 ``system-info.txt`` 一致；QML 界面
+    的文案仍走四语言语言文件），分析正文原样保留。
+
+    先写同目录临时文件再 ``os.replace``：中途失败不会留下半截文件，也不会
+    破坏用户已经选好的同名文件（与导出 ZIP 同一套原子写）。
+
+    Raises:
+        InvalidArgument: 分析正文为空、路径为空、是目录或不可写。
+    """
+    text = str(content or "")
+    if not text.strip():
+        raise InvalidArgument("分析结果为空")
+
+    if not str(dest or "").strip():
+        raise InvalidArgument("保存路径为空")
+
+    target = Path(str(dest)).expanduser()
+    try:
+        if target.exists() and target.is_dir():
+            raise InvalidArgument("保存路径是目录")
+        target.parent.mkdir(parents=True, exist_ok=True)
+    except InvalidArgument:
+        raise
+    except (OSError, ValueError) as e:
+        raise InvalidArgument(f"无法写入保存路径: {e}", detail=str(target), cause=e) from e
+
+    body = (
+        "FMCL AI Crash Analysis\n"
+        f"Generated: {datetime.now().astimezone().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"{'=' * 50}\n\n"
+        f"{text}\n"
+    )
+
+    try:
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{target.name or 'FMCL-AI-analysis'}.", suffix=".tmp", dir=str(target.parent)
+        )
+        os.close(fd)
+    except (OSError, ValueError) as e:
+        raise InvalidArgument(f"无法写入保存路径: {e}", detail=str(target), cause=e) from e
+
+    try:
+        with open(temp_name, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(body)
+        os.replace(temp_name, target)
+    except (OSError, ValueError) as e:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise InvalidArgument(f"保存分析结果失败: {e}", detail=str(target), cause=e) from e
+
+    try:
+        size = target.stat().st_size
+    except OSError:
+        size = 0
+
+    try:
+        from structured_logger import slog
+
+        slog.info("ai_analysis_saved", result_length=len(text), bytes=size)
+    except Exception:  # noqa: BLE001 - 统计失败不影响保存结果
+        pass
+    return {"path": str(target), "bytes": size}
+
+
 def share_game_log(
     crash_files: Dict[str, Any], *, uploader: Optional[Callable[[str], Optional[str]]] = None
 ) -> str:
@@ -983,6 +1054,10 @@ class CrashService(Service):
         """转发模块级 export_crash_report。"""
         return export_crash_report(crash_files, dest, exit_code, launcher_log=launcher_log)
 
+    def save_ai_analysis(self, content: str, dest: str) -> Dict[str, Any]:
+        """转发模块级 save_ai_analysis（AI 分析结果保存为 TXT）。"""
+        return save_ai_analysis(content, dest)
+
     def share_game_log(
         self, crash_files: Dict[str, Any], *, uploader: Optional[Callable[[str], Optional[str]]] = None
     ) -> str:
@@ -1030,5 +1105,6 @@ __all__ = [
     "diagnose_crash",
     "export_crash_report",
     "read_file_tail",
+    "save_ai_analysis",
     "share_game_log",
 ]

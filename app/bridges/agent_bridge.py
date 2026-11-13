@@ -1422,6 +1422,25 @@ class AgentBridge(QObject):
             self.noticeRequested.emit(str(e), "error")
             self.changed.emit()
 
+    # ─── Markdown 渲染 ─────────────────────────────────────
+
+    @Slot(str, result="QVariantList")
+    def markdownBlocks(self, text: str) -> List[Dict[str, Any]]:  # noqa: N802
+        """把一段 Markdown 解析成 FmAgentMarkdown 的块列表。
+
+        与 AGENT 消息共用 ``services/agent_markdown.py`` 这一份解析器：崩溃弹窗的
+        AI 分析结果历史上是纯文本，加渲染时不再写第二套 Markdown 解析。纯格式转换
+        （不缓存、不落盘、不碰 QML），解析失败返回空列表 —— 调用方回退纯文本显示，
+        结果不能凭空消失。
+        """
+        try:
+            from services.agent_markdown import parse_markdown
+
+            return parse_markdown(str(text or ""))
+        except Exception as e:  # noqa: BLE001 - 解析失败只影响渲染样式
+            logger.warning("Markdown 解析失败: %s", e)
+            return []
+
     # ─── 剪贴板 / 积分 / 语音 ───────────────────────────────
 
     @Slot(str, result=bool)

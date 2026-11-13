@@ -91,6 +91,10 @@ class HomeBridge(QObject):
     crashShareStarted = Signal()
     crashShareFinished = Signal(str, str)
     crashShareFailed = Signal(str)
+    #: AI 分析结果保存为 TXT 完成（参数 = 已保存路径, 已翻译消息）/ 失败（已翻译消息）。
+    #: 写盘只有几 KB，走同步槽（与服务器控制台导出同一惯例），失败必须让用户看见。
+    crashSaveFinished = Signal(str, str)
+    crashSaveFailed = Signal(str)
     #: 请求重新展示公告（首页的"公告入口"，A-22）。
     noticeRequested = Signal()
 
@@ -108,6 +112,12 @@ class HomeBridge(QObject):
         #: 最近一次崩溃的原始文件表与退出码（只由主线程/游戏观察者写）。
         self._last_crash_files: Dict[str, Any] = {}
         self._last_crash_exit = -1
+        #: 本次会话是否已经有"最近一次崩溃"。**不能只看文件表**：有些崩溃
+        #: （例如启动失败、被系统结束时）没有崩溃报告/日志，旧实现照样允许分析
+        #: （上下文里至少有系统信息与启动器日志），这里也保持同一语义。
+        self._crash_available = False
+        #: 上次分析成功的正文（H-11 保存 TXT 的来源）；新分析或新崩溃时清空。
+        self._last_analysis_text = ""
         self._crash_analysis_running = False
         #: 代次号：分析期间又崩了一次时，旧任务的结果必须丢掉。
         self._crash_seq = 0
@@ -352,8 +362,15 @@ class HomeBridge(QObject):
 
     @Slot(result=bool)
     def requestCrashAnalysis(self) -> bool:  # noqa: N802
-        """对最近一次游戏崩溃做 AI 分析（异步；结果走信号）。"""
-        if self._crash is None or not self._last_crash_files:
+        """对最近一次游戏崩溃做 AI 分析（异步；结果走信号）。
+
+        **隐私同意不在这里再问一次**（H-10）：启动链的 `_continue_to_agreement()`
+        已经把 `config.ai_privacy_consent` 为假的情况挡在统一协议弹窗里，
+        点过「同意并继续」才写回配置并继续启动；崩溃弹窗里重复弹同一份协议
+        只会让用户每次崩溃都被打断一次。依据见 16 执行日志 §52.2。
+        """
+        # 文件表可以为空：旧实现在没有崩溃报告时仍用系统信息 + 启动器日志分析。
+        if self._crash is None or not self._crash_available:
             return False
         if self._crash_analysis_running:
             return False
@@ -373,6 +390,7 @@ class HomeBridge(QObject):
         self._crash_seq += 1
         seq = self._crash_seq
         self._crash_analysis_running = True
+        self._last_analysis_text = ""
         self.crashAnalysisStarted.emit()
 
         def work() -> Any:
@@ -382,7 +400,9 @@ class HomeBridge(QObject):
             if seq != self._crash_seq:
                 return
             self._crash_analysis_running = False
-            self.crashAnalysisReady.emit(str(result or ""))
+            text = str(result or "")
+            self._last_analysis_text = text
+            self.crashAnalysisReady.emit(text)
 
         def failed(error: Any) -> None:
             if seq != self._crash_seq:
@@ -524,6 +544,40 @@ class HomeBridge(QObject):
         except Exception as e:  # noqa: BLE001 - 提交失败按分享失败收尾
             failed(e)
 
+    @Slot(str)
+    def saveCrashAnalysis(self, path: str) -> None:  # noqa: N802
+        """把最近一次 AI 分析正文保存为 TXT（路径由 QML 的 FileDialog 给）。"""
+        text = self._last_analysis_text
+        if not str(text or "").strip():
+            message = _("crash_save_failed", error="no_content")
+            self.statusMessage.emit(message, "error")
+            self.crashSaveFailed.emit(message)
+            return
+        target = str(path or "").strip()
+        if not target:
+            message = _("crash_save_failed", error="empty_path")
+            self.statusMessage.emit(message, "error")
+            self.crashSaveFailed.emit(message)
+            return
+        crash = self._crash
+        if crash is None:
+            message = _("crash_save_failed", error="task_unavailable")
+            self.statusMessage.emit(message, "error")
+            self.crashSaveFailed.emit(message)
+            return
+        try:
+            result = crash.save_ai_analysis(text, target)
+        except Exception as e:  # noqa: BLE001 - 保存失败必须回到界面上，不能静默
+            message = _("crash_save_failed", error=str(e) or type(e).__name__)
+            self.statusMessage.emit(message, "error")
+            self.crashSaveFailed.emit(message)
+            return
+        data = result if isinstance(result, dict) else {}
+        saved = str(data.get("path") or target)
+        message = _("crash_save_success", path=saved)
+        self.statusMessage.emit(message, "success")
+        self.crashSaveFinished.emit(saved, message)
+
     def _trigger_achievement(self, achievement_id: str) -> bool:
         """推进一次成就进度（与 Home 已有的成就服务共用同一个引擎）。"""
         service = self._achievement
@@ -619,6 +673,9 @@ class HomeBridge(QObject):
             files = dict(crash_files or {})
             self._last_crash_files = files
             self._last_crash_exit = code
+            # 新崩溃：即使没有任何崩溃文件，也仍可做 AI 分析（旧实现同语义）。
+            self._crash_available = True
+            self._last_analysis_text = ""
             # 新崩溃：让还在飞的上一条分析结果失效，并允许对这次新崩溃重新分析。
             self._crash_seq += 1
             # 新崩溃：旧的导出/分享任务即使晚到也不能覆盖新弹窗的状态。

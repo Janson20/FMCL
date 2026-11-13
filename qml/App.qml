@@ -92,6 +92,9 @@ FluWindow {
     property var crashInfo: ({})
     property bool crashAnalyzing: false
     property string crashResultText: ""
+    //: AI 分析正文解析出的 Markdown 块（FmAgentMarkdown 的输入）。结果同时保留原文：
+    //: 保存 TXT 写的是原文，界面渲染走块列表。
+    property var crashResultBlocks: []
     property string crashErrorText: ""
     property bool crashExporting: false
     property bool crashSharing: false
@@ -192,6 +195,14 @@ FluWindow {
             if (items[i])
                 app.setHitTestVisible(items[i])
         }
+    }
+
+    //: 把 Markdown 正文解析成渲染块。解析器只有一份（Agent 桥 → services/agent_markdown），
+    //: 这里只做"桥缺席时退化为空列表"，让弹窗回退纯文本显示。
+    function markdownBlocks(text) {
+        if (typeof Agent !== "undefined" && Agent && Agent.markdownBlocks)
+            return Agent.markdownBlocks(String(text || ""))
+        return []
     }
 
     // ── 服务器退出确认（阶段 3.10 L-34；3.12 反馈全局化）─────────────
@@ -388,6 +399,7 @@ FluWindow {
             app.crashInfo = info || ({})
             app.crashAnalyzing = false
             app.crashResultText = ""
+            app.crashResultBlocks = []
             app.crashErrorText = ""
             app.crashExporting = false
             app.crashSharing = false
@@ -400,17 +412,21 @@ FluWindow {
         function onCrashAnalysisStarted() {
             app.crashAnalyzing = true
             app.crashResultText = ""
+            app.crashResultBlocks = []
             app.crashErrorText = ""
         }
 
         function onCrashAnalysisReady(text) {
             app.crashAnalyzing = false
             app.crashResultText = String(text)
+            // 渲染与保存分开：界面用解析块，保存 TXT 仍写原文（markdown 源码）。
+            app.crashResultBlocks = app.markdownBlocks(text)
             app.crashErrorText = ""
         }
 
         function onCrashAnalysisFailed(message) {
             app.crashAnalyzing = false
+            app.crashResultBlocks = []
             app.crashErrorText = String(message)
         }
 
@@ -462,6 +478,16 @@ FluWindow {
 
         function onCrashShareFailed(message) {
             app.crashSharing = false
+            app.crashActionLevel = "error"
+            app.crashActionMessage = String(message)
+        }
+
+        function onCrashSaveFinished(path, message) {
+            app.crashActionLevel = "success"
+            app.crashActionMessage = String(message)
+        }
+
+        function onCrashSaveFailed(message) {
             app.crashActionLevel = "error"
             app.crashActionMessage = String(message)
         }
@@ -649,6 +675,7 @@ FluWindow {
         crashInfo: app.crashInfo
         analyzing: app.crashAnalyzing
         resultText: app.crashResultText
+        resultBlocks: app.crashResultBlocks
         errorText: app.crashErrorText
         exporting: app.crashExporting
         sharing: app.crashSharing
@@ -659,6 +686,7 @@ FluWindow {
             app.crashDialogVisible = false
             app.crashAnalyzing = false
             app.crashResultText = ""
+            app.crashResultBlocks = []
             app.crashErrorText = ""
             app.crashExporting = false
             app.crashSharing = false
@@ -681,6 +709,23 @@ FluWindow {
         onShareRequested: {
             if (typeof Home !== "undefined" && Home)
                 Home.shareCrashLog()
+        }
+        onSaveResultRequested: function (path) {
+            if (typeof Home !== "undefined" && Home)
+                Home.saveCrashAnalysis(String(path))
+        }
+        onCopyRequested: function (text) {
+            var copied = false
+            try {
+                if (typeof Dialogs !== "undefined" && Dialogs && Dialogs.set_clipboard)
+                    copied = Dialogs.set_clipboard(String(text || ""))
+            } catch (e) {
+                copied = false
+            }
+            app.crashActionLevel = copied ? "success" : "error"
+            app.crashActionMessage = copied
+                    ? (Tr?.map["agent_copied"] ?? "agent_copied")
+                    : (Tr?.map["agent_copy_failed"] ?? "agent_copy_failed")
         }
     }
 
