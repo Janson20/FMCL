@@ -163,8 +163,9 @@ def test_root_window_is_created_and_is_a_fluwindow() -> None:
 def test_shell_has_title_bar_navigation_page_stack_and_status_bar() -> None:
     """骨架的结构锚点都在（返工 B 组把两条顶栏合并成一条，`titleBar` → `appBar`）。
 
-    名字换了但**判据没放宽**：这条仍然是"顶栏 / 面包屑 / 导航 / 页面栈 / 状态栏 / 全局搜索"
-    六样俱全，只是顶栏现在由 `shell/AppBar.qml`（`FluAppBar` 子类）承担 ——
+    名字换了但**判据没放宽**：这条仍然是"顶栏 / 面包屑 / 导航 / 页面栈 / 状态栏 / 顶栏输入"
+    六样俱全（原全局搜索框在 3.24 验收后并入 AGENT 快速提问），只是顶栏现在由
+    `shell/AppBar.qml`（`FluAppBar` 子类）承担 ——
     它同时是窗口按钮所在的那一条（返工前那是 FluWindow 内置的 appBar，另一条自绘的
     TitleBar 叠在它下面，两条颜色各走一套来源）。
     """
@@ -191,7 +192,7 @@ def test_appbar_declares_every_interactive_item_for_hit_testing() -> None:
     """
     hit = probe()["hitTest"]
     assert hit["declared"] == [
-        "accountButton", "agentQuickInput", "agentQuickVoice", "backButton", "globalSearchBox",
+        "accountButton", "agentQuickVoice", "backButton", "globalSearchBox",
         "languageButton", "monitorButton", "notificationButton",
     ], (
         f"顶栏声明的可交互项不对：{hit['declared']}"
