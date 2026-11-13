@@ -107,6 +107,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Music", "app.bridges.music_bridge", "MusicBridge"),
     # 工具箱（阶段 3 任务 3.20）：8 个工具 / 异步任务 / 问答 / 续传下载。
     ("Tools", "app.bridges.tools_bridge", "ToolsBridge"),
+    # 相关网站（阶段 3 任务 3.26 / J-04）：29 条 MC 站点目录 / 打开与复制。
+    ("Links", "app.bridges.links_bridge", "LinksBridge"),
     # 成就（阶段 3 任务 3.21）：总览 / 分类 / 详情 / 云同步与重置 / 解锁通知。
     ("Achievements", "app.bridges.achievements_bridge", "AchievementsBridge"),
     # 净读账号（3.21 设置补充）：登录 / 退出 / 用户信息。

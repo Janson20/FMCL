@@ -207,6 +207,9 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("tools/fact", "tool_fact_title", "bulb", "tools", "pages/tools/FactPage.qml", "tool_fact_desc"),
     ("tools/quiz", "tool_quiz_title", "guide", "tools", "pages/tools/QuizPage.qml", "tool_quiz_desc"),
     ("tools/download", "tool_download_title", "download", "tools", "pages/tools/DownloadPage.qml", "tool_download_desc"),
+    #: 相关网站（阶段 3 任务 3.26 / J-04）：旧 Tk 的「链接」一级标签，按用户裁决
+    #: （2026-11-13，Q1-C）下沉为工具箱的二级页，不占 12 个一级领域。
+    ("tools/links", "links_title", "link", "tools", "pages/tools/LinksPage.qml", "links_description"),
     # ── 4.9 成就 ───────────────────────────────────────────────
     ("achievements", "ach_stats_title", "trophy", "", "pages/achievements/AchievementsPage.qml", ""),
     ("achievements/category", "ach_category_title", "folder", "achievements",

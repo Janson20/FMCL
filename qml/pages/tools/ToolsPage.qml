@@ -1,6 +1,7 @@
 // ToolsPage.qml —— 工具箱首页（阶段 3 任务 3.20）。
 //
-// 8 个工具各自是独立二级页（03 的 C-09）。这里只做入口卡片，不承载任何工具逻辑；
+// 8 个工具 + 相关网站各自是独立二级页（03 的 C-09；相关网站见 3.26）。这里只做
+// 入口卡片，不承载任何工具逻辑；
 // 卡片本身不可点，打开动作由卡内的 FmButton 触发（FmCard 的既有约束）。
 
 import QtQuick
@@ -22,7 +23,9 @@ FmPage {
         {"key": "fortune", "route": "tools/fortune", "titleKey": "tool_fortune_title", "descKey": "tool_fortune_desc", "icon": "dice"},
         {"key": "fact", "route": "tools/fact", "titleKey": "tool_fact_title", "descKey": "tool_fact_desc", "icon": "bulb"},
         {"key": "quiz", "route": "tools/quiz", "titleKey": "tool_quiz_title", "descKey": "tool_quiz_desc", "icon": "guide"},
-        {"key": "download", "route": "tools/download", "titleKey": "tool_download_title", "descKey": "tool_download_desc", "icon": "download"}
+        {"key": "download", "route": "tools/download", "titleKey": "tool_download_title", "descKey": "tool_download_desc", "icon": "download"},
+        //: 相关网站（3.26 / J-04）：旧 Tk 的「链接」一级标签，下沉到工具箱（用户裁决）。
+        {"key": "links", "route": "tools/links", "titleKey": "links_title", "descKey": "links_description", "icon": "link"}
     ]
 
     contentState: !(page ? page.live : false) ? "error" : (Tools.available ? "ready" : "error")
