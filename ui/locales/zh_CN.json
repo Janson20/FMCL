@@ -1531,6 +1531,7 @@
   "monitor_gpu_util": "利用率",
   "monitor_gpu_mem": "显存",
   "monitor_gpu_na": "无 GPU 数据",
+  "monitor_swap": "交换",
   "monitor_hint": "也可通过 Ctrl+Shift+M 开启/关闭",
 
   "settings_tab_plugin": "插件",

@@ -1531,6 +1531,7 @@
   "monitor_gpu_util": "Utilization",
   "monitor_gpu_mem": "VRAM",
   "monitor_gpu_na": "No GPU data",
+  "monitor_swap": "Swap",
   "monitor_hint": "Tip: Use Ctrl+Shift+M to toggle",
 
   "settings_tab_plugin": "Plugins",

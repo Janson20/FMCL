@@ -1531,6 +1531,7 @@
   "monitor_gpu_util": "利用率",
   "monitor_gpu_mem": "VRAM",
   "monitor_gpu_na": "無 GPU 資料",
+  "monitor_swap": "交換",
   "monitor_hint": "也可透過 Ctrl+Shift+M 開啟/關閉",
 
   "settings_tab_plugin": "外掛",

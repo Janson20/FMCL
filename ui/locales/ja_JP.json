@@ -1531,6 +1531,7 @@
   "monitor_gpu_util": "使用率",
   "monitor_gpu_mem": "VRAM",
   "monitor_gpu_na": "GPU データなし",
+  "monitor_swap": "スワップ",
   "monitor_hint": "Ctrl+Shift+M でも切替可能",
 
   "settings_tab_plugin": "プラグイン",

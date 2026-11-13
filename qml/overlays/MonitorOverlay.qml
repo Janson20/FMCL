@@ -31,6 +31,8 @@ Window {
 
     // 两段式可见性：onCompleted 里打完补丁才允许显示（见文件头第 6 条）
     property bool hostReady: false
+    //: 快捷键提示是否可见（G-07：顶栏按钮打开后显示 10 秒，热键打开不显示）
+    property bool hintVisible: false
 
     title: monitorWin.i18nReady ? Tr?.map["monitor_title"] : ""
 
@@ -48,6 +50,34 @@ Window {
                                         ? Math.max(0, Math.min(1, metrics.cpu_percent / 100)) : 0
     readonly property real memFraction: metrics.mem_percent !== undefined
                                         ? Math.max(0, Math.min(1, metrics.mem_percent / 100)) : 0
+    //: 交换区文案（旧界面把 swap 采到了服务层但没显示；G-05 要求显示）。
+    readonly property string swapText: {
+        var used = String(metrics.swap_used || "")
+        var total = String(metrics.swap_total || "")
+        if (total.length === 0 || total === "N/A")
+            return ""
+        var label = monitorWin.i18nReady ? String(Tr?.map["monitor_swap"] ?? "") : ""
+        return (label.length > 0 ? label + "  " : "") + used + " / " + total
+    }
+    //: GPU 第一行：利用率 + 温度；第二行：名称 + 显存（旧实现用 " | " 拼一整行）。
+    readonly property string gpuSummary: {
+        var parts = []
+        if (metrics.gpu_util)
+            parts.push(String(metrics.gpu_util))
+        if (metrics.gpu_temp)
+            parts.push(String(metrics.gpu_temp))
+        return parts.length > 0 ? parts.join("  ") : monitorWin.unknownText
+    }
+    readonly property string gpuDetail: {
+        var parts = []
+        if (metrics.gpu_name)
+            parts.push(String(metrics.gpu_name))
+        if (metrics.gpu_mem)
+            parts.push(String(metrics.gpu_mem))
+        if (parts.length > 0)
+            return parts.join("  |  ")
+        return monitorWin.i18nReady ? String(Tr?.map["monitor_gpu_na"] ?? "") : ""
+    }
 
     Component.onCompleted: {
         if (!monitorWin.bridgeReady) {
@@ -67,7 +97,20 @@ Window {
     onVisibleChanged: {
         if (visible && monitorWin.bridgeReady) {
             Overlay.applyNoActivate("monitor")
+        } else if (!visible) {
+            // 旧实现在隐藏时销毁窗口，提示自然消失；这里窗口是常驻的，
+            // 必须手动清掉，否则热键重新打开会带着上一次的提示。
+            monitorWin.hintVisible = false
+            hintTimer.stop()
         }
+    }
+
+    Timer {
+        id: hintTimer
+        objectName: "monitorHintTimer"
+        interval: 10000
+        repeat: false
+        onTriggered: monitorWin.hintVisible = false
     }
 
     // 位置回报：拖动过程中每帧都报（桥只更新内存 + 发信号），**不写盘**
@@ -97,6 +140,11 @@ Window {
             if (monitorWin.y !== y) {
                 monitorWin.y = y
             }
+        }
+
+        function onMonitorHintRequested() {
+            monitorWin.hintVisible = true
+            hintTimer.restart()
         }
     }
 
@@ -176,15 +224,28 @@ Window {
                     source: monitorWin.iconReady ? (Runtime?.iconUrl("monitor") ?? "") : ""
                 }
                 Text {
+                    objectName: "monitorTitleText"
                     anchors.left: titleIcon.right
                     anchors.leftMargin: 6
+                    anchors.right: hotkeyText.left
+                    anchors.rightMargin: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: monitorWin.i18nReady ? Tr?.map["monitor_title"] : ""
+                    color: Theme?.textPrimary ?? "transparent"
+                    font.pixelSize: Theme?.fontSizeSmall ?? 10
+                    font.bold: true
+                    elide: Text.ElideRight
+                }
+                //: 旧实现的标题栏右侧固定显示组合键；这里保持同一语义。
+                Text {
+                    id: hotkeyText
+                    objectName: "monitorHotkeyText"
                     anchors.right: parent.right
                     anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
-                    text: monitorWin.i18nReady ? Tr?.map["monitor_hint"] : ""
+                    text: "Ctrl+Shift+M"
                     color: Theme?.textSecondary ?? "transparent"
-                    font.pixelSize: (Theme?.fontSizeSmall ?? 10) - 1
-                    elide: Text.ElideRight
+                    font.pixelSize: Math.max(8, (Theme?.fontSizeSmall ?? 10) - 1)
                 }
             }
 
@@ -226,10 +287,10 @@ Window {
                 }
             }
 
-            // ── 内存 ──
+            // ── 内存（G-05：占用率 + 已用/总量 + 交换）──
             Item {
                 width: parent.width
-                height: 42
+                height: 52
                 Text {
                     x: 10
                     y: 5
@@ -253,7 +314,7 @@ Window {
                 }
                 Rectangle {
                     x: 10
-                    y: 25
+                    y: 24
                     width: parent.width - 20
                     height: 6
                     color: Theme?.bgLight ?? "transparent"
@@ -262,6 +323,17 @@ Window {
                         height: parent.height
                         color: Theme?.warning ?? "transparent"
                     }
+                }
+                Text {
+                    objectName: "monitorSwapValue"
+                    x: 10
+                    y: 34
+                    width: parent.width - 20
+                    visible: text.length > 0
+                    text: monitorWin.swapText
+                    color: Theme?.textSecondary ?? "transparent"
+                    font.pixelSize: Math.max(8, (Theme?.fontSizeSmall ?? 10) - 1)
+                    elide: Text.ElideRight
                 }
             }
 
@@ -282,55 +354,37 @@ Window {
                     anchors.right: parent.right
                     anchors.rightMargin: 10
                     y: 5
-                    text: (monitorWin.metrics.gpu_util !== undefined && monitorWin.metrics.gpu_util !== "")
-                          ? monitorWin.metrics.gpu_util + "  " + (monitorWin.metrics.gpu_temp || "")
-                          : monitorWin.unknownText
+                    text: monitorWin.gpuSummary
                     color: Theme?.textPrimary ?? "transparent"
                     font.pixelSize: Theme?.fontSizeSmall ?? 10
                 }
                 Text {
+                    objectName: "monitorGpuDetail"
                     x: 10
                     y: 24
                     width: parent.width - 20
-                    text: (monitorWin.metrics.gpu_mem !== undefined && monitorWin.metrics.gpu_mem !== "")
-                          ? monitorWin.metrics.gpu_mem
-                          : (monitorWin.i18nReady ? Tr?.map["monitor_gpu_na"] : "")
+                    text: monitorWin.gpuDetail
                     color: Theme?.textSecondary ?? "transparent"
-                    font.pixelSize: (Theme?.fontSizeSmall ?? 10) - 1
+                    font.pixelSize: Math.max(8, (Theme?.fontSizeSmall ?? 10) - 1)
                     elide: Text.ElideRight
                 }
             }
 
-            // ── FPS ──
-            // 现状：`services/monitor_service` **没有**帧率来源（旧 Tk 监控窗也没有这一行）。
-            // 这里保留第四行占位（占位文案走 i18n 的 unknown），接入真正的帧率采集
-            // 属于阶段 3 的服务层工作 —— 桥里不做指标计算。
-            Item {
+            // ── 快捷键提示（G-07：只在从顶栏按钮打开时显示 10 秒）──
+            // 旧 Tk 窗口里这是一个 pack_forget() 的标签；热键打开时 show_hint=False，
+            // 所以"热键打开不提示、按钮打开才提示"是旧行为，不是缺省。
+            Text {
+                objectName: "monitorHintText"
                 width: parent.width
-                height: 42
-                Text {
-                    x: 10
-                    y: 5
-                    text: "FPS"
-                    color: Theme?.textSecondary ?? "transparent"
-                    font.pixelSize: Theme?.fontSizeSmall ?? 10
-                    font.bold: true
-                }
-                Text {
-                    anchors.right: parent.right
-                    anchors.rightMargin: 10
-                    y: 5
-                    text: monitorWin.unknownText
-                    color: Theme?.textSecondary ?? "transparent"
-                    font.pixelSize: Theme?.fontSizeSmall ?? 10
-                }
-                Rectangle {
-                    x: 10
-                    y: 25
-                    width: parent.width - 20
-                    height: 6
-                    color: Theme?.bgLight ?? "transparent"
-                }
+                height: visible ? 18 : 0
+                visible: monitorWin.hintVisible
+                leftPadding: 10
+                rightPadding: 10
+                verticalAlignment: Text.AlignVCenter
+                text: monitorWin.i18nReady ? Tr?.map["monitor_hint"] : ""
+                color: Theme?.accent ?? "transparent"
+                font.pixelSize: Math.max(8, (Theme?.fontSizeSmall ?? 10) - 1)
+                elide: Text.ElideRight
             }
         }
     }

@@ -476,6 +476,9 @@ class OverlayBridge(QObject):
     toastVisibleChanged = Signal()
     #: 显示/隐藏切换结果（`toggleMonitor` 的产物；值 == 切换后的可见性）。
     monitorToggled = Signal(bool)
+    #: 从顶栏按钮打开时请求显示 10 秒快捷键提示（旧实现的 `show_hint=True`；
+    #: 热键打开不显示提示，保持旧行为）。
+    monitorHintRequested = Signal()
     lyricToggled = Signal(bool)
     #: 悬浮窗位置变化（QML 在 `onXChanged/onYChanged` 里回报；桥只在**值真的变了**时发）。
     overlayMoved = Signal(str, int, int)
@@ -797,6 +800,25 @@ class OverlayBridge(QObject):
         （`bind_hotkeys()` 把 `Hotkeys.triggered("monitor_toggle")` 接到这里）。
         """
         self._set_visible("monitor", not self._visible["monitor"])
+
+    @Slot()
+    def showMonitorWithHint(self) -> None:  # noqa: N802 - QML 槽名
+        """顶栏按钮：显示监控窗，并请求 QML 显示 10 秒快捷键提示。
+
+        对应旧 `_toggle_monitor_ui(show_hint=True)` 的"显示"分支。已经可见时
+        不重复发可见性信号，但仍然发提示请求（再点一次按钮应重新提示）。
+        """
+        self._set_visible("monitor", True)
+        self.monitorHintRequested.emit()
+
+    @Slot()
+    def toggleMonitorWithHint(self) -> None:  # noqa: N802 - QML 槽名
+        """顶栏按钮：可见就关，不可见就开并提示（旧按钮的 toggle 语义）。"""
+        if self._visible["monitor"]:
+            self._set_visible("monitor", False)
+            return
+        self._set_visible("monitor", True)
+        self.monitorHintRequested.emit()
 
     @Slot()
     def showLyric(self) -> None:  # noqa: N802
@@ -1347,8 +1369,9 @@ class OverlayBridge(QObject):
 
         这是一条**装配期**接线（不是 `@Slot`：QML 侧若要自己接，用
         `Connections { function onTriggered(n) { Overlay.onHotkey(n) } }`）。
-        桥**不自己注册系统热键**：`app/bridges/hotkey_bridge.py` 已经是唯一注册入口
-        （阶段 0/1 已确认"保留非 Qt 全局热键方案"），再注册一套会长出第二份语义。
+        真正的系统级注册仍由 `app/bridges/hotkey_bridge.py` 完成（唯一注册入口），
+        但阶段 2 漏了"把 `monitor_toggle` 注册进去"这一步，导致 `Ctrl+Shift+M` 永远
+        不触发；这里在接线时补一次幂等注册请求（测试替身没有 `register` 时跳过）。
 
         同一对象重复调用是幂等的 —— 否则热键触发时槽会被调两次，`toggle` 两次等于没反应。
         """
@@ -1365,8 +1388,50 @@ class OverlayBridge(QObject):
         except Exception as e:  # noqa: BLE001 - 接线失败只影响热键，不影响按钮
             logger.warning("连接热键信号失败: %s", e)
             return False
+        self._ensure_monitor_hotkey_registered(hotkeys)
         self._hotkeys = hotkeys  # 留强引用，避免桥被 GC 后信号无处可去
         return True
+
+    def _ensure_monitor_hotkey_registered(self, hotkeys: Any) -> bool:
+        """确保 `monitor_toggle` 已在 `HotkeyBridge` 注册（幂等）。
+
+        阶段 2 只把 `triggered` 信号接了过来，却没有任何地方调 `Hotkeys.register()`，
+        所以 `Ctrl+Shift+M` 从来不会触发。这里补上注册请求：系统级注册仍由
+        `HotkeyBridge` 完成（唯一入口），本桥只在缺这一条时请求一次。
+
+        测试替身只提供 `triggered` 时返回 False，不报错（接线本身仍然成立）。
+        """
+        register = getattr(hotkeys, "register", None)
+        if not callable(register):
+            return False
+        try:
+            active = list(getattr(hotkeys, "activeKeys", []) or [])
+        except Exception:  # noqa: BLE001 - 读不到已注册表就按"未注册"处理
+            active = []
+        if HOTKEY_MONITOR_TOGGLE in active:
+            return True
+        combo = "ctrl+shift+m"
+        description = ""
+        try:
+            from app.bridges.hotkey_bridge import LEGACY_HOTKEYS
+
+            for item in LEGACY_HOTKEYS:
+                if item.get("name") == HOTKEY_MONITOR_TOGGLE:
+                    combo = str(item.get("combo") or combo)
+                    # LEGACY_HOTKEYS 里的人类可读说明叫 "callback"（历史字段名），
+                    # 兼容一下 "description"，避免描述在设置页里是空的。
+                    description = str(item.get("callback") or item.get("description") or "")
+                    break
+        except Exception as e:  # noqa: BLE001 - 清单读不到就用兜底组合键
+            logger.debug("读取 LEGACY_HOTKEYS 失败，使用兜底组合键: %s", e)
+        try:
+            ok = bool(register(HOTKEY_MONITOR_TOGGLE, combo, description))
+        except Exception as e:  # noqa: BLE001 - 注册失败只影响热键，不影响按钮
+            logger.warning("注册性能监控全局热键失败: %s", e)
+            return False
+        if not ok:
+            logger.warning("性能监控全局热键未能注册（同名已存在或后端不可用）")
+        return ok
 
     @Slot(str)
     def onHotkey(self, name: str) -> None:  # noqa: N802 - QML 槽名

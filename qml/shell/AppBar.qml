@@ -53,7 +53,7 @@ FluAppBar {
     // 顶栏上用到的可交互项，供 `App.qml` 登记进 FluFrameless 的命中测试白名单。
     // **顺序无关**，但必须齐全：漏一个，那个按钮就点不动（见文件头）。
     readonly property var interactiveItems: [backButton, agentQuickInput, agentQuickVoice, searchField,
-                                            notifyButton, languageButton, accountButton]
+                                            monitorButton, notifyButton, languageButton, accountButton]
 
     RowLayout {
         objectName: "appBarContent"
@@ -141,6 +141,19 @@ FluAppBar {
             level: "warning"
             iconName: "warning"
             text: Tr?.map["settings_unsaved_tag"] ?? "settings_unsaved_tag"
+        }
+
+        //: 性能监控（阶段 3 任务 3.24）：旧顶栏的监视器按钮。
+        //: 顶栏这条入口打开时显示 10 秒快捷键提示；Ctrl+Shift+M 是另一条入口，
+        //: 由 Overlay.bind_hotkeys() 在启动时注册。
+        FmToolButton {
+            id: monitorButton
+            objectName: "monitorButton"
+            iconName: "monitor"
+            onClicked: {
+                if (typeof Overlay !== "undefined" && Overlay)
+                    Overlay.toggleMonitorWithHint()
+            }
         }
 
         FmToolButton {

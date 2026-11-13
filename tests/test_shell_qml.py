@@ -192,7 +192,7 @@ def test_appbar_declares_every_interactive_item_for_hit_testing() -> None:
     hit = probe()["hitTest"]
     assert hit["declared"] == [
         "accountButton", "agentQuickInput", "agentQuickVoice", "backButton", "globalSearchBox",
-        "languageButton", "notificationButton",
+        "languageButton", "monitorButton", "notificationButton",
     ], (
         f"顶栏声明的可交互项不对：{hit['declared']}"
     )
