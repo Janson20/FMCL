@@ -40,9 +40,14 @@
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
+from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices
+
+from services.i18n_service import _
 
 logger = logging.getLogger("app.bridges.shell_bridge")
 
@@ -65,6 +70,8 @@ class ShellBridge(QObject):
     statusChanged = Signal()
     #: 后台任务数变了。
     taskCountChanged = Signal()
+    #: 当前任务的确定进度 / 文本变了（A-10）。
+    progressChanged = Signal()
     #: 全局搜索请求（具体搜索是阶段 3 的事）。
     searchRequested = Signal(str)
     #: 通知中心被要求切换（每次调用发一次，由浮层自己翻可见性）。
@@ -100,6 +107,10 @@ class ShellBridge(QObject):
         self._status_text = ""
         self._status_level = "info"
         self._task_count = 0
+        self._progress_task_id = 0
+        self._progress_fraction = 0.0
+        self._progress_text = ""
+        self._progress_determinate = False
         self._timeout_ms = max(1, int(status_timeout_ms))
 
         # 自动清空：单发 + 每次设置重新计时（与旧实现的"覆盖 pending 回调"等价）。
@@ -238,6 +249,19 @@ class ShellBridge(QObject):
     def busy(self) -> bool:
         return self.backgroundTaskCount > 0
 
+    @Property(float, notify=progressChanged)
+    def progressFraction(self) -> float:  # noqa: N802
+        """当前任务进度（0~1）；`progressDeterminate=False` 时无意义（A-10）。"""
+        return self._progress_fraction
+
+    @Property(str, notify=progressChanged)
+    def progressText(self) -> str:  # noqa: N802
+        return self._progress_text
+
+    @Property(bool, notify=progressChanged)
+    def progressDeterminate(self) -> bool:  # noqa: N802
+        return self._progress_determinate
+
     # ─── 一级导航项 ─────────────────────────────────────────
 
     @Slot(result="QVariantList")
@@ -286,6 +310,24 @@ class ShellBridge(QObject):
         self.noticeRequested.emit()
 
     @Slot()
+    def openMinigame(self) -> None:  # noqa: N802
+        """A-11：打开下载等待小游戏（`ui/static/game.html`，浏览器）。
+
+        `ui/` 的旧入口不能从 `main_qml` import（会拉起 customtkinter），这里只
+        定位静态文件并用系统浏览器打开；缺失时走状态条错误，不抛异常。
+        """
+        base = getattr(sys, "_MEIPASS", None)
+        if base:
+            path = Path(str(base)) / "ui" / "static" / "game.html"
+        else:
+            path = Path(__file__).resolve().parents[2] / "ui" / "static" / "game.html"
+        if not path.is_file():
+            self.setStatus(_("minigame_missing"), "error")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            self.setStatus(_("minigame_missing"), "error")
+
+    @Slot()
     def requestLanguage(self) -> None:  # noqa: N802
         """请求"切换界面语言"（顶栏地球图标的落点）。
 
@@ -328,15 +370,22 @@ class ShellBridge(QObject):
 
     def _bind_tasks(self, tasks: Any) -> None:
         self._tasks = tasks
-        signal = getattr(tasks, "activeChanged", None)
+        self._connect_task_signal(tasks, "activeChanged", self._on_tasks_changed)
+        self._connect_task_signal(tasks, "progress", self._on_task_progress)
+        self._connect_task_signal(tasks, "taskFinished", self._on_task_done)
+        self._connect_task_signal(tasks, "taskFailed", self._on_task_done)
+        self.taskCountChanged.emit()
+
+    @staticmethod
+    def _connect_task_signal(tasks: Any, name: str, handler: Any) -> None:
+        signal = getattr(tasks, name, None)
         if signal is None:
-            logger.warning("Tasks 桥没有 activeChanged 信号，后台任务数不会自动刷新")
+            logger.warning("Tasks 桥没有 %s 信号，相关状态不会自动刷新", name)
             return
         try:
-            signal.connect(self._on_tasks_changed)
+            signal.connect(handler)
         except Exception as e:  # noqa: BLE001
-            logger.warning("接 Tasks.activeChanged 失败: %s", e)
-        self.taskCountChanged.emit()
+            logger.warning("接 Tasks.%s 失败: %s", name, e)
 
     def _bind_tr(self, tr: Any) -> None:
         """接 `Tr.languageChanged` —— 只为让 `currentTitle` / `currentDescription` 也跟着语言走。"""
@@ -356,6 +405,57 @@ class ShellBridge(QObject):
 
     def _on_tasks_changed(self) -> None:
         self.taskCountChanged.emit()
+        if self.backgroundTaskCount == 0:
+            self._reset_progress()
+
+    def _on_task_progress(self, payload: Any) -> None:
+        """A-10：任务进度 → 壳层状态条（只保留**最后一条**，与旧底部条一致）。"""
+        try:
+            data = dict(payload or {})
+        except (TypeError, ValueError):
+            return
+        try:
+            self._progress_task_id = int(data.get("taskId") or 0)
+        except (TypeError, ValueError):
+            self._progress_task_id = 0
+        determinate = bool(data.get("determinate"))
+        self._progress_determinate = determinate
+        if determinate:
+            try:
+                self._progress_fraction = float(data.get("fraction") or 0.0)
+            except (TypeError, ValueError):
+                self._progress_fraction = 0.0
+            try:
+                current = int(data.get("current") or 0)
+                total = int(data.get("total") or 0)
+                if total >= 1024 * 1024:
+                    self._progress_text = f"{current // (1024 * 1024)}MB / {total // (1024 * 1024)}MB"
+                else:
+                    self._progress_text = f"{current}/{total}"
+            except (TypeError, ValueError):
+                self._progress_text = ""
+        else:
+            self._progress_fraction = 0.0
+            self._progress_text = str(data.get("message") or data.get("title") or "")
+        self.progressChanged.emit()
+
+    def _on_task_done(self, payload: Any) -> None:
+        try:
+            task_id = int((payload or {}).get("taskId") or 0)
+        except (TypeError, ValueError, AttributeError):
+            task_id = 0
+        if task_id and task_id != self._progress_task_id:
+            return
+        self._reset_progress()
+
+    def _reset_progress(self) -> None:
+        if not self._progress_task_id and not self._progress_text and not self._progress_determinate:
+            return
+        self._progress_task_id = 0
+        self._progress_fraction = 0.0
+        self._progress_text = ""
+        self._progress_determinate = False
+        self.progressChanged.emit()
 
     def _read_titles(self) -> None:
         nav = self._nav_obj()

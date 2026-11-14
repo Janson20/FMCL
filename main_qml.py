@@ -117,6 +117,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Agent", "app.bridges.agent_bridge", "AgentBridge"),
     # 插件（阶段 3 任务 3.27）：管理器 / 市场 / 权限确认 / v2 页面路由与数据通道。
     ("Plugins", "app.bridges.plugin_bridge", "PluginBridge"),
+    # 更新入口（阶段 3 任务 3.28）：设置 → 关于 / 启动期更新通知。
+    ("Update", "app.bridges.update_bridge", "UpdateBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -667,6 +669,15 @@ def assemble(
                 servers_inject(engine)
             except Exception as e:  # noqa: BLE001
                 logger.warning("第二次注入引擎给 Servers 失败: %s", e)
+        # 3.28：启动期自动检查到新版本时，把版本号/更新说明交给 Update 桥；
+        # 设置 → 关于 的入口也用它。只提示，不自动下载。
+        update_obj = engine._fmcl_bridges.get("Update")
+        offer = getattr(update_obj, "offer", None)
+        if callable(offer):
+            try:
+                startup.updateAvailable.connect(offer)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("接 Startup.updateAvailable 失败: %s", e)
         # 3.15 的基岩桥同样要接 Startup.chainFinished：桥在 register_bridges() 时绑定，
         # 那一刻 launcher 还没进上下文；启动链跑完后必须再取一次，否则页面会一直停在
         # "核心尚未就绪"（用户 2026-10-31 实测）。与 Servers 一样单列一段。

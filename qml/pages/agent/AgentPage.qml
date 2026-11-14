@@ -265,7 +265,7 @@ FmPage {
         interval: 120
         repeat: false
         onTriggered: {
-            if (page.followTail)
+            if (page && page.followTail && messageFlick)
                 messageFlick.contentY = page.endY()
         }
     }

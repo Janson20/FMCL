@@ -1201,6 +1201,11 @@ FmPage {
                         }
                     }
 
+                    // ── 启动器更新（3.28）──
+                    FmUpdateSection {
+                        Layout.fillWidth: true
+                    }
+
                     // ── 鸣谢（9 个项目，各带"地址 / 许可证"）──
                     Text {
                         Layout.fillWidth: true

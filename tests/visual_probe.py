@@ -76,6 +76,23 @@ import main_qml  # noqa: E402
 from app.bridges.icon_provider import install as install_icon_provider  # noqa: E402
 from app.bridges.theme_bridge import COLOR_KEYS, TOKEN_KEYS  # noqa: E402
 
+# 音乐发现页的版式判据必须与网络无关：`FmMusicDiscoverView` 进入时会真的请求
+# 网易云推荐/排行榜/新歌，返回内容随网络和当天歌单变化（实测同一份代码一次是
+# 加载态、一次是 10 张封面卡片，卡片底色覆盖率从 52% 掉到 32%）。基线要的是
+# “版式没变”，不是“今天网络通没通”，所以这里把发现页钉成固定的加载态。
+# 只影响本探针进程，产品代码没有测试分支。
+from fusion_music.bridges.discover import DiscoverController  # noqa: E402
+
+
+def _probe_discover_loading(self) -> None:
+    """钉在加载态：不请求网络，也别掉进空态（空态会把强调色转圈一起测没）。"""
+    self._loading = True
+    self.loadingChanged.emit()
+
+
+DiscoverController.load = _probe_discover_loading
+DiscoverController.reload = _probe_discover_loading
+
 MARKER = "PROBE_JSON:"
 #: 钉住的基线与主题（见文件头）。
 BASELINE_THEME = "default"

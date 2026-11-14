@@ -220,7 +220,7 @@ Item {
                         required property var modelData
                         width: control.cardWidth
                         title: String(modelData.name || "")
-                        subtitle: control.countText(modelData.track_count || 0)
+                        subtitle: control.countText ? control.countText(modelData.track_count || 0) : ""
                         cover: String(modelData.cover || "")
                         trackCount: Number(modelData.track_count || 0)
                         onActivated: control.openPlaylist(modelData)

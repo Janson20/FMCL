@@ -143,6 +143,10 @@ class BiliBiliMusicSource(BaseMusicSource):
             num_pages = data.get("numPages") or 0
             self.set_search_total(num_results or (num_pages * limit if num_pages else 0))
             return self._parse_search_result(raw_list)
+        except RiskControlError:
+            # 风控不是"搜索失败"：交给 sources.search_one 记下 pending risk，
+            # 由界面完成滑块后重试。吞掉会让用户只看到"无结果"。
+            raise
         except Exception as e:
             logger.warning(f"B站搜索失败: {e}")
             return []

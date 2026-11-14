@@ -187,6 +187,8 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `FmMusicPlaylistCard` | 发现页歌单卡片：封面、标题、副标题、播放入口 | `title` `subtitle` `cover` `trackCount` `activated()` `playRequested()` |
 | `FmMusicPlaylistDetail` | 歌单详情覆盖层：返回、元信息、播放全部/加入队列、曲目/加入歌单 | `discover` `player` `closeRequested()` |
 | `FmMusicOverlayBackdrop` | 覆盖层垫底：背景 + 全屏事件遮罩 | `blockerObjectName` |
+| `FmMusicFooterBar` | 主窗口底部音乐控制条：歌名-歌手（40 字截断）、上一首/播放/下一首 | `player` |
+| `FmMusicRiskDialog` | B站风控验证提示：浏览器滑块期间的说明与取消 | `cancelRequested()` |
 
 ## 七、成就页组件（阶段 3.21）
 
@@ -246,3 +248,4 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `FmPluginSection` | 设置 → 插件分区概况：说明、打开管理器、已启用/总数、三条使用提示、打开市场 | 无（读 Plugins.initialized / summary） |
 | `FmPluginCard` | 管理器单卡：名称/状态、版本/作者、描述、权限标签 3+N、UI 页面数、旧 UI API 标记、错误、权限管理/启停/卸载按钮 | `item`；信号 `managePermissions()` `toggleRequested()` `uninstallRequested()` |
 | `FmPluginPermissionDialog` | 安装/启用/管理共用的权限确认：按高/中/低风险分组、已授权标记、授权/拒绝 | `visible` `pluginName` `groups` `busy`；信号 `approved()` `denied()` |
+| `FmUpdateSection` | 设置 → 关于的启动器更新：当前版本、检查、状态、下载进度、立即更新 | 无（读 Update 桥） |

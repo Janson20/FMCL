@@ -70,15 +70,39 @@ Rectangle {
             Layout.maximumWidth: 320
         }
 
-        // 当前任务进度：有后台任务时才有意义（具体百分比属于各自的任务，见 2.4 的 Tasks）
+        // 当前任务进度：有后台任务时才有意义（具体百分比属于各自的任务，见 2.4 的 Tasks）。
+        // A-10：能算出总量时显示确定进度 + current/total，算不出时退回不确定条。
+        Text {
+            objectName: "statusProgressText"
+            visible: Shell ? (Shell.busy && Shell.progressDeterminate && Shell.progressText.length > 0) : false
+            text: Shell ? Shell.progressText : ""
+            color: Theme?.textSecondary ?? "transparent"
+            font.pixelSize: Theme?.fontSizeSmall ?? 10
+            elide: Text.ElideRight
+            Layout.maximumWidth: 120
+        }
+
         FmProgressBar {
             objectName: "statusProgress"
             Layout.preferredWidth: 120
             Layout.alignment: Qt.AlignVCenter
-            indeterminate: true
+            indeterminate: Shell ? !Shell.progressDeterminate : true
+            value: Shell ? Shell.progressFraction : 0
             showPercent: false
             barHeight: 4
             visible: Shell ? Shell.busy : false
+        }
+
+        // A-11：旧底栏只在 loading 档显示「等待小游戏」；落点是打包进 ui/static 的本地页。
+        FmButton {
+            objectName: "minigameButton"
+            visible: Shell ? Shell.statusLevel === "loading" : false
+            text: Tr?.map["minigame_play"] ?? "minigame_play"
+            primary: false
+            Layout.preferredHeight: 24
+            Layout.alignment: Qt.AlignVCenter
+            onClicked: if (Shell)
+                           Shell.openMinigame()
         }
 
         Text {

@@ -19,6 +19,7 @@ import threading
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from .base import BaseMusicSource, MusicInfo, QualityLevel, duration_matches
+from .bili import RiskControlError
 
 logger = logging.getLogger("fusion.sources")
 
@@ -58,6 +59,27 @@ _BUILDERS = {
 
 _instances: Dict[str, BaseMusicSource] = {}
 _lock = threading.RLock()
+
+#: B站风控的「界面待处理」信号。搜索线程只负责记下参数，主线程取走后走
+#: `services.music_risk_captcha` 的浏览器验证；取后清空，避免重复弹窗。
+_pending_risk: Optional[dict] = None
+_risk_lock = threading.Lock()
+
+
+def remember_risk(risk: Optional[dict]) -> None:
+    global _pending_risk
+    if not risk:
+        return
+    with _risk_lock:
+        _pending_risk = dict(risk)
+
+
+def take_pending_risk() -> Optional[dict]:
+    global _pending_risk
+    with _risk_lock:
+        risk = _pending_risk
+        _pending_risk = None
+        return risk
 
 
 def get_source(source_id: str) -> Optional[BaseMusicSource]:
@@ -102,6 +124,13 @@ def search_one(
     try:
         page_size = int(src.limits.get("search", limit) or limit)
         return src.search(keyword, page, min(limit, page_size)) or []
+    except RiskControlError:
+        try:
+            risk = src.take_pending_risk() if src is not None else None
+            remember_risk(risk)
+        except Exception as e:  # noqa: BLE001 - 记不下风控只影响这一次兜底
+            logger.debug("[%s] 记录风控失败: %s", source_id, e)
+        return []
     except Exception as e:
         logger.debug("[%s] 搜索失败: %s", source_id, e)
         return []

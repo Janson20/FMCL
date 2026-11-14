@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
+import time
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
-from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
+from PySide6.QtCore import Property, QObject, Qt, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 
 from services.i18n_service import _
@@ -41,6 +43,30 @@ MUSIC_HOTKEYS: Tuple[Tuple[str, str, str], ...] = (
 )
 
 
+class _SmtcParent(QObject):
+    """`SMTCController` 的 after(0, ...) 适配器（K-19）。
+
+    winsdk 的媒体键事件在 COM 线程触发；信号发到本对象后按 QueuedConnection
+    回到 Qt 主线程。`SMTCController` 只要求 ``after`` 这个口子，不依赖 Qt。
+    """
+
+    _invoke = Signal(object)
+
+    def __init__(self, parent: Optional[QObject] = None) -> None:
+        super().__init__(parent)
+        self._invoke.connect(self._run, Qt.QueuedConnection)
+
+    def after(self, _ms: int, fn: Any, *args: Any) -> None:
+        self._invoke.emit(lambda: fn(*args) if args else fn())
+
+    @Slot(object)
+    def _run(self, fn: Any) -> None:
+        try:
+            fn()
+        except Exception as exc:  # noqa: BLE001 - SMTC 回调失败不能影响播放
+            logger.warning("SMTC 主线程回调失败: %s", exc)
+
+
 class MusicBridge(QObject):
     """上下文属性 Music。"""
 
@@ -51,6 +77,11 @@ class MusicBridge(QObject):
     baikeOriginalChanged = Signal()
     statusMessage = Signal(str, str)
     noticeRequested = Signal(str, str)
+    #: B站风控验证弹窗 / 状态（K-30）。
+    biliRiskChanged = Signal()
+    biliRiskStatusChanged = Signal()
+    biliRiskFailed = Signal(str)
+    riskRetryRequested = Signal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -70,6 +101,15 @@ class MusicBridge(QObject):
         self._syncing_desktop_lyric = False
         self._achievement: Any = None
         self._modes_used: set[str] = set()
+        self._smtc: Any = None
+        self._smtc_parent: Optional[_SmtcParent] = None
+        self._last_smtc_progress_at = 0.0
+        self._risk_running = False
+        self._risk_visible = False
+        self._risk_status = ""
+        self._risk_stop: Optional[threading.Event] = None
+        self._risk_thread: Optional[threading.Thread] = None
+        self.riskRetryRequested.connect(self._on_risk_retry, Qt.QueuedConnection)
 
     # ── 装配 ────────────────────────────────────────────────
 
@@ -121,6 +161,8 @@ class MusicBridge(QObject):
         player.fallbackUsed.connect(self._on_fallback)
         player.trackStarted.connect(self._on_track_started)
         player.modeChanged.connect(self._on_mode_changed)
+        player.resolveFailed.connect(self._check_bili_risk)
+        player.errorOccurred.connect(self._check_bili_risk)
         self._host.account.renewFinished.connect(self._on_renew_finished)
         self._host.library_controller.errorOccurred.connect(self._on_library_error)
         self._host.library_controller.message.connect(self._on_library_message)
@@ -131,6 +173,7 @@ class MusicBridge(QObject):
             self._modes_used = set()
         if {"sequential", "loop_list", "loop_single", "shuffle"}.issubset(self._modes_used):
             self._check_achievement("music_mode_master")
+        self._init_smtc()
         self._bind_overlay()
         self._restore_desktop_lyric()
         self._register_hotkeys()
@@ -139,6 +182,204 @@ class MusicBridge(QObject):
             self.statusMessage.emit(
                 _("music_migrated").format(playlists=counts.get("playlists", 0)), "info"
             )
+
+    # ── SMTC（K-19）────────────────────────────────────────
+
+    def _init_smtc(self) -> None:
+        """Windows 系统媒体面板：元数据 / 播放状态 / 进度 / 媒体键。
+
+        控制器本身在 `services/music_smtc.py`；这里只做 Qt 线程适配与信号接线。
+        控制器用隐藏的静音 MediaPlayer 提供系统会话（Win32 下
+        `get_for_current_view()` 不可用，见 services/music_smtc.py 文件头）；
+        winsdk 缺席或会话创建失败时全部降级为空操作。
+        """
+        if self._smtc is not None or self._host is None:
+            return
+        try:
+            from services.music_smtc import SMTCController
+        except Exception as exc:  # noqa: BLE001 - 缺 winsdk 只影响 SMTC
+            logger.debug("SMTC 不可用: %s", exc)
+            return
+        player = self._host.player
+        self._smtc_parent = _SmtcParent(self)
+        self._smtc = SMTCController()
+        self._smtc.set_parent(self._smtc_parent)
+        self._smtc.initialize({
+            "play": player.play,
+            "pause": player.pause,
+            "stop": player.stop,
+            "next": player.next,
+            "previous": player.previous,
+            "seek_forward": lambda: self._smtc_seek(10_000),
+            "seek_back": lambda: self._smtc_seek(-10_000),
+        })
+        player.trackChanged.connect(self._sync_smtc_metadata)
+        player.trackStarted.connect(self._sync_smtc_metadata)
+        player.playingChanged.connect(self._sync_smtc_status)
+        player.pausedChanged.connect(self._sync_smtc_status)
+        player.positionChanged.connect(self._sync_smtc_progress)
+        player.durationChanged.connect(self._sync_smtc_progress)
+        self._sync_smtc_metadata()
+
+    def _smtc_seek(self, delta_ms: int) -> None:
+        player = self.player
+        if player is None or not player.seekable:
+            return
+        try:
+            target = max(0, min(int(player.duration), int(player.position) + int(delta_ms)))
+            player.seek(target)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("SMTC seek 失败: %s", exc)
+
+    def _smtc_cover_bytes(self) -> Optional[bytes]:
+        player = self.player
+        if player is None:
+            return None
+        url = str(player.coverUrl or "")
+        if not url or url.startswith(("http://", "https://", "qrc:")):
+            return None
+        path = QUrl(url).toLocalFile() if url.startswith("file:") else url
+        try:
+            return Path(path).read_bytes()
+        except OSError:
+            return None
+
+    def _sync_smtc_metadata(self) -> None:
+        if self._smtc is None:
+            return
+        player = self.player
+        title = str(player.title if player is not None else "")
+        if not title:
+            self._smtc.clear()
+            return
+        self._smtc.update_now_playing(
+            title,
+            str(player.artist or ""),
+            str(player.album or ""),
+            self._smtc_cover_bytes(),
+        )
+        self._last_smtc_progress_at = 0.0
+        self._sync_smtc_status()
+        self._sync_smtc_progress()
+
+    def _sync_smtc_status(self) -> None:
+        if self._smtc is None:
+            return
+        player = self.player
+        try:
+            if player is not None and player.playing:
+                self._smtc.set_playing()
+            elif player is not None and player.paused:
+                self._smtc.set_paused()
+            else:
+                self._smtc.set_stopped()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("SMTC 状态同步失败: %s", exc)
+
+    def _sync_smtc_progress(self) -> None:
+        if self._smtc is None:
+            return
+        player = self.player
+        if player is None or int(player.duration) <= 0:
+            return
+        now = time.monotonic()
+        # 秒级节流：QMediaPlayer 的 position 大约 93ms 一条，不能每条都打 COM。
+        if now - self._last_smtc_progress_at < 1.0 and int(player.position) < int(player.duration) - 1000:
+            return
+        try:
+            self._smtc.set_progress(int(player.position), int(player.duration))
+            self._last_smtc_progress_at = now
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("SMTC 进度同步失败: %s", exc)
+
+    # ── B站风控（K-30）──────────────────────────────────────
+
+    @Property(bool, notify=biliRiskChanged)
+    def biliRiskVisible(self) -> bool:  # noqa: N802
+        return self._risk_visible
+
+    @Property(str, notify=biliRiskStatusChanged)
+    def biliRiskStatus(self) -> str:  # noqa: N802
+        return self._risk_status
+
+    def _check_bili_risk(self, *_args: Any) -> None:
+        """B站兜底被风控时，取走 pending risk 并启动浏览器验证。"""
+        if self._risk_running or self._host is None:
+            return
+        try:
+            from fusion_music import sources
+
+            risk = sources.take_pending_risk()
+        except Exception as exc:  # noqa: BLE001 - 风控检查不能影响播放
+            logger.debug("读取 B站风控参数失败: %s", exc)
+            return
+        if not risk:
+            return
+        self._risk_running = True
+        self._risk_visible = True
+        self._risk_status = _("music_risk_hint")
+        self.biliRiskChanged.emit()
+        self.biliRiskStatusChanged.emit()
+        self._risk_thread = threading.Thread(
+            target=self._run_bili_risk, args=(risk,), daemon=True, name="bili-risk"
+        )
+        self._risk_thread.start()
+
+    def _run_bili_risk(self, risk: dict) -> None:
+        from fusion_music import sources
+        from services.music_risk_captcha import run_captcha_flow
+
+        stop = threading.Event()
+        self._risk_stop = stop
+        try:
+            src = sources.get_source("bili")
+            if src is None:
+                self.biliRiskFailed.emit(_("music_risk_failed"))
+                return
+            result = run_captcha_flow(
+                str(risk.get("gt") or ""),
+                str(risk.get("challenge") or ""),
+                stop_event=stop,
+            )
+            if not result:
+                self.biliRiskFailed.emit(_("music_risk_failed"))
+                return
+            grisk_id = src.validate_risk(
+                str(risk.get("token") or ""),
+                str(result.get("geetest_challenge") or ""),
+                str(result.get("geetest_seccode") or ""),
+                str(result.get("geetest_validate") or ""),
+            )
+            if not grisk_id:
+                self.biliRiskFailed.emit(_("music_risk_failed"))
+                return
+            src.set_gaia_vtoken(str(grisk_id))
+            self.riskRetryRequested.emit()
+        except Exception as exc:  # noqa: BLE001 - 验证失败不抛到线程外
+            logger.warning("B站风控验证失败: %s", exc)
+            self.biliRiskFailed.emit(_("music_risk_failed"))
+        finally:
+            self._risk_running = False
+            self._risk_stop = None
+            self._risk_visible = False
+            self._risk_status = ""
+            self.biliRiskChanged.emit()
+            self.biliRiskStatusChanged.emit()
+
+    @Slot()
+    def cancelBiliRisk(self) -> None:  # noqa: N802
+        """用户取消：停本地回调服务；浏览器页面自行关闭。"""
+        if self._risk_stop is not None:
+            self._risk_stop.set()
+
+    @Slot()
+    def _on_risk_retry(self) -> None:
+        if self._host is None:
+            return
+        try:
+            self._host.player.retryCurrent()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("B站风控通过后重试失败: %s", exc)
 
     # ── 属性 ────────────────────────────────────────────────
 
@@ -396,6 +637,15 @@ class MusicBridge(QObject):
     @Slot()
     def shutdown(self) -> None:
         self._closing = True
+        if self._risk_stop is not None:
+            self._risk_stop.set()
+        if self._smtc is not None:
+            try:
+                self._smtc.clear()
+                self._smtc.dispose()
+            except Exception as exc:  # noqa: BLE001 - 退出链不许被打断
+                logger.debug("SMTC 清理失败: %s", exc)
+            self._smtc = None
         host, self._host = self._host, None
         if host is not None:
             host.shutdown()

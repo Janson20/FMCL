@@ -402,6 +402,13 @@ class PlayerEngine(QObject):
             self._load_current(record_history=True)
 
     @Slot()
+    def retryCurrent(self) -> None:  # noqa: N802
+        """重新解析当前曲目（B站风控验证通过后由桥调用；不重复记播放历史）。"""
+        if self._queue.current() is None:
+            return
+        self._load_current(record_history=False)
+
+    @Slot()
     def toggle(self) -> None:
         if self._current is None or not self._media_ready:
             # 恢复会话摆回来的曲目还没有媒体：这时 _player.play() 什么也不会发生，

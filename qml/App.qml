@@ -29,6 +29,7 @@ import FluentUI
 import "shell"
 import "components"
 import "components/dialogs"
+import "components/music"
 import "overlays"
 
 FluWindow {
@@ -174,6 +175,18 @@ FluWindow {
                     anchors.fill: parent
                 }
             }
+        }
+
+        // A-12 / K-15：全局底栏只放「曲名 - 歌手 + 上一首/播放/下一首」。
+        // 音乐路由内隐藏：页内 FmMusicPlayerBar 已经有完整控制，重复一条没有意义。
+        FmMusicFooterBar {
+            id: musicFooter
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? 34 : 0
+            player: (typeof Music !== "undefined" && Music && Music.ready) ? Music.player : null
+            visible: musicFooter.active
+                     && !(typeof Nav !== "undefined" && Nav
+                          && String(Nav.currentRoute || "").indexOf("music") === 0)
         }
 
         StatusBar {
@@ -768,6 +781,49 @@ FluWindow {
                 if (typeof Music !== "undefined" && Music && Music.discover)
                     Music.discover.closePlaylist();
             });
+        }
+    }
+
+    // ── B站风控验证提示（3.28 K-30）────────────────────────────────
+    // 播放器在任意页面都可能触发跨源兜底风控；浏览器里的滑块由服务层打开，
+    // 这里只提示 + 提供取消。z 在播放覆盖层之上、对话框宿主之下。
+    Loader {
+        anchors.fill: parent
+        z: 85
+        active: (typeof Music !== "undefined" && Music && Music.biliRiskVisible) ? true : false
+        source: "components/music/FmMusicRiskDialog.qml"
+        onLoaded: {
+            item.cancelRequested.connect(function () {
+                if (typeof Music !== "undefined" && Music)
+                    Music.cancelBiliRisk()
+            })
+        }
+    }
+
+    Connections {
+        target: (typeof Music !== "undefined" && Music) ? Music : null
+        function onBiliRiskFailed(message) {
+            if (typeof Dialogs !== "undefined" && Dialogs)
+                Dialogs.notify({"level": "warning", "message": String(message || "")})
+        }
+    }
+
+    // 更新安装程序已启动：给安装器一点启动时间再走正常关闭链（退出清理照常跑）。
+    Timer {
+        id: updateQuitTimer
+        interval: 800
+        onTriggered: {
+            app.allowClose = true
+            app.close()
+        }
+    }
+
+    Connections {
+        target: (typeof Update !== "undefined" && Update) ? Update : null
+        function onInstallerStarted() { updateQuitTimer.start() }
+        function onUpdateAvailable(version, notes) {
+            if (typeof Dialogs !== "undefined" && Dialogs && String(Update.statusText || "").length > 0)
+                Dialogs.notify({"level": "info", "message": String(Update.statusText)})
         }
     }
 
