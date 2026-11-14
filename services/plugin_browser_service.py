@@ -146,6 +146,7 @@ def install_plugin(
     pid: str,
     permissions: List[str],
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
+    grant_callback: Optional[Callable[[str], None]] = None,
 ) -> Tuple[bool, str]:
     """下载 + 安装 + 授权 + 加载 + 启用（原 ``_install_plugin`` 里 ``_download_and_install`` 的调用链，逐字）。
 
@@ -162,6 +163,11 @@ def install_plugin(
 
     ``progress_callback(stage, cur, tot)`` 由 ``market.download_plugin`` 在
     **调用线程**里回调；界面侧照原文自己 ``after(0, ...)`` 切回主线程。
+
+    ``grant_callback``（阶段 3 任务 3.27 新增，默认 None = 旧行为）：安装成功后
+    由调用方决定怎么授权。旧实现走 ``pm.grant_manifest_permissions``（高风险权限
+    不会自动授予，于是带 ``core.launch_hook`` 的插件装完启用会失败）；QML 界面
+    先用权限弹窗拿到用户批准，再传一个「逐项授权」的回调进来。
     """
     fmpl_path, error = market.download_plugin(pid, progress_callback=progress_callback)
 
@@ -173,7 +179,10 @@ def install_plugin(
     if ok:
         # 授权权限
         if permissions:
-            pm.grant_manifest_permissions(pid)
+            if grant_callback is not None:
+                grant_callback(pid)
+            else:
+                pm.grant_manifest_permissions(pid)
         # 启用
         pm.load_plugin(pid)
         pm.enable_plugin(pid)
@@ -214,13 +223,23 @@ def has_ungranted_permissions(pm: Any, pid: str) -> bool:
     return bool(perm_state and perm_state.get_ungranted_permissions())
 
 
-def enable_installed_plugin(pm: Any, pid: str) -> Tuple[bool, str]:
+def enable_installed_plugin(
+    pm: Any,
+    pid: str,
+    before_enable: Optional[Callable[[str], None]] = None,
+) -> Tuple[bool, str]:
     """加载 + 启用已装插件（原 ``_enable_plugin`` 的 ``try/except`` 内核，逐字）。
 
     ``load_plugin`` 或 ``enable_plugin`` 抛异常时**不向上冒**：原文在这里
     ``except`` 住并转成 ``ok, msg = False, str(e)``（与安装路径不同），
     因此本函数也照原文吞掉并返回，日志文案逐字保留。
+
+    ``before_enable``（阶段 3 任务 3.27 新增，默认 None = 旧行为）：启用前
+    由调用方补授权（QML 的权限弹窗已批准）。放在 try 外面 —— 授权失败时
+    该抛给调用方，而不是伪装成「启用失败」。
     """
+    if before_enable is not None:
+        before_enable(pid)
     try:
         pm.load_plugin(pid)
         ok, msg = pm.enable_plugin(pid)
@@ -303,9 +322,10 @@ class PluginBrowserService(Service):
         pid: str,
         permissions: List[str],
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        grant_callback: Optional[Callable[[str], None]] = None,
     ) -> Tuple[bool, str]:
         """下载 + 安装 + 授权 + 启用（原 ``_install_plugin`` 的调用链）。"""
-        return install_plugin(pm, market, pid, permissions, progress_callback)
+        return install_plugin(pm, market, pid, permissions, progress_callback, grant_callback)
 
     @staticmethod
     def update_plugin_from_market(
@@ -327,9 +347,13 @@ class PluginBrowserService(Service):
         return has_ungranted_permissions(pm, pid)
 
     @staticmethod
-    def enable_installed_plugin(pm: Any, pid: str) -> Tuple[bool, str]:
+    def enable_installed_plugin(
+        pm: Any,
+        pid: str,
+        before_enable: Optional[Callable[[str], None]] = None,
+    ) -> Tuple[bool, str]:
         """加载 + 启用（原 ``_enable_plugin`` 的 ``try/except`` 内核）。"""
-        return enable_installed_plugin(pm, pid)
+        return enable_installed_plugin(pm, pid, before_enable)
 
 
 __all__ = [

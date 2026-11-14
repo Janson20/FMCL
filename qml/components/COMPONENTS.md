@@ -234,3 +234,15 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 
 > 思考块默认收起，避免长推理占满首屏；工具参数与结果也默认收起。所有颜色只来自
 > `Theme.*`，代码/参数的等宽字体是本件唯一的字体族声明。
+
+
+## 十、插件页组件（阶段 3.27）
+
+设置 → 插件分区、插件管理器、插件市场三处共用的件；数据全部来自 Plugins 桥，
+组件自己不碰服务、不弹窗（权限确认与卸载确认由页面编排）。
+
+| 组件 | 用途 | 关键属性 |
+|------|------|----------|
+| `FmPluginSection` | 设置 → 插件分区概况：说明、打开管理器、已启用/总数、三条使用提示、打开市场 | 无（读 Plugins.initialized / summary） |
+| `FmPluginCard` | 管理器单卡：名称/状态、版本/作者、描述、权限标签 3+N、UI 页面数、旧 UI API 标记、错误、权限管理/启停/卸载按钮 | `item`；信号 `managePermissions()` `toggleRequested()` `uninstallRequested()` |
+| `FmPluginPermissionDialog` | 安装/启用/管理共用的权限确认：按高/中/低风险分组、已授权标记、授权/拒绝 | `visible` `pluginName` `groups` `busy`；信号 `approved()` `denied()` |

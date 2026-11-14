@@ -2181,5 +2181,11 @@
   "skills_create_failed": "Create failed: {err}",
   "agent_settings_voice_download": "Download model",
   "skills_edit": "Edit",
-  "agent_provider_unready_hint": "The current AI provider is not configured. Add an API Key or switch providers in Settings - AI model."
+  "agent_provider_unready_hint": "The current AI provider is not configured. Add an API Key or switch providers in Settings - AI model.",
+  "plugin_manager_empty": "No plugins installed yet. Choose a .fmpl package with \"Install from file\".",
+  "plugin_market_desc": "Browse, install and update third-party plugins",
+  "plugin_ui_pages": "Pages: {count}",
+  "plugin_ui_unsupported": "UI unsupported",
+  "plugin_ui_unsupported_detail": "This plugin uses the legacy UI API (ui_api 1); only non-UI features are available.",
+  "plugin_checking_updates": "Checking plugin updates..."
 }

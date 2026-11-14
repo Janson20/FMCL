@@ -2181,5 +2181,11 @@
   "skills_create_failed": "创建失败: {err}",
   "agent_settings_voice_download": "下载模型",
   "skills_edit": "编辑",
-  "agent_provider_unready_hint": "当前 AI 提供商尚未配置，请在设置 → AI 模型中填写 API Key 或切换提供商。"
+  "agent_provider_unready_hint": "当前 AI 提供商尚未配置，请在设置 → AI 模型中填写 API Key 或切换提供商。",
+  "plugin_manager_empty": "暂无已安装的插件，点击「从文件安装」选择 .fmpl 插件包",
+  "plugin_market_desc": "浏览、安装与更新第三方插件",
+  "plugin_ui_pages": "插件页面：{count}",
+  "plugin_ui_unsupported": "界面不受支持",
+  "plugin_ui_unsupported_detail": "该插件使用旧版界面接口（ui_api 1），只有非界面功能可用。",
+  "plugin_checking_updates": "正在检查插件更新..."
 }

@@ -35,6 +35,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+#: 权限风险档的**单一真值来源**（M-Q8）：原先本模块、`ui/windows/plugin_browser.py`
+#: 与 `plugin_manager/permissions.py` 各有一份，三份迟早漂移。
+from plugin_manager.permissions import (
+    PermissionRiskLevel,
+    PluginPermission,
+    get_permission_risk,
+)
+
 #: 四个浏览窗口的每页条数（各窗口原有的 ``PAGE_SIZE = 10``）。
 DEFAULT_PAGE_SIZE: int = 10
 
@@ -56,13 +64,14 @@ LOADER_TAGS: Tuple[str, ...] = ("forge", "fabric", "neoforge", "quilt")
 #: 特殊模组加载器 → API 可识别的等效加载器（原类属性 ``MOD_LOADER_COMPAT_MAP``）。
 MOD_LOADER_COMPAT_MAP: Dict[str, str] = {"legacyfabric": "fabric", "cleanroom": "forge"}
 
-#: 插件权限 → 风险档（原 ``_create_plugin_card`` 里那两个内联元组，逐字）。
-HIGH_RISK_PERMISSIONS: Tuple[str, ...] = ("network.socket", "core.launch_hook", "core.process")
-MEDIUM_RISK_PERMISSIONS: Tuple[str, ...] = (
-    "filesystem.write",
-    "core.download",
-    "core.version",
-    "data.settings",
+#: 插件权限 → 风险档。**单一真值来源在 ``plugin_manager.permissions``**
+#: （M-Q8：原 ``plugin_browser.py`` 内联两份、本模块再抄一份，三份会漂移）。
+#: 这两个常量保留给旧调用方，值由权限枚举推导，不再手写。
+HIGH_RISK_PERMISSIONS: Tuple[str, ...] = tuple(
+    p.value for p in PluginPermission if get_permission_risk(p) is PermissionRiskLevel.HIGH
+)
+MEDIUM_RISK_PERMISSIONS: Tuple[str, ...] = tuple(
+    p.value for p in PluginPermission if get_permission_risk(p) is PermissionRiskLevel.MEDIUM
 )
 
 
@@ -204,14 +213,24 @@ def tag_bar_display(tag_name: str) -> str:
     return tag_name[:4]
 
 
-def permission_counts(permissions: Sequence[str]) -> Tuple[int, int, int]:
-    """``(高, 中, 低)`` 三档权限数量（原 ``_create_plugin_card`` 里那三行，逐字）。
+def _risk_of(permission: str) -> "PermissionRiskLevel":
+    """权限字符串 → 风险档；未知权限按"低"（与原扣减法口径一致）。"""
+    try:
+        return get_permission_risk(PluginPermission(str(permission)))
+    except ValueError:
+        return PermissionRiskLevel.LOW
 
-    "低"是**扣减法**算出来的（``len(permissions) - high - medium``），
-    因此重复项与未知权限都计入"低" —— 与原文一致。
+
+def permission_counts(permissions: Sequence[str]) -> Tuple[int, int, int]:
+    """``(高, 中, 低)`` 三档权限数量（原 ``_create_plugin_card`` 里那三行）。
+
+    风险档直接问 ``plugin_manager.permissions``（M-Q8 的单一真值来源）；
+    "低"仍按**扣减法**算（``len(permissions) - high - medium``），因此重复项与
+    未知权限都计入"低" —— 与原文一致。
     """
-    high_count = sum(1 for p in permissions if p in HIGH_RISK_PERMISSIONS)
-    medium_count = sum(1 for p in permissions if p in MEDIUM_RISK_PERMISSIONS)
+    risks = [_risk_of(p) for p in permissions]
+    high_count = sum(1 for r in risks if r is PermissionRiskLevel.HIGH)
+    medium_count = sum(1 for r in risks if r is PermissionRiskLevel.MEDIUM)
     low_count = len(permissions) - high_count - medium_count
     return high_count, medium_count, low_count
 

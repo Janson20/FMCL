@@ -92,6 +92,11 @@ Rectangle {
         function onPluginRouteAdded(id) {
             nav.refresh()
         }
+
+        //: 插件被禁用/卸载/更新时路由会被撤销（3.27），导航栏同样要重取。
+        function onPluginRouteRemoved(id) {
+            nav.refresh()
+        }
     }
 
     ListView {

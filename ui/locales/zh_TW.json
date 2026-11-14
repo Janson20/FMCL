@@ -2181,5 +2181,11 @@
   "skills_create_failed": "建立失敗: {err}",
   "agent_settings_voice_download": "下載模型",
   "skills_edit": "編輯",
-  "agent_provider_unready_hint": "目前 AI 供應商尚未設定，請在設定 → AI 模型中填寫 API Key 或切換供應商。"
+  "agent_provider_unready_hint": "目前 AI 供應商尚未設定，請在設定 → AI 模型中填寫 API Key 或切換供應商。",
+  "plugin_manager_empty": "尚無已安裝的外掛，點擊「從檔案安裝」選擇 .fmpl 外掛套件",
+  "plugin_market_desc": "瀏覽、安裝與更新第三方外掛",
+  "plugin_ui_pages": "外掛頁面：{count}",
+  "plugin_ui_unsupported": "介面不受支援",
+  "plugin_ui_unsupported_detail": "此外掛使用舊版介面介面（ui_api 1），僅非介面功能可用。",
+  "plugin_checking_updates": "正在檢查外掛更新..."
 }

@@ -115,6 +115,8 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Jingdu", "app.bridges.jingdu_bridge", "JingduBridge"),
     # AGENT 对话（阶段 3 任务 3.22）：会话 / 流式 / 工具确认 / 待办 / 语音按钮。
     ("Agent", "app.bridges.agent_bridge", "AgentBridge"),
+    # 插件（阶段 3 任务 3.27）：管理器 / 市场 / 权限确认 / v2 页面路由与数据通道。
+    ("Plugins", "app.bridges.plugin_bridge", "PluginBridge"),
 )
 
 QML_MODULE_URI = "FMCL"
@@ -747,6 +749,16 @@ def assemble(
         悬浮窗（含监控/歌词窗与它们的热键）。插件与音乐那两步在阶段 3 的页面迁移里接。
         """
         logger.info("开始退出清理...")
+        # 插件 APP_SHUTDOWN 是旧实现退出链的第一步（对照表 A-20）：插件可能在
+        # 钩子里落盘/关连接，必须排在其它清理之前。
+        plugins_bridge = bridges.get("Plugins")
+        if plugins_bridge is not None:
+            shutdown = getattr(plugins_bridge, "shutdown", None)
+            if callable(shutdown):
+                try:
+                    shutdown()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("插件退出清理失败: %s", e)
         if startup is not None:
             try:
                 startup.stop()
@@ -918,6 +930,15 @@ def assemble(
             startup.start()
         except Exception as e:  # noqa: BLE001 - 启动流程失败不该让程序起不来
             logger.error("启动流程启动失败: %s", e, exc_info=True)
+        # 插件系统（阶段 3 任务 3.27）：只在生产装配里自动初始化。`register_bridges()`
+        # 是测试与探针也会走的路径，若在那里自动扫描，会把开发机上真实安装的插件
+        # 拉进每个 UI 测试；页面首次进入仍会幂等地调一次 `initialize()`。
+        plugins_bridge = bridges.get("Plugins")
+        init_plugins = getattr(plugins_bridge, "initialize", None)
+        if callable(init_plugins):
+            from PySide6.QtCore import QTimer as _QTimer
+
+            _QTimer.singleShot(300, init_plugins)
     elif startup is not None:
         logger.info("assemble(start_startup=False)：启动流程已就绪但未开跑（测试/探针路径）")
 

@@ -470,6 +470,13 @@ def apply_move(m: Move, rep: Reporter) -> None:
 #: **每条例外都必须被命中**：命中 0 次（或增量对不上）都会报错，防止登记过期后
 #: 这张表变成永远免疫的垃圾场。
 REGISTERED_LINE_DELTAS: Dict[str, Tuple[int, str]] = {
+    "services/agent/config.py": (
+        10,
+        "阶段 3 任务 3.23（设置 → AI 模型）：AgentConfig 新增 thinking / "
+        "reasoning_efforts 两个字段与序列化/反序列化，并补思考开关相关注释。"
+        "总行 +10（非空行 +8，多出的 2 行是空行）—— 搬家时没有登记，闸门从 3.23 "
+        "起一直红在这里；3.27 复核插件界面时顺手补齐登记。"
+    ),
     "services/music_effects.py": (
         99,
         "返工 E 组 D-147 + D-25（WP3，`poc/review/e_group/wp3_music_effects.md`）："

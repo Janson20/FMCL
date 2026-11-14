@@ -92,6 +92,9 @@ class PluginManager:
         # 权限确认回调（由主 UI 设置，实现弹窗）
         self._perm_confirm_callback: Optional[Callable[[str, PluginPermission], bool]] = None
 
+        # UI 事件回调（阶段 3 任务 3.27，v2 插件页面用；由界面桥注入）
+        self._ui_event_callback: Optional[Callable[[str, str, Any], None]] = None
+
         # 插件状态持久化文件
         self._state_file = self._config_dir / "plugin_states.json"
 
@@ -119,6 +122,51 @@ class PluginManager:
             callback: (plugin_id, permission) -> bool (用户是否批准)
         """
         self._perm_confirm_callback = callback
+
+    def set_ui_event_callback(self, callback: Callable[[str, str, Any], None]):
+        """设置 UI 事件回调（阶段 3 任务 3.27：v2 插件页面接收插件推送）。
+
+        Args:
+            callback: (plugin_id, event_name, payload) -> None。可能在**任意线程**
+                被调用（插件钩子有自己的线程），界面桥负责切回主线程。
+        """
+        self._ui_event_callback = callback
+
+    def emit_ui_event(self, plugin_id: str, name: str, payload: Any = None) -> bool:
+        """把插件推送转给界面（v2 页面事件）。没有界面接通道时返回 False。"""
+        callback = self._ui_event_callback
+        if not callable(callback):
+            return False
+        try:
+            callback(plugin_id, str(name or ""), payload)
+            return True
+        except Exception as e:  # noqa: BLE001 - 页面事件失败不打断插件逻辑
+            logger.warning(f"插件 UI 事件投递失败 ({plugin_id}, {name}): {e}")
+            return False
+
+    # ── UI 扩展（v2，阶段 3 任务 3.27） ──
+
+    def has_legacy_ui(self, plugin_id: str) -> bool:
+        """插件是否注册过 **v1（tkinter）** 的界面扩展钩子。
+
+        QML 界面无法渲染 v1 页面；这里只查注册表、**不触发**回调（v1 回调里
+        可能创建 tkinter 控件，探测式 emit 会直接炸在没有 Tk 根窗口的环境里）。
+        """
+        legacy = (
+            HookPoint.UI_TAB_REGISTER,
+            HookPoint.UI_SIDEBAR_REGISTER,
+            HookPoint.UI_SETTINGS_REGISTER,
+        )
+        return any(self._hook_bus.has_handler(hp, plugin_id) for hp in legacy)
+
+    def get_ui_api(self, plugin_id: str) -> int:
+        """插件声明的 UI API 版本（缺省 1）；清单缺失时也按 1 处理。"""
+        manifest = self._manifests.get(plugin_id)
+        try:
+            value = int(getattr(manifest, "ui_api", 1))
+        except (TypeError, ValueError):
+            return 1
+        return value if value >= 1 else 1
 
     # ── 扫描 ──
 
@@ -464,6 +512,14 @@ class PluginManager:
         """获取插件错误原因"""
         return self._error_reasons.get(plugin_id)
 
+    def get_manifest(self, plugin_id: str) -> Optional[PluginManifest]:
+        """取插件清单对象（含 `install_path` 这类不在 `to_dict()` 里的运行时字段）。
+
+        阶段 3 任务 3.27 的 v2 页面注册要用 `install_path` 校验 `qml_url` 是否
+        落在插件目录内；`get_all_plugin_meta()` 给的是字典，故意不含该字段。
+        """
+        return self._manifests.get(plugin_id)
+
     def get_all_plugin_meta(self) -> Dict[str, dict]:
         """获取所有已知插件的元信息（供 UI 管理页使用）
 
@@ -487,11 +543,20 @@ class PluginManager:
         return self._perm_states.get(plugin_id)
 
     def grant_permission(self, plugin_id: str, permission: PluginPermission, always: bool = False):
-        """授权单个权限"""
+        """授权单个权限
+
+        全新安装的插件在第一次授权前还没有权限状态（`_load_perm_state` 只在
+        configs 里已有文件时才建）。原来这里 `if ps:` 会静默什么都不做 ——
+        QML 管理器在"安装 → 授权 → 启用"链上实测踩到：授权返回成功，但
+        `check_permission` 仍是 denied，v2 页面因此被判定为"未获 ui.extend"。
+        现在缺状态时就地建一份（与 `grant_manifest_permissions` 的行为对齐）。
+        """
         ps = self._perm_states.get(plugin_id)
-        if ps:
-            ps.grant(permission, always)
-            self._save_perm_state(plugin_id)
+        if ps is None:
+            ps = PluginPermissionState(plugin_id)
+            self._perm_states[plugin_id] = ps
+        ps.grant(permission, always)
+        self._save_perm_state(plugin_id)
 
     def revoke_permission(self, plugin_id: str, permission: PluginPermission):
         """撤销单个权限"""
@@ -547,9 +612,13 @@ class PluginManager:
         for perm in non_high_declared:
             ps.grant(perm, always=False)
 
-        # 高风险权限需用户确认
+        # 高风险权限需用户确认；**已经授权的不要重复问**。否则每次 scan 都会
+        # 把已写入 granted/always_allowed 的权限重新报成“未授予”（实测：权限
+        # 文件里 core.launch_hook 已是 true，启动日志仍警告，并可能重复弹窗）。
         ungranted_high: List[PluginPermission] = []
         for perm in high_risk_declared:
+            if ps.is_granted(perm):
+                continue
             approved = False
             if self._perm_confirm_callback:
                 try:

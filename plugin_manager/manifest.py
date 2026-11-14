@@ -24,6 +24,10 @@ _OPTIONAL_DEFAULTS: Dict[str, Any] = {
     "exports": [],
     "imports": [],
     "entry": "__init__",
+    #: UI 扩展 API 版本（阶段 3 任务 3.27）。缺省 1 = 旧版 Tk 界面协议
+    #: （`get_tab_ui(parent)` 拿 tkinter 容器），QML 界面无法渲染；
+    #: 2 = 新版 QML 页面协议（`ui.page.register` 返回 `qml_url`）。
+    "ui_api": 1,
 }
 
 PLUGIN_MANIFEST_SCHEMA = {
@@ -46,6 +50,7 @@ PLUGIN_MANIFEST_SCHEMA = {
         "exports": {"type": "array", "items": {"type": "string"}},
         "imports": {"type": "array", "items": {"type": "string"}},
         "entry": {"type": "string", "default": "__init__"},
+        "ui_api": {"type": "integer", "minimum": 1, "default": 1},
     },
 }
 
@@ -91,6 +96,8 @@ class PluginManifest:
     exports: List[str] = field(default_factory=list)
     imports: List[str] = field(default_factory=list)
     entry: str = "__init__"
+    #: UI 扩展 API 版本（1 = 旧 Tk 协议；2 = QML 页面协议）。见 `_OPTIONAL_DEFAULTS`。
+    ui_api: int = 1
 
     # 运行时字段（不由 plugin.json 设置）
     install_path: Optional[Path] = None  # 插件安装路径
@@ -128,6 +135,12 @@ class PluginManifest:
         if not self.entry or not self.entry.isidentifier():
             errors.append(f"入口模块名 '{self.entry}' 不是有效的 Python 标识符")
 
+        # 检查 UI API 版本（阶段 3 任务 3.27）：只接受 >=1 的整数。
+        # 写成字符串 "2" 时 **不** 自动转换 —— 清单是外部输入，宽容解析会让
+        # "作者以为声明了 v2、启动器却按 v1 降级"变成无声的界面缺失。
+        if not isinstance(self.ui_api, int) or isinstance(self.ui_api, bool) or self.ui_api < 1:
+            errors.append(f"ui_api '{self.ui_api!r}' 必须是 >=1 的整数")
+
         return errors
 
     def to_dict(self) -> dict:
@@ -150,6 +163,7 @@ class PluginManifest:
             "exports": self.exports,
             "imports": self.imports,
             "entry": self.entry,
+            "ui_api": self.ui_api,
         }
 
     @classmethod

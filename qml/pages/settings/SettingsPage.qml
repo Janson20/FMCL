@@ -161,6 +161,9 @@ FmPage {
             return accountSection
         if (name === "ai")
             return jingduSection
+        //: 插件分区（阶段 3 任务 3.27，M-23）：概况 + 打开管理器 / 市场。
+        if (name === "plugin")
+            return pluginSection
         return placeholderSection
     }
 
@@ -2474,6 +2477,15 @@ FmPage {
 
         FmAgentSettingsSection {
             objectName: "settingsJingduSection"
+        }
+    }
+
+    // ══ 分区九：插件（3.27，M-23）══
+    Component {
+        id: pluginSection
+
+        FmPluginSection {
+            objectName: "settingsPluginSection"
         }
     }
 

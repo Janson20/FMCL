@@ -55,9 +55,12 @@ class HookPoint(str, Enum):
     SERVER_STOPPED = "server.stopped"  # 服务器停止 (参数: server_name, exit_code)
 
     # ── UI 扩展 ──
-    UI_TAB_REGISTER = "ui.tab.register"  # 注册主界面标签页
-    UI_SIDEBAR_REGISTER = "ui.sidebar.register"  # 注册侧边栏项目
-    UI_SETTINGS_REGISTER = "ui.settings.register"  # 注册设置条目
+    UI_TAB_REGISTER = "ui.tab.register"  # 注册主界面标签页（v1，tkinter 容器）
+    UI_SIDEBAR_REGISTER = "ui.sidebar.register"  # 注册侧边栏项目（v1）
+    UI_SETTINGS_REGISTER = "ui.settings.register"  # 注册设置条目（v1）
+    #: 注册 QML 页面（v2，阶段 3 任务 3.27）。清单 `ui_api >= 2` 的插件才会被
+    #: 启动器采集；处理器返回 `{id, title, icon, order, qml_url}`（或它的列表）。
+    UI_PAGE_REGISTER = "ui.page.register"
 
     # ── 下载生命周期 ──
     DOWNLOAD_PRE_DOWNLOAD = "download.pre_download"  # 文件下载前 (可修改 URL)
@@ -174,6 +177,30 @@ class PluginBase(abc.ABC):
 
         log_func = getattr(logger, level, logger.info)
         log_func(f"[Plugin:{self.manifest.id}] {message}")
+
+    def emit_ui_event(self, name: str, payload: Any = None) -> bool:
+        """向自己的 QML 页面广播一个事件（v2，阶段 3 任务 3.27）。
+
+        页面侧监听 `Plugins.pageEvent(owner, name, payload)`。用于"后台数据变了，
+        页面该刷新了"这类**推送**语义；页面主动取数走导出的 API（见
+        :meth:`plugin_manager.manager.PluginManager.export_api`）+ QML 的
+        `Plugins.call(owner, api, args)`。
+
+        Args:
+            name: 事件名（插件内唯一即可，页面自己认）。
+            payload: 可选负载（JSON 可序列化的 dict/list/标量）；QML 侧原样收到。
+
+        Returns:
+            是否成功交给界面（启动器没接 UI 事件通道时为 False）。
+        """
+        emitter = getattr(self._manager, "emit_ui_event", None)
+        if not callable(emitter):
+            return False
+        try:
+            return bool(emitter(self.manifest.id, name, payload))
+        except Exception as e:  # noqa: BLE001 - 页面事件失败不该打断插件逻辑
+            self.log(f"UI 事件发送失败 ({name}): {e}", "warning")
+            return False
 
     def notify(self, title: str, message: str, level: str = "info"):
         """发送 Toast 通知给用户（需要 ui.notification 权限）

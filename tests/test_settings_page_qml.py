@@ -338,13 +338,13 @@ def test_account_section_is_a_real_page_now() -> None:
     """账户分区在阶段 3.5 落地：它**不再**是占位，账号页的控件真的在树里。
 
     3.4 时这里断言的是"三个占位分区"；3.5 把账户分区做成真页面，3.21 又把 AI 分区
-    换成净读账号登录，所以只剩插件分区占位（随 3.23 迁）。账户分区由
-    `tests/test_account_page_qml.py` 全面覆盖。
+    换成净读账号登录，3.27 把插件分区换成真正的概况页，所以**不再有占位分区**。
+    账户分区由 `tests/test_account_page_qml.py` 全面覆盖。
     判据取自探针第 10 段（探针自己已经把"账户不再是占位"与三个控件在场都 check 过了）。
     """
     report = probe()
     assert failures() == [], f"探针有失败项：{failures()}"
-    assert report["placeholder_titles"] == ["插件管理"], report["placeholder_titles"]
+    assert report["placeholder_titles"] == [], report["placeholder_titles"]
     names = {row["name"]: row for row in report["checks"]}
     for name in ("账户分区不再是占位（3.5 已交付）", "账户分区的标题在树里",
                  "账户分区的动作条在树里", "账户分区的账号列表在树里",
@@ -354,14 +354,19 @@ def test_account_section_is_a_real_page_now() -> None:
         assert name in names and names[name]["ok"] is True, f"{name}: {names.get(name)}"
 
 
-# ─── 占位分区（3.4 的范围裁决；3.5 账户、3.21 AI 之后只剩插件）────────────
+# ─── 插件分区（3.27 落地：不再有占位分区）────────────────────
 
 
-def test_placeholder_sections_are_not_blank() -> None:
+def test_plugin_section_is_a_real_page_now() -> None:
+    """3.27 把设置 → 插件换成了真正的概况页（M-23），占位分区全部结清。"""
     report = probe()
-    titles = report["placeholder_titles"]
-    assert all(titles), f"插件分区要有占位内容：{titles}"
-    assert len(set(titles)) == 1, "现在只剩插件一个占位分区"
+    assert report["placeholder_titles"] == [], f"还有占位分区：{report['placeholder_titles']}"
+    assert report["placeholder_hints"] == [], f"还有占位说明：{report['placeholder_hints']}"
+    checks = {row["name"]: row for row in report["checks"]}
+    for name in ("插件分区不再是占位（3.27 已交付）", "插件分区在树里",
+                 "插件分区标题在树里", "插件分区说明在树里",
+                 "插件概况卡在树里", "打开管理器按钮在树里"):
+        assert name in checks and checks[name]["ok"] is True, f"{name}: {checks.get(name)}"
 
 
 # ─── 保存并重启（M-24 / B5） ───────────────────────────────────

@@ -2181,5 +2181,11 @@
   "skills_create_failed": "作成に失敗しました: {err}",
   "agent_settings_voice_download": "モデルをダウンロード",
   "skills_edit": "編集",
-  "agent_provider_unready_hint": "現在の AI プロバイダーが未設定です。設定 → AI モデルで API Key を入力するか、プロバイダーを切り替えてください。"
+  "agent_provider_unready_hint": "現在の AI プロバイダーが未設定です。設定 → AI モデルで API Key を入力するか、プロバイダーを切り替えてください。",
+  "plugin_manager_empty": "インストール済みのプラグインはありません。「ファイルからインストール」で .fmpl パッケージを選択してください",
+  "plugin_market_desc": "サードパーティ製プラグインの閲覧・インストール・更新",
+  "plugin_ui_pages": "プラグインページ：{count}",
+  "plugin_ui_unsupported": "UI 非対応",
+  "plugin_ui_unsupported_detail": "このプラグインは旧 UI API（ui_api 1）を使用しているため、UI 以外の機能のみ利用できます。",
+  "plugin_checking_updates": "プラグインの更新を確認中..."
 }

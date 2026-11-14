@@ -45,9 +45,10 @@ _HOOK_DEFAULT_STRATEGY: Dict[HookPoint, HookStrategy] = {
     HookPoint.SERVER_POST_START: HookStrategy.ALL,
     HookPoint.SERVER_STOPPED: HookStrategy.ALL,
     # UI 扩展
-    HookPoint.UI_TAB_REGISTER: HookStrategy.COLLECT,  # 收集所有插件的标签页
-    HookPoint.UI_SIDEBAR_REGISTER: HookStrategy.COLLECT,  # 收集侧边栏项目
-    HookPoint.UI_SETTINGS_REGISTER: HookStrategy.COLLECT,  # 收集设置条目
+    HookPoint.UI_TAB_REGISTER: HookStrategy.COLLECT,  # 收集所有插件的标签页（v1）
+    HookPoint.UI_SIDEBAR_REGISTER: HookStrategy.COLLECT,  # 收集侧边栏项目（v1）
+    HookPoint.UI_SETTINGS_REGISTER: HookStrategy.COLLECT,  # 收集设置条目（v1）
+    HookPoint.UI_PAGE_REGISTER: HookStrategy.COLLECT,  # 收集插件 QML 页面（v2，3.27）
     # 下载生命周期
     HookPoint.DOWNLOAD_PRE_DOWNLOAD: HookStrategy.COLLECT,
     HookPoint.DOWNLOAD_POST_DOWNLOAD: HookStrategy.ALL,
@@ -185,6 +186,15 @@ class HookBus:
     def has_listeners(self, hook_point: HookPoint) -> bool:
         """检查钩子点是否有注册的处理器"""
         return len(self._handlers.get(hook_point, [])) > 0
+
+    def has_handler(self, hook_point: HookPoint, plugin_id: str) -> bool:
+        """某个插件是否在指定钩子点注册过处理器（**只看注册，不触发**）。
+
+        阶段 3 任务 3.27 用它判断旧插件有没有界面扩展：v1 的 UI 钩子回调里
+        可能创建 tkinter 控件，在 QML 界面下**不能**为了"探测"去 emit 一遍。
+        """
+        with self._lock:
+            return any(h.plugin_id == plugin_id for h in self._handlers.get(hook_point, []))
 
     def get_listener_count(self, plugin_id: Optional[str] = None) -> int:
         """获取监听器数量"""

@@ -28,9 +28,8 @@ import sys
 import types
 from pathlib import Path
 
-import pytest
-
 import _baseline
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -128,6 +127,12 @@ CALL_SITE_SYMBOLS = [
 #: 不在表里的文件仍然必须与原文行数完全一致；每条例外都要写清归属与原因，
 #: 防止这张表变成"哪里红了往哪里加"的垃圾场。
 REGISTERED_LINE_DELTAS: dict[str, tuple[int, str]] = {
+    "services/agent/config.py": (
+        8,
+        "阶段 3 任务 3.23（设置 → AI 模型）：AgentConfig 新增 thinking / "
+        "reasoning_efforts 两个字段与序列化/反序列化（非空行 +8，总行 +10）。"
+        "搬家时没有登记，3.27 补登记。",
+    ),
     "services/backup_manager.py": (
         89,
         "D-112（阶段 1 第 11 轮）：同一秒内的两次备份会因文件名只有秒级精度而互相覆盖"

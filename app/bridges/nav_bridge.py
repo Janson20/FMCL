@@ -96,6 +96,9 @@ class Route:
     source: str = "builtin"  # builtin | plugin
     owner: str = ""  # 插件路由的属主（插件 id）
     platform: str = ""  # 空 = 全平台；"windows" = 仅 Windows（见 _PLATFORM_ONLY_DOMAINS）
+    #: 插件页的排序权重（v2 的 ui.page.register 契约字段；内置路由恒为 0）。
+    #: 只影响"插件页那一段"的顺序（见 nav_items），不重排 12 个内置领域。
+    order: int = 0
 
     @property
     def level(self) -> int:
@@ -239,6 +242,10 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("settings/music", "settings_wy_login_title", "music", "settings", "pages/settings/SettingsPage.qml",
      "settings_wy_login_desc"),
     ("settings/plugin", "plugin_manager_title", "plugin", "settings", "pages/settings/SettingsPage.qml", ""),
+    ("settings/plugin/manager", "plugin_manager_title", "plugin", "settings/plugin",
+     "pages/settings/PluginManagerPage.qml", "plugin_manager_desc"),
+    ("settings/plugin/market", "plugin_market_title", "download", "settings/plugin",
+     "pages/settings/PluginMarketPage.qml", "plugin_market_desc"),
     ("settings/log", "launcher_log", "note", "settings", "pages/settings/SettingsPage.qml", ""),
     ("settings/about", "about_title", "info", "settings", "pages/settings/SettingsPage.qml", ""),
     # ── 开发自查：组件画廊（阶段 2 任务 2.16 / 2.17）─────────────────
@@ -359,6 +366,8 @@ class NavBridge(QObject):
     navFailed = Signal(str)
     #: 插件路由登记成功。
     pluginRouteAdded = Signal(str)
+    #: 插件路由被撤销（插件被禁用/卸载/更新后重新登记；阶段 3 任务 3.27）。
+    pluginRouteRemoved = Signal(str)
     #: **离开守卫**挡下了一次导航（阶段 3 任务 3.4 新增）。
     #: 参数 = `(被守卫的域 id, 想去但没去成的路由 id)`；界面据此弹一次确认框，
     #: 再用 `confirmLeave(ok)` 裁决。
@@ -728,52 +737,117 @@ class NavBridge(QObject):
 
     @Slot(str, str, str, str, result=bool)
     def registerPluginRoute(self, routeId: str, titleKey: str, qmlUrl: str, owner: str) -> bool:  # noqa: N802
-        """登记一条插件页面路由。**阶段 2 只登记，不加载插件**（插件加载是 3.27）。
+        """登记一条插件页面路由（v1 四件套签名；阶段 3 任务 3.27 起薄委托）。
 
         按 02 §7 的 UI API v2 设计：
 
-        * 插件页面必须是 **QML 组件**（`qml_url` 非空），签名为
-          `(id, title_key, qml_url, owner)`；
-        * 旧插件（`ui_api` 缺省=1，那套 `get_tab_ui(parent)` 传 tkinter 容器）
-          **无法提供 QML 组件** → 这里明确拒绝并 `navFailed`，让设置页能显示
-          "该插件界面不受支持"，而不是静默少一项（非 UI 钩子不受影响，走的是别的入口）；
-        * id 必须带 `plugin/` 前缀（防与内置路由及别的插件撞名）；
+        * 插件页面必须是 **QML 组件**（qml_url 非空）；
+        * 旧插件（ui_api 缺省=1，那套 get_tab_ui(parent) 传 tkinter 容器）
+          **无法提供 QML 组件** → 这里明确拒绝并 navFailed，让设置页能显示
+          "该插件界面不受支持"，而不是静默少一项（非 UI 钩子不受影响）；
+        * id 必须带 plugin/ 前缀（防与内置路由及别的插件撞名）；
         * 同一属主重复登记同一条 → 幂等成功（插件重新加载时不该报错）。
+
+        插件桥现在走 add_plugin_route()（多 icon / order 两个 v2 字段）；本槽
+        保留给只有四件套的旧调用方。
         """
-        rid = str(routeId or "").strip()
+        return self.add_plugin_route(routeId, titleKey, qmlUrl, owner)
+
+    def add_plugin_route(
+        self,
+        route_id: str,
+        title: str,
+        qml_url_text: str,
+        owner: str,
+        icon: str = "plugin",
+        order: int = 0,
+    ) -> bool:
+        """登记一条插件页面路由（v2 契约：id / title / icon / order / qml_url）。
+
+        title 是**插件给的显示名**（不是启动器既有 i18n 键）：QML 的
+        Tr.map[键] ?? 键 在缺键时原样显示，所以插件不必也无法往启动器语言
+        文件里加键。icon 只接受启动器自带图标名（桥在登记前已白名单校验，
+        不认识时回落 plugin），order 只影响插件页那一段的排序。
+        """
+        rid = str(route_id or "").strip()
         if not rid.startswith(PLUGIN_ROUTE_PREFIX) or len(rid) <= len(PLUGIN_ROUTE_PREFIX):
             self._fail(f"插件路由 id 必须以 {PLUGIN_ROUTE_PREFIX!r} 开头且不能只有前缀: {rid!r}")
             return False
+        owner_text = str(owner or "")
+        url_text = str(qml_url_text or "").strip()
+        key = str(title or "").strip() or rid
+        icon_name = str(icon or "").strip() or "plugin"
+        try:
+            weight = int(order or 0)
+        except (TypeError, ValueError):
+            weight = 0
         if rid in self._routes:
             existing = self._routes[rid]
-            if existing.source == "plugin" and existing.owner == owner and existing.qml_file == qmlUrl:
+            if (
+                existing.source == "plugin"
+                and existing.owner == owner_text
+                and existing.qml_file == url_text
+                and existing.title_key == key
+                and existing.icon == icon_name
+                and existing.order == weight
+            ):
                 return True
             self._fail(f"插件路由 id 已被占用: {rid}（占用者 {existing.owner or existing.source}）")
             return False
-        if not str(qmlUrl or "").strip():
+        if not url_text:
             self._fail(
-                f"插件 {owner or '?'} 未提供 qml_url：旧版 UI API（v1，tkinter 容器）在 QML 下不受支持，"
+                f"插件 {owner_text or '?'} 未提供 qml_url：旧版 UI API（v1，tkinter 容器）在 QML 下不受支持，"
                 "该插件界面不加载（非 UI 功能不受影响）"
             )
             return False
 
-        key = str(titleKey or "").strip() or rid  # 没有键就拿 id 当键：界面显示 id，看得见、可排查
         route = Route(
             id=rid,
             title_key=key,
-            icon="plugin",
+            icon=icon_name,
             parent="",
-            qml_file=str(qmlUrl),
+            qml_file=url_text,
             description_key="",
             source="plugin",
-            owner=str(owner or ""),
+            owner=owner_text,
+            order=weight,
         )
         self._routes[rid] = route
         if rid not in self._roots:
             self._roots.append(rid)  # 插件页面按 02 §7 是一级导航项
-        logger.info("插件路由已登记：%s（属主 %s，标题键 %s）", rid, owner, key)
+        logger.info("插件路由已登记：%s（属主 %s，标题 %s，排序 %s）", rid, owner_text, key, weight)
         self.pluginRouteAdded.emit(rid)
         return True
+
+    def unregister_plugin_routes(self, owner: str) -> int:
+        """撤销某个插件的全部页面路由（禁用/卸载/更新后重登记用）。
+
+        * 路由与栈帧一起移除：栈里留着一条已删除的路由，退回去时会打开空白页；
+        * 当前页就在被删路由上时，栈被重建为 [首页] 并广播一次路由变化；
+        * 每删一条发一次 pluginRouteRemoved(rid)，导航栏据此刷新。
+        """
+        owner_text = str(owner or "")
+        removed = [
+            rid for rid, route in self._routes.items()
+            if route.source == "plugin" and route.owner == owner_text
+        ]
+        if not removed:
+            return 0
+        for rid in removed:
+            self._routes.pop(rid, None)
+            if rid in self._roots:
+                self._roots.remove(rid)
+        removed_set = set(removed)
+        new_stack = [frame for frame in self._stack if frame[0] not in removed_set]
+        if not new_stack:
+            new_stack = [(HOME_ROUTE, {})]
+        if new_stack != self._stack:
+            self._stack = new_stack
+            self._announce()
+        for rid in removed:
+            self.pluginRouteRemoved.emit(rid)
+        logger.info("插件路由已撤销：%s 条（属主 %s）", len(removed), owner_text)
+        return len(removed)
 
     # ─── 给 Shell 用的普通方法（不是槽：一级导航项的唯一入口是 Shell.navItems()） ──
 
@@ -788,8 +862,19 @@ class NavBridge(QObject):
         这一层知识，放这里（而不是写死在 QML 里）才能保证"加一个领域时不会忘记归组" ——
         `tests/test_nav_bridge.py` 会断言每个一级项都落在 :data:`NAV_GROUPS` 声明的组里。
         """
+        # 内置领域顺序由 _NAV_ORDER 冻结；插件页只排它们自己那一段（order 稳定排序，
+        # 同 order 按登记先后），不参与 12 个领域的重排。
+        plugin_roots = sorted(
+            (rid for rid in self._roots if self._routes.get(rid) is not None
+             and self._routes[rid].source == "plugin"),
+            key=lambda rid: self._routes[rid].order,
+        )
+        ordered_roots = [
+            rid for rid in self._roots
+            if self._routes.get(rid) is None or self._routes[rid].source != "plugin"
+        ] + plugin_roots
         items: List[Dict[str, Any]] = []
-        for route_id in self._roots:
+        for route_id in ordered_roots:
             route = self._routes.get(route_id)
             if route is None or route.parent or not self._available(route):
                 continue

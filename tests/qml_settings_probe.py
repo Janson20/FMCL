@@ -847,10 +847,10 @@ REPORT["opened_urls"] = list(URLS)
 check("外链打开了第一条鸣谢的 url",
       URLS[:1] == ["https://github.com/PCL-community/PCL-CE"], str(URLS))
 
-# ══ 10. 分区六~八（3.5 账户、3.21 净读登录、插件仍是占位）══
+# ══ 10. 分区六~八（3.5 账户、3.21 净读登录、3.27 插件）══
 #
 # 3.4 时三个都是占位（账户 / AI / 插件）。3.5 把账户分区做成了真页面；
-# 3.21 把 AI 分区换成净读账号登录；只剩插件分区还是占位（随 3.23 迁）。
+# 3.21 把 AI 分区换成净读账号登录；3.27 把插件分区换成真正的概况页。
 
 goto("settings/account")
 _account_placeholder = item("settingsPlaceholder")
@@ -877,13 +877,23 @@ shot("settings_ai_jingdu")
 
 goto("settings/plugin")
 _placeholder = item("settingsPlaceholder")
-placeholder_titles = ["" if _placeholder is None else str(_placeholder.property("title"))]
-placeholder_hints = ["" if _placeholder is None else str(_placeholder.property("description"))]
-REPORT["placeholder_titles"] = placeholder_titles
-REPORT["placeholder_hints"] = placeholder_hints
-check("插件分区显示占位内容", bool(placeholder_titles[0]), str(placeholder_titles))
-check("占位分区带说明文案（不是白屏）", bool(placeholder_hints[0]), str(placeholder_hints))
-shot("settings_placeholder")
+REPORT["placeholder_titles"] = []
+REPORT["placeholder_hints"] = []
+check("插件分区不再是占位（3.27 已交付）", _placeholder is None,
+      "settingsPlaceholder 还在 —— 插件分区可能没接上")
+check("插件分区在树里", item("settingsPluginSection") is not None, "settingsPluginSection")
+_section_title = item("pluginSectionTitle")
+check("插件分区标题在树里",
+      _section_title is not None and bool(str(_section_title.property("text"))),
+      "" if _section_title is None else str(_section_title.property("text")))
+_section_desc = item("pluginSectionDesc")
+check("插件分区说明在树里",
+      _section_desc is not None and bool(str(_section_desc.property("text"))),
+      "" if _section_desc is None else str(_section_desc.property("text")))
+check("插件概况卡在树里", item("pluginSummaryCard") is not None, "pluginSummaryCard")
+check("打开管理器按钮在树里", item("pluginOpenManagerButton") is not None,
+      "pluginOpenManagerButton")
+shot("settings_plugin")
 
 # ══ 11. 保存并重启（M-24 / B5）════════════════════════════════
 
