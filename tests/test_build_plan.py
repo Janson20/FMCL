@@ -7,22 +7,21 @@ QML 侧的桥与服务表全是 `importlib.import_module("模块名")` 的**动�
 PyInstaller 的静态分析看不见它们。漏收一条的后果是"打包产物一启动就崩"，而源码态与全部单元
 测试都照常绿 —— 这是最难在开发机上发现的一类回归，所以要用闸门钉住。
 
-阶段 4.2 删除 Tk 后只剩 QML 后端：`build.spec` 默认产出 `FMCL-QML`，不再有单文件 Tk 产物。
+阶段 4.3 起只有 QML 目录产物：`build.spec` 产出 `dist/FMCL/`，不再有单文件 Tk 产物，
+也没有 `UI_BACKEND` 开关。
 
 ## 覆盖
 
-1. 后端表与默认值；
-2. 动态导入覆盖（对着三张真源表逐条核对）；
-3. qml 后端的形态（entry、onedir、不再排 PySide6、QML 数据文件的目标名）；
-4. `build.spec` 真的把计划用上了（用假 PyInstaller 符号 exec 一遍 spec，检查 Analysis 参数、
+1. 动态导入覆盖（对着三张真源表逐条核对）；
+2. 产物的形态（entry、onedir、不排 PySide6、QML 数据文件的目标名）；
+3. `build.spec` 真的把计划用上了（用假 PyInstaller 符号 exec 一遍 spec，检查 Analysis 参数、
    裁剪图案是否生效、COLLECT 是否产出运行目录）。
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import pytest
 
@@ -30,40 +29,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SPEC_PATH = REPO_ROOT / "build.spec"
 
 from scripts.build_plan import (  # noqa: E402
-    BACKENDS,
-    DEFAULT_UI_BACKEND,
     QML_DYNAMIC_IMPORTS,
-    UI_BACKENDS,
     missing_qml_requirements,
-    normalize_backend,
     plan,
     should_drop_collected_binary,
     should_drop_qml_module_dir,
 )
 
-# ─── 1. 后端表与默认值 ─────────────────────────────────────────
-
-
-def test_backend_table_is_qml_only() -> None:
-    assert UI_BACKENDS == ("qml",)
-    assert set(BACKENDS) == set(UI_BACKENDS)
-
-
-def test_default_backend_is_qml_after_phase_4() -> None:
-    """4.1 起默认必须是 qml；非法值也回落 qml。"""
-    assert DEFAULT_UI_BACKEND == "qml"
-    assert normalize_backend(None) == "qml"
-    assert normalize_backend("不认识的") == "qml"
-    assert normalize_backend(3) == "qml"  # type: ignore[arg-type]
-
-
-def test_normalize_backend_accepts_case_and_padding() -> None:
-    assert normalize_backend("qml") == "qml"
-    assert normalize_backend(" QML ") == "qml"
-    assert normalize_backend("Tk") == "qml"
-
-
-# ─── 2. 动态导入覆盖 ───────────────────────────────────────────
+# ─── 1. 动态导入覆盖 ───────────────────────────────────────────
 
 
 def test_dynamic_imports_cover_every_bridge() -> None:
@@ -72,7 +45,7 @@ def test_dynamic_imports_cover_every_bridge() -> None:
 
     declared = {module for _, module, _ in main_qml.SINGLETON_BRIDGES + main_qml.CONTEXT_BRIDGES}
     assert declared, "桥表读出来是空的，说明表被改了名字/结构"
-    missing = sorted(declared - set(plan("qml")["hidden_imports"]))
+    missing = sorted(declared - set(plan()["hidden_imports"]))
     assert not missing, f"这些桥没被收进 hiddenimports，打包后会启动即崩：{missing}"
 
 
@@ -82,7 +55,7 @@ def test_dynamic_imports_cover_every_service() -> None:
 
     declared = {spec.split(":", 1)[0] for _, spec in bootstrap.SERVICE_FACTORIES}
     assert declared, "服务表读出来是空的，说明表被改了名字/结构"
-    missing = sorted(declared - set(plan("qml")["hidden_imports"]))
+    missing = sorted(declared - set(plan()["hidden_imports"]))
     assert not missing, f"这些服务没被收进 hiddenimports，打包后会启动即崩：{missing}"
 
 
@@ -98,24 +71,22 @@ def test_dynamic_import_list_has_no_phantom_entries() -> None:
 
 
 def test_qml_backend_keeps_qt() -> None:
-    assert "PySide6" not in plan("qml")["excludes"]
+    assert "PySide6" not in plan()["excludes"]
 
 
 # ─── 4. qml 后端的形态 ─────────────────────────────────────────
 
 
 def test_qml_backend_is_a_directory_build() -> None:
-    qml = plan("qml")
+    qml = plan()
     assert qml["entry"] == "main_qml.py"
-    # onefile 每次启动都要把 Qt 运行时解到临时目录 —— 启动器不能这样
-    assert qml["onefile"] is False, "QML 产物必须是目录产物（COLLECT）"
-    assert qml["product_name"] == "FMCL-QML"
+    assert qml["product_name"] == "FMCL"
     assert qml["with_qt"] is True and qml["filter_collected"] is True
 
 
 def test_qml_backend_collects_app_qml_and_fluentui() -> None:
     """目标名必须与 `main_qml` 的定位函数一致，否则产物"找不到界面"。"""
-    datas = {str(Path(src).resolve()): dest for src, dest in plan("qml")["datas"]}
+    datas = {str(Path(src).resolve()): dest for src, dest in plan()["datas"]}
     assert datas[str((REPO_ROOT / "qml").resolve())] == "app_qml", "`qml/` 要装成 <_MEIPASS>/app_qml"
     fluentui = (REPO_ROOT / "third_party" / "_install" / "qml").resolve()
     if fluentui.is_dir():
@@ -166,10 +137,6 @@ def test_trim_never_touches_our_own_qml_files() -> None:
     assert not dropped, f"这些是 App 自己的 QML，绝不能被裁：{dropped}"
 
 
-def test_unknown_backend_falls_back_to_qml_plan() -> None:
-    assert plan("不认识的")["entry"] == plan("qml")["entry"]
-
-
 # ─── 5. build.spec 真的用上了计划 ──────────────────────────────
 
 
@@ -183,6 +150,7 @@ class _FakeAnalysis:
         self.binaries = [(dest, src, "BINARY") for src, dest in (binaries or [])]
         self.binaries += [("Qt6WebEngineCore.dll", "src/Qt6WebEngineCore.dll", "BINARY")]
         self.binaries += [("Qt6Core.dll", "src/Qt6Core.dll", "BINARY")]
+        self.binaries += [("PySide6/qml/Qt3D/Animation/quicksand.dll", "src/Qt3D/quicksand.dll", "BINARY")]
         self.datas = [(dest, src, "DATA") for src, dest in (datas or [])]
         self.datas += [("PySide6/qml/Qt3D/Foo.qml", "src/Foo.qml", "DATA")]
         self.datas += [("PySide6/qml/QtQuick/Controls/qmldir", "src/qmldir", "DATA")]
@@ -214,19 +182,12 @@ class _FakeCollect:
         _FakeCollect.calls.append({"args": args, "kwargs": kwargs})
 
 
-def _run_spec(monkeypatch: pytest.MonkeyPatch, backend: Optional[str]) -> Tuple[_FakeAnalysis, Dict[str, Any]]:
-    """在假 PyInstaller 环境下 exec 一遍真正的 `build.spec`，返回主 Analysis 与调用记录。
-
-    `backend=None` 表示**不设** `UI_BACKEND`（验默认回落 qml）。
-    """
+def _run_spec(monkeypatch: pytest.MonkeyPatch) -> Tuple[_FakeAnalysis, Dict[str, Any]]:
+    """在假 PyInstaller 环境下 exec 一遍真正的 `build.spec`，返回主 Analysis 与调用记录。"""
     _FakeAnalysis.instances = []
     _FakeExe.calls = []
     _FakeCollect.calls = []
     monkeypatch.chdir(REPO_ROOT)
-    if backend is None:
-        monkeypatch.delenv("UI_BACKEND", raising=False)
-    else:
-        monkeypatch.setenv("UI_BACKEND", backend)
     monkeypatch.delenv("PLATFORM", raising=False)
     monkeypatch.delenv("ARCH", raising=False)
 
@@ -246,33 +207,37 @@ def _run_spec(monkeypatch: pytest.MonkeyPatch, backend: Optional[str]) -> Tuple[
 
 
 def test_spec_wires_the_plan_into_analysis(monkeypatch: pytest.MonkeyPatch) -> None:
-    analysis, calls = _run_spec(monkeypatch, "qml")
+    analysis, calls = _run_spec(monkeypatch)
 
-    assert analysis.scripts == ["main_qml.py"], "QML 后端的入口必须是 main_qml.py"
+    assert analysis.scripts == ["main_qml.py"], "QML 入口必须是 main_qml.py"
     assert "PySide6" not in analysis.excludes
     assert set(QML_DYNAMIC_IMPORTS) <= set(analysis.hiddenimports)
     assert any(dest == "app_qml" for dest, _, _ in analysis.datas)
     assert any(dest == "qml" for dest, _, _ in analysis.datas)
-    assert calls["collect"], "QML 后端必须是目录产物：没有 COLLECT 就等于没产出运行目录"
-    assert calls["collect"][0]["kwargs"]["name"] == "FMCL-QML"
+    assert len(_FakeAnalysis.instances) == 1, "不应再有 Tk/Agent 的第二个 Analysis"
+    assert calls["collect"], "QML 产物必须是目录产物：没有 COLLECT 就等于没产出运行目录"
+    assert calls["collect"][0]["kwargs"]["name"] == "FMCL"
+    assert calls["exe"][0]["kwargs"]["name"] == "FMCL"
     assert calls["exe"][0]["kwargs"]["exclude_binaries"] is True
 
 
 def test_spec_trims_collected_qt_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    analysis, _ = _run_spec(monkeypatch, "qml")
+    analysis, _ = _run_spec(monkeypatch)
 
     binary_names = [dest for dest, _, _ in analysis.binaries]
     assert "Qt6WebEngineCore.dll" not in binary_names, "WebEngine 是 142 MB 的单个 DLL，必须裁掉"
     assert "Qt6Core.dll" in binary_names, "裁过头了：Qt6Core 被丢了"
+    assert not [name for name in binary_names if name.startswith("PySide6/qml/Qt3D/")], "Qt3D 的 QML 插件 DLL 也该丢"
     data_names = [dest for dest, _, _ in analysis.datas]
     assert not [name for name in data_names if name.startswith("PySide6/qml/Qt3D/")], "Qt3D 的 QML 模块该丢"
     assert "PySide6/qml/QtQuick/Controls/qmldir" in data_names, "QtQuick 的 QML 模块必须留"
     assert "app_qml" in data_names, "本项目自己的 QML 不能被裁掉"
 
 
-def test_spec_defaults_to_qml_when_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """没设 `UI_BACKEND` 时 spec 按默认 qml 构建。"""
-    analysis, calls = _run_spec(monkeypatch, None)
+def test_spec_ignores_legacy_ui_backend_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """4.3 已删除 `UI_BACKEND` 开关：即使环境里还留着旧值，也只能产出 QML 目录。"""
+    monkeypatch.setenv("UI_BACKEND", "tk")
+    analysis, calls = _run_spec(monkeypatch)
     assert analysis.scripts == ["main_qml.py"]
-    assert calls["collect"], "没设后端时应产出 QML 目录产物"
-    assert calls["collect"][0]["kwargs"]["name"] == "FMCL-QML"
+    assert calls["collect"], "旧环境变量不应改变产物形态"
+    assert calls["collect"][0]["kwargs"]["name"] == "FMCL"

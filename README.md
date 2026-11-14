@@ -81,10 +81,8 @@
 |------|------|
 | Python 3.10+ | 运行启动器 |
 | Java 8+ | 运行 Minecraft（启动器自动扫描系统 Java，推荐版本由 MC 版本决定） |
-| Linux: `python3-tk` | 系统包（Ubuntu/Debian: `sudo apt install python3-tk python3-venv`） |
-| ffmpeg（可选） | **仅旧 Tk 界面（退役中）** 的音乐音效（EQ / 混响 / 变调 / 变速）需要的外部解码器；QML 界面按用户 2026-11-07 裁决不做音效，不依赖它。**不是 Python 包**，`uv sync` 装不了它，需要自己装（Windows: `winget install --id Gyan.FFmpeg` 或 `choco install ffmpeg`；Debian/Ubuntu: `sudo apt install ffmpeg`；macOS: `brew install ffmpeg`）。没装时启动器照常运行，旧界面的音效会记日志并改播原文件；探测方式是 `shutil.which` |
-
-> **关于 ffmpeg**：旧 Tk 界面的音频效果链靠 pydub 调外部 ffmpeg 完成解码与编码，所以它属于「装了才有音效」的可选依赖；QML 界面已按 2026-11-07 的用户裁决移除音效，不再依赖它。装好后要**重启旧界面**（可用性在启动时探测一次，探测方式就是 `shutil.which("ffmpeg")`）。项目自身不随附、也不下载任何来源不明的 ffmpeg 二进制，请从上面的官方渠道安装。
+| Linux: Qt 6 运行库 / 构建工具 | 源码构建需要 C++ 编译器、cmake、ninja、OpenGL/XCB 头文件与 Qt 6.7.3 SDK；`scripts/install.sh` 会自动安装（Debian/Ubuntu: `build-essential cmake ninja-build libgl1-mesa-dev ...`） |
+| ffmpeg | 旧 Tk 界面的音效链已随 4.2 删除；QML 界面按用户 2026-11-07 裁决不做音效，不再需要 ffmpeg |
 
 ---
 
@@ -96,13 +94,18 @@
 
 | 平台 | 文件 | 说明 |
 |------|------|------|
-| Windows | `FMCL-Setup-x.x.x.exe` | NSIS 安装包，双击运行 |
+| Windows x64 | `FMCL-Setup-x.x.x.exe` | NSIS 安装包，双击运行 |
+| Windows x64（不含 .NET SDK） | `FMCL-Setup-x.x.x-without-dotnetsdk.exe` | 体积更小；GDK 版首次使用时可另行引导安装 .NET 10 SDK |
+| Linux x86_64 | `FMCL-x.x.x-linux-x86_64.tar.gz` | 目录产物（`FMCL/FMCL` + `_internal/`）；也可用 `scripts/install.sh` 安装 |
 
-> **注意**：自 **v2.10.3** 起，不再通过 GitHub Actions 构建并发布 macOS（`.dmg`）与 Linux（`.deb` / `.AppImage`）二进制包。Linux 用户请使用下方「方式二：Linux 一键安装」脚本进行安装；macOS 用户请参考「方式三：从源码运行」。
+> QML 版只提供 **64 位** Windows 产物（PySide6 6.7.3 没有 win32 轮子）。32 位用户继续使用
+> 2.12.6 旧安装包，数据目录与新版相同。
+
+> **注意**：macOS（`.dmg`）二进制包暂不随发布提供，macOS 用户请参考「方式三：从源码运行」。Linux 现在提供 x86_64 目录产物 tarball，并可用下方「方式二：Linux 一键安装」脚本安装。
 
 #### 安装说明
 
-- **Windows**: 双击 `.exe` 安装包，按向导完成安装。安装包已内置 7-Zip（26.02 版本），无需联网即可自动安装。安装器按当前用户安装到 `%LOCALAPPDATA%\Programs\FMCL`，**全程无需管理员权限**，安装后直接双击快捷方式即可正常使用
+- **Windows x64**: 双击 `.exe` 安装包，按向导完成安装。安装包已内置 7-Zip（26.02 版本），无需联网即可自动安装；完整版还内置 .NET 10 SDK。安装器按当前用户安装到 `%LOCALAPPDATA%\Programs\FMCL`，**全程无需管理员权限**，安装后直接双击快捷方式即可正常使用。QML 产物是目录（`FMCL.exe` + `_internal/`），卸载时只删程序文件，保留 `config.json`、`.minecraft`、账号、歌单与成就等用户数据
 - **Linux**: 请使用下方「方式二：Linux 一键安装」脚本
 - **macOS**: 请参考下方「方式三：从源码运行」
 
@@ -114,10 +117,17 @@
 curl -fsSL https://raw.githubusercontent.com/Janson20/FMCL/main/scripts/install.sh | bash
 ```
 
-脚本自动完成：安装系统依赖 → 安装 uv → 克隆项目 → uv sync → 注册 `fmcl` 命令。
+脚本默认从源码构建 QML 目录产物：安装系统依赖 → 安装 uv → 克隆项目 → `uv sync` → 拉取第三方源码 → 用 aqtinstall 安装 Qt 6.7.3 SDK → 编译 FluentUI 插件 → PyInstaller 构建 `dist/FMCL` → 安装到 `<安装目录>/runtime` → 注册 `fmcl` 命令。
 
 支持 Debian / Ubuntu / Fedora / RHEL / CentOS / Arch / openSUSE，安装完成后直接运行 `fmcl` 即可启动。
 自定义安装目录：`./scripts/install.sh ~/.local/share/fmcl`
+
+也支持直接安装 CI / Release 产出的 tarball（不编译）：
+
+```bash
+bash scripts/install.sh /opt/fmcl --version x.x.x
+bash scripts/install.sh /opt/fmcl --tarball ./FMCL-x.x.x-linux-x86_64.tar.gz
+```
 
 ### 方式三：从源码运行
 
@@ -142,12 +152,12 @@ uv run python main.py -A              # 交互模式
 
 > 💡 Windows 上也可以直接用虚拟环境里的解释器：`.\.venv\Scripts\python.exe main.py`
 > **Linux 用户注意**：
-> - 首次运行前请安装系统依赖：`sudo apt install python3-tk python3-venv`（Debian/Ubuntu）或 `sudo dnf install python3-tkinter`（Fedora）
+> - 首次运行前请安装系统依赖：`sudo apt install python3-venv libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0`（Debian/Ubuntu）或对应的 Qt 运行库（Fedora）。4.2 起已删除 Tk，不再需要 `python3-tk`
 > - 配置文件存储在 `~/.config/fmcl/config.json`，日志存储在 `~/.local/share/fmcl/fmcl.log`
 > - 全局热键（音乐播放器/性能监控）在非 root 用户下不可用，不影响其他功能
 > - 音乐静音使用 `Ctrl+Shift+Alt+M`；`Ctrl+Shift+M` 已归性能监控悬浮窗，避免一次按键同时触发两个功能
 
-> **Python 版本要求**：本项目仅支持 Python >= 3.10, < 3.12。pygame 在 Windows Python 3.12+ 上无可用二进制包。
+> **Python 版本要求**：本项目仅支持 Python >= 3.10, < 3.12（依赖与 PySide6 6.7.3 的锁定范围一致）。
 
 #### UI 依赖组（PySide6）
 
@@ -315,9 +325,9 @@ uv run pytest -q
 ### 构建
 
 ```bash
-make build            # PyInstaller 构建 QML 目录产物 dist/FMCL-QML/（含 Qt 运行时与 QML 模块）
+make build            # PyInstaller 构建 QML 目录产物 dist/FMCL/（含 Qt 运行时与 QML 模块）
 make build-qml        # 兼容旧命令，等价于 make build
-make build-installer  # Windows NSIS 安装包 (需要 NSIS)
+make build-installer  # Windows x64 NSIS 安装包 (需要 NSIS)
 make build-qml-installer  # 同 build-installer，保留旧命令
 make build-dmg        # macOS DMG 磁盘映像 (仅 macOS)
 make build-deb        # Linux DEB 包
@@ -327,8 +337,14 @@ make build-appimage   # Linux AppImage
 > QML 产物有个**不入库**的构建前置：`third_party/` 下自编译的 FluentUI 模块（体积原因只入库
 > 来源记录与脚本）。缺了它 `build.spec` 会**直接报错停下**并打印补救命令，而不是产出一个
 > "看着正常、一启动就没有界面"的包。补齐方式：
+>
+> Windows：
 > `powershell -NoProfile -ExecutionPolicy Bypass -File third_party/fetch_sources.ps1`
-> 然后 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_fluentui.ps1`。
+> 然后 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_fluentui.ps1 -QtDir <Qt6.7.3>`。
+>
+> Linux：
+> `bash scripts/fetch_sources_linux.sh`
+> 然后 `bash scripts/build_fluentui_linux.sh --qt-dir "$HOME/Qt/6.7.3/gcc_64"`。
 
 > 构建问题排查请参考 [docs/BUILD_FIXES.md](docs/BUILD_FIXES.md)
 
@@ -339,7 +355,9 @@ make build-appimage   # Linux AppImage
 3. 创建标签：`git tag vX.X.X`
 4. 推送：`git push origin main --tags`
 
-GitHub Actions 会自动构建 Windows 安装包并创建 Release（自 v2.10.3 起不再自动构建 macOS / Linux 二进制包，如需可使用上方 `make build-dmg` / `make build-deb` / `make build-appimage` 在对应平台本地构建）。
+GitHub Actions 在 tag 推送时会构建 Windows x64 安装包 + Linux x86_64 tarball 并创建 Release；
+手动触发 `workflow_dispatch` 只构建并上传 Actions artifacts，**不会创建 Release**，可用于测试安装包和 Linux 构建。
+macOS 二进制包暂不随发布提供。
 
 详见：[CONTRIBUTING.md](CONTRIBUTING.md) | [docs/SETUP.md](docs/SETUP.md)
 

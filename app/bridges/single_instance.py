@@ -46,10 +46,10 @@ def default_key(app_name: str, data_dir: str) -> str:
 class SingleInstance(QObject):
     """单实例守卫。用法::
 
-        guard = SingleInstance(default_key("FMCL-QML", config.base_dir))
-        if not guard.try_acquire():
-            return 0          # 已有实例在跑，已经请它激活，本次退出
-        guard.activateRequested.connect(window.raise_to_front)
+    guard = SingleInstance(default_key("FMCL", config.base_dir))
+    if not guard.try_acquire():
+        return 0          # 已有实例在跑，已经请它激活，本次退出
+    guard.activateRequested.connect(window.raise_to_front)
     """
 
     #: 收到"又有一次启动请求"（由第二个实例发出）。

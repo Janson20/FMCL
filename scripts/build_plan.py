@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""构建计划 —— `build.spec` 的唯一真源。
+r"""构建计划 —— `build.spec` 的唯一真源。
 
 ## 为什么把逻辑从 spec 里搬出来
 
@@ -10,40 +10,29 @@ PyInstaller 的静态分析**看不见**它们 —— 漏收一个的后果是"�
 永远复现不出来。
 
 搬成普通模块后 `tests/test_build_plan.py` 可以直接对着它断言（动态导入清单是否覆盖了那三张
-真源表、QML 后端有没有把 PySide6 排掉、entry 与 onefile 是否配对），桥或服务表变动时会红。
+真源表、QML 后端有没有把 PySide6 排掉、entry 是否指向 main_qml、产物是否 onedir），
+桥或服务表变动时会红。
 
 ## 产物形态
 
-环境变量 `UI_BACKEND` 仅为兼容保留；阶段 4.2 起唯一合法值是 `qml`：入口 `main_qml.py`，
-**onedir**（`COLLECT`），收集 `qml/`、自编译的 FluentUI 模块与 Qt 运行时。
+阶段 4.3 起只有一种产物：入口 `main_qml.py`，**onedir**（`COLLECT`）到 `dist/FMCL/`，
+收集 `qml/`、自编译的 FluentUI 模块与 Qt 运行时。没有后端开关，也没有 onefile。
 
 为什么 QML 走 onedir 而不是 onefile：onefile 每次启动都要把 Qt 运行时（约 200 MB）解压到临时
 目录，启动器的冷启动体验不可接受；而 `updater.py` 只认 `FMCL-Setup-*.exe` 安装包，**装目录
 不影响自动更新链路**（已核对 `updater.py::find_suitable_asset`）。
+
+安装目录固定为 `%LOCALAPPDATA%\Programs\FMCL`，与 2.12.6 及更早版本相同 —— 旧版用户把数据
+（`config.json`、`.minecraft`、账号、歌单、成就）留在安装目录的便携模式，路径一变就会"换一个
+启动器"，所以 4.3 不再使用迁移期的 `FMCL-QML` 后缀。
 """
 
 from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-
-#: 合法的构建后端。4.2 删除 Tk 后只剩 QML；保留元组是给 build.spec 的兼容环境变量用。
-UI_BACKENDS: Tuple[str, ...] = ("qml",)
-
-#: 默认（也是唯一）后端。4.2 删除 Tk 后不再有 `ui_backend` 开关。
-DEFAULT_UI_BACKEND = "qml"
-
-
-def normalize_backend(value: Optional[str]) -> str:
-    """把任意输入收敛成合法后端名：非法值一律回落到默认后端（调用方负责记日志）。"""
-    if isinstance(value, str):
-        candidate = value.strip().lower()
-        if candidate in UI_BACKENDS:
-            return candidate
-    return DEFAULT_UI_BACKEND
 
 
 def detect_platform(sys_platform: str) -> str:
@@ -198,10 +187,7 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
 #: QML 产物排除的 Python 绑定：**不能**排 PySide6（那正是 QML 的界面栈）。
 #: QML 后端额外 hiddenimports：不在 main_qml 桥表 / 服务表里，但运行时才 import 的包。
 #: 单独一张表，避免污染 `QML_DYNAMIC_IMPORTS` 的"真源表"反向检查。
-QML_EXTRA_HIDDEN_IMPORTS: Tuple[str, ...] = (
-    "fusion_music.host",
-    "fusion_music.migration",
-)
+QML_EXTRA_HIDDEN_IMPORTS: Tuple[str, ...] = ("fusion_music.host", "fusion_music.migration")
 
 QML_EXCLUDES: Tuple[str, ...] = (
     "PyQt5",
@@ -231,7 +217,6 @@ QML_EXCLUDES: Tuple[str, ...] = (
     "PySide6.QtCharts",
     "PySide6.QtDataVisualization",
     "PySide6.QtGraphs",
-    "PySide6.QtMultimedia",
     "PySide6.QtMultimediaWidgets",
     "PySide6.QtSpatialAudio",
     "PySide6.QtQuick3D",
@@ -269,7 +254,6 @@ QML_DROP_BINARY_PATTERNS: Tuple[str, ...] = (
     "Qt6Charts",
     "Qt6DataVisualization",
     "Qt6Graphs",
-    "Qt6Multimedia",
     "Qt6Quick3D",
     "Qt63D",
     "Qt6Location",
@@ -288,19 +272,15 @@ QML_DROP_BINARY_PATTERNS: Tuple[str, ...] = (
     "Qt6VirtualKeyboard",
     "Qt6WebSockets",
     "Qt6WebChannel",
-    "avcodec",
-    "avformat",
-    "avutil",
-    "swresample",
-    "swscale",
 )
 
 #: `PySide6/qml` 下要**保留**的模块目录。实测要用到的 Qt QML 模块（从 FluentUI 上游与本项目
 #: QML 的 `import` 行统计）：QtQuick（含 Controls/Basic/impl/Templates/Layouts/Window/Shapes）、
 #: QtQml、Qt5Compat.GraphicalEffects、Qt.labs.qmlmodels —— 都在 `Qt` / `QtCore` / `QtNetwork` /
-#: `QtQml` / `QtQuick` / `Qt5Compat` 这六个目录里。其余（Qt3D / QtCharts / QtMultimedia /
-#: QtWebEngine / QtQuick3D / QtSensors …）在 QML 侧没有任何 import，整目录丢掉。
-QML_KEEP_MODULE_DIRS: Tuple[str, ...] = ("Qt", "QtCore", "Qt5Compat", "QtNetwork", "QtQml", "QtQuick")
+#: `QtQml` / `QtQuick` / `Qt5Compat` 这些目录里。`QtMultimedia` 不是 QML 页面直接 import 的，
+#: 但 `fusion_music` 的 Python 侧用 QMediaPlayer / QAudioOutput / QAudioDecoder，必须保留。
+#: 其余（Qt3D / QtCharts / QtWebEngine / QtQuick3D / QtSensors …）整目录丢掉。
+QML_KEEP_MODULE_DIRS: Tuple[str, ...] = ("Qt", "QtCore", "Qt5Compat", "QtNetwork", "QtMultimedia", "QtQml", "QtQuick")
 
 
 def should_drop_collected_binary(name: str) -> bool:
@@ -340,7 +320,7 @@ def _data(root: Path, relative_source: str, target: str) -> Optional[Tuple[str, 
 
 
 def common_datas(root: Path) -> List[Tuple[str, str]]:
-    """两种后端共用的数据文件：图标 + 版本元数据 + 语言包 + 静态资源 + 条款 + .NET helper 源码。"""
+    """所有产物都要带的数据文件：图标 + 版本元数据 + 语言包 + 静态资源 + 条款 + .NET helper 源码。"""
     entries: List[Optional[Tuple[str, str]]] = [
         (str(root / "icon.ico"), "."),
         (str(root / "pyproject.toml"), "."),
@@ -356,12 +336,16 @@ def common_datas(root: Path) -> List[Tuple[str, str]]:
         os.path.join("extractor", "BedrockXvdExtractor.csproj"),
         os.path.join("extractor", "Program.cs"),
     ):
-        entries.append(_data(root, os.path.join(native_root_rel, relative), os.path.join(native_root_rel, os.path.dirname(relative))))
+        entries.append(
+            _data(
+                root, os.path.join(native_root_rel, relative), os.path.join(native_root_rel, os.path.dirname(relative))
+            )
+        )
     return [entry for entry in entries if entry is not None]
 
 
 def qml_datas(root: Path) -> List[Tuple[str, str]]:
-    """QML 后端独有的数据文件。
+    """QML 产物需要的数据文件。
 
     目标名必须与代码里的定位方式一致，否则打包产物会"找不到界面"：
 
@@ -398,75 +382,42 @@ def missing_qml_requirements(root: Path) -> List[str]:
 # ─── 计划 ──────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True)
-class BackendSpec:
-    """一个后端的构建参数。"""
-
-    backend: str
-    product_name: str
-    entry: str
-    onefile: bool
-    hidden_imports: Tuple[str, ...] = ()
-    excludes: Tuple[str, ...] = ()
-    #: 是否收集 QML 数据文件与 Qt 运行时（决定要不要跑 collect_dynamic_libs 与 qml 目录过滤）
-    with_qt: bool = False
-    #: 是否在 `Analysis` 之后再过滤收集到的二进制/数据（Qt hook 会带来一批没用的 DLL）
-    filter_collected: bool = False
+#: 唯一产物名。安装器、快捷方式、注册表键与
+#: `%LOCALAPPDATA%\Programs\FMCL` 都依赖它，不能带迁移期的后缀。
+PRODUCT_NAME = "FMCL"
 
 
-BACKENDS: Dict[str, BackendSpec] = {
-    "qml": BackendSpec(
-        backend="qml",
-        product_name="FMCL-QML",
-        entry="main_qml.py",
-        # onefile 每次启动都要把 Qt 运行时解到临时目录；启动器不能这样。
-        onefile=False,
-        hidden_imports=QML_DYNAMIC_IMPORTS,
-        excludes=QML_EXCLUDES,
-        with_qt=True,
-        filter_collected=True,
-    ),
-}
-
-
-def plan(backend: Optional[str] = None, root: Optional[str] = None, platform: Optional[str] = None) -> Dict[str, object]:
+def plan(root: Optional[str] = None, platform: Optional[str] = None) -> Dict[str, object]:
     """产出构建计划（`build.spec` 与测试共用的入口）。
 
     Args:
-        backend: 后端名；None 或非法值 → 默认后端（`normalize_backend`）。
         root: 仓库根目录；None → 当前工作目录（PyInstaller 就是从仓库根跑的）。
         platform: `win` / `mac` / `linux`；None → 按当前平台检测。
 
     Returns:
-        dict：backend / product_name / entry / onefile / datas / hidden_imports / excludes /
+        dict：product_name / entry / datas / hidden_imports / excludes /
         filter_collected / with_qt。
+
+    阶段 4.3 起没有后端参数：4.2 删除 Tk 后只剩 QML，`UI_BACKEND` 环境变量一并退休。
     """
-    spec = BACKENDS[normalize_backend(backend)]
     root_path = Path(root or os.getcwd()).resolve()
     resolved_platform = platform or detect_platform(sys.platform)
 
-    datas = common_datas(root_path)
-    if spec.with_qt:
-        datas = datas + qml_datas(root_path)
+    datas = common_datas(root_path) + qml_datas(root_path)
 
-    hidden = list(COMMON_HIDDEN_IMPORTS) + list(VOICE_HIDDEN_IMPORTS) + list(spec.hidden_imports)
-    if spec.with_qt:
-        hidden += list(QML_EXTRA_HIDDEN_IMPORTS)
-    if resolved_platform == "win":
-        hidden += ["pywintypes", "win32com", "win32com.client"]
-    elif resolved_platform == "mac":
+    hidden = list(COMMON_HIDDEN_IMPORTS) + list(VOICE_HIDDEN_IMPORTS)
+    hidden += list(QML_DYNAMIC_IMPORTS) + list(QML_EXTRA_HIDDEN_IMPORTS)
+    if resolved_platform == "mac":
         hidden += ["AppKit", "Foundation"]
 
     return {
-        "backend": spec.backend,
-        "product_name": spec.product_name,
-        "entry": spec.entry,
-        "onefile": spec.onefile,
+        "product_name": PRODUCT_NAME,
+        "entry": "main_qml.py",
         "datas": datas,
         "hidden_imports": hidden,
-        "excludes": list(spec.excludes),
-        "filter_collected": spec.filter_collected,
-        "with_qt": spec.with_qt,
+        "excludes": list(QML_EXCLUDES),
+        "filter_collected": True,
+        "with_qt": True,
         "platform": resolved_platform,
         "root": str(root_path),
         "icon": str(root_path / "icon.ico"),

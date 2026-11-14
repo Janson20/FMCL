@@ -1,6 +1,6 @@
-.PHONY: help install build build-qml build-installer build-qml-installer build-dmg build-deb build-appimage release clean test lint fix
+.PHONY: help install install-dev build build-qml build-installer build-qml-installer build-dmg build-deb build-appimage release clean test lint fix
 
-VERSION ?= $(shell python -c "import re; print(re.search(r'version\s*=s*[\"'']([^\"'']+)[\"'']', open('pyproject.toml').read()).group(1))" 2>/dev/null || echo "2.0.2")
+VERSION ?= $(shell python -c "import re; print(re.search(r'version\s*=\s*[\"\']([^\"\']+)[\"\']', open('pyproject.toml').read()).group(1))" 2>/dev/null || echo "2.12.6")
 
 help: ## 显示帮助信息
 	@echo "可用命令:"
@@ -14,15 +14,15 @@ install-dev: ## 安装开发依赖
 	pip install -r requirements-dev.txt
 	npm install
 
-build: ## 构建 QML 目录产物 (PyInstaller，4.2 起唯一产物)
+build: ## 构建 QML 目录产物 (PyInstaller，4.3 起唯一产物 dist/FMCL/)
 	pyinstaller build.spec --noconfirm
 
 build-qml: build ## 兼容旧命令：QML 目录产物
 
 build-installer: build-qml-installer ## 构建 Windows 安装包 (需要 NSIS)
 
-build-qml-installer: build ## 构建 QML 界面安装包 (目录产物; 需要 NSIS)
-	makensis /DVERSION=$(VERSION) /DQML_BUILD installer.nsi
+build-qml-installer: build ## 构建 QML 安装包 (目录产物; 需要 NSIS)
+	makensis /INPUTCHARSET UTF8 /DVERSION=$(VERSION) installer.nsi
 
 build-dmg: build ## 构建 macOS DMG (仅 macOS)
 	@echo "Creating DMG for version $(VERSION)..."
@@ -35,24 +35,27 @@ build-dmg: build ## 构建 macOS DMG (仅 macOS)
 build-deb: build ## 构建 Linux DEB 包
 	@echo "Creating DEB package for version $(VERSION)..."
 	@mkdir -p fmcl_$(VERSION)_amd64/DEBIAN
-	@mkdir -p fmcl_$(VERSION)_amd64/usr/local/bin
+	@mkdir -p fmcl_$(VERSION)_amd64/usr/bin
+	@mkdir -p fmcl_$(VERSION)_amd64/usr/lib/fmcl
 	@mkdir -p fmcl_$(VERSION)_amd64/usr/share/applications
-	@cp dist/FMCL fmcl_$(VERSION)_amd64/usr/local/bin/fmcl
-	@chmod +x fmcl_$(VERSION)_amd64/usr/local/bin/fmcl
-	@echo "[Desktop Entry]\nName=FMCL\nComment=Fusion Minecraft Launcher\nExec=/usr/local/bin/fmcl\nTerminal=false\nType=Application\nCategories=Game;" > fmcl_$(VERSION)_amd64/usr/share/applications/fmcl.desktop
-	@echo "Package: fmcl\nVersion: $(VERSION)\nArchitecture: amd64\nMaintainer: FMCL Team\nDescription: Fusion Minecraft Launcher\n A feature-rich Minecraft launcher." > fmcl_$(VERSION)_amd64/DEBIAN/control
+	@cp -R dist/FMCL/. fmcl_$(VERSION)_amd64/usr/lib/fmcl/
+	@printf '#!/bin/sh\nexec /usr/lib/fmcl/FMCL "$$@"\n' > fmcl_$(VERSION)_amd64/usr/bin/fmcl
+	@chmod +x fmcl_$(VERSION)_amd64/usr/bin/fmcl
+	@printf '[Desktop Entry]\nName=FMCL\nComment=Fusion Minecraft Launcher\nExec=fmcl\nTerminal=false\nType=Application\nCategories=Game;\n' > fmcl_$(VERSION)_amd64/usr/share/applications/fmcl.desktop
+	@printf 'Package: fmcl\nVersion: $(VERSION)\nArchitecture: amd64\nMaintainer: FMCL Team\nDescription: Fusion Minecraft Launcher\n A feature-rich Minecraft launcher.\n' > fmcl_$(VERSION)_amd64/DEBIAN/control
 	@fakeroot dpkg-deb --build fmcl_$(VERSION)_amd64
 	@mv fmcl_$(VERSION)_amd64.deb FMCL-$(VERSION)-linux-amd64.deb
 	@rm -rf fmcl_$(VERSION)_amd64
 
 build-appimage: build ## 构建 Linux AppImage
 	@echo "Creating AppImage for version $(VERSION)..."
-	@mkdir -p FMCL.AppDir/usr/bin
-	@cp dist/FMCL FMCL.AppDir/usr/bin/fmcl
+	@mkdir -p FMCL.AppDir/usr/bin FMCL.AppDir/usr/lib/fmcl
+	@cp -R dist/FMCL/. FMCL.AppDir/usr/lib/fmcl/
+	@printf '#!/bin/sh\nHERE=$$(dirname "$$(readlink -f "$$0")")\nexec "$${HERE}/../lib/fmcl/FMCL" "$$@"\n' > FMCL.AppDir/usr/bin/fmcl
 	@chmod +x FMCL.AppDir/usr/bin/fmcl
-	@echo '#!/bin/sh\nSELF=$$(readlink -f "$$0")\nHERE=$${SELF%/*}\nexec "$${HERE}/usr/bin/fmcl" "$$@"' > FMCL.AppDir/AppRun
+	@printf '#!/bin/sh\nHERE=$$(dirname "$$(readlink -f "$$0")")\nexec "$${HERE}/usr/bin/fmcl" "$$@"\n' > FMCL.AppDir/AppRun
 	@chmod +x FMCL.AppDir/AppRun
-	@echo "[Desktop Entry]\nName=FMCL\nComment=Fusion Minecraft Launcher\nExec=fmcl\nTerminal=false\nType=Application\nCategories=Game;" > FMCL.AppDir/fmcl.desktop
+	@printf '[Desktop Entry]\nName=FMCL\nComment=Fusion Minecraft Launcher\nExec=fmcl\nTerminal=false\nType=Application\nCategories=Game;\n' > FMCL.AppDir/fmcl.desktop
 	@appimagetool FMCL.AppDir FMCL-$(VERSION)-x86_64.AppImage
 	@rm -rf FMCL.AppDir
 

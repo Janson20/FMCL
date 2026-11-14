@@ -31,7 +31,7 @@
     并行编译任务数。默认取逻辑处理器数量。
 
 .PARAMETER SkipInstall
-    只编译不安装（不生成 _install 下的产物）。
+    只编译不安装（不复制到最终 _install/qml；插件仍在 QML 模块输出目录）。
 
 .PARAMETER BuildStaticLib
     编译静态库（target 名变为 fluentui，需 Qt >= 6.2，且需在应用里手动注册类型）。
@@ -76,7 +76,7 @@ $SourceDir      = Join-Path $ThirdPartyDir 'FluentUI'
 $BuildDir       = Join-Path $ThirdPartyDir '_build'
 $StageDir       = Join-Path $ThirdPartyDir '_stage'
 $InstallDir     = Join-Path $ThirdPartyDir '_install'
-$PluginStageDir = Join-Path $StageDir 'qml'
+$PluginStageDir = Join-Path $InstallDir 'qml'
 $ProvenanceFile = Join-Path $ThirdPartyDir 'BUILD_PROVENANCE.md'
 $CMakeExe       = 'D:\Program Files\CMake\bin\cmake.exe'
 
@@ -496,11 +496,11 @@ if ($WhatIfPreference) {
 Write-Step '收集产物并计算 SHA256'
 
 $binaryExt = @('.dll', '.so', '.dylib', '.lib', '.a', '.pdb')
-$roots = @($PluginStageDir, $InstallDir) | Where-Object { Test-Path -LiteralPath $_ }
+$roots = @($InstallDir) | Where-Object { Test-Path -LiteralPath $_ }
 if ($roots.Count -eq 0) {
     Fail -Message '未找到任何产物目录（_stage 与 _install 都不存在）。' -Hint @(
         '若使用了 -SkipInstall，请检查 _stage 下是否生成了插件。',
-        '若编译看似成功却无产物，检查 FLUENTUI_QML_PLUGIN_DIRECTORY 是否正确传入。'
+        '若编译看似成功却无产物，检查 FLUENTUI_QML_PLUGIN_DIRECTORY 是否指向 third_party/_install/qml/FluentUI。'
     )
 }
 
