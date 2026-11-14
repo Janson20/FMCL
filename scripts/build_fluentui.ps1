@@ -496,8 +496,8 @@ if ($WhatIfPreference) {
 Write-Step '收集产物并计算 SHA256'
 
 $binaryExt = @('.dll', '.so', '.dylib', '.lib', '.a', '.pdb')
-$roots = @($InstallDir) | Where-Object { Test-Path -LiteralPath $_ }
-if ($roots.Count -eq 0) {
+$roots = @(@($InstallDir) | Where-Object { Test-Path -LiteralPath $_ })
+if (@($roots).Count -eq 0) {
     Fail -Message '未找到任何产物目录（_stage 与 _install 都不存在）。' -Hint @(
         '若使用了 -SkipInstall，请检查 _stage 下是否生成了插件。',
         '若编译看似成功却无产物，检查 FLUENTUI_QML_PLUGIN_DIRECTORY 是否指向 third_party/_install/qml/FluentUI。'
@@ -508,7 +508,7 @@ $artifacts = @()
 foreach ($r in $roots) {
     $artifacts += @(Get-ChildItem -LiteralPath $r -Recurse -File -ErrorAction SilentlyContinue)
 }
-if ($artifacts.Count -eq 0) {
+if (@($artifacts).Count -eq 0) {
     Fail -Message '产物目录存在但为空，构建结果不符合预期。' -Hint @('请检查上方 cmake 输出。')
 }
 
@@ -528,7 +528,7 @@ Write-Host '  关键产物（二进制与模块元数据）：' -ForegroundColor
 foreach ($b in $binaries) {
     Write-Host ("    {0,-56} {1,10}  {2}" -f $b.Path, $b.Size, $b.Sha256)
 }
-Write-Host ("  其余 QML/资源/翻译文件 {0} 个，已一并记入清单。" -f ($manifest.Count - $binaries.Count))
+Write-Host ("  其余 QML/资源/翻译文件 {0} 个，已一并记入清单。" -f (@($manifest).Count - @($binaries).Count))
 
 $clVersion = 'unknown'
 if ($null -ne $clCmd) { $clVersion = ((Get-NativeLine -FilePath 'cl.exe' -Arguments @()) -split "`r?`n")[0].Trim() }

@@ -68,10 +68,12 @@ cmake -S "${SRC_DIR}" -B "${BUILD_DIR}" -G Ninja \
 
 cmake --build "${BUILD_DIR}" --target fluentuiplugin --parallel "${JOBS}"
 
-PLUGIN="$(find "${BUILD_DIR}" -type f \( -name "libfluentuiplugin.so" -o -name "fluentuiplugin.so" -o -name "libfluentuiplugin.dylib" -o -name "fluentuiplugin.dylib" \) -print -quit)"
+PLUGIN="$(find "${QML_DIR}" "${BUILD_DIR}" -type f \( -name "libfluentuiplugin.so" -o -name "fluentuiplugin.so" -o -name "libfluentuiplugin.dylib" -o -name "fluentuiplugin.dylib" \) -print -quit)"
 [ -n "${PLUGIN}" ] || fail "编译结束但找不到 fluentuiplugin 动态库"
 log "插件: ${PLUGIN}"
-cp -f "${PLUGIN}" "${QML_DIR}/"
+if [ "$(dirname "${PLUGIN}")" != "${QML_DIR}" ]; then
+    cp -f "${PLUGIN}" "${QML_DIR}/"
+fi
 
 [ -f "${QML_DIR}/qmldir" ] || fail "缺少 ${QML_DIR}/qmldir；上游 CMake 没有把 QML 模块写进 FLUENTUI_QML_PLUGIN_DIRECTORY"
 [ -f "${QML_DIR}/$(basename "${PLUGIN}")" ] || fail "插件没有落到 QML 目录"
