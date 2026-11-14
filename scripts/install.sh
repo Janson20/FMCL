@@ -109,28 +109,28 @@ install_deps_debian() {
         libgl1-mesa-dev libegl1 libxkbcommon-dev libxkbcommon-x11-0 \
         libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 \
         libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 \
-        libfontconfig1 libdbus-1-3 libportaudio2
+        libfontconfig1 libdbus-1-3 libportaudio2 libcups2-dev
 }
 install_deps_ubuntu()      { install_deps_debian; }
 install_deps_linuxmint()   { install_deps_debian; }
 install_deps_fedora() {
     ${SUDO} dnf install -y git curl python3 python3-devel gcc-c++ cmake ninja-build pkgconf \
         mesa-libGL-devel libxkbcommon-devel xcb-util-cursor xcb-util-wm xcb-util-image \
-        xcb-util-keysyms xcb-util-renderutil fontconfig dbus-libs portaudio
+        xcb-util-keysyms xcb-util-renderutil fontconfig dbus-libs portaudio cups-devel
 }
 install_deps_rhel()    { install_deps_fedora; }
 install_deps_centos()  { install_deps_rhel; }
 install_deps_arch() {
     ${SUDO} pacman -Syu --noconfirm --needed git curl python base-devel cmake ninja pkgconf \
         mesa libxkbcommon xcb-util-cursor xcb-util-wm xcb-util-image \
-        xcb-util-keysyms xcb-util-renderutil fontconfig dbus portaudio
+        xcb-util-keysyms xcb-util-renderutil fontconfig dbus portaudio cups
 }
 install_deps_manjarolinux() { install_deps_arch; }
 install_deps_opensuse() {
     ${SUDO} zypper install -y git curl python3 python3-devel gcc-c++ cmake ninja pkg-config \
         Mesa-libGL-devel libxkbcommon-devel libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
         libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 \
-        fontconfig dbus-1 libportaudio2
+        fontconfig dbus-1 libportaudio2 cups-devel
 }
 install_deps_opensuse-tumbleweed() { install_deps_opensuse; }
 
