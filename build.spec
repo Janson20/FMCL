@@ -1,24 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 构建脚本 —— 两个界面后端（由环境变量 `UI_BACKEND` 选择）。
+"""PyInstaller 构建脚本 —— 阶段 4.2 起只有 QML 后端。
 
 真正的构建计划在 `scripts/build_plan.py`（普通模块，测试可以 import）；本文件只负责
 平台相关的 EXE / BUNDLE / COLLECT 组装，因为这部分本来就与平台绑死。
 
-用法（迁移前的用法保持不变）：
+用法：
 
-    pyinstaller build.spec                              # tk 后端（默认）→ dist/FMCL.exe
-    $env:UI_BACKEND='qml'; pyinstaller build.spec       # qml 后端 → dist/FMCL-QML/（目录产物）
-    $env:PLATFORM='win'; $env:ARCH='x86'                # 平台/架构覆盖（与迁移前一致）
+    pyinstaller build.spec                              # → dist/FMCL-QML/（目录产物）
+    $env:PLATFORM='win'; $env:ARCH='x86'                # 平台/架构覆盖
 
-产物形态（为什么 QML 是目录而不是单文件）：
-
-* tk：**单文件 EXE**，与今天发布的产物逐条一致（同一个 `main.py`、同一套 `excludes`）；
-* qml：**onedir**（`COLLECT`）。onefile 每次启动都要把 Qt 运行时（约 200 MB）解压到临时目录，
-  启动器的冷启动体验不可接受。`updater.py` 只认 `FMCL-Setup-*.exe` 安装包，
-  **装目录不影响自动更新链路**（已核对 `updater.py::find_suitable_asset`）。
-
-阶段 3 期间 QML 产物是**验收/预览产物**，发布链仍然只出 tk 产物；单文件双后端（一个 exe 里
-同时含 Tk 与 Qt、用 `config.ui_backend` 现场切换）是阶段 4.3 的事。
+产物形态：QML 用 **onedir**（`COLLECT`）。onefile 每次启动都要把 Qt 运行时（约 200 MB）
+解压到临时目录，启动器的冷启动体验不可接受。`updater.py` 只认 `FMCL-Setup-*.exe` 安装包，
+**装目录不影响自动更新链路**（已核对 `updater.py::find_suitable_asset`）。回滚靠上一版安装包
+（用户 2026-11-14 裁决：1-B / 2-A / 3-B）。
 """
 
 import os
@@ -74,15 +68,9 @@ entry = _P["entry"]
 product_name = _P["product_name"]
 onefile = bool(_P["onefile"])
 
-# ── 收集 tkinter/TCL 库文件（Windows 必需）──
-# tkinter 需要访问 tcl86t.dll, tk86t.dll 等文件
+# ── 语音输入 (sounddevice + onnxruntime + sentencepiece) 动态库收集 ──
 binaries = []
 if _platform == "win":
-    for _lib_dir in (Path(sys.prefix) / "tcl" / "tk8.6", Path(sys.prefix) / "tcl" / "tcl8.6"):
-        if _lib_dir.exists():
-            binaries.append((str(_lib_dir), "."))
-
-    # ── 语音输入 (sounddevice + onnxruntime + sentencepiece) 动态库收集 ──
     from PyInstaller.utils.hooks import collect_dynamic_libs
 
     for _package in ("_sounddevice_data", "onnxruntime", "sentencepiece"):

@@ -53,7 +53,6 @@ SERVICE_FACTORIES: Tuple[Tuple[str, str], ...] = (
     ("log", "services.log_service:LogService"),
     ("mod_browser", "services.mod_browser_service:ModBrowserService"),
     ("modpack", "services.modpack_service:ModpackService"),
-    ("music_player", "services.music_player:MusicPlayerService"),
     ("online", "services.online_service:OnlineService"),
     ("plugin", "services.plugin_service:PluginService"),
     ("plugin_browser", "services.plugin_browser_service:PluginBrowserService"),

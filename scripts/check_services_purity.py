@@ -71,11 +71,10 @@ RULES: Tuple[Rule, ...] = (
     ),
     Rule(
         group="entry",
-        label="入口文件不得内联 Tk 界面代码",
+        label="入口文件不得内联 GUI 界面代码",
         roots=("main.py",),
-        forbidden=("tkinter",),
-        allow=("customtkinter",),
-        description="splash 与启动期错误弹窗属于 ui/ 层；入口只负责装配（阶段 4 会整体切换为 QML）",
+        forbidden=("tkinter", "customtkinter"),
+        description="4.2 起入口只负责 CLI 与 QML 装配",
     ),
     Rule(
         group="core",

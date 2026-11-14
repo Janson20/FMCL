@@ -86,29 +86,6 @@ def test_launcher_core_import_does_not_pull_ui_toolkit():
     assert out == "", f"核心层仍在拖入界面栈: {out}"
 
 
-def test_import_ui_constants_is_light():
-    """`import ui.constants` 是纯标准库模块，不该拉起界面。"""
-    out = _run_probe(
-        "import sys; import ui.constants; "
-        "print('|'.join(m for m in %r if m in sys.modules))" % (TK_MODULES,)
-    ).strip()
-    assert out == "", f"ui.constants 拖入了界面栈: {out}"
-
-
-def test_import_ui_package_is_lazy_but_exports_work():
-    """惰性 `ui/__init__.py` 仍须支持全部 12 个历史导出名。"""
-    out = _run_probe(
-        "import sys, ui; "
-        "names = ['COLORS','FONT_FAMILY','RESOURCE_TYPES','show_confirmation','show_alert',"
-        "'VersionSelectorDialog','ModernApp','ResourceManagerWindow','LauncherSettingsWindow',"
-        "'ModpackInstallWindow','ModpackServerWindow','ModBrowserWindow']; "
-        "before = 'customtkinter' in sys.modules; "
-        "missing_light = [n for n in names[:3] if not hasattr(ui, n)]; "
-        "print(f'ctk_before={before} missing_light={missing_light} all={sorted(ui.__all__)==sorted(names)}')"
-    ).strip()
-    assert out == "ctk_before=False missing_light=[] all=True", out
-
-
 # ─── 2. services 层零 UI 依赖 ───────────────────────────────
 
 
@@ -136,86 +113,6 @@ def test_purity_known_exceptions_are_all_real():
                 seen.add(v.key())
     stale = [f"{k.path} -> {k.module}" for k in purity.KNOWN_VIOLATIONS if (k.path, k.module) not in seen]
     assert stale == [], f"这些已登记例外已经不存在了，请从 KNOWN_VIOLATIONS 移除: {stale}"
-
-
-# ─── 3. 转发 shim 的对象同一性 ──────────────────────────────
-
-
-def test_ui_shims_reexport_identical_objects():
-    """shim 必须是同一批对象，不能包装。
-
-    `from ui.i18n import _` 在 import 时绑定函数对象；如果 shim 用
-    ``def _(...): return service._(...)`` 包装，状态可见性与绑定语义都会变。
-    """
-    import services.i18n_service as si
-    import services.palette as sp
-    import services.theme_service as st
-    import services.user_agent as su
-    import ui.constants as c
-    import ui.i18n as i
-    import ui.theme_engine as te
-
-    assert c.COLORS is sp.COLORS
-    assert c.current_colors is sp.COLORS
-    assert c.USER_AGENT is su.USER_AGENT
-    assert c.LazyStr is su.LazyStr
-
-    for name in ("Theme", "ThemeEngine", "init_theme_engine", "get_theme_engine"):
-        assert getattr(te, name) is getattr(st, name), f"ui.theme_engine.{name} 不是同一对象"
-
-    for name in (
-        "AVAILABLE_LANGUAGES",
-        "DEFAULT_LANGUAGE",
-        "init_i18n",
-        "get_current_language",
-        "set_language",
-        "get_available_languages",
-        "_",
-        "tr",
-        "_translate",
-    ):
-        assert getattr(i, name) is getattr(si, name), f"ui.i18n.{name} 不是同一对象"
-
-
-def test_ui_constants_keeps_names_ui_modules_import_directly():
-    """`ui/` 内多个模块直接 import 这些名字，少一个就是 ImportError。"""
-    import ui.constants as c
-
-    for name in (
-        "COLORS",
-        "FONT_FAMILY",
-        "RESOURCE_TYPES",
-        "USER_AGENT",
-        "current_colors",
-        "LazyStr",
-        "_get_fmcl_version",
-        "_get_user_agent",
-    ):
-        assert hasattr(c, name), f"ui.constants 丢了 {name}"
-
-
-def test_i18n_language_state_visible_through_shim():
-    """通过 shim 切换语言，直接引用服务层函数的调用方也必须看到新语言。"""
-    import services.i18n_service as i18n
-    from ui.i18n import _, get_current_language, set_language
-
-    original = get_current_language()
-    # 「语言包**是否已加载**」也是一个全局状态：切过一次语言之后，`_translations`
-    # 就从空字典变成整份译文，于是 `_()` 从"返回键名"变成"返回译文"。
-    # 只 restore 语言代码会把这半个副作用泄漏给同进程后面的测试 ——
-    # **实测踩到**：`tests/test_online_stale_cleanup.py` 里两条用例
-    # "单独跑绿、全量跑红"（第 11 轮收尾时留下的 2 个红灯），根因就在这里。
-    # 所以这里把语言代码与译文表**一起**还原。
-    had_translations = dict(i18n._translations)
-    try:
-        assert set_language("en_US") is True
-        assert get_current_language() == "en_US"
-        assert _("not_a_real_key_zzz") == "not_a_real_key_zzz", "缺键必须返回键名本身"
-        assert set_language("zz_ZZ") is False, "非法语言必须返回 False"
-        assert get_current_language() == "en_US", "非法语言不得改变当前语言"
-    finally:
-        set_language(original)
-        i18n._translations = had_translations
 
 
 # ─── 4. 主题引擎搬家后行为不变 ──────────────────────────────

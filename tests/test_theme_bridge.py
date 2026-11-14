@@ -902,20 +902,6 @@ def test_bridge_registers_under_the_frozen_name() -> None:
     assert tb.QML_NAME == "Theme"
 
 
-def test_ui_constants_reexports_the_same_lazy_str():
-    """旧写法 `from ui.constants import FONT_FAMILY` 必须拿到**同一个** `LazyStr` 实例。
-
-    这是搬迁的硬要求：两份实例意味着两次字体探测，且两边可能给出不同的值。
-    （`import ui.constants` 会执行 `ui/__init__.py`，本进程里 `tests/test_layering.py`
-    也这么干，所以这里不额外付代价。）
-    """
-    import services.font_service as font_service
-    import ui.constants as constants
-
-    assert constants.FONT_FAMILY is font_service.FONT_FAMILY
-    assert str(constants.FONT_FAMILY), "FONT_FAMILY 解出来是空串"
-
-
 # ─── 8. QML 侧可见性（端到端） ──────────────────────────────────
 
 #: 入口对单例桥的实际注册方式（见 `main_qml.register_bridges` 的文档）：

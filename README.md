@@ -6,7 +6,7 @@
 ![Downloads](https://img.shields.io/github/downloads/Janson20/FMCL/total?color=orange)
 ![Stars](https://img.shields.io/github/stars/Janson20/FMCL?style=social)
 
-一个基于 `CustomTkinter` 的**现代 Minecraft 启动器**，集 **版本管理、多模组加载器（Forge/Fabric/NeoForge/Quilt 等8种）、国内 BMCLAPI 镜像加速、模组与整合包管理、服务器一键开服、P2P 陶瓦联机、存档备份、AI Agent 助手、音乐播放器、性能监控悬浮窗、动态主题、成就系统、崩溃分析、安全加密、插件系统、多语言、自动更新** 于一身——用开源的力量，打造真正全能的游戏伴侣。
+一个基于 **Qt Quick（QML，PySide6）** 的**现代 Minecraft 启动器**，集 **版本管理、多模组加载器（Forge/Fabric/NeoForge/Quilt 等8种）、国内 BMCLAPI 镜像加速、模组与整合包管理、服务器一键开服、P2P 陶瓦联机、存档备份、AI Agent 助手、音乐播放器、性能监控悬浮窗、动态主题、成就系统、崩溃分析、安全加密、插件系统、多语言、自动更新** 于一身——用开源的力量，打造真正全能的游戏伴侣。旧 `CustomTkinter` 界面已于 4.2 删除，回滚使用上一版安装包。
 
 ---
 
@@ -232,13 +232,8 @@ FMCL/
 │   ├── multimc_types.py    # MultiMC 数据模型定义
 │   ├── predownload.py      # 资源包预下载
 │   └── verify.py          # 并发文件校验
-├── ui/                    # 经典界面（CustomTkinter）
-│   ├── app.py             # 主窗口（12 Mixin 组合模式）
-│   ├── agent/             # AI 助手界面部分（业务实现在 services/agent/）
-│   ├── windows/           # 15 个独立子窗口
-│   ├── static/            # 静态资源（等待小游戏等）
-│   ├── theme_engine.py    # 动态主题引擎
-│   └── i18n.py            # 国际化（4 语言）
+├── ui/                    # 共享数据：locales/（4 语言）与 static/（等待小游戏）
+│                          # 旧 CustomTkinter 代码已于 4.2 删除
 ├── plugin_manager/        # 插件系统（热加载、权限分级、20+ 钩子点）
 ├── downloader.py          # 多线程/异步下载器
 ├── modrinth.py            # Modrinth API 集成
@@ -255,7 +250,6 @@ FMCL/
 ├── cli_agent.py           # Agent CLI 核心逻辑
 ├── agent_cli.py           # 独立控制台入口
 ├── qml/                   # QML 界面（PySide6）：pages / components / shell / assets
-│                          # 与 ui/ 并存，见 docs/ARCHITECTURE.md
 ├── scripts/               # 构建/发布/安装脚本 + 分层与契约静态检查器
 ├── tests/                 # 测试
 └── docs/                  # 文档
@@ -321,10 +315,10 @@ uv run pytest -q
 ### 构建
 
 ```bash
-make build            # PyInstaller 构建可执行文件（经典界面，单文件 dist/FMCL.exe）
-make build-qml        # QML 界面（目录产物 dist/FMCL-QML/，含 Qt 运行时与 QML 模块）
+make build            # PyInstaller 构建 QML 目录产物 dist/FMCL-QML/（含 Qt 运行时与 QML 模块）
+make build-qml        # 兼容旧命令，等价于 make build
 make build-installer  # Windows NSIS 安装包 (需要 NSIS)
-make build-qml-installer  # QML 界面安装包（装目录产物，与经典版可并存）
+make build-qml-installer  # 同 build-installer，保留旧命令
 make build-dmg        # macOS DMG 磁盘映像 (仅 macOS)
 make build-deb        # Linux DEB 包
 make build-appimage   # Linux AppImage

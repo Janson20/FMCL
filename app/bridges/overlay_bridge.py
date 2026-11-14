@@ -1410,20 +1410,10 @@ class OverlayBridge(QObject):
             active = []
         if HOTKEY_MONITOR_TOGGLE in active:
             return True
-        combo = "ctrl+shift+m"
-        description = ""
-        try:
-            from app.bridges.hotkey_bridge import LEGACY_HOTKEYS
+        from services.monitor_service import MONITOR_HOTKEY
 
-            for item in LEGACY_HOTKEYS:
-                if item.get("name") == HOTKEY_MONITOR_TOGGLE:
-                    combo = str(item.get("combo") or combo)
-                    # LEGACY_HOTKEYS 里的人类可读说明叫 "callback"（历史字段名），
-                    # 兼容一下 "description"，避免描述在设置页里是空的。
-                    description = str(item.get("callback") or item.get("description") or "")
-                    break
-        except Exception as e:  # noqa: BLE001 - 清单读不到就用兜底组合键
-            logger.debug("读取 LEGACY_HOTKEYS 失败，使用兜底组合键: %s", e)
+        combo = MONITOR_HOTKEY
+        description = "切换性能监控悬浮窗"
         try:
             ok = bool(register(HOTKEY_MONITOR_TOGGLE, combo, description))
         except Exception as e:  # noqa: BLE001 - 注册失败只影响热键，不影响按钮

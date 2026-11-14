@@ -27,7 +27,6 @@ from PySide6.QtCore import QObject, QThread, Slot
 from PySide6.QtGui import QGuiApplication
 
 from app.bridges.hotkey_bridge import (
-    LEGACY_HOTKEYS,
     HotkeyBackendUnavailable,
     HotkeyBridge,
     KeyboardHotkeyBackend,
@@ -310,37 +309,3 @@ def test_NullHotkeyBackend_下桥能跑完整个链路不崩():
     assert null_backend.calls[-1][0] == "remove"
     assert bridge.activeKeys == []
 
-
-# ─── 8 组现有热键清单 ───────────────────────────────────────
-
-
-def test_清单里的组合键与_services_里的表逐字一致():
-    """清单会随服务漂移，所以直接拿服务里的唯一真相来对。"""
-    import services.monitor_service as monitor_service
-    import services.music_hotkeys as music_hotkeys
-
-    combos = {item["name"]: item["combo"] for item in LEGACY_HOTKEYS}
-    assert len(LEGACY_HOTKEYS) == 8
-    assert combos["monitor_toggle"] == monitor_service.MONITOR_HOTKEY
-    for action in music_hotkeys.HOTKEY_ACTIONS:
-        assert combos[action] == music_hotkeys.DEFAULT_HOTKEYS[action]
-    # 已知冲突：监控开关与音乐静音是同一个组合键（本轮只记录不修）
-    assert combos["monitor_toggle"] == combos["vol_mute"] == "ctrl+shift+m"
-
-
-def test_清单每一项都写明了注册模块与回调():
-    for item in LEGACY_HOTKEYS:
-        assert item["owner"], item
-        assert item["callback"], item
-        assert item["callback_module"].endswith(
-            (
-                "_toggle_monitor",
-                "_music_hotkey_play_pause",
-                "_music_hotkey_prev",
-                "_music_hotkey_next",
-                "_music_hotkey_stop",
-                "_music_hotkey_vol_up",
-                "_music_hotkey_vol_down",
-                "_music_hotkey_vol_mute",
-            )
-        ), item

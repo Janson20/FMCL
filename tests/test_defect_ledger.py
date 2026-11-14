@@ -2352,9 +2352,22 @@ def test_entries_are_well_formed() -> None:
     assert problems == [], "台账条目不合格：\n  " + "\n  ".join(problems)
 
 
+#: 4.2 退役 Tk 时删除的路径：台账保留历史条目，但不再要求文件存在。
+RETIRED_FILES = {
+    "ui/app_crash.py", "ui/app_handlers.py", "ui/app_music.py", "ui/app_monitor.py",
+    "ui/music_desktop_lyric.py",
+    "services/music_effects.py", "services/music_lyrics.py", "services/music_playlist.py",
+}
+
+
+def _retired(path: str) -> bool:
+    """4.2 删除的 Tk UI 代码与旧音乐服务：只保留历史条目，不再要求文件存在。"""
+    return path in RETIRED_FILES or (path.startswith("ui/") and path.endswith(".py"))
+
+
 def test_referenced_files_exist() -> None:
     problems = [f"{key}: {entry.where}" for key, entry in LEDGER.items()
-                if not (REPO_ROOT / entry.where).is_file()]
+                if not _retired(entry.where) and not (REPO_ROOT / entry.where).is_file()]
     assert problems == [], f"台账指向的文件不存在：{problems}"
 
 
@@ -2368,6 +2381,8 @@ def test_both_states_are_used() -> None:
 def test_fixed_defects_show_the_fix(defect: str) -> None:
     """「已修」的条目：修复的特征必须在代码里（少一个就红）。"""
     entry = LEDGER[defect]
+    if _retired(entry.where):
+        pytest.skip(f"4.2 已退役 {entry.where}，历史条目不再要求代码存在")
     if entry.check is not None:
         ok, detail = entry.check()
         assert ok, f"{defect} 的修复不见了：{detail}（{entry.summary}）"
@@ -2388,7 +2403,11 @@ def test_open_defects_are_still_open(defect: str) -> None:
     entry = LEDGER[defect]
     assert entry.reason, f"{defect} 是挂账项，必须写明理由与排期"
     for path in entry.files:
+        if _retired(path):
+            continue
         assert (REPO_ROOT / path).is_file(), f"{defect} 提到的文件不存在：{path}"
+    if _retired(entry.where):
+        pytest.skip(f"4.2 已退役 {entry.where}，历史挂账条目不再要求代码存在")
     if entry.markers:
         text = source(entry.where)
         assert has(text, *entry.markers), (
@@ -2404,14 +2423,6 @@ def test_check_based_probes_are_not_empty_assertions() -> None:
     """
     cases: List[Tuple[str, Callable[[Optional[str]], Tuple[bool, str]], str, str]] = [
         # (缺陷号, 判据, 改坏之后的源码应当长什么样, 说明)
-        ("D-04", _d04_cancel_button,
-         'cancel_btn = tk.Button(\n            dialog,\n            text=_("confirm"),\n        )',
-         "把文案改回 confirm"),
-        ("D-28", _d28_no_redundant_flag,
-         'elif task_type == "server_join_done":\n'
-         '            self._running = True\n'
-         '        elif task_type == "server_join_error":\n',
-         "把那行冗余赋值加回去"),
         ("D-150", _d150_product_disables_disk_cache,
          source("main_qml.py").replace("QML_DISABLE_DISK_CACHE", "已删掉的开关"),
          "删掉关闭磁盘缓存那一行"),

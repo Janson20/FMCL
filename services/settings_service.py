@@ -781,8 +781,8 @@ class SettingsService(Service):
         """拉起新进程的命令行。
 
         * 打包态：`[sys.executable]`（旧实现 `subprocess.Popen([script])`）；
-        * 开发态：`sys.orig_argv` 原样重放（这样 `main.py --ui qml` 与
-          `main_qml.py` 两种入口都能正确重启）；拿不到时退回
+        * 开发态：`sys.orig_argv` 原样重放（这样 `main.py` 与 `main_qml.py`
+          两种入口都能正确重启）；拿不到时退回
           `[sys.executable, <仓库根>/main_qml.py]`。
         """
         if getattr(sys, "frozen", False):

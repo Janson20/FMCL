@@ -2,7 +2,7 @@
 
 把 server.properties 里的键整理成「人话」：分类、控件类型、取值范围与默认值。
 每个配置项的名称与说明都通过 i18n 键（``scfg_<id>_n`` / ``scfg_<id>_d``）读取，
-渲染逻辑见 :mod:`ui.windows.server_config_editor`。
+渲染逻辑见 ``qml/pages/servers/ServerConfigPage.qml``（4.2 后 QML 是唯一界面）。
 """
 
 from typing import Any, Dict, List, Optional

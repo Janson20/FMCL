@@ -7,17 +7,15 @@ QML 侧的桥与服务表全是 `importlib.import_module("模块名")` 的**动�
 PyInstaller 的静态分析看不见它们。漏收一条的后果是"打包产物一启动就崩"，而源码态与全部单元
 测试都照常绿 —— 这是最难在开发机上发现的一类回归，所以要用闸门钉住。
 
-另一件被钉住的事：**默认后端必须还是 `tk`**。阶段 3 期间 QML 的 12 个页面还是占位壳，
-把默认切成 qml 等于把空页面发给用户（阶段 4.1 才切）。
+阶段 4.2 删除 Tk 后只剩 QML 后端：`build.spec` 默认产出 `FMCL-QML`，不再有单文件 Tk 产物。
 
 ## 覆盖
 
 1. 后端表与默认值；
 2. 动态导入覆盖（对着三张真源表逐条核对）；
-3. tk 后端与迁移前的 `build.spec` 逐条一致（entry / onefile / excludes / datas 目标 / 顶层依赖）；
-4. qml 后端的形态（entry、onedir、不再排 PySide6、QML 数据文件的目标名）；
-5. `build.spec` 真的把计划用上了（用假 PyInstaller 符号 exec 一遍 spec，检查 Analysis 参数、
-   裁剪图案是否生效、EXE/COLLECT 与 onefile 是否配对）。
+3. qml 后端的形态（entry、onedir、不再排 PySide6、QML 数据文件的目标名）；
+4. `build.spec` 真的把计划用上了（用假 PyInstaller 符号 exec 一遍 spec，检查 Analysis 参数、
+   裁剪图案是否生效、COLLECT 是否产出运行目录）。
 """
 
 from __future__ import annotations
@@ -46,27 +44,23 @@ from scripts.build_plan import (  # noqa: E402
 # ─── 1. 后端表与默认值 ─────────────────────────────────────────
 
 
-def test_backend_table_is_tk_and_qml() -> None:
-    assert UI_BACKENDS == ("tk", "qml")
+def test_backend_table_is_qml_only() -> None:
+    assert UI_BACKENDS == ("qml",)
     assert set(BACKENDS) == set(UI_BACKENDS)
 
 
-def test_default_backend_stays_tk_until_phase_4() -> None:
-    """默认后端必须是 tk（阶段 4.1 才改）。
-
-    这条红了只有两种可能：① 有人提前把默认切到 qml（QML 页面还是占位壳，等于发空页面）；
-    ② 阶段 4.1 真的开做了 —— 那就连这条注释一起改，别只改断言。
-    """
-    assert DEFAULT_UI_BACKEND == "tk"
-    assert normalize_backend(None) == "tk"
-    assert normalize_backend("不认识的") == "tk"
-    assert normalize_backend(3) == "tk"  # type: ignore[arg-type]
+def test_default_backend_is_qml_after_phase_4() -> None:
+    """4.1 起默认必须是 qml；非法值也回落 qml。"""
+    assert DEFAULT_UI_BACKEND == "qml"
+    assert normalize_backend(None) == "qml"
+    assert normalize_backend("不认识的") == "qml"
+    assert normalize_backend(3) == "qml"  # type: ignore[arg-type]
 
 
 def test_normalize_backend_accepts_case_and_padding() -> None:
     assert normalize_backend("qml") == "qml"
     assert normalize_backend(" QML ") == "qml"
-    assert normalize_backend("Tk") == "tk"
+    assert normalize_backend("Tk") == "qml"
 
 
 # ─── 2. 动态导入覆盖 ───────────────────────────────────────────
@@ -103,59 +97,8 @@ def test_dynamic_import_list_has_no_phantom_entries() -> None:
     assert not phantom, f"动态导入清单里有真源表里不存在的条目：{phantom}"
 
 
-def test_qml_backend_keeps_qt_and_tk_backend_does_not() -> None:
-    assert "PySide6" in plan("tk")["excludes"]
+def test_qml_backend_keeps_qt() -> None:
     assert "PySide6" not in plan("qml")["excludes"]
-
-
-# ─── 3. tk 后端与迁移前一致 ────────────────────────────────────
-
-
-def test_tk_backend_is_the_single_file_entry() -> None:
-    tk = plan("tk")
-    assert tk["entry"] == "main.py"
-    assert tk["onefile"] is True
-    assert tk["product_name"] == "FMCL"
-    assert tk["with_qt"] is False
-    assert tk["filter_collected"] is False
-
-
-def test_tk_backend_top_level_dependencies_are_frozen() -> None:
-    """迁移前 `build.spec` 的顶层依赖包（漏一个就是少一个运行期依赖）。"""
-    frozen = {
-        "minecraft_launcher_lib",
-        "forgepy",
-        "requests",
-        "logzero",
-        "tqdm",
-        "keyboard",
-        "tkinter",
-        "PIL",
-        "customtkinter",
-        "orjson",
-        "urllib3",
-        "rarfile",
-        "markdown",
-        "tkinterweb",
-        "_build_secrets",
-        # 语音输入栈
-        "sounddevice",
-        "_sounddevice_data",
-        "numpy",
-        "sentencepiece",
-        "onnxruntime",
-        "services.voice_service",
-    }
-    declared = set(plan("tk")["hidden_imports"])
-    missing = sorted(frozen - declared)
-    assert not missing, f"tk 后端的 hiddenimports 少了迁移前就有的包：{missing}"
-
-
-def test_tk_backend_data_targets_are_frozen() -> None:
-    targets = sorted(dest for _, dest in plan("tk")["datas"])
-    assert "." in targets, "图标 / pyproject / 用户协议应放在产物根"
-    assert os.path.join("ui", "locales") in targets, "语言包必须进产物（tr_bridge 按 ui/locales 找）"
-    assert os.path.join("ui", "static") in targets
 
 
 # ─── 4. qml 后端的形态 ─────────────────────────────────────────
@@ -223,8 +166,8 @@ def test_trim_never_touches_our_own_qml_files() -> None:
     assert not dropped, f"这些是 App 自己的 QML，绝不能被裁：{dropped}"
 
 
-def test_unknown_backend_falls_back_to_tk_plan() -> None:
-    assert plan("不认识的")["entry"] == plan("tk")["entry"]
+def test_unknown_backend_falls_back_to_qml_plan() -> None:
+    assert plan("不认识的")["entry"] == plan("qml")["entry"]
 
 
 # ─── 5. build.spec 真的用上了计划 ──────────────────────────────
@@ -274,7 +217,7 @@ class _FakeCollect:
 def _run_spec(monkeypatch: pytest.MonkeyPatch, backend: Optional[str]) -> Tuple[_FakeAnalysis, Dict[str, Any]]:
     """在假 PyInstaller 环境下 exec 一遍真正的 `build.spec`，返回主 Analysis 与调用记录。
 
-    `backend=None` 表示**不设** `UI_BACKEND`（验默认回落 tk）。
+    `backend=None` 表示**不设** `UI_BACKEND`（验默认回落 qml）。
     """
     _FakeAnalysis.instances = []
     _FakeExe.calls = []
@@ -327,18 +270,9 @@ def test_spec_trims_collected_qt_payload(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "app_qml" in data_names, "本项目自己的 QML 不能被裁掉"
 
 
-def test_spec_keeps_tk_backend_a_single_file(monkeypatch: pytest.MonkeyPatch) -> None:
-    analysis, calls = _run_spec(monkeypatch, "tk")
-
-    assert analysis.scripts == ["main.py"]
-    assert "PySide6" in analysis.excludes
-    assert not calls["collect"], "tk 后端必须还是单文件（今天的发布形态）"
-    assert calls["exe"][0]["kwargs"]["name"] == "FMCL"
-    assert calls["exe"][0]["kwargs"].get("exclude_binaries") in (None, False)
-
-
-def test_spec_defaults_to_tk_when_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """没设 `UI_BACKEND` 时 spec 必须按 tk 构建（与今天的行为一致）。"""
+def test_spec_defaults_to_qml_when_env_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """没设 `UI_BACKEND` 时 spec 按默认 qml 构建。"""
     analysis, calls = _run_spec(monkeypatch, None)
-    assert analysis.scripts == ["main.py"]
-    assert not calls["collect"], "没设后端时不该产出目录产物"
+    assert analysis.scripts == ["main_qml.py"]
+    assert calls["collect"], "没设后端时应产出 QML 目录产物"
+    assert calls["collect"][0]["kwargs"]["name"] == "FMCL-QML"

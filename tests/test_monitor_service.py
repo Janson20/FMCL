@@ -158,28 +158,3 @@ class TestDependencyFlags:
             _ = svc.definitely_not_a_flag
 
 
-class TestUiSideNoLongerDuplicatesLogic:
-    def test_ui_file_no_longer_defines_the_moved_logic(self):
-        src = (REPO_ROOT / "ui" / "app_monitor.py").read_text(encoding="utf-8")
-        assert "class _GPUDetector" not in src, "GPU 检测器还在界面文件里，搬家没生效"
-        assert "def _format_bytes" not in src, "格式化辅助还在界面文件里"
-        assert "def _format_net_speed" not in src
-
-    def test_ui_file_keeps_the_interface_parts(self):
-        src = (REPO_ROOT / "ui" / "app_monitor.py").read_text(encoding="utf-8")
-        assert "class PerformanceMonitorWindow" in src, "悬浮窗类不该被搬走"
-        assert "class MonitorMixin" in src, "Mixin 不该被搬走"
-        assert "_monitor_svc" in src, "界面侧应改为引用服务"
-
-    def test_ui_file_no_longer_touches_moved_symbols_directly(self):
-        """界面侧不得再直接引用被搬走的私有符号（否则一会儿用服务一会儿用老名，容易漂移）。"""
-        src = (REPO_ROOT / "ui" / "app_monitor.py").read_text(encoding="utf-8")
-        for stale in ("_psutil_available", "_keyboard_available", "_keyboard_monitor",
-                      "_GPUDetector", "_gpu_detector", "_gpu_cache", "_gpu_last_sample"):
-            # 允许出现在赋值/注释里（例如 _format_net_speed = _monitor_svc._format_net_speed）
-            uses = [
-                ln for ln in src.splitlines()
-                if re.search(rf"(?<![\w.]){re.escape(stale)}(?![\w])", ln)
-                and not ln.strip().startswith("#")
-            ]
-            assert uses == [], f"界面侧仍在直接使用 {stale}: {uses[:3]}"

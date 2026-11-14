@@ -26,13 +26,11 @@ self._parent.after(0, ...) 把活儿切回 Qt 主线程，然后才碰 winsdk �
 ## 为什么 _winsdk_available / _winsdk_import_error 住在这里
 
 探测块只有一个（platform.system() == "windows" → try import winsdk），
-搬到这里之后它成为唯一真相：SMTC 自己读它，services/music_audio.py 的
-transcode_audio_to_wav 也 from services.music_smtc import _winsdk_available
-取一份本模块绑定来读（于是 services.music_audio._winsdk_available 是转码
-真正读的那个名字，测试补丁点见 tests/test_music_fallback.py 顶部说明）。
+搬到这里之后它成为唯一真相；旧 Tk 的 music_audio 转码链已于 4.2 删除，
+QML 侧只通过 MusicBridge 使用本模块。
 
 公开名去掉了前导下划线（_SMTCController → SMTCController），
-ui/app_music.py 里保留 _SMTCController 别名，旧名不会突然消失。
+旧 Tk 界面里的同名别名随 4.2 一起退役。
 """
 
 from __future__ import annotations

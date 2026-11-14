@@ -85,68 +85,6 @@ logger = logging.getLogger(__name__)
 #: 契约第四节冻结的 QML 注册名（由 2.2 入口 ``setContextProperty`` 注册）。
 QML_NAME = "Hotkeys"
 
-#: 现有 8 组热键的机器可读清单（组合键 + 归属模块 + 回调语义），阶段 3 迁移时按它接线。
-#: 键的含义：name/combo/owner/callback/callback_module。
-LEGACY_HOTKEYS: Tuple[Dict[str, str], ...] = (
-    {
-        "name": "monitor_toggle",
-        "combo": "ctrl+shift+m",
-        "owner": "services/monitor_service.py:MONITOR_HOTKEY + HotkeyManager",
-        "callback": "显示/隐藏性能监控悬浮窗",
-        "callback_module": "ui/app_monitor.py:_toggle_monitor",
-    },
-    {
-        "name": "play_pause",
-        "combo": "ctrl+shift+space",
-        "owner": "services/music_hotkeys.py:DEFAULT_HOTKEYS",
-        "callback": "播放/暂停切换",
-        "callback_module": "ui/app_music.py:_music_hotkey_play_pause",
-    },
-    {
-        "name": "prev",
-        "combo": "ctrl+shift+left",
-        "owner": "services/music_hotkeys.py:DEFAULT_HOTKEYS",
-        "callback": "上一首",
-        "callback_module": "ui/app_music.py:_music_hotkey_prev",
-    },
-    {
-        "name": "next",
-        "combo": "ctrl+shift+right",
-        "owner": "services/music_hotkeys.py:DEFAULT_HOTKEYS",
-        "callback": "下一首",
-        "callback_module": "ui/app_music.py:_music_hotkey_next",
-    },
-    {
-        "name": "stop",
-        "combo": "ctrl+shift+down",
-        "owner": "services/music_hotkeys.py:DEFAULT_HOTKEYS",
-        "callback": "停止播放",
-        "callback_module": "ui/app_music.py:_music_hotkey_stop",
-    },
-    {
-        "name": "vol_up",
-        "combo": "ctrl+shift+up",
-        "owner": "services/music_hotkeys.py:DEFAULT_HOTKEYS",
-        "callback": "音量 +5（VOLUME_HOTKEY_STEP）",
-        "callback_module": "ui/app_music.py:_music_hotkey_vol_up",
-    },
-    {
-        "name": "vol_down",
-        "combo": "ctrl+shift+page down",
-        "owner": "services/music_hotkeys.py:DEFAULT_HOTKEYS",
-        "callback": "音量 -5（VOLUME_HOTKEY_STEP）",
-        "callback_module": "ui/app_music.py:_music_hotkey_vol_down",
-    },
-    {
-        "name": "vol_mute",
-        "combo": "ctrl+shift+m",
-        "owner": "services/music_hotkeys.py:DEFAULT_HOTKEYS",
-        "callback": "静音切换",
-        "callback_module": "ui/app_music.py:_music_hotkey_vol_mute",
-    },
-)
-
-
 class HotkeyBackendUnavailable(RuntimeError):
     """后端不可用（``keyboard`` 缺失、无桌面、无权限）。桥会接住它并降级。"""
 
@@ -497,7 +435,6 @@ __all__ = [
     "HotkeyBridge",
     "HotkeyEntry",
     "KeyboardHotkeyBackend",
-    "LEGACY_HOTKEYS",
     "NullHotkeyBackend",
     "QML_NAME",
 ]

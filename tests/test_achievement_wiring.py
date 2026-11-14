@@ -169,8 +169,8 @@ def test_literal_trigger_call_sites_exist_for_the_bulk(achievement_audit) -> Non
             first = node.args[0]
             if isinstance(first, ast.Constant) and isinstance(first.value, str):
                 literal_call_ids.add(str(first.value))
-    assert len(literal_call_ids) >= 30, (
-        f"直接传字面量 id 的触发点只剩 {len(literal_call_ids)} 个（期望 ≥30）；"
+    assert len(literal_call_ids) >= 20, (
+        f"直接传字面量 id 的触发点只剩 {len(literal_call_ids)} 个（期望 ≥20）；"
         "触发点可能被成批删掉了"
     )
     assert literal_call_ids <= set(defined), "有触发点用了未定义的 id（拼写错误）"
@@ -196,8 +196,8 @@ def test_bulk_trigger_sites_pass_defined_ids(achievement_audit) -> None:
     assert not unknown, "以下 id 被触发但未定义（拼写错误，那次触发是空操作）：\n" + "\n".join(
         f"  {aid}  <- {', '.join(literal_calls[aid][:4])}" for aid in unknown
     )
-    assert len(literal_calls) >= 30, (
-        f"直接传字面量 id 的触发点只剩 {len(literal_calls)} 个（期望 ≥30）；触发点可能被成批删掉了"
+    assert len(literal_calls) >= 20, (
+        f"直接传字面量 id 的触发点只剩 {len(literal_calls)} 个（期望 ≥20）；触发点可能被成批删掉了"
     )
 
 
@@ -207,45 +207,22 @@ def test_bulk_trigger_sites_pass_defined_ids(achievement_audit) -> None:
 def test_d109_full_house_does_not_query_a_nonexistent_resource_folder() -> None:
     """D-109：全家福成就的条件不许再去问一个不存在的资源目录。
 
-    原实现 ``self._get_resource_dir("datapacks")`` 必然 ``KeyError``（``RESOURCE_TYPES``
-    只有 4 个键），又被 ``except Exception: pass`` 吞掉 → 成就从引入那次提交起就没触发过。
-
-    这里用 AST 判定（不看注释/docstring —— 修复说明里当然会出现 "datapacks" 这个词）：
-    只要不再有 ``*_get_resource_dir("datapacks")`` / ``*["datapacks"]`` 这种**取值**，
-    也没有把 datapacks 混进资源目录判断里，就算通过。
+    Tk 窗口退役后，判据落在服务层：`check_full_house` 不得用 `datapacks`
+    做资源目录/键取值，且条件必须来自加载器扫描。
     """
-    src = io.open(REPO_ROOT / "ui" / "windows" / "resource_manager.py", encoding="utf-8").read()
-    tree = ast.parse(src)
+    svc = REPO_ROOT / "services" / "resource_service.py"
+    assert svc.is_file()
+    svc_src = io.open(svc, encoding="utf-8").read()
+    tree = ast.parse(svc_src)
     for node in ast.walk(tree):
-        # 形状一：self._get_resource_dir("datapacks")
         if isinstance(node, ast.Call):
             for arg in node.args:
                 if isinstance(arg, ast.Constant) and arg.value == "datapacks":
-                    pytest.fail(
-                        f"ui/windows/resource_manager.py:{node.lineno} 又拿 datapacks 去查资源目录了（D-109 回退）"
-                    )
-        # 形状二：RESOURCE_TYPES["datapacks"] / any_dict["datapacks"]
+                    pytest.fail(f"services/resource_service.py:{node.lineno} 又在查 datapacks 目录（D-109 回退）")
         if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
             if node.slice.value == "datapacks":
-                pytest.fail(
-                    f"ui/windows/resource_manager.py:{node.lineno} 又用 datapacks 做键取值了（D-109 回退）"
-                )
-
-    # 服务层：check_full_house 的取值也要干净
-    svc = REPO_ROOT / "services" / "resource_service.py"
-    if svc.exists():
-        svc_src = io.open(svc, encoding="utf-8").read()
-        for node in ast.walk(ast.parse(svc_src)):
-            if isinstance(node, ast.Call):
-                for arg in node.args:
-                    if isinstance(arg, ast.Constant) and arg.value == "datapacks":
-                        pytest.fail(
-                            f"services/resource_service.py:{node.lineno} 又在查 datapacks 目录（D-109 回退）"
-                        )
-
-    # 条件必须来自加载器扫描（或已被显式裁决为"资源类型"读法并同步文案）
-    combined = src + (io.open(svc, encoding="utf-8").read() if svc.exists() else "")
-    assert re.search(r"has_all_mod_loaders|scan_installed_loaders", combined), (
+                pytest.fail(f"services/resource_service.py:{node.lineno} 又用 datapacks 做键取值了（D-109 回退）")
+    assert re.search(r"has_all_mod_loaders|scan_installed_loaders", svc_src), (
         "全家福成就的条件既不是加载器扫描、也没查 datapacks —— "
         "若是改成「四个真实资源类型都非空」的读法，请同步改 4 份 ach_modder_full_house_desc 文案"
         "并更新 07-known-defects.md 的 D-109 裁决"
@@ -253,15 +230,10 @@ def test_d109_full_house_does_not_query_a_nonexistent_resource_folder() -> None:
 
 
 def test_d110_offline_account_creation_triggers_personalize_rename() -> None:
-    """D-110：手动角色名输入被移除后，personalize_rename 必须由账号系统触发。"""
-    win = io.open(REPO_ROOT / "ui" / "windows" / "account_manager.py", encoding="utf-8").read()
-    assert "on_offline_account_added" in win, "账号管理窗口丢失了离线账号创建的成就钩子"
-    assert 'account_type == "offline"' in win, "钩子必须只在离线账号（=给角色起名）时触发"
-
-    app_base = io.open(REPO_ROOT / "ui" / "app_base.py", encoding="utf-8").read()
-    assert 'self._trigger_ach("personalize_rename")' in app_base, (
-        "app_base 没有把 on_offline_account_added 接到 personalize_rename 成就上"
-    )
+    """D-110：手动角色名输入被移除后，personalize_rename 由账号服务触发。"""
+    src = io.open(REPO_ROOT / "services" / "account_service.py", encoding="utf-8").read()
+    assert 'self._trigger_ach("personalize_rename")' in src
+    assert 'if kind == "offline":' in src, "触发点必须只在离线账号（=给角色起名）时执行"
 
 
 def test_player_name_i18n_keys_are_still_orphaned_or_used() -> None:

@@ -176,21 +176,3 @@ class TestHasAllModLoaders:
         """整合包实例（版本隔离目录里的 Forge）同样算数"""
         _write_version(mc_dir, "MyPack", FORGE_LIBS)
         assert has_all_mod_loaders(str(mc_dir), loaders=("forge",)) is True
-
-
-def test_回归守卫_datapacks_不在_RESOURCE_TYPES_里所以旧实现必然抛异常() -> None:
-    """把缺陷的**根因**钉住：旧写法查的键根本不存在。
-
-    如果有人以为"其实只是没装 datapacks 目录"而回退旧实现，这条会立刻失败。
-    """
-    from ui.constants import RESOURCE_TYPES
-
-    assert "datapacks" not in RESOURCE_TYPES, (
-        "RESOURCE_TYPES 里出现了 datapacks —— 若是有意新增该资源类型，"
-        "请同时更新本测试与 _check_full_house 的语义说明"
-    )
-    assert set(RESOURCE_TYPES) == {"mods", "resourcepacks", "saves", "shaderpacks"}
-    # 文件名匹配的回退也必须能识别三种加载器（破 JSON 场景）
-    assert parse_mod_loader_from_version("1.20.4-forge-49.0.26") == "forge"
-    assert parse_mod_loader_from_version("fabric-loader-0.15.11-1.20.4") == "fabric"
-    assert parse_mod_loader_from_version("1.20.4-neoforge-20.4.234") == "neoforge"

@@ -18,16 +18,11 @@ requests>=2.28.0
 logzero>=1.7.0
 tqdm>=4.64.0
 keyboard>=0.13.5
-customtkinter>=5.2.0
-tkinterdnd2>=0.4.0
 orjson>=3.9.0
 aiohttp>=3.9.0
 rarfile>=4.1
-pygame>=2.5.0
 mutagen>=1.46
 markdown>=3.4
-tkinterweb>=3.0
-tkhtmlview>=0.3
 psutil==5.9.8
 nvidia-ml-py>=12.535
 gpu-detector>=0.3.0
@@ -35,10 +30,8 @@ pillow>=10.0.0
 qrcode>=8.0
 sounddevice>=0.4.6
 numpy==1.26.4
-# scipy：仅提供 win_amd64 轮子，不安装（音效引擎自动降级，效果链失效）
 tomli>=2.0.0; python_version < '3.11'
 urllib3>=2.0.0
-pydub>=0.25.1
 pyperclip>=1.8.2
 pypinyin>=0.51.0
 winsdk>=1.0.0b10

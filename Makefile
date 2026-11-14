@@ -14,16 +14,14 @@ install-dev: ## 安装开发依赖
 	pip install -r requirements-dev.txt
 	npm install
 
-build: ## 构建可执行文件 (PyInstaller, 经典界面)
+build: ## 构建 QML 目录产物 (PyInstaller，4.2 起唯一产物)
 	pyinstaller build.spec --noconfirm
 
-build-qml: ## 构建 QML 界面的目录产物 (PyInstaller, UI_BACKEND=qml)
-	UI_BACKEND=qml pyinstaller build.spec --noconfirm
+build-qml: build ## 兼容旧命令：QML 目录产物
 
-build-installer: build ## 构建 Windows 安装包 (需要 NSIS)
-	makensis /DVERSION=$(VERSION) installer.nsi
+build-installer: build-qml-installer ## 构建 Windows 安装包 (需要 NSIS)
 
-build-qml-installer: build-qml ## 构建 QML 界面安装包 (目录产物; 需要 NSIS)
+build-qml-installer: build ## 构建 QML 界面安装包 (目录产物; 需要 NSIS)
 	makensis /DVERSION=$(VERSION) /DQML_BUILD installer.nsi
 
 build-dmg: build ## 构建 macOS DMG (仅 macOS)

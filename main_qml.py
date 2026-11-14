@@ -16,10 +16,10 @@
 
 ## 三条硬约束
 
-1. **不 import `ui/`**：`ui/__init__.py` 会拉起 `customtkinter`（阶段 0 第 10.4 节实测踩过）。
-2. **复用而不是重写**：CLI 解析、登录模式、Agent CLI 模式、日志初始化、错误弹窗文案
-   全部从 `main.py` 导入复用 —— `main.py` 的顶层 import 只有标准库 + logzero + config，
-   所以 import 它是安全的（`customtkinter` 在 `main()` 函数体内才导入）。
+1. **不 import 旧 Tk 界面代码**：4.2 已删除 `ui/` 下的 Python 模块；现在 `ui/` 只剩
+   `locales/` 与 `static/` 两份共享数据，不会拉起任何 GUI 栈。
+2. **复用而不是重写**：CLI 解析、登录模式、Agent CLI 模式、日志初始化全部从 `main.py`
+   导入复用 —— `main.py` 的顶层 import 只有标准库 + logzero + config。
    迁移红线 2：业务逻辑只搬一次，入口不许出现第二份实现。
 3. **注册容错**：某个桥模块缺失/导入报错时只记警告并继续，不能因此起不来 ——
    阶段 2 是分四条支线并行落地的，入口必须能在"桥只到齐一半"时启动，

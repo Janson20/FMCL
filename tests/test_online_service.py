@@ -55,7 +55,6 @@ from services.online_service import (
     parse_lobby_code,
     parse_mc_port,
 )
-from ui.app_online import OnlineTabMixin, _get_online_service
 
 
 # ─── 假对象（形状对齐真实对手方，但绝不碰网络/进程）─────────────
@@ -161,28 +160,6 @@ def test_service_instantiates_without_app_context():
     assert service.parse_mc_port("25565") == (25565, "25565")
     assert service.parse_lobby_code("nope") is None
     assert isinstance(service.create_manager(Path("."), relay_nodes=[]), EasyTierManager)
-
-
-def test_service_works_through_module_level_getter():
-    """界面侧的惰性取服务：无 context 时自造并缓存，有 context 时优先用它注册的那个。"""
-
-    class FakeCtx:
-        def __init__(self, service):
-            self._service = service
-
-        def try_get(self, name):
-            return self._service if name == "online" else None
-
-    owner = type("Owner", (), {})()
-    first = _get_online_service(owner)
-    assert isinstance(first, OnlineService)
-    assert _get_online_service(owner) is first, "应缓存到 owner 上，而不是每次新建"
-
-    registered = OnlineService()
-    with_ctx = type("Owner2", (), {"context": FakeCtx(registered)})()
-    assert _get_online_service(with_ctx) is registered
-
-    assert _get_online_service(None).name == "online", "owner 为 None 时也要能用"
 
 
 # ═══ EasyTier 输出（日志）解析 ═════════════════════════════
@@ -776,94 +753,6 @@ def test_scaffolding_client_fetch_profiles_only_notifies_on_change():
 )
 def test_parse_mc_port(raw, expected):
     assert parse_mc_port(raw) == expected
-
-
-# ═══ 界面薄委托与别名语义 ══════════════════════════════════
-
-
-def test_ui_reexports_identical_objects():
-    """``ui.app_online.X is services.online_service.X``：旧路径打补丁/做 is 判定与搬家前一致。"""
-    import services.online_service as svc
-    import ui.app_online as ui_mod
-
-    for name in (
-        "EasyTierManager", "ScaffoldingServer", "ScaffoldingClient", "LobbyCodeGenerator",
-        "LobbyInfo", "LobbyState", "McPing", "McBroadcastSimulator", "BroadcastListener",
-        "GameWatcher", "TcpPortForwarder", "OnlineService",
-    ):
-        assert getattr(ui_mod, name) is getattr(svc, name), name
-    assert ui_mod.EASYTIER_VERSION == svc.EASYTIER_VERSION == EASYTIER_VERSION
-    assert ui_mod.LOOPBACK == svc.LOOPBACK == LOOPBACK
-
-
-def test_ui_mixin_kept_every_public_method():
-    """公开方法名与签名一律不变（薄委托只换内部实现）。"""
-    expected = {
-        "_build_online_tab_content", "_build_online_unsupported_tab", "_init_online_state",
-        "_build_online_control_panel", "_build_online_env_section", "_build_online_discover_section",
-        "_set_lobby_state", "_on_discover_worlds", "_on_world_discovered", "_build_online_create_section",
-        "_build_online_join_section", "_build_online_lobby_section", "_build_online_tips_section",
-        "_build_online_compat_section", "_build_online_output_panel", "_append_online_log",
-        "_set_online_status", "_update_env_easytier_label", "_run_online_thread", "_get_display_name",
-        "_check_logged_in", "_get_login_error", "_start_member_poll", "_poll_members_loop",
-        "_stop_member_poll", "_refresh_members", "_on_members_changed", "_on_server_shutdown_detected",
-        "_on_setup_environment", "_on_create_lobby", "_on_host_network_ready", "_on_host_game_stopped",
-        "_on_join_lobby", "_setup_guest_connection", "_on_leave_lobby", "_reset_lobby_state",
-        "_on_easytier_exited", "_on_copy_code", "_online_service",
-    }
-    actual = {n for n in vars(OnlineTabMixin) if not n.startswith("__")}
-    assert expected <= actual, f"丢了方法：{sorted(expected - actual)}"
-
-
-def test_ui_refresh_members_renders_through_service():
-    """``_refresh_members`` 的可见文本与改造前一致（含延迟行与『无成员』占位）。"""
-
-    class FakeLabel:
-        def __init__(self):
-            self.text = None
-
-        def configure(self, **kw):
-            self.text = kw["text"]
-
-    class FakeClient:
-        def __init__(self, profiles, latency=0, connected=True):
-            self._profiles, self.latency_ms, self.is_connected = profiles, latency, connected
-
-        @property
-        def profiles(self):
-            return list(self._profiles)
-
-    def render(is_host, profiles, latency=0, connected=True):
-        label = FakeLabel()
-        fake = type("FakeSelf", (), {})()
-        fake._is_host = is_host
-        fake._scf_client = FakeClient(profiles, latency, connected)
-        fake._et_manager = type("M", (), {"_scf_server": type("S", (), {"all_profiles": profiles})()})()
-        fake._online_members_label = label
-        OnlineTabMixin._refresh_members(fake)
-        return label.text
-
-    host_view = render(True, [
-        {"name": "Host", "vendor": "FMCL 1", "kind": "HOST"},
-        {"name": "Guest", "vendor": "HMCL", "kind": "GUEST"},
-    ])
-    assert host_view == "👑 Host · FMCL 1\n👤 Guest · HMCL"
-
-    assert render(False, [{"name": "Host", "vendor": "v", "kind": "HOST"}], latency=42).endswith("\n⏱ 42ms")
-    from ui.i18n import _ as tr
-
-    assert render(False, [], latency=0) == tr("online_no_members"), "空列表要落到『无成员』文案"
-    assert render(False, [], latency=0, connected=False) is None, "未连接时早退，不写标签"
-
-
-def test_ui_set_lobby_state_delegates_to_state_machine():
-    fake = type("FakeSelf", (), {})()
-    OnlineTabMixin._set_lobby_state(fake, LobbyState.IDLE)
-    assert fake._lobby_state is LobbyState.IDLE, "首次调用要先补一个 IDLE 兜底"
-    OnlineTabMixin._set_lobby_state(fake, LobbyState.CONNECTED)
-    assert fake._lobby_state is LobbyState.CONNECTED
-    OnlineTabMixin._set_lobby_state(fake, LobbyState.CONNECTED)
-    assert fake._lobby_state is LobbyState.CONNECTED
 
 
 def test_factories_return_the_moved_classes():

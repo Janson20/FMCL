@@ -282,11 +282,6 @@ class TestBothUisUseTheSameSource:
                 out.append(line)
         return "\n".join(out)
 
-    def test_tk_handler_polls_the_callback_key(self) -> None:
-        body = self._body(REPO_ROOT / "ui" / "app_handlers.py", "def _watch_game_stdout", "def _test_connection")
-        assert '"window_detected"' in body, "Tk 侧没有轮询核心层的检测结果"
-        assert "for raw_line in proc.stdout" not in body, "Tk 侧又回去抢管道了"
-
     def test_service_polls_the_launcher(self) -> None:
         body = self._body(REPO_ROOT / "services" / "game_service.py", "def _watch_stdout(", "def _watch_stdout_directly")
         assert "launcher.window_detected()" in body

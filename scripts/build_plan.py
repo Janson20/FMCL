@@ -4,30 +4,22 @@
 ## 为什么把逻辑从 spec 里搬出来
 
 `build.spec` 是被 PyInstaller 用 `exec` 执行的脚本，测试 import 不了它，改错了只能"打个包
-试试"。而两个后端（tk / qml）的差异恰好属于**最容易悄悄错**的那一类：QML 侧的桥与服务表
-全是 `importlib.import_module("模块名")` 的动态导入（`main_qml.SINGLETON_BRIDGES`、
-`main_qml.CONTEXT_BRIDGES`、`app.bootstrap` 的服务表），PyInstaller 的静态分析**看不见**它们 ——
-漏收一个的后果是"打包产物一启动就崩"，而源码态永远复现不出来。
+试试"。QML 侧的桥与服务表全是 `importlib.import_module("模块名")` 的动态导入
+（`main_qml.SINGLETON_BRIDGES`、`main_qml.CONTEXT_BRIDGES`、`app.bootstrap` 的服务表），
+PyInstaller 的静态分析**看不见**它们 —— 漏收一个的后果是"打包产物一启动就崩"，而源码态
+永远复现不出来。
 
 搬成普通模块后 `tests/test_build_plan.py` 可以直接对着它断言（动态导入清单是否覆盖了那三张
 真源表、QML 后端有没有把 PySide6 排掉、entry 与 onefile 是否配对），桥或服务表变动时会红。
 
-## 后端选择
+## 产物形态
 
-环境变量 `UI_BACKEND`（`tk` / `qml`），与既有的 `PLATFORM` / `ARCH` 同一套路：
-
-* `tk`（默认）：入口 `main.py`，单文件 EXE，**排除** PySide6 —— 与今天发布的产物一致；
-* `qml`：入口 `main_qml.py`，**onedir**（`COLLECT`），收集 `qml/`、自编译的 FluentUI 模块
-  与 Qt 运行时。
+环境变量 `UI_BACKEND` 仅为兼容保留；阶段 4.2 起唯一合法值是 `qml`：入口 `main_qml.py`，
+**onedir**（`COLLECT`），收集 `qml/`、自编译的 FluentUI 模块与 Qt 运行时。
 
 为什么 QML 走 onedir 而不是 onefile：onefile 每次启动都要把 Qt 运行时（约 200 MB）解压到临时
 目录，启动器的冷启动体验不可接受；而 `updater.py` 只认 `FMCL-Setup-*.exe` 安装包，**装目录
 不影响自动更新链路**（已核对 `updater.py::find_suitable_asset`）。
-
-## 没有做单产物双后端
-
-阶段 4.1 才需要"一个 exe 里同时有 Tk 与 Qt，用 `ui_backend` 现场切换"。现在做等于让每个验收
-产物多背一套界面，且会在 `build.spec` 里引入两套 hook 的相互干扰 —— 留到阶段 4.3。
 """
 
 from __future__ import annotations
@@ -38,12 +30,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-#: 合法的界面后端。`config.ui_backend` 的校验、`main.py` 的入口分派与 build.spec 共用这一份。
-UI_BACKENDS: Tuple[str, ...] = ("tk", "qml")
+#: 合法的构建后端。4.2 删除 Tk 后只剩 QML；保留元组是给 build.spec 的兼容环境变量用。
+UI_BACKENDS: Tuple[str, ...] = ("qml",)
 
-#: 默认后端。**阶段 3 期间必须保持 tk** —— QML 侧的 12 个页面还是占位壳，
-#: 提前切默认等于把空页面发给用户（阶段 4.1 才切，并留 `ui_backend` 作为回滚开关）。
-DEFAULT_UI_BACKEND = "tk"
+#: 默认（也是唯一）后端。4.2 删除 Tk 后不再有 `ui_backend` 开关。
+DEFAULT_UI_BACKEND = "qml"
 
 
 def normalize_backend(value: Optional[str]) -> str:
@@ -95,22 +86,12 @@ COMMON_HIDDEN_IMPORTS: Tuple[str, ...] = (
     "logzero",
     "tqdm",
     "keyboard",
-    "tkinter",
-    "tkinter.ttk",
-    "tkinter.filedialog",
-    "tkinter.messagebox",
-    "tkinter.colorchooser",
-    "tkinter.commondialog",
-    "tkinter.constants",
     "PIL",
     "PIL.Image",
-    "PIL.ImageTk",
-    "customtkinter",
     "orjson",
     "urllib3",
     "rarfile",
     "markdown",
-    "tkinterweb",
     "_build_secrets",
 )
 
@@ -121,12 +102,6 @@ VOICE_HIDDEN_IMPORTS: Tuple[str, ...] = (
     "numpy",
     "sentencepiece",
     "onnxruntime",
-    "ui.agent.voice_input",
-    "ui.agent.voice",
-    "ui.agent.voice.sensevoice",
-    "ui.agent.voice.models",
-    # 任务 1.15：业务逻辑已搬到 services/，ui.* 只剩转发 shim；sensevoice 依然是
-    # 延迟 import（`_load_engine` 内），所以两边都登记。
     "services.voice_service",
     "services.voice",
     "services.voice.sensevoice",
@@ -206,7 +181,6 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "services.log_service",
     "services.mod_browser_service",
     "services.modpack_service",
-    "services.music_player",
     "services.online_service",
     # 阶段 3 任务 3.27 的插件服务（管理与市场共用）
     "services.plugin_service",
@@ -221,24 +195,7 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "services.voice_service",
 )
 
-#: tk 后端排除的包（与迁移前逐条一致：tk 产物里不该出现 Qt 与科学计算栈）。
-TK_EXCLUDES: Tuple[str, ...] = (
-    "PyQt5",
-    "PyQt6",
-    "PySide2",
-    "PySide6",
-    "matplotlib",
-    "pandas",
-    "scipy",
-    "IPython",
-    "jupyter",
-    "notebook",
-)
-
-#: qml 后端排除的 Python 绑定：**不能**再排 PySide6（那正是 QML 后端的界面栈）。
-#: 其余与 tk 后端保持一致 —— 包括 `scipy`：今天两个产物都不含它（音效链的 EQ 依赖 scipy，
-#: D-151 已挂账"整条链在任何机器上都不跑"），修音效链时（阶段 3.18）两个产物一起评估，
-#: 现在偷偷只给 QML 产物加上会让两个产物行为不一致。
+#: QML 产物排除的 Python 绑定：**不能**排 PySide6（那正是 QML 的界面栈）。
 #: QML 后端额外 hiddenimports：不在 main_qml 桥表 / 服务表里，但运行时才 import 的包。
 #: 单独一张表，避免污染 `QML_DYNAMIC_IMPORTS` 的"真源表"反向检查。
 QML_EXTRA_HIDDEN_IMPORTS: Tuple[str, ...] = (
@@ -458,16 +415,6 @@ class BackendSpec:
 
 
 BACKENDS: Dict[str, BackendSpec] = {
-    "tk": BackendSpec(
-        backend="tk",
-        product_name="FMCL",
-        entry="main.py",
-        onefile=True,
-        hidden_imports=(),
-        excludes=TK_EXCLUDES,
-        with_qt=False,
-        filter_collected=False,
-    ),
     "qml": BackendSpec(
         backend="qml",
         product_name="FMCL-QML",
