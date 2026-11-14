@@ -483,6 +483,42 @@ if (-not $SkipInstall) {
     else { Write-Info "(-WhatIf) 将执行: $CMakeExe $($installArgs -join ' ')" }
 }
 
+# ============================================================================
+# 步骤 7.5：把插件 DLL 放进 QML 模块目录
+# ============================================================================
+# Visual Studio 生成器把 fluentuiplugin.dll 放在 _build/src/Release（或 Debug），
+# 而 QML 模块目录只拿到 qmldir/qmltypes 与 .lib/.exp。qmldir 里的 `plugin fluentuiplugin`
+# 找不到 DLL 时，QML 引擎在 import FluentUI 处直接失败，整个 App.qml 起不来；
+# CI 以前只校验 qmldir，所以这种残包能一路发到安装包。Linux 脚本已有同样的落位步骤。
+if (-not $WhatIfPreference) {
+    $QmlPluginDir = Join-Path $PluginStageDir 'FluentUI'
+    if (-not (Test-Path -LiteralPath (Join-Path $QmlPluginDir 'qmldir'))) {
+        Fail -Message "QML 模块目录缺少 qmldir：$QmlPluginDir" -Hint @(
+            '检查 -DFLUENTUI_QML_PLUGIN_DIRECTORY 是否指向 third_party/_install/qml/FluentUI。'
+        )
+    }
+    $pluginCandidates = @()
+    $pluginCandidates += @(Get-ChildItem -LiteralPath $QmlPluginDir -Filter 'fluentuiplugin.dll' -File -ErrorAction SilentlyContinue)
+    $pluginCandidates += @(Get-ChildItem -LiteralPath $BuildDir -Recurse -Filter 'fluentuiplugin.dll' -File -ErrorAction SilentlyContinue)
+    $plugin = @($pluginCandidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+    if (@($plugin).Count -eq 0) {
+        Fail -Message '编译结束但找不到 fluentuiplugin.dll（QML 模块目录与构建目录都已搜索）' -Hint @(
+            "QML 目录: $QmlPluginDir"
+            "构建目录: $BuildDir"
+            '检查上方 cmake --build 是否真的产出了 fluentuiplugin target。'
+        )
+    }
+    $pluginTarget = Join-Path $QmlPluginDir 'fluentuiplugin.dll'
+    if ($plugin[0].FullName -ne $pluginTarget) {
+        Write-Info "复制插件: $($plugin[0].FullName) -> $pluginTarget"
+        Copy-Item -LiteralPath $plugin[0].FullName -Destination $pluginTarget -Force
+    }
+    if (-not (Test-Path -LiteralPath $pluginTarget)) {
+        Fail -Message "插件没有落到 QML 模块目录：$pluginTarget"
+    }
+    Write-Ok "插件已就位: $pluginTarget ($((Get-Item -LiteralPath $pluginTarget).Length) bytes)"
+}
+
 # -WhatIf 下什么都没构建，直接收尾，避免把「空产物」误判为失败。
 if ($WhatIfPreference) {
     Write-Host ''

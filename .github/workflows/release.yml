@@ -106,6 +106,7 @@ jobs:
         run: |
           if (-not (Test-Path 'dist\FMCL\FMCL.exe')) { throw '缺少 dist/FMCL/FMCL.exe' }
           if (-not (Test-Path 'dist\FMCL\_internal\qml\FluentUI\qmldir')) { throw '缺少 FluentUI QML 模块' }
+          if (-not (Test-Path 'dist\FMCL\_internal\qml\FluentUI\fluentuiplugin.dll')) { throw '缺少 FluentUI QML 插件 DLL' }
           if (-not (Test-Path 'dist\FMCL\_internal\app_qml\App.qml')) { throw '缺少 app_qml/App.qml' }
         shell: pwsh
 
@@ -226,6 +227,7 @@ jobs:
         run: |
           test -x dist/FMCL/FMCL
           test -f dist/FMCL/_internal/qml/FluentUI/qmldir
+          test -f dist/FMCL/_internal/qml/FluentUI/libfluentuiplugin.so || test -f dist/FMCL/_internal/qml/FluentUI/fluentuiplugin.so
           test -f dist/FMCL/_internal/app_qml/App.qml
 
       - name: Package Linux tarball

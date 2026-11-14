@@ -99,9 +99,10 @@ def test_qml_backend_collects_app_qml_and_fluentui() -> None:
 def test_missing_qml_requirements_detects_absent_fluentui(tmp_path: Path) -> None:
     """前置检查：空仓库 + 缺文件时必须报出原因（而不是产出一个残废产物）。"""
     reasons = missing_qml_requirements(tmp_path)
-    assert len(reasons) == 2, f"空目录下应报出两条缺失原因，实际：{reasons}"
+    assert len(reasons) == 3, f"空目录下应报出三条缺失原因，实际：{reasons}"
     assert any("App.qml" in reason for reason in reasons)
     assert any("FluentUI" in reason for reason in reasons)
+    assert any("plugin binary" in reason for reason in reasons)
 
 
 def test_qml_backend_drops_unused_qt_modules() -> None:

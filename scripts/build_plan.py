@@ -361,6 +361,19 @@ def qml_datas(root: Path) -> List[Tuple[str, str]]:
     return [entry for entry in entries if entry is not None]
 
 
+#: FluentUI QML 插件文件名（Windows / Linux / macOS）。
+#:
+#: 只校验 qmldir 不够：qmldir 里的 `plugin fluentuiplugin` 需要同目录的真实动态库，
+#: 缺了它 QML 引擎会在 `import FluentUI` 处失败、整个根对象建不出来。
+FLUENTUI_PLUGIN_FILENAMES: Tuple[str, ...] = (
+    "fluentuiplugin.dll",
+    "fluentuiplugin.so",
+    "libfluentuiplugin.so",
+    "fluentuiplugin.dylib",
+    "libfluentuiplugin.dylib",
+)
+
+
 def missing_qml_requirements(root: Path) -> List[str]:
     """QML 后端必需、但仓库里可能还没有的东西（`[]` = 齐了）。
 
@@ -376,7 +389,13 @@ def missing_qml_requirements(root: Path) -> List[str]:
             "missing compiled FluentUI module: third_party/_install/qml/FluentUI/qmldir",
         ),
     )
-    return [reason for path, reason in checks if not path.is_file()]
+    reasons = [reason for path, reason in checks if not path.is_file()]
+    plugin_dir = root / "third_party" / "_install" / "qml" / "FluentUI"
+    if not any((plugin_dir / name).is_file() for name in FLUENTUI_PLUGIN_FILENAMES):
+        reasons.append(
+            "missing compiled FluentUI plugin binary in third_party/_install/qml/FluentUI"
+        )
+    return reasons
 
 
 # ─── 计划 ──────────────────────────────────────────────────────
