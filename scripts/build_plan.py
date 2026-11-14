@@ -370,10 +370,10 @@ def missing_qml_requirements(root: Path) -> List[str]:
     打包故障（源码态永远复现不出来）。宁可构建时**响亮地失败**，并给出补救命令。
     """
     checks = (
-        (root / "qml" / "App.qml", "本项目 QML 入口缺失：qml/App.qml"),
+        (root / "qml" / "App.qml", "missing project QML entry: qml/App.qml"),
         (
             root / "third_party" / "_install" / "qml" / "FluentUI" / "qmldir",
-            "自编译的 FluentUI 模块缺失：third_party/_install/qml/FluentUI/qmldir",
+            "missing compiled FluentUI module: third_party/_install/qml/FluentUI/qmldir",
         ),
     )
     return [reason for path, reason in checks if not path.is_file()]

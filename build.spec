@@ -50,9 +50,9 @@ print(f"Building QML platform={_platform}, arch={arch}")
 _missing = missing_qml_requirements(Path(_root))
 if _missing:
     raise SystemExit(
-        "[build.spec] QML 后端缺少构建前置：\n  - "
+        "[build.spec] missing QML build prerequisites:\n  - "
         + "\n  - ".join(_missing)
-        + "\n\n先补齐第三方源码与自编译模块，再重试：\n"
+        + "\n\nFetch and build the third-party sources first:\n"
         + "  powershell -NoProfile -ExecutionPolicy Bypass -File third_party/fetch_sources.ps1\n"
         + "  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_fluentui.ps1\n"
     )
@@ -111,8 +111,8 @@ a.binaries = [
 _datas_before = len(a.datas)
 a.datas = [d for d in a.datas if not (should_drop_qml_module_dir(d[0]) or should_drop_qml_module_dir(d[1]))]
 print(
-    f"[build.spec] 裁剪：二进制 {_binaries_before} → {len(a.binaries)}，"
-    f"数据 {_datas_before} → {len(a.datas)}"
+    f"[build.spec] trim: binaries {_binaries_before} -> {len(a.binaries)}, "
+    f"data {_datas_before} -> {len(a.datas)}"
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
