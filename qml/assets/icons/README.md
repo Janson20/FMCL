@@ -1,4 +1,4 @@
-# qml/assets/icons —— 图标资源集（阶段 2 任务 2.10）
+# qml/assets/icons —— 图标资源集
 
 界面**禁止 emoji**（项目全局规则 + 闸门 R2）。这里的 SVG 就是替代品：**一个图标一个文件**，
 `fill="currentColor"`，24x24，纯矢量，没有渐变、没有位图、没有脚本。
@@ -7,8 +7,7 @@
 
 | 文件 | 作用 |
 |------|------|
-| `emoji-map.json` | 旧界面每个 emoji 的归属：映射到哪个 SVG，或为什么不用换（`exempt`） |
-| `docs/refactor/14-emoji-inventory.md` | 逐条清单（由 `poc/_inventory_emoji.py --write` 生成，不要手改） |
+| `emoji-map.json` | emoji 的归属：映射到哪个 SVG，或为什么不用换（`exempt`） |
 
 ---
 
@@ -27,7 +26,7 @@ Image {
 }
 ```
 
-`Runtime.iconUrl(name)` 的两个约定（实测踩过，写在这里免得阶段 3 再踩）：
+`Runtime.iconUrl(name)` 的两个约定：
 
 1. **必须传 `file:///` 形式的 URL**。QML `Image` 的 `source` 收到 `"D:/…/check.svg"`
    这种裸路径时，会当成**相对当前 QML 文件的相对路径**去解析，结果是
@@ -77,8 +76,7 @@ Image {
 
 - **上色必须在 Python 侧做**：`QQuickImageProvider` + `QUrl("image://fmcl-icon/<name>?color=%23RRGGBB")`。
   它零 shader 依赖，两种环境下都精确，而且**测试能验**（`tests/test_icon_set.py` 就是这么验的）。
-- 这个 provider **属于任务 2.16（组件库）**：本任务只落了 `Runtime.iconUrl()`（最小改动），
-  阶段 3 之前由组件库补 provider 与 `Icon.qml`，届时图标统一走 `Icon { name: "check"; color: Theme.textPrimary }`。
+- 图标上色由 Python 侧的 `QQuickImageProvider` 完成，组件层统一走 `FmIcon`（或其底层 `Icon` 组件）的 `name` 与 `color` 属性。
 - **在 provider 落地之前**不要把 `ColorOverlay` 当成主题上色的依靠：它在 offscreen 下不生效，
   意味着"图标颜色对不对"这件事在 CI 里测不出来，也没有任何报错会提醒你。
 
@@ -116,9 +114,9 @@ Image {
 - **替换旧 emoji**（85 条映射 → 81 个文件；`U+1F3AE` 与 `U+1F579` 共用 `game.svg`、
   `U+1F527` 与 `U+1F6E0` 共用 `tool.svg`、`U+1F4E4` 与 `U+2B06` 共用 `upload.svg`、
   `U+1F464` 与 `U+1F9D1` 共用 `account.svg`）：`emoji-map.json` 里逐个登记。
-- **新界面需要的领域图标**（旧界面没有对应 emoji）：`close / check / language / theme /
+- **领域图标**（没有对应 emoji）：`close / check / language / theme /
   online / plugin / crash / bedrock / lyrics / memory / achievement / save` 等。
-- **窗口与控件层**（阶段 3 用）：`chevron-down`、`arrow-left/right`、`close` 等。
+- **窗口与控件层**：`chevron-down`、`arrow-left/right`、`close` 等。
 
 ## 五、纪律
 

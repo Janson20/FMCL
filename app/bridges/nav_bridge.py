@@ -1,12 +1,12 @@
-"""导航桥 —— QML 侧的 `Nav` 上下文属性（阶段 2 任务 2.11）。
+"""导航桥 —— QML 侧的 `Nav` 上下文属性。
 
 ## 它管什么、不管什么
 
 **管**：哪一页在前台、栈有多深、面包屑是什么、每页的 QML 文件在哪、参数是什么。
-**不管**：页面上要显示的数据。页面自己去问各自的桥（迁移红线 2：业务只存在于
+**不管**：页面上要显示的数据。页面自己去问各自的桥（业务只存在于
 `services/`，桥上不许出现 `if 版本号 > …` 之类的判断）。
 
-## 三个已定的设计决定（都写了理由，不是随手选的）
+## 三个设计决定（都写了理由）
 
 1. **栈的真相只在 Python 侧这一份**。`qml/shell/PageStack.qml` 里的 `StackView`
    只是**镜像**：它按 `Nav.breadcrumb` 重建自己，不自己维护历史。
@@ -19,11 +19,10 @@
    与 `params` 建页。**故意不另开一个 `stackRoutes()` 槽** —— 两个 API 表达同一份
    数据时，唯一确定的结果是"某天其中一份忘了同步"。
 
-3. **`title_key` 一律复用现有 i18n 键**（契约 §2：沿用现有 1529 键、不新造前缀），
-   键值由语言文件决定，与图标（`Runtime.iconUrl`）分开 —— 这样阶段 3 清理语言文件里
-   的旧 emoji 前缀时，QML 一个字都不用改。老界面**没有**对应页面的新页（02 §4 的
-   详情类页面）才新建键，前缀沿用各域已有的家族（`version_*` / `resource_*` / …），
-   缺键时 QML 按契约 §5.2 的写法回退显示键名。
+3. **`title_key` 一律复用现有 i18n 键**（沿用现有 1529 键、不新造前缀），
+   键值由语言文件决定，与图标（`Runtime.iconUrl`）分开 —— 这样清理语言文件里的
+   旧 emoji 前缀时，QML 一个字都不用改。没有对应页面的详情类页面才新建键，前缀
+   沿用各域已有的家族（`version_*` / `resource_*` / …），缺键时 QML 回退显示键名。
 
 ## 非法输入不静默
 
@@ -32,7 +31,7 @@
 
 ## 线程前提
 
-与其它桥一致：**只在主线程用**（QML 与装配方都在主线程）。阶段 3 的 Agent / 插件
+与其它桥一致：**只在主线程用**（QML 与装配方都在主线程）。Agent / 插件
 若在 worker 线程里想跳转，必须经 `app/bridges/qt_dispatch.py` 投递到主线程。
 """
 
@@ -63,10 +62,10 @@ WINDOWS_PLATFORM = "windows"
 #: 正常使用到不了 32 层，所以这条只在深链递归 / Agent 循环跳转时才会触发。
 MAX_DEPTH = 32
 
-#: **只在某个平台存在的领域**（02 §4.11：基岩版仅 Windows）。
+#: **只在某个平台存在的领域**（基岩版仅 Windows）。
 #:
-#: 处置方式（本任务的选择，两条一起做）：
-#:   1. **一级导航里隐藏** —— 与旧界面一致（`ui/app_base.py:284` 就是"仅 Windows 才建这个页"）；
+#: 处置方式（两条一起做）：
+#:   1. **一级导航里隐藏** —— 只在 Windows 上建这个页；
 #:   2. **跳转时明确拒绝** —— 深链 / 插件 / Agent 在非 Windows 上跳到 `fmcl://bedrock*` 时
 #:      `navFailed(原因)`，状态条会显示"仅 Windows 支持"，而不是一页空白。
 #: 只做 1 会在深链下变成"点了空白"；只做 2 会在 Linux 上摆一个永远点不开的导航项。
@@ -120,23 +119,22 @@ class Route:
         }
 
 
-#: 完整路由表（02 §4 的界面信息架构：12 个一级领域 + 各自的 L2/L3 页面）。
+#: 完整路由表（界面信息架构：12 个一级领域 + 各自的 L2/L3 页面）。
 #: 每行 `(id, title_key, icon, parent, qml_file, description_key)`。
 _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
-    # ── 4.1 首页 ───────────────────────────────────────────────
+    # ── 首页 ───────────────────────────────────────────────────
     ("home", "tab_game", "home", "", "pages/home/HomePage.qml", ""),
     ("home/notice", "notice_title", "notify", "home", "pages/home/HomePage.qml", ""),
     ("home/achievements", "ach_recent_title", "trophy", "home", "pages/home/HomePage.qml", ""),
-    # ── 4.2 版本 ───────────────────────────────────────────────
+    # ── 版本 ───────────────────────────────────────────────────
     ("versions", "installed_versions", "package", "", "pages/versions/VersionsPage.qml", ""),
     ("versions/detail", "version_detail_title", "info", "versions", "pages/versions/VersionsPage.qml", ""),
     # L3 挂在**版本详情**下面，所以 id 走 `versions/detail/…`：路由 id 的层级与
-    # `parent` 链严格一致（测试钉住这条不变量），阶段 3 用 parent 生成二级菜单时不用再猜。
+    # `parent` 链严格一致（测试钉住这条不变量），用 parent 生成二级菜单时不用再猜。
     ("versions/detail/mods", "resource_mods", "mods", "versions/detail", "pages/versions/VersionsPage.qml", ""),
     ("versions/detail/launch", "version_launch_title", "slider", "versions/detail",
      "pages/versions/VersionsPage.qml", ""),
-    #: 安装向导**自成一页**（阶段 3 任务 3.3）：旧界面把它做成版本页右侧的同栏面板，
-    #: 新界面按信息架构（`02` §4.2）给它一条二级路由与独立的页面文件 —— 一个文件
+    #: 安装向导**自成一页**：给它一条二级路由与独立的页面文件 —— 一个文件
     #: 承载四五条路由（`VersionsPage.qml` 那样）只适合"同一屏的不同形态"，
     #: 向导是有自己状态机的独立流程，塞进去只会让两个状态机互相打架。
     ("versions/install", "install_new_version", "download", "versions",
@@ -148,22 +146,22 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("versions/modpack/browse", "mp_browser_title", "search", "versions/modpack",
      "pages/versions/ModpackBrowserPage.qml", ""),
     ("versions/predownload", "predownload_title", "download", "versions", "pages/versions/VersionsPage.qml", ""),
-    # ── 4.3 资源 ───────────────────────────────────────────────
+    # ── 资源 ───────────────────────────────────────────────────
     ("resources", "mod_browser_title_all", "mods", "", "pages/resources/ResourcesPage.qml", ""),
     ("resources/mods", "resource_mods", "mods", "resources", "pages/resources/ResourcesPage.qml", ""),
     ("resources/mods/detail", "mod_detail_title", "info", "resources/mods", "pages/resources/ResourcesPage.qml", ""),
     ("resources/packs", "resource_packs", "resourcepack", "resources", "pages/resources/ResourcesPage.qml", ""),
     ("resources/shaders", "resource_shaders", "shaderpack", "resources", "pages/resources/ResourcesPage.qml", ""),
     ("resources/maps", "resource_maps", "world", "resources", "pages/resources/ResourcesPage.qml", ""),
-    #: 在线浏览只有两页（用户 2026-10-23 裁决）：搜索与结果在**同一页**（旧窗口也是
-    #: 一屏），详情页是新增的那一层。曾按 IA 拆出过 `resources/browse/results`，
-    #: 它的工具条与浏览页完全重复，面包屑还排成「资源浏览 → 搜索 → 资源搜索」。
+    #: 在线浏览只有两页：搜索与结果在**同一页**，详情页是单独的一层。
+    #: 不要再拆出"结果页"—— 它的工具条会与浏览页完全重复，面包屑还会排成
+    #: 「资源浏览 → 搜索 → 资源搜索」。
     ("resources/browse", "mod_browser_title_all", "search", "resources",
      "pages/resources/BrowsePage.qml", ""),
     ("resources/browse/detail", "resource_detail_title", "file", "resources/browse",
      "pages/resources/BrowseDetailPage.qml", ""),
     ("resources/updates", "mod_update_dialog_title", "refresh", "resources", "pages/resources/ResourcesPage.qml", ""),
-    # ── 4.4 服务器 ─────────────────────────────────────────────
+    # ── 服务器 ─────────────────────────────────────────────────
     ("servers", "server_tab", "server", "", "pages/servers/ServersPage.qml", ""),
     ("servers/detail", "server_detail_title", "info", "servers", "pages/servers/ServerDetailPage.qml", ""),
     ("servers/detail/console", "server_log_title", "monitor", "servers/detail",
@@ -171,7 +169,7 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("servers/detail/config", "server_config_panel_btn", "slider", "servers/detail",
      "pages/servers/ServerConfigPage.qml", ""),
     ("servers/detail/mods", "server_mods_title", "mods", "servers/detail", "pages/servers/ServerModsPage.qml", ""),
-    #: 在线浏览是模组页的下一层（旧实现是一扇独立的模态子窗口）。
+    #: 在线浏览是模组页的下一层（独立页面，不是模态子窗口）。
     ("servers/detail/mods/browser", "mod_browser_title_all", "search", "servers/detail/mods",
      "pages/servers/ServerModBrowserPage.qml", ""),
     ("servers/detail/packs", "resource_packs", "resourcepack", "servers/detail", "pages/servers/ServerModsPage.qml", ""),
@@ -180,18 +178,18 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
      "pages/versions/ModpackPage.qml", ""),
     ("servers/modpack/browse", "mp_browser_title", "search", "servers/modpack",
      "pages/versions/ModpackBrowserPage.qml", ""),
-    # ── 4.5 联机 ───────────────────────────────────────────────
+    # ── 联机 ───────────────────────────────────────────────────
     ("online", "online_title", "online", "", "pages/online/OnlinePage.qml", "online_description"),
     ("online/create", "online_create_title", "add", "online", "pages/online/OnlinePage.qml", ""),
     ("online/join", "online_join_title", "door", "online", "pages/online/OnlinePage.qml", ""),
     ("online/lan", "online_discover_title", "network", "online", "pages/online/OnlinePage.qml", ""),
     ("online/log", "online_output_title", "note", "online", "pages/online/OnlinePage.qml", ""),
-    # ── 4.6 存档 ───────────────────────────────────────────────
+    # ── 存档 ───────────────────────────────────────────────────
     ("backups", "backup_world", "saves", "", "pages/backups/BackupsPage.qml", ""),
     ("backups/world", "backup_world_detail_title", "info", "backups", "pages/backups/BackupsPage.qml", ""),
     ("backups/world/backup", "backup_detail_title", "history", "backups/world", "pages/backups/BackupsPage.qml", ""),
     ("backups/settings", "backup_settings_title", "settings-gear", "backups", "pages/backups/BackupsPage.qml", ""),
-    # ── 4.7 音乐 ───────────────────────────────────────────────
+    # ── 音乐 ───────────────────────────────────────────────────
     ("music", "tab_music", "music", "", "pages/music/MusicPage.qml", ""),
     ("music/playlist", "music_playlists", "note", "music", "pages/music/MusicPage.qml", ""),
     ("music/online", "music_online_title", "online", "music", "pages/music/MusicPage.qml", ""),
@@ -200,7 +198,7 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("music/lyrics", "music_desktop_lyric", "lyrics", "music", "pages/music/MusicPage.qml", ""),
     ("music/account", "settings_wy_login_title", "account", "music", "pages/music/MusicPage.qml", ""),
     ("music/mini", "music_mini_mode", "play", "music", "pages/music/MusicPage.qml", ""),
-    # ── 4.8 工具箱 ─────────────────────────────────────────────
+    # ── 工具箱 ─────────────────────────────────────────────────
     ("tools", "tab_tools", "tool", "", "pages/tools/ToolsPage.qml", ""),
     ("tools/junk", "tool_clean_junk_title", "trash", "tools", "pages/tools/CleanJunkPage.qml", "tool_clean_junk_desc"),
     ("tools/port", "tool_port_title", "target", "tools", "pages/tools/PortPage.qml", "tool_port_desc"),
@@ -210,10 +208,9 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     ("tools/fact", "tool_fact_title", "bulb", "tools", "pages/tools/FactPage.qml", "tool_fact_desc"),
     ("tools/quiz", "tool_quiz_title", "guide", "tools", "pages/tools/QuizPage.qml", "tool_quiz_desc"),
     ("tools/download", "tool_download_title", "download", "tools", "pages/tools/DownloadPage.qml", "tool_download_desc"),
-    #: 相关网站（阶段 3 任务 3.26 / J-04）：旧 Tk 的「链接」一级标签，按用户裁决
-    #: （2026-11-13，Q1-C）下沉为工具箱的二级页，不占 12 个一级领域。
+    #: 相关网站：工具箱的二级页，不占 12 个一级领域。
     ("tools/links", "links_title", "link", "tools", "pages/tools/LinksPage.qml", "links_description"),
-    # ── 4.9 成就 ───────────────────────────────────────────────
+    # ── 成就 ───────────────────────────────────────────────────
     ("achievements", "ach_stats_title", "trophy", "", "pages/achievements/AchievementsPage.qml", ""),
     ("achievements/category", "ach_category_title", "folder", "achievements",
      "pages/achievements/AchievementCategoryPage.qml", ""),
@@ -221,17 +218,17 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
      "pages/achievements/AchievementDetailPage.qml", ""),
     ("achievements/cloud", "ach_cloud_title", "upload", "achievements",
      "pages/achievements/AchievementCloudPage.qml", ""),
-    # ── 4.10 AGENT ─────────────────────────────────────────────
+    # ── AGENT ──────────────────────────────────────────────────
     ("agent", "tab_agent", "agent", "", "pages/agent/AgentPage.qml", "agent_desc"),
     ("agent/sessions", "agent_sessions", "history", "agent", "pages/agent/AgentPage.qml", ""),
     ("agent/models", "agent_provider", "memory", "agent", "pages/agent/AgentPage.qml", ""),
     ("agent/tools", "agent_tools_title", "tool", "agent", "pages/agent/AgentPage.qml", ""),
     ("agent/skills", "skills_title", "guide", "agent", "pages/agent/AgentPage.qml", ""),
-    # ── 4.11 基岩版（仅 Windows） ──────────────────────────────
+    # ── 基岩版（仅 Windows） ───────────────────────────────────
     ("bedrock", "bedrock_installed", "bedrock", "", "pages/bedrock/BedrockPage.qml", ""),
     ("bedrock/detail", "bedrock_detail_title", "info", "bedrock", "pages/bedrock/BedrockPage.qml", ""),
     ("bedrock/download", "bedrock_available", "download", "bedrock", "pages/bedrock/BedrockPage.qml", ""),
-    # ── 4.12 设置 ──────────────────────────────────────────────
+    # ── 设置 ───────────────────────────────────────────────────
     ("settings", "settings", "settings-gear", "", "pages/settings/SettingsPage.qml", ""),
     ("settings/launcher", "settings_tab_launcher", "rocket", "settings", "pages/settings/SettingsPage.qml", ""),
     ("settings/account", "account_manager_title", "account", "settings", "pages/settings/SettingsPage.qml",
@@ -248,25 +245,25 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
      "pages/settings/PluginMarketPage.qml", "plugin_market_desc"),
     ("settings/log", "launcher_log", "note", "settings", "pages/settings/SettingsPage.qml", ""),
     ("settings/about", "about_title", "info", "settings", "pages/settings/SettingsPage.qml", ""),
-    # ── 开发自查：组件画廊（阶段 2 任务 2.16 / 2.17）─────────────────
+    # ── 开发自查：组件画廊 ────────────────────────────────────────────
     # **刻意不放进 `_NAV_ORDER`，并且给一个非空 `parent`**：本表的所有**无父路由**
     # 都会被 `NavBridge` 当成一级导航项收进 `_roots`（构造时那段"表里没写进
     # _NAV_ORDER 的根路由也要能出现在导航里"），而 `nav_items()` 会跳过有父的路由。
     # 所以 `parent="settings"` 这一格就是"进得去、但不在 12 个一级导航里露出来"的
     # 实现方式：它是一个开发自查页，不该占一个用户可见的导航位。
-    # 进入方式二选一（本任务选深链）：`fmcl://dev/gallery` 或 `Nav.push("dev/gallery")`；
+    # 进入方式二选一（这里用深链）：`fmcl://dev/gallery` 或 `Nav.push("dev/gallery")`；
     # `parent` 与 id 的层级一致（`dev/gallery` 是 level 1，`settings` 是 level 0），
     # 满足 `tests/test_nav_bridge.py` 钉住的"id 层级与 parent 链严格一致"这条不变量。
     ("dev/gallery", "dev_gallery_title", "guide", "settings", "pages/dev/Gallery.qml", ""),
 )
 
-#: 一级导航项的顺序（02 §3.1 的骨架图，从上到下）。
+#: 一级导航项的顺序（从上到下）。
 _NAV_ORDER: Tuple[str, ...] = (
     "home", "versions", "resources", "servers", "online", "backups",
     "music", "tools", "achievements", "agent", "bedrock", "settings",
 )
 
-#: 一级导航的**分组**（界面返工 B 组）：`(组 id, 组标题 i18n 键, 成员领域 id)`。
+#: 一级导航的**分组**：`(组 id, 组标题 i18n 键, 成员领域 id)`。
 #:
 #: 为什么放在桥里而不是 QML 里：分组是"这些领域怎么归类"的知识，与 `_NAV_ORDER` 同源 ——
 #: 写死在 QML 里的话，将来加一个领域会出现"导航里多了一项但没有组"的静默缺口。
@@ -342,7 +339,7 @@ def _domain_of(route_id: str) -> str:
     """路由 id → 域 id（第一段）。`settings/java` → `settings`，`home` → `home`。
 
     离开守卫按**域**而不是按页面判定：设置域下 8 条路由共用一份草稿，
-    在它们之间跳来跳去不该被拦（M-Q1 的 B1）。
+    在它们之间跳来跳去不该被拦。
     """
     text = str(route_id or "").strip()
     if not text:
@@ -366,11 +363,11 @@ class NavBridge(QObject):
     navFailed = Signal(str)
     #: 插件路由登记成功。
     pluginRouteAdded = Signal(str)
-    #: 插件路由被撤销（插件被禁用/卸载/更新后重新登记；阶段 3 任务 3.27）。
+    #: 插件路由被撤销（插件被禁用/卸载/更新后重新登记）。
     pluginRouteRemoved = Signal(str)
-    #: **离开守卫**挡下了一次导航（阶段 3 任务 3.4 新增）。
+    #: **离开守卫**挡下了一次导航。
     #: 参数 = `(被守卫的域 id, 想去但没去成的路由 id)`；界面据此弹一次确认框，
-    #: 再用 `confirmLeave(ok)` 裁决。
+    #: 再用 `confirmLeave(ok)` 确认。
     leaveBlocked = Signal(str, str)
     #: 用户在确认框里选了"丢弃并离开"（参数 = 域 id）。**在真正压栈之前**发出，
     #: 页面据此清掉草稿/还原预览 —— 顺序反了的话守卫会再拦一次。
@@ -385,7 +382,7 @@ class NavBridge(QObject):
     ) -> None:
         """
         Args:
-            routes: 覆盖路由表（测试用）。默认用 02 §4 的内置表。
+            routes: 覆盖路由表（测试用）。默认用内置表。
             parent: Qt 父对象。
         """
         super().__init__(parent)
@@ -404,19 +401,19 @@ class NavBridge(QObject):
         #: 栈：`[(route_id, params), …]`，最后一项是前台页面。
         self._stack: List[Tuple[str, Dict[str, Any]]] = []
 
-        #: 离开守卫：域 id → 该域有未保存改动（阶段 3 任务 3.4）。
-        #: **默认空**：没有页面登记守卫时，导航行为与 3.3 之前**逐字一致**。
+        #: 离开守卫：域 id → 该域有未保存改动。
+        #: **默认空**：没有页面登记守卫时，导航行为不变。
         self._leave_guards: Dict[str, bool] = {}
-        #: 页面级离开守卫：路由 id → 该页有未保存改动（阶段 3 任务 3.11）。
+        #: 页面级离开守卫：路由 id → 该页有未保存改动。
         #:
         #: 与域守卫的区别：域守卫只拦**跨域**导航，因为设置页 8 条路由共用一份草稿；
         #: 服务器配置页只有一条路由，但它退到同域的 servers/detail 也必须拦下。
-        #: 两个表互相独立，没登记页面守卫时行为与 3.10 逐字一致。
+        #: 两个表互相独立，没登记页面守卫时行为不变。
         self._route_guards: Dict[str, bool] = {}
-        #: 被守卫挡下的那次导航（等 confirmLeave 裁决）
+        #: 被守卫挡下的那次导航（等 confirmLeave 确认）
         self._pending_push: Optional[Tuple[str, Dict[str, Any]]] = None
         self._pending_domain = ""
-        #: 挡下导航时**所在的**路由（阶段 3.11：壳层据此选择对应的提示文案）
+        #: 挡下导航时**所在的**路由（壳层据此选择对应的提示文案）
         self._pending_source = ""
         #: 正在执行"用户已确认"的那次压栈 —— 期间不再问守卫（见 `confirmLeave`）
         self._bypass_guard = False
@@ -435,8 +432,8 @@ class NavBridge(QObject):
     def currentTitleKey(self) -> str:  # noqa: N802
         """前台路由的标题 i18n 键。
 
-        给的是**键**而不是译文：Python 侧翻好的字符串不会跟着语言切换重算
-        （契约 §5.2 的同一理由），QML 侧请写 `Tr.map[Nav.currentTitleKey]`。
+        给的是**键**而不是译文：Python 侧翻好的字符串不会跟着语言切换重算，
+        QML 侧请写 `Tr.map[Nav.currentTitleKey]`。
         """
         route = self._current_route()
         return route.title_key if route else ""
@@ -562,7 +559,7 @@ class NavBridge(QObject):
         self._announce()
         return True
 
-    # ─── 离开守卫（阶段 3 任务 3.4 / M-Q1 的 B6） ───────────
+    # ─── 离开守卫 ───────────────────────────────────────────
 
     @Slot(str, bool)
     def setLeaveGuard(self, domain: str, dirty: bool) -> None:  # noqa: N802
@@ -571,7 +568,7 @@ class NavBridge(QObject):
         `domain` 是路由 id 的第一段（`settings/java` 属于 `settings` 域）。
         标记为真时，**跨域导航**会被挡下一次并发出 `leaveBlocked`，由界面弹确认框；
         域内导航（`settings/launcher` → `settings/java`）**不拦** —— 草稿本来就是
-        整域一份（M-Q1 的 B1），在设置里换分区不该被问"要不要保存"。
+        整域一份，在设置里换分区不该被问"要不要保存"。
         """
         name = _domain_of(domain)
         if not name:
@@ -581,19 +578,18 @@ class NavBridge(QObject):
         else:
             self._leave_guards.pop(name, None)
         # **刻意不动 `_pending_push`**：它只归 `confirmLeave()` 管。
-        # 第一版在这里"顺手"把等待裁决的导航作废了（怕出现幽灵跳转），结果把
-        # "确定 = 丢弃草稿并离开"整条路堵死 —— 确认流程本身就是
-        # `discardDraft()`（→ 守卫撤销）**紧接着** `confirmLeave(true)`,
-        # 于是那次导航在到达 `confirmLeave` 之前就被清掉了（探针实测：
-        # `invoke_accept=True`、提示框收起了、路由却停在原地）。
+        # **也不要在这里作废 `_pending_push`**：确认流程是 `discardDraft()`
+        # （→ 守卫撤销）**紧接着** `confirmLeave(true)`，提前清掉它会让那次导航
+        # 在到达 `confirmLeave` 之前消失 —— 点了"确定"、提示框也收起了，路由却
+        # 停在原地。
 
     @Slot(str, bool)
     def setRouteLeaveGuard(self, routeId: str, dirty: bool) -> None:  # noqa: N802
-        """登记/撤销某个**页面**的未保存标记（阶段 3.11）。
+        """登记/撤销某个**页面**的未保存标记。
 
         与 setLeaveGuard 的区别见 _route_guards 的说明：页面守卫对**任何**
         离开当前路由的导航生效，包括退到同域的上一个页面。没有页面登记时，
-        行为与 3.10 完全一致。
+        行为与只有域守卫时完全一致。
         """
         rid = str(routeId or "").strip()
         if not rid:
@@ -615,7 +611,7 @@ class NavBridge(QObject):
 
     @Property(str, notify=routeChanged)
     def pendingLeaveSource(self) -> str:  # noqa: N802
-        """被守卫挡下时所在的页面路由（没有待裁决请求则为空串）。
+        """被守卫挡下时所在的页面路由（没有待确认请求则为空串）。
 
         壳层用它区分提示文案：settings 域用设置页的提示，服务器配置页用
         server_config_close_confirm_*。返回值是**直接读**的，不依赖信号刷新。
@@ -624,14 +620,14 @@ class NavBridge(QObject):
 
     @Property(str, notify=routeChanged)
     def pendingLeaveRoute(self) -> str:  # noqa: N802
-        """被守卫挡下、正在等裁决的目标路由（没有则为空串）。"""
+        """被守卫挡下、正在等确认的目标路由（没有则为空串）。"""
         return self._pending_push[0] if self._pending_push else ""
 
     @Slot(bool, result=bool)
     def confirmLeave(self, ok: bool) -> bool:  # noqa: N802
-        """裁决那次被挡下的导航：`True` = 丢弃改动并离开，`False` = 留下。
+        """确认那次被挡下的导航：`True` = 丢弃改动并离开，`False` = 留下。
 
-        返回是否真的完成了导航。没有待裁决的导航时返回 `False`（重复点确认框
+        返回是否真的完成了导航。没有待确认的导航时返回 `False`（重复点确认框
         不该凭空跳一页）。
         """
         pending = self._pending_push
@@ -640,7 +636,7 @@ class NavBridge(QObject):
         self._pending_domain = ""
         self._pending_source = ""
         if pending is None:
-            logger.debug("没有待裁决的离开请求，confirmLeave 无事可做")
+            logger.debug("没有待确认的离开请求，confirmLeave 无事可做")
             return False
         if not ok:
             self.leaveCancelled.emit(domain)
@@ -659,7 +655,7 @@ class NavBridge(QObject):
         """这次导航该不该被守卫挡下。
 
         页面守卫优先：它拦下**任何**离开当前路由的导航（包括同域返回）；域守卫
-        只在跨域时拦。两者都默认不登记，没页面用时与旧行为逐字一致。
+        只在跨域时拦。两者都默认不登记，没页面用时行为不变。
         """
         if self._bypass_guard:
             return False
@@ -680,11 +676,11 @@ class NavBridge(QObject):
         为什么不是 True：`push`/`goBack` 的返回值语义是"页面真的换了吗"，
         被守卫挡下时页面没换。调用方（深链、插件的 `Nav.push`）据此能分辨
         "被问了"和"走成了"，而 `navFailed`**不发** —— 这不是错误。
-        **已经在等裁决时不叠加第二次请求**。
+        **已经在等确认时不叠加第二次请求**。
         """
         domain = _domain_of(self.currentRoute) if self._stack else ""
         if self._pending_push is not None:
-            logger.debug("已有待裁决的离开请求（%s），忽略新的导航请求 %s", self._pending_push[0], route_id)
+            logger.debug("已有待确认的离开请求（%s），忽略新的导航请求 %s", self._pending_push[0], route_id)
             return False
         self._pending_push = (route_id, params)
         self._pending_domain = domain
@@ -733,13 +729,13 @@ class NavBridge(QObject):
         route_id, params = parsed
         return self._push(route_id, params, announce=True)
 
-    # ─── 插件路由（02 §7 的 UI API v2） ─────────────────────
+    # ─── 插件路由（UI API v2） ───────────────────────────────
 
     @Slot(str, str, str, str, result=bool)
     def registerPluginRoute(self, routeId: str, titleKey: str, qmlUrl: str, owner: str) -> bool:  # noqa: N802
-        """登记一条插件页面路由（v1 四件套签名；阶段 3 任务 3.27 起薄委托）。
+        """登记一条插件页面路由（v1 四件套签名；薄委托到 add_plugin_route）。
 
-        按 02 §7 的 UI API v2 设计：
+        按 UI API v2 设计：
 
         * 插件页面必须是 **QML 组件**（qml_url 非空）；
         * 旧插件（ui_api 缺省=1，那套 get_tab_ui(parent) 传 tkinter 容器）
@@ -814,7 +810,7 @@ class NavBridge(QObject):
         )
         self._routes[rid] = route
         if rid not in self._roots:
-            self._roots.append(rid)  # 插件页面按 02 §7 是一级导航项
+            self._roots.append(rid)  # 插件页面是一级导航项
         logger.info("插件路由已登记：%s（属主 %s，标题 %s，排序 %s）", rid, owner_text, key, weight)
         self.pluginRouteAdded.emit(rid)
         return True
@@ -855,10 +851,10 @@ class NavBridge(QObject):
         """一级导航项：`[{id, title_key, icon, source, group, group_title_key}, …]`。
 
         当前平台不支持的领域（如非 Windows 上的基岩版）**不出现**在这里 ——
-        与旧界面"仅 Windows 才建这个页"一致，也让用户看不到点不开的项。
+        用户看不到点不开的项。
 
-        **分组字段是界面返工 B 组加的**（`group` / `group_title_key`）：12 个一级领域
-        排成一条平铺列表时没有任何层次，用户要一行一行读；分组信息属于"领域集合"
+        **分组字段**（`group` / `group_title_key`）：12 个一级领域
+        排成一条平铺列表时没有任何层次；分组信息属于"领域集合"
         这一层知识，放这里（而不是写死在 QML 里）才能保证"加一个领域时不会忘记归组" ——
         `tests/test_nav_bridge.py` 会断言每个一级项都落在 :data:`NAV_GROUPS` 声明的组里。
         """
@@ -885,7 +881,7 @@ class NavBridge(QObject):
                     "title_key": route.title_key,
                     # 插件页没有图标字段（`registerPluginRoute` 的签名里没有它）→ 给个兜底图标，
                     # 否则 QML 侧会拿到 undefined 去请求一张叫 "undefined" 的图
-                    # （实测：`image://fmcl-icon/undefined` 的 provider 报错）。
+                    # （`image://fmcl-icon/undefined` 会让 provider 报错）。
                     "icon": route.icon or NAV_PLUGIN_ICON,
                     "source": route.source,
                     "group": group[0],
@@ -933,7 +929,7 @@ class NavBridge(QObject):
             logger.debug("重复 push 同一路由与同一参数，忽略：%s", route_id)
             return True
 
-        # 离开守卫：跨域且有未保存改动 → 挡下并请界面确认（3.4 的 M-Q1 B6）
+        # 离开守卫：跨域且有未保存改动 → 挡下并请界面确认
         if self._guard_blocks(route_id):
             return self._block_for_guard(route_id, clean)
 

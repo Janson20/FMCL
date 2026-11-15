@@ -1,4 +1,4 @@
-// FmMusicAddToPlaylist.qml —— 全局“加入歌单”宿主（阶段 3.18 统一）。
+// FmMusicAddToPlaylist.qml —— 全局“加入歌单”宿主。
 //
 // 什么时候用它：音乐页根部或歌单详情覆盖层里放一个，所有列表的加入按钮
 //   都走它的 openFor(track)；页面不要各自再复制一份 picker + create 逻辑。

@@ -1,4 +1,4 @@
-// FmAgentApprovalDialog.qml —— 高危命令 / 文件修改的确认浮层（阶段 3 任务 3.22）。
+// FmAgentApprovalDialog.qml —— 高危命令 / 文件修改的确认浮层。
 //
 // 工具循环在 worker 里停住等这个答案；所以任何关闭路径都必须发 answered(false)，
 // 不能只是把 visible 改掉。页面在 answered 里调 Agent.answerApproval。

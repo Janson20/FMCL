@@ -1,12 +1,12 @@
-// FmPage.qml —— 页面骨架（阶段 2 任务 2.16 组件库／界面返工 C 组新增）。
+// FmPage.qml —— 页面骨架。
 //
 // 什么时候用它：**每一个页面** —— 12 个内置领域页、以及插件注册进来的页。
 //   它替页面承担三件事：
 //     1) 路由帧五件套（`routeId / routeTitleKey / routeDescriptionKey / routeIcon / routeParams`）：
 //        `shell/PageStack.qml` 只给页面**声明过**的属性赋值，少声明一个就等于丢一个；
 //     2) 页头（图标 + 标题 + 描述），标题/描述默认从路由键取 i18n，插件页可以直接给文案；
-//     3) 内容区三态（`contentState`：ready / loading / empty / error）—— `03` 的 SOP 第 5 条
-//        要求每页都覆盖三态，这里把"状态 → 哪个自研状态件"的分派固定下来，页面只填文案。
+//     3) 内容区三态（`contentState`：ready / loading / empty / error）—— 每页都要覆盖三态，
+//        这里把"状态 → 哪个自研状态件"的分派固定下来，页面只填文案。
 // 什么时候不要用：不是页面的东西 —— 对话框与浮层有各自的件（`dialogs/**`、`overlays/**`），
 //   顶栏与导航栏属于壳层（`shell/AppBar.qml`、`shell/Navigation.qml`）。
 //
@@ -17,11 +17,11 @@
 //
 // 为什么把三态的**默认文案**写在组件里（其它组件都刻意不带默认文案）：这三个键
 //   （`plugin_state_loading` / `mod_browser_no_results` / `plugin_state_error`）就是
-//   通用三态文案，12 个占位页本来各自抄了同一份；放在这里只有一份，真实页面按领域覆盖
+//   通用三态文案；放在这里只有一份，真实页面按领域覆盖
 //   （`emptyText: Tr?.map["versions_none"] ?? "versions_none"`）。没有引入任何新 i18n 键。
 //
-// `demoControlsVisible` 是**阶段 2 占位页专用**的开关（那三个演示按钮让验收的人
-//   不用改代码就能看到三态）；阶段 3 的真实页面不要打开它，届时这个属性连同按钮一起删。
+// `demoControlsVisible` 是**占位页专用**的开关（三个演示按钮让人不用改代码就能看到三态）；
+//   真实页面不要打开它。
 
 import QtQuick
 import QtQuick.Layouts
@@ -75,7 +75,7 @@ Item {
     signal retried()
     signal emptyActionTriggered()
 
-    //: 阶段 2 占位页的演示按钮（阶段 3 的真实页面不要打开）
+    //: 占位页的演示按钮（真实页面不要打开）
     property bool demoControlsVisible: false
 
     ColumnLayout {
@@ -128,10 +128,10 @@ Item {
             wrapMode: Text.WordWrap
         }
 
-        // ── 三态演示按钮（阶段 2 占位页；阶段 3 真页不创建） ──
+        // ── 三态演示按钮（仅占位页；真页不创建） ──
         //
         // 用 Loader 按需创建：真实页面 demoControlsVisible 为 false，不再在
-        // 每个 FmPage 里白建三个 FmButton。3.18 设置页加分区后，主题切换时
+        // 每个 FmPage 里白建三个 FmButton。设置页加分区后，主题切换时
         // Qt 在销毁这些从未显示过的按钮会刷 "Cannot find member data"。
         Loader {
             id: demoControlsLoader

@@ -1,4 +1,4 @@
-"""安装向导桥 —— QML 侧的 `Install` 上下文属性（阶段 3 任务 3.3）。
+"""安装向导桥 —— QML 侧的 `Install` 上下文属性。
 
 ## 它是什么
 
@@ -10,11 +10,11 @@ QML 能绑定的属性与信号、把 QML 的动作转成服务调用或任务�
 
 ## 为什么安装任务走 `Tasks` 桥而不是 `self.tasks`
 
-`app/bridges/qt_tasks.py` 是阶段 2 为"阶段 3 的页面"准备的入口：经它提交的任务
-才算**后台任务** —— 状态栏的 `Shell.busy`（2.7 的后台任务指示）只认
+`app/bridges/qt_tasks.py` 是页面的任务入口：经它提交的任务
+才算**后台任务** —— 状态栏的 `Shell.busy` 只认
 `Tasks.activeCount`，进度按 100ms 合并后一次性送到 QML，取消就是 `Tasks.cancel(id)`。
 服务自己的 `self.tasks.submit()` 走的是同一个线程池，但**不计入** `activeCount`
-（3.2 的校验/删除就是这样，它们不需要全局指示）。
+（校验/删除这类不需要全局指示的任务就是这样）。
 
 因此本桥在 `use_engine()` 里把**服务的两个工作者**登记成任务种类
 （`version.install`）—— `register_kind` 的约定是"名字 → 可调用对象"，
@@ -300,7 +300,7 @@ class InstallBridge(QObject):
 
     @Property(str, notify=formChanged)
     def compatSource(self) -> str:  # noqa: N802
-        """提示的出处：`local:xxx` / `remote` / 空 —— 验收时用来分辨"谁说的"。"""
+        """提示的出处：`local:xxx` / `remote` / 空 —— 用来分辨"谁说的"。"""
         return self._compat_source
 
     @Slot(str)

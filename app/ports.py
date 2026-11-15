@@ -1,12 +1,11 @@
 """UI 能力端口（Port）。
 
 核心层与服务层需要"告诉用户一件事"或"问用户一件事"，但**不能**直接
-调用 tkinter / PySide6。做法是只依赖本模块定义的 ``UIPort`` 协议，
-由 UI 层提供实现：
+依赖 Qt。做法是只依赖本模块定义的 ``UIPort`` 协议，由界面层提供实现：
 
-- ``app.ports.NullUIPort``    —— 无界面场景（CLI、pytest、服务层单测）
-- ``ui.ports_tk.TkUIPort``    —— 现役 CustomTkinter 界面（阶段 1）
-- ``app.bridges.UIBridge``    —— QML 界面（阶段 2）
+- ``app.ports.NullUIPort`` —— 无界面场景（CLI、pytest、服务层单测）
+- ``app.ports.RecordingUIPort`` —— 测试记录
+- ``app.bridges.ui_port_qt.QtUIPort`` —— QML 界面
 
 线程约定：**端口实现必须保证线程安全，并把自己切回 UI 主线程**。
 调用方可能来自任意 worker 线程（例如预下载线程里弹确认框）。
@@ -75,7 +74,7 @@ class UIPort(Protocol):
       要求**阻塞到用户关闭对话框**再返回。用于"必须在继续之前让用户看到"
       的提示——例如 GTNH 兼容性警告要求用户在游戏启动前读到它。
       实现方若不支持该参数，必须退化为非阻塞（不得抛异常）；
-      调用方若依赖阻塞语义，需在验收里显式验证。
+      调用方若依赖阻塞语义，需要显式测试。
     - ``timeout_s=float``（``confirm`` / ``ask_text`` / ``choose``）：
       覆盖问答类方法的等待上限。
     """

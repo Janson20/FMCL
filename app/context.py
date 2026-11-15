@@ -6,8 +6,8 @@
    ``ctx.require("music")`` 取用，而不是互相 import 具体类。
 2. **共享设施的持有者**：配置对象、UI 端口、任务调度器、事件总线。
    这些是"每个进程一份"的东西，放进服务里会造成循环依赖。
-3. **新旧 UI 的接缝**：``legacy_callbacks()`` 把服务方法汇总成旧 Tk 界面
-   认识的 ``dict[str, Callable]``，让 1.17「只改接线、不改界面」可行。
+3. **界面适配的接缝**：``legacy_callbacks()`` 把服务方法汇总成
+   ``dict[str, Callable]``，供仍按回调表取能力的调用方使用。
 
 构造顺序由 ``start_all()`` 按 ``Service.requires`` 拓扑排序决定；
 存在循环依赖时直接抛错（宁可启动失败，也不要随机顺序的隐性 bug）。
@@ -30,10 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 #: 进程级"当前上下文"。由启动路径显式设置（``AppContext.set_current``），
-#: 供界面侧的 ``_get_xxx_service(owner)`` 在没有 owner 上下文时复用同一批服务实例。
-#: 为什么需要它：那些辅助函数的 ``owner`` 是**窗口自己**（`_get_resource_service(self)`），
-#: 而窗口并没有 ``context`` 属性 —— 没有这个兜底，注册进上下文的服务永远取不到，
-#: 每个窗口都会各自 new 一个服务实例（这正是 1.17 要消除的东西）。
+#: 供没有 owner 上下文的调用方复用同一批服务实例。
 _CURRENT: Optional["AppContext"] = None
 
 
@@ -57,8 +54,7 @@ class AppContext:
         self.log = logging.getLogger("app.context")
         self._services: Dict[str, Any] = {}
         #: 懒注册表：``name -> 工厂``。首次 ``try_get/require`` 时才实例化，
-        #: 这是**启动速度**的关键 —— 有些服务模块 import 就拉起重依赖
-        #: （onnxruntime / pygame / winsdk），而启动时多数界面用不到它们。
+        #: 避免启动时拉起 ONNX、WinSDK 等重依赖。
         self._factories: Dict[str, Callable[[], Any]] = {}
         self._lock = threading.RLock()
         self._started_order: List[str] = []
@@ -113,7 +109,7 @@ class AppContext:
 
     @property
     def scheduler(self) -> Optional[Dispatcher]:
-        """当前的主线程调度器（阶段 2 任务 2.4：Qt 桥要用它把回调排回主线程）。"""
+        """当前的主线程调度器：Qt 桥用它把回调排回主线程。"""
         return self.tasks.scheduler
 
     # ─── 注册与查找 ─────────────────────────────────────────
@@ -282,10 +278,10 @@ class AppContext:
         except Exception as e:  # noqa: BLE001
             self.log.error("任务调度器关闭失败: %s", e, exc_info=True)
 
-    # ─── 旧 UI 适配（阶段 1.17） ────────────────────────────
+    # ─── 回调表适配 ────────────────────────────────────────
 
     def legacy_callbacks(self) -> Dict[str, Callable[..., Any]]:
-        """汇总所有服务的 ``legacy_callbacks()``，供旧 Tk 界面使用。
+        """汇总所有服务的 ``legacy_callbacks()``，供按回调表取能力的调用方使用。
 
         约定：服务的 ``legacy_callbacks()`` 返回 ``{键: 可调用对象}``，
         键名必须与 ``launcher.core.get_callbacks()`` 的键名一致。

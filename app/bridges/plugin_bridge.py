@@ -1,4 +1,4 @@
-"""插件桥 —— QML 侧的 `Plugins` 上下文属性（阶段 3 任务 3.27）。
+"""插件桥 —— QML 侧的 `Plugins` 上下文属性。
 
 ## 它是什么
 
@@ -159,7 +159,7 @@ class PluginBridge(QObject):
         """缓存引擎（只存引用）。
 
         插件**不在这里自动初始化**：`register_bridges()` 是测试与探针也走的路径，
-        自动扫描会把开发机上真实安装的插件拉进每个 UI 测试。生产装配在
+        自动扫描会把本地真实安装的插件拉进每个 UI 测试。生产装配在
         `main_qml.assemble(start_startup=True)` 里显式调 `initialize()`；页面首次
         进入也会调（幂等）。
         """

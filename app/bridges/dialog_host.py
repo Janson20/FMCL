@@ -1,10 +1,10 @@
-"""对话框宿主（DialogHost）—— QML 界面与 ``QtUIPort`` 之间的窄接口（阶段 2 任务 2.3）。
+"""对话框宿主（DialogHost）—— QML 界面与 ``QtUIPort`` 之间的窄接口。
 
 ## 为什么要有这一层
 
 ``QtUIPort`` 是**服务层看得见的端口**（``app.ports.UIPort``）：它会在 worker 线程里被
 调用（例如预下载线程弹确认框），因此必须自己切回主线程。真正"把对话框画出来"的是
-QML（阶段 2.13 的 ``Dialogs``）。两者之间用本模块的 ``DialogHost`` 协议隔开：
+QML（``Dialogs``）。两者之间用本模块的 ``DialogHost`` 协议隔开：
 
     worker 线程 --> QtUIPort（队列 + QTimer）--> DialogHost（主线程）--> QML
 

@@ -1,4 +1,4 @@
-// BedrockPage.qml —— 基岩版（阶段 3 任务 3.15）。
+// BedrockPage.qml —— 基岩版。
 //
 // 三条路由共用这一页：
 //   * bedrock            -> 已安装 + 下载面板

@@ -1,4 +1,4 @@
-// FmMusicOverlayBackdrop.qml —— 播放页 / 歌单详情覆盖层的垫底（阶段 3.17）。
+// FmMusicOverlayBackdrop.qml —— 播放页 / 歌单详情覆盖层的垫底。
 //
 // FMP 的 OverlayBackdrop 同款：先铺一层不透明背景，再用全屏 MouseArea 吃掉
 // 点击/滚轮。少了这一层，展开播放页的空白处会把点击穿到后面的页面。

@@ -1,4 +1,4 @@
-// FmMusicLibraryView.qml —— 我的音乐 / 歌单管理（阶段 3.18）。
+// FmMusicLibraryView.qml —— 我的音乐 / 歌单管理。
 //
 // 什么时候用它：音乐页的「歌单」标签页；左侧系统/自建/网易云歌单，右侧曲目。
 // 什么时候不要用：发现页的推荐歌单（只读卡片）、本地文件夹管理（FmMusicLocalView）。

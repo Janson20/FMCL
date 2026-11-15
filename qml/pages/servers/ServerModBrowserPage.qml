@@ -1,4 +1,4 @@
-// ServerModBrowserPage.qml —— 服务端模组在线浏览（阶段 3 任务 3.12 / L-51）。
+// ServerModBrowserPage.qml —— 服务端模组在线浏览。
 //
 // 旧实现 ``ui/windows/server_mod_browser.py`` 是 800x680 的模态子窗口：搜索框 +
 // AI 搜索 + 结果卡片 + 后端分页。新界面按 02 §4.4 把它挂在

@@ -1,17 +1,14 @@
-"""公告服务 —— 拉取启动公告（阶段 2 任务 2.14 的"协议 → 公告 → 预下载"链条要用）。
+"""公告服务 —— 拉取启动公告（"协议 → 公告 → 预下载"链条要用）。
 
-## 为什么从 `ui/dialogs.py` 搬过来
+## 边界
 
-原实现是 `ui/dialogs.py` 里的 `NOTICE_URL` + `fetch_notice()`，**本身零界面依赖**
-（一次 `requests.get` + 去空白），但它住在 `ui/` 包里 —— 而 QML 运行时**不许 import `ui/`**
-（`ui/__init__.py` 会拉起 customtkinter，阶段 0 第 10.4 节实测踩过），
-于是新 UI 根本用不上它。这与阶段 2 把字体检测搬进 `services/font_service.py` 是同一类问题、
-同一种修法（形态 ①：原样搬家 + 旧位置再导出）。
+本模块**零界面依赖**（一次 `requests.get` + 去空白），放在 `services/` 下供
+QML 运行时使用 —— QML 运行时**不许 import `ui/`**（`ui/__init__.py` 会拉起
+customtkinter）。`ui/dialogs.py` 里的 `fetch_notice` 是本模块的转发，
+Tk 界面行为不变。
 
-`ui/dialogs.py` 里的 `fetch_notice` 现在是本模块的转发，Tk 界面行为逐字不变。
-
-**requests 必须带 UA**（工作区规范）：沿用旧实现的行为 —— 旧代码没显式设 UA，
-这里**不擅自改动它的请求语义**（改 UA 属于行为变更，要单独登记）。
+**requests 必须带 UA**（工作区规范）：本模块**不擅自改动请求语义**
+（改 UA 属于行为变更，要单独登记）。
 """
 
 from __future__ import annotations

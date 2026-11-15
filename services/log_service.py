@@ -1,20 +1,15 @@
-"""启动器日志服务（阶段 3 任务 3.4：对照表 A-13 / A-18）。
+"""启动器日志服务。
 
-## 它解决什么
+## 职责
 
-旧 Tk 界面的"启动器日志"是侧边栏那块常驻文本框：`ui/app_base.py:881-914` 给
-`logzero.logger` 挂了一个写进 `io.StringIO` 的 handler，再用 `after()` **轮询**把新行
-搬进文本框，单行上限 `LOG_VIEW_MAX_LINES = 5000`（`ui/log_widget.py`）。
-
-QML 侧原先**一条捕获链路都没有**：`qml/components/LogView.qml` 是现成的展示件
-（阶段 2 任务 2.18 交付），但没有任何东西往它里面送行。本模块补的就是这一段：
+`qml/components/LogView.qml` 负责展示，本模块补上捕获链路：
 一个 handler + 一个环形缓冲 + "有新行"的合并通知。
 
 ## 三条设计决定
 
-1. **缓冲在服务层、格式化也在服务层**：行文本就按旧实现那一份
+1. **缓冲在服务层、格式化也在服务层**：行文本按
    `logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S")` 产出，
-   界面不做拼接（红线 2）。上限 5000 与 `ui/log_widget.py` 的常量同值。
+   界面不做拼接。上限 5000 行。
 2. **通知是合并的、且排到主线程**：日志行可能成千上万条（下载、AGENT），
    每条都发一次信号会把界面淹掉。这里用"dirty 标志 + 一次 dispatch"合并：
    在同一个事件循环回合里追加一万行，界面只收到**一次**通知。
@@ -22,13 +17,12 @@ QML 侧原先**一条捕获链路都没有**：`qml/components/LogView.qml` 是�
    服务层因此仍然零 UI 依赖（不 import PySide6）。
 3. **导出优先导出磁盘上的日志文件**：`LogView` 里的缓冲是有上限的，磁盘上那份
    `latest.log` 才是完整记录（`main.setup_logging()` 落盘，目录不可写时回退
-   `~/.fmcl/latest.log` —— A-18）。文件读不到时退回缓冲区内容，并如实说明来源。
+   `~/.fmcl/latest.log`）。文件读不到时退回缓冲区内容，并如实说明来源。
 
-## 与旧实现的差异（如实记录）
+## 导出与清空
 
-* 旧界面**没有**导出功能（只有"清空"）。导出是 M-Q1 之外的新增能力，
-  03 章的 3.4 摘要里写明本页要"日志查看与导出"，故按新增实现并在对照表标注。
-* 清空只清**界面缓冲**，不动磁盘文件（与旧实现一致：旧"清空日志"也只清文本框）。
+* 导出是新增能力（本页需要"日志查看与导出"）。
+* 清空只清**界面缓冲**，不动磁盘文件。
 """
 
 from __future__ import annotations
@@ -162,12 +156,11 @@ class LogService(Service):
         """把捕获 handler 挂到目标 logger 上（幂等：重复调用不会重复挂）。
 
         **名字不能叫 `attach`**：`Service.attach(context)` 是基类的生命周期钩子，
-        `AppContext._resolve()` 取出懒注册的服务后会调它。第一版把它覆盖成
-        `attach(logger=None)`，结果是 `TypeError: attach() takes 1 positional argument
-        but 2 were given` → 服务取不到 → 日志页永远"已捕获 0 / 0 行"
-        （用户 2026-10-06 真机验收报的"日志没捕获"就是这个）。
+        `AppContext._resolve()` 取出懒注册的服务后会调它。把它覆盖成
+        `attach(logger=None)` 会让生命周期调用抛 `TypeError`，服务取不到，
+        日志页永远"已捕获 0 / 0 行"。
         `tests/test_app_context_wiring.py::test_every_registered_service_resolves`
-        现在会拦住这一类撞名。
+        会拦住这一类撞名。
         """
         logger = self.target_logger()
         if self.handler not in logger.handlers:

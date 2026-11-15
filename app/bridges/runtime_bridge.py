@@ -28,7 +28,7 @@ _ICON_NAME_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 
 
 def _app_version() -> str:
-    """版本号的单一真相来源是 `services.user_agent`（阶段 1 已统一到那里）。
+    """版本号的单一真相来源是 `services.user_agent`。
 
     **缺陷修复（任务 2.19 的冒烟测试发现）**：这里原先写的是
     `from services.user_agent import get_fmcl_version` —— 那个模块里**没有这个名字**
@@ -114,7 +114,7 @@ class RuntimeBridge(QObject):
     def fluentModuleAvailable(self) -> bool:  # noqa: N802
         return (Path(self.fluentModulePath) / "FluentUI").is_dir()
 
-    # ─── 图标资源（阶段 2 任务 2.10：界面禁止 emoji，一律用 qml/assets/icons/*.svg） ──
+    # ─── 图标资源（界面禁止 emoji，一律用 qml/assets/icons/*.svg） ──
 
     def _default_icon_color(self) -> str:
         """默认图标颜色：主题的二级文字色（缺陷 D-141）。

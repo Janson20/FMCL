@@ -1,4 +1,4 @@
-// 桌面歌词悬浮窗 —— 阶段 2 任务 2.15。
+// 桌面歌词悬浮窗。
 //
 // 对齐旧实现（ui/music_desktop_lyric.py）：无边框 / 置顶 / 整窗 0.85 半透明 / 可拖拽 /
 // 锁定后禁止拖拽 / 默认屏幕下方居中；差别只有一处**有意偏差**：旧实现用 emoji
@@ -29,7 +29,7 @@ Window {
     property string currentLine: ""
     property string nextLine: ""
 
-    // 阶段 3.19：桌面歌词真正接上当前播放器。测试/独立加载时 Music 可能不存在，
+    // 桌面歌词接当前播放器。测试/独立加载时 Music 可能不存在，
     // 所以每个读取都判空；没有 player 时保留调用方手动设置的 currentLine/nextLine。
     readonly property var player: (typeof Music !== "undefined" && Music && Music.ready)
                                    ? Music.player : null

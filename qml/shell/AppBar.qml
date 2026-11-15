@@ -1,10 +1,9 @@
-// AppBar.qml —— **唯一的一条顶栏**（界面返工 B 组；取代阶段 2 的 `shell/TitleBar.qml`）。
+// AppBar.qml —— **唯一的一条顶栏**。
 //
 // ## 为什么是"一条"而不是两条
 //
-// 阶段 2 的窗口顶部有两条横条：`FluWindow` 内置的 appBar（30px，只有标题与窗口按钮）
-// **加上**自绘的 `TitleBar`（48px，返回/搜索/通知/账号）。两条的颜色还各走一套来源，
-// 于是用户看到的是"白顶栏 + 黑正文"那种上下分裂的观感（返工 A 组截图）。
+// 顶部只保留一条横条：`FluWindow` 内置的 appBar 与自绘的 TitleBar 各画一条时，
+// 两条的颜色各走一套来源，会出现"白顶栏 + 黑正文"那种上下分裂的观感。
 // 参考项目 `tmp/FusionMusicPlayer/` 的做法是**把应用内容塞进 FluAppBar**，
 // 这里照做：本文件是 `FluAppBar` 的子类，一条 40px 的横条上同时放
 // 「返回 + 面包屑」与「搜索 + 通知 + 账号」，右侧 120px 留给窗口按钮。
@@ -34,9 +33,8 @@ FluAppBar {
     id: bar
     objectName: "appBar"
 
-    //: 叫 appBar 而不是 titleBar：它现在**就是**窗口顶栏那一条（含窗口按钮区）。
-    //: 阶段 2 的测试断言里那串名字（titleBar/navigation/pageStack/statusBar/…）
-    //: 已同步改成 appBar —— objectName 是测试的契约面，改名必须两边一起改。
+    //: 叫 appBar 而不是 titleBar：它**就是**窗口顶栏那一条（含窗口按钮区）。
+    //: objectName 是测试的契约面，改名必须与断言一起改。
 
     // 应用内容区高度：40 = 参考项目的 34 + 我们的窗口按钮行高（30）留出的余量。
     // `Theme.titleBarHeight` 与窗口按钮的 30px、导航项 40px 是同一套档位。
@@ -68,7 +66,7 @@ FluAppBar {
             id: backButton
             objectName: "backButton"
 
-            // 图标名与可用性都来自 Nav（栈里还有上一页才亮），与阶段 2 的 TitleBar 一致
+            // 图标名与可用性都来自 Nav（栈里还有上一页才亮）
             iconName: "arrow-left"
             enabled: Nav ? Nav.canGoBack : false
             onClicked: {
@@ -95,9 +93,8 @@ FluAppBar {
                            Agent.toggleVoice()
         }
 
-        //: 顶栏 AI 快速提问（3.22 起；3.24 验收反馈把原来的搜索框并入这里）。
-        //: 阶段 2 的全局搜索只是占位（`Shell.searchRequested` 没有消费者），所以
-        //: 直接复用这个位置：回车 -> 切到 AGENT 页 -> 交给 `Agent.quickAsk`。
+        //: 顶栏 AI 快速提问：回车 -> 切到 AGENT 页 -> 交给 `Agent.quickAsk`。
+        //: 这里复用原全局搜索的位置（`Shell.searchRequested` 没有消费者）。
         //: objectName 保留 `globalSearchBox`，它是壳层结构断言的契约面。
         FmTextField {
             id: searchField
@@ -118,7 +115,7 @@ FluAppBar {
             }
         }
 
-        //: 未保存标记（阶段 3 任务 3.4 / M-Q1 的 B6）：设置域里还有没落盘的改动时
+        //: 未保存标记：设置域里还有没落盘的改动时
         //: 露一个标签。它是**提示**不是按钮 —— 保存/取消在设置页底部的动作条上。
         //: 判空写法与全仓一致：上下文属性在引擎析构时先被清成 null。
         FmTag {
@@ -130,7 +127,7 @@ FluAppBar {
             text: Tr?.map["settings_unsaved_tag"] ?? "settings_unsaved_tag"
         }
 
-        //: 性能监控（阶段 3 任务 3.24）：旧顶栏的监视器按钮。
+        //: 性能监控入口。
         //: 顶栏这条入口打开时显示 10 秒快捷键提示；Ctrl+Shift+M 是另一条入口，
         //: 由 Overlay.bind_hotkeys() 在启动时注册。
         FmToolButton {
@@ -149,19 +146,16 @@ FluAppBar {
 
             iconName: "notify"
             onClicked: {
-                // 铃铛 = "查看公告"。原先它调的是 `toggleNotificationCenter()`，
-                // 而那个信号**没有任何消费者**（通知中心浮层一直没做）—— 用户
-                // 2026-10-06 实测报的"打开公告的按钮点不了"就是它。
-                // 现在发 `Shell.requestNotice()`，由 `App.qml` 决定重看公告还是提示"暂无公告"。
+                // 铃铛 = "查看公告"。`toggleNotificationCenter()` 那个信号没有消费者
+                // （通知中心浮层一直没做），点了也没反应。
+                // 这里发 `Shell.requestNotice()`，由 `App.qml` 决定重看公告还是提示"暂无公告"。
                 if (Shell)
                     Shell.requestNotice()
             }
         }
 
-        //: 语言：随时可切（2026-10-06 验收反馈补的入口）。
-        //: A-27 的语言浮层只在首次启动出现一次，设置页要到 3.4 才有 —— 在那之前
-        //: 用户想换语言只能去手改 `config.json`。这个按钮复用**同一个浮层**
-        //: （`StartupDialogs.qml` 里那份，一份实现两个入口）。
+        //: 语言：随时可切（首次启动的语言浮层只出现一次，没有这个入口就只能手改
+        //: `config.json`）。复用**同一个浮层**（`StartupDialogs.qml` 里那份，一份实现两个入口）。
         FmToolButton {
             id: languageButton
             objectName: "languageButton"
@@ -173,7 +167,7 @@ FluAppBar {
             }
         }
 
-        // 账号：阶段 3 换成账号菜单/浮层，现在先进设置里的账号页
+        // 账号：先进设置里的账号页
         FmToolButton {
             id: accountButton
             objectName: "accountButton"

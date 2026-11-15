@@ -1,11 +1,10 @@
-"""服务器服务（阶段 1 任务 1.9）—— 服务器生命周期、控制台流与配置读写的纯逻辑。
+"""服务器服务 —— 服务器生命周期、控制台流与配置读写的纯逻辑。
 
-从 ``ui/app_server.py``（``ServerTabMixin``）**逐字搬运**而来。留在界面文件里的是
-控件构建、对话框、``after`` 调度与 ``_task_queue`` 投递；搬进来的是这些：
+包含：
 
-- **控制台日志解析**：玩家加入/离开的两条正则、日志行缓冲与行数上限（D-86）
-- **进程退出监控**：读管道 → 行回调 → 退出回调，**恰好回调一次**（D-84）
-- **进程内存采样**：``get_process_memory`` 的三平台统一实现（D-80 / D-81）
+- **控制台日志解析**：玩家加入/离开的两条正则、日志行缓冲与行数上限
+- **进程退出监控**：读管道 → 行回调 → 退出回调，**恰好回调一次**
+- **进程内存采样**：``get_process_memory`` 的三平台统一实现
 - **每服启动配置**：``.fmcl_server.json`` 里的最大内存读写（转发 ``launcher.server_config``）
 - **可用版本分页**、内存与退出码的文本格式化
 
@@ -13,14 +12,14 @@
 
 - 纯计算写成**模块级函数**，``ServerService`` 上的同名方法只是薄转发；
 - 需要状态（日志缓冲）的放进 :class:`ServerConsoleWatcher`；
-- **不弹窗、不碰控件、不自己起线程**：线程仍由界面侧的 ``_run_in_thread`` 起，
+- **不弹窗、不碰控件、不自己起线程**：线程由界面侧起，
   ``watch_server_exit`` 期望在 worker 线程里被调用，且它只调用调用方传入的回调；
 - 失败以**返回值**表达（``None`` / ``-1`` 哨兵 / ``(成功, 错误信息)``），
-  与改造前一致 —— 阶段 1 不引入新的失败表达方式。
+  不引入新的失败表达方式。
 
-本服务**不需要** ``AppContext``：``ServerService()`` 可以独立实例化并直接使用
-（阶段 1 的 Tk 界面就是这么取的），也不访问 ``self.ui`` / ``self.tasks`` /
-``self.config`` —— 需要弹窗或后台线程时由调用方负责。
+本服务**不需要** ``AppContext``：``ServerService()`` 可以独立实例化并直接使用，
+也不访问 ``self.ui`` / ``self.tasks`` / ``self.config`` ——
+需要弹窗或后台线程时由调用方负责。
 
 .. note::
    日志用 ``logzero.logger`` 而不是 ``logging.getLogger(__name__)``，这是**刻意的**：
@@ -148,15 +147,12 @@ def format_exit_info(exit_code: int) -> str:
 def get_process_memory(pid: int) -> Optional[int]:
     """获取进程的内存占用（MB）。
 
-    阶段 1.21 修正（对应 D-80 / D-81）：
+    按 ``platform.system() == "Windows"`` 二分时，macOS（``"Darwin"``）会落进
+    ``/proc`` 分支 —— 那个路径在 macOS 上不存在，于是**服务器内存永远显示旧值**。
+    主路径也不应每 2 秒在界面线程同步跑一次 ``tasklist``（``timeout=5``），
+    那是最坏每 2 秒卡界面 5 秒。
 
-    - 原实现按 ``platform.system() == "Windows"`` 二分，macOS（``"Darwin"``）
-      落进 ``/proc`` 分支 —— 那个路径在 macOS 上不存在，于是**服务器内存
-      永远显示旧值**。
-    - 原实现的主路径是主线程上每 2 秒同步跑一次 ``tasklist``（``timeout=5``），
-      最坏每 2 秒卡界面 5 秒。
-
-    现改为**优先 psutil**（本项目硬依赖，三平台统一、微秒级、不起子进程），
+    现实现**优先 psutil**（本项目硬依赖，三平台统一、微秒级、不起子进程），
     仅在 psutil 不可用时才退回各平台原生方式（Windows tasklist /
     Linux ``/proc`` / macOS ``ps``）。这比"把阻塞调用挪到别的线程"更彻底：
     阻塞源本身被去掉了，主线程调用也就安全了。
@@ -276,19 +272,17 @@ def server_dir_path(server_root: Any, version_id: str) -> Path:
 
 
 class ServerConsoleWatcher:
-    """服务器控制台日志的读取、缓冲与退出投递（原 ``_watch_server_exit`` 的线程主体）。
+    """服务器控制台日志的读取、缓冲与退出投递。
 
     **无论走哪条路径都必须恰好投递一次 ``on_exit``。**
 
-    阶段 1.23 修正（D-84）：原实现有三条路径直接 return 或吞掉异常而不投递
-    ``server_exit``（缺少 ``get_server_process`` 回调、进程句柄为 None、
-    读日志/等待退出抛异常）。而 ``server_exit`` 是**唯一**会恢复界面状态的
-    消息 —— 见 ``ui/app_handlers.py`` 的 ``server_exit`` 分支，它负责：
-    禁用"停止"按钮、恢复"启动"按钮、停止内存监控定时器、复位状态栏与内存
-    显示、触发成就与插件钩子。
+    缺少 ``get_server_process`` 回调、进程句柄为 None、读日志/等待退出抛异常
+    这些路径都必须投递。``server_exit`` 是**唯一**会恢复界面状态的消息，
+    它负责：禁用"停止"按钮、恢复"启动"按钮、停止内存监控定时器、复位状态栏与
+    内存显示、触发成就与插件钩子。
 
     缺少这条消息，界面就永久停在"运行中"：启动按钮一直禁用、内存定时器
-    空转，用户**再也无法启动服务器**（只能重启启动器）。
+    空转，**再也无法启动服务器**（只能重启启动器）。
 
     Args:
         log_lines: 日志缓冲列表，**由调用方持有**（界面侧就是
@@ -309,10 +303,8 @@ class ServerConsoleWatcher:
     def append_line(self, text: str) -> None:
         """追加一行，并只保留最近 ``max_lines`` 行。
 
-        阶段 1.22 修正（D-86）：Python 侧缓冲原先无上限。
-        崩溃报告只取最后 200 行（ui/app_crash.py 的 [-200:]），
-        所以保留最近 LOG_BUFFER_MAX_LINES 行足够，且能防止
-        服务器挂机数天时列表无限增长。
+        崩溃报告只取最后 200 行，所以保留最近 LOG_BUFFER_MAX_LINES 行足够，
+        且能防止服务器挂机数天时列表无限增长。
         """
         self.log_lines.append(text)
         if len(self.log_lines) > self.max_lines:
@@ -383,9 +375,8 @@ class ServerConsoleWatcher:
 class ServerService(Service):
     """服务器服务（``name = "server"``）。
 
-    每个方法都是上文模块级函数的薄转发。保留实例方法这一层，是为了让界面侧统一写
-    ``self._server_service().xxx(...)``：阶段 2 接上 ``AppContext`` 之后只要把实例
-    换成注册表里的那一个，调用点不用动。
+    每个方法都是上文模块级函数的薄转发。保留实例方法这一层：界面侧统一写
+    ``self._server_service().xxx(...)``，换成注册表里的实例时调用点不用动。
     """
 
     name = "server"
@@ -486,8 +477,8 @@ class ServerService(Service):
     def set_launch_memory(server_dir: Any, memory: Optional[str]) -> Tuple[bool, str]:
         """写入某个服务器单独的最大内存，返回 ``(是否成功, 错误信息)``。
 
-        这是**历史遗留的元组返回值**，按阶段 1 约定原样保留（见
-        ``services/errors.py`` 模块说明），由调用方继续按老方式处理。
+        返回元组是既有约定（见 ``services/errors.py`` 模块说明），
+        调用方继续按老方式处理。
         """
         return set_server_launch_memory(server_dir, memory)
 

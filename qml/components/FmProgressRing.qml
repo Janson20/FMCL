@@ -1,4 +1,4 @@
-// FmProgressRing.qml —— 进度环（阶段 2 任务 2.16）。
+// FmProgressRing.qml —— 进度环。
 //
 // 什么时候用它：**紧凑位置**上的进度或忙碌指示 —— 卡片右上角、列表项尾部、按钮旁，
 //   横向空间不够放 FmProgressBar 的时候。

@@ -50,7 +50,7 @@ my-plugin/
 | `conflicts` | 否 | 冲突的插件及版本约束 |
 | `tags` | 否 | 标签列表 |
 | `entry` | 否 | 入口模块名，默认 `__init__` |
-| `ui_api` | 否 | 界面扩展协议版本：`1`（旧 Tk 协议，缺省）或 `2`（QML 页面，见下文） |
+| `ui_api` | 否 | 界面扩展协议版本：`1`（旧界面协议，仅兼容非 UI 钩子）或 `2`（QML 页面，见下文） |
 
 ### 3. 编写插件类
 
@@ -135,10 +135,9 @@ SCANNED → LOADING → LOADED → ENABLED → (DISABLED | ERROR)
 
 ## 界面扩展（UI API v2）
 
-> FMCL 有两套界面后端：旧 Tk 界面与 QML 界面。QML 界面**不再接受** Tk 控件，
-> 插件必须提供 QML 组件才能出现在新界面的导航里。旧协议（`get_tab_ui(parent)`）
-> 的插件仍然可以安装、启用，但**界面不加载**，管理器会标出「界面不受支持」；
-> 非 UI 钩子（游戏启动、下载、通知等）不受影响。
+> FMCL 当前只提供 QML 界面。插件要出现在导航中，必须提供 QML 组件并使用
+> `ui_api: 2`。声明 `ui_api: 1` 的旧界面协议仍可安装、启用，但界面部分不会加载，
+> 管理器会标出「界面不受支持」；非 UI 钩子（游戏启动、下载、通知等）不受影响。
 
 ### 1. 在 plugin.json 里声明
 
@@ -255,11 +254,11 @@ Connections {
 }
 ```
 
-### 5. 旧插件（`ui_api` 缺省 = 1）
+### 5. `ui_api` 缺省为 1 的插件
 
-* 非 UI 钩子照常工作；`ui.tab.register` / `get_tab_ui(parent)` 在 QML 下**不会**被调用；
+* 非 UI 钩子照常工作；`ui.tab.register` / `get_tab_ui(parent)` 在 QML 界面下**不会**被调用；
 * 管理器会显示「界面不受支持」与原因，不会崩溃；
-* 迁移只需要：清单加 `ui_api: 2`，把 `get_tab_ui` 换成 `ui.page.register` + QML 文件。
+* 要提供 QML 页面：清单声明 `ui_api: 2`，用 `ui.page.register` 登记页面并提供 QML 文件。
 
 > 安全边界：QML 页面与插件 Python 代码**同等信任**（都能执行任意代码），
 > 启动器不做沙箱。只安装来源可信的插件；权限弹窗管的是启动器提供的 API，
@@ -393,4 +392,4 @@ class PluginB(PluginBase):
 4. **日志规范**: 使用 `self.log()` 而非 `print()`，方便统一管理和排查
 5. **版本约束**: 使用 SemVer 语义化版本，dependencies 中使用 `>=1.0,<2.0` 约束
 6. **UI 线程安全**: 所有界面操作都在主线程；长耗时工作放插件自己的线程，
-   完成后用 `emit_ui_event` 通知 QML 页面刷新。旧 Tk 插件的 tkinter 操作也必须在主线程。
+   完成后用 `emit_ui_event` 通知 QML 页面刷新。

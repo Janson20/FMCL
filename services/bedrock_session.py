@@ -1,4 +1,4 @@
-"""基岩版页面会话状态机（阶段 3 任务 3.15）。
+"""基岩版页面会话状态机。
 
 链路：QML -> app/bridges/bedrock_bridge.py -> 本模块 -> services.bedrock_service。
 本模块不 import Qt / ui.i18n，不弹窗、不起线程；只保存页面状态、算过滤分页、

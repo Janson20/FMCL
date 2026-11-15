@@ -1,4 +1,4 @@
-// FmButton.qml —— 通用按钮（阶段 2 任务 2.16）。
+// FmButton.qml —— 通用按钮。
 //
 // 什么时候用它：界面/对话框里任何"点一下发生一件事"的地方 —— 提交、取消、保存、
 //   删除、重试、导入导出。一个界面里**最多一个主按钮**。
@@ -14,14 +14,14 @@
 // 文案由调用方给（`text:` 写 `Tr.map[…]`，别在组件里判语义）。
 //
 // **文字与图标颜色按面板底色自适应**：底色随 5 个预设主题与用户自定义强调色变亮变暗，
-//   写死白字在浅底上会糊（用户 2026-10-06 反馈「按钮文字看不清」：错误色底配白字 3.3:1、
-//   配深色字 6.1:1）。算法是 WCAG 相对亮度 + 0.17905… 阈值（白/黑对比度相等的点），
-//   浅底给深色文字、深底给浅色文字 —— 实现形态刻意与 committed 版的两个配色函数同构，
-//   原因见缺陷 D-196。
+//   写死白字在浅底上会糊（错误色底配白字只有 3.3:1、配深色字 6.1:1）。
+//   算法是 WCAG 相对亮度 + 0.17905… 阈值（白/黑对比度相等的点），
+//   浅底给深色文字、深底给浅色文字。
+//   实现形态刻意与既有的两个配色函数同构，原因见下方 `faceLuminance` 的注释。
 //
-// 为什么用两个布尔量而不是 `kind: "primary"` 字符串：2.13 的对话框临时件
-//   （`dialogs/DialogButton.qml`）用的就是 `primary: bool`，而 `tests/test_dialogs_qml.py`
-//   直接断言 `okButton.primary === true` —— 那条测试不在 2.16 的可改范围，所以
+// 为什么用两个布尔量而不是 `kind: "primary"` 字符串：`dialogs/DialogButton.qml`
+//   用的就是 `primary: bool`，而 `tests/test_dialogs_qml.py`
+//   直接断言 `okButton.primary === true` —— 所以
 //   `primary` 保持主入口，危险态另加 `danger`；`kind` 做成只读派生值给 Gallery/测试读。
 
 import QtQuick
@@ -54,9 +54,9 @@ Item {
     implicitHeight: 34
 
     //: WCAG 相对亮度（`#rgb` / `#rrggbb` / `#aarrggbb`；解析不了返回 0）。
-    //: **刻意做成普通函数、也刻意不放进单独的 JS 模块**：阶段 3.5 反馈轮实测，
+    //: **刻意做成普通函数、也刻意不放进单独的 JS 模块**：
     //: 把它组合成"只读属性 + 组件自己的函数"会让真 `App.qml` 里三态演示按钮刷
-    //: `QML FmButton: Cannot find member data`（缺陷 D-196，二分记录见 `16` §二十一）。
+    //: `QML FmButton: Cannot find member data`。
     //: `#rrggbb` / `#aarrggbb` → 相对亮度（`labelColor` 用它判断面板偏亮还是偏暗）。
     //: 阈值 `0.17905…` 是**解出来的**：白字与黑字对比度相等的那个相对亮度
     //: （解 `1.05/(L+0.05) = (L+0.05)/0.05`），不是 0.5 那种经验值。
@@ -141,7 +141,7 @@ Item {
         anchors.fill: parent
         radius: Theme?.radiusMd ?? 0
         border.width: 1
-        // 为什么要判 `control.borderColor` 这个函数**在不在**（阶段 3 任务 3.1 的缺陷 D-163）：
+        // 为什么要判 `control.borderColor` 这个函数**在不在**：
         // 对象被销毁（`StackView` 弹页、进程退出）时，QML 会先把元对象拆掉、绑定却还排在
         // 求值队列里 —— 那一刻 `control` 还在、`control.borderColor` 已经不是函数了，
         // 绑定一求值就是 `TypeError: Property 'borderColor' … is not a function`。

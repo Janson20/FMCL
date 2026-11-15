@@ -1,28 +1,23 @@
-"""安装新版本向导服务（阶段 3 任务 3.3）。
+"""安装新版本向导服务。
 
-## 范围（`03-phases.md` 的 3.3 + 2026-10-06 用户裁决）
+## 范围
 
-| 对照表 | 能力 | 旧实现位置 |
-|--------|------|-----------|
-| B-09 | 手动输入版本 ID（从第一个空格处截断，旧规则） | `ui/app_base.py:1173-1181`、`ui/app_handlers.py:903-908` |
-| B-10 | 9 种模组加载器下拉 + 兼容提示 | `ui/app_base.py:1193-1228`、`ui/app_handlers.py:294-313` |
-| B-11 | 安装版本（进度 / 取消 / 完成提示） | `ui/app_base.py:1234-1243`、`ui/app_handlers.py:903-915` |
-| B-12 | 安装整合包入口（**只做入口**，页面归 3.8） | `ui/app_base.py:1245-1254` |
-| B-13 | 可用版本：正式版/测试版切换 + 每页 20 + 分页 + 点击回填 | `ui/app_base.py:1229-1352`、`ui/app_handlers.py:180-292` |
+- 手动输入版本 ID（从第一个空格处截断）
+- 9 种模组加载器下拉 + 兼容提示
+- 安装版本（进度 / 取消 / 完成提示）；取消 = 尽力取消（核心层 `cancel_check`，
+  文件级粒度，已下好的文件保留）
+- 安装整合包入口（**只做入口**，页面归整合包流程）
+- 可用版本：正式版/测试版切换 + 每页 20 + 分页 + 点击回填
+- 修复入口
+- 装完自动回版本列表并选中新版本（等效"清空输入框 + 刷新列表"）
 
-用户当场裁决的五条（`docs/refactor/16-phase3-execution-log.md` §14 有完整记录）：
-
-1. **交付范围 A** —— B-09~B-13 + B-12 入口 + D-167「修复」；
-2. **取消 = 尽力取消（A）** —— 核心层 `cancel_check`，文件级粒度，已下好的文件保留；
-3. **呈现 = 独立路由页 `versions/install`（A）**（旧界面是版本页右侧同栏面板）；
-4. **装完自动回版本列表并选中新版本（A）** —— 等效旧界面的"清空输入框 + 刷新列表"；
-5. **兼容提示 = 旧提示 + 真实支持性查询（B）** —— mcllib 那四个加载器问各自官方 meta，
-   四个自定义安装器按本地规则判（规则出处见 `local_loader_support()`）。
+兼容提示 = 提示 + 真实支持性查询：mcllib 那四个加载器问各自官方 meta，
+四个自定义安装器按本地规则判（规则出处见 `local_loader_support()`）。
 
 ## 三条设计约束（与 `VersionService` 同一套）
 
 1. **业务规则在这里**：版本 ID 截断、分页夹取、正式版/测试版归类、加载器 id ↔ 显示名
-   ↔ i18n 键、兼容判定、安装结果判读，全在本模块；桥与 QML 不做判断（红线 2）。
+   ↔ i18n 键、兼容判定、安装结果判读，全在本模块；桥与 QML 不做判断。
 2. **慢活走任务**：可用版本清单走 `self.tasks.submit`（读网络）；
    **安装任务走 `Tasks` 桥**（`app/bridges/qt_tasks.py`）—— 这样它才算"后台任务"
    （状态栏 `Shell.busy` 与后台任务指示只认经 `Tasks.submit` 提交的任务），
@@ -379,7 +374,7 @@ class InstallService(Service):
             message = self._available_error
         self._emit("on_available", payload, message)
 
-    # ─── 兼容提示（B-10 的"真实支持性查询"，用户裁决 B）─────
+    # ─── 兼容提示（真实支持性查询）─────────────────────────
 
     def check_compat(self, version_id: str, loader: str) -> Any:
         """异步查"这个加载器支不支持这个版本"。返回 ``TaskHandle``（命中缓存返回 ``None``）。
@@ -496,7 +491,7 @@ class InstallService(Service):
         self._note_installed(installed_id)
         return {**base, "ok": True, "state": RESULT_DONE, "installed": installed_id}
 
-    # ─── 装完之后（用户裁决 4：回列表并选中它）───────────────
+    # ─── 装完之后（回列表并选中它）─────────────────────────
 
     def _version_service(self) -> Any:
         try:

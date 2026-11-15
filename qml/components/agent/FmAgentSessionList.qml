@@ -1,4 +1,4 @@
-// FmAgentSessionList.qml —— 会话列表（阶段 3 任务 3.22）。
+// FmAgentSessionList.qml —— 会话列表。
 //
 // 什么时候用它：Agent 页左侧。新会话、选择、重命名、删除都只发信号；
 // 删除确认由页面弹，列表不自己删数据。

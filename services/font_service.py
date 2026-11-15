@@ -1,51 +1,18 @@
-"""跨平台中文字体检测与按需安装（阶段 2 任务 2.10 的字体注入部分）。
+"""跨平台中文字体检测与按需安装。
 
-原地址是 ``ui/constants.py`` 的字体段落，**逐字搬运，逻辑一行未改**；
-``ui/constants.py`` 现在只做再导出（阶段 1 搬迁的一贯做法）。
+Windows 直接返回 ``"Microsoft YaHei"``，不跑 subprocess 探测；
+macOS 返回 ``"PingFang SC"``；Linux 走三级兜底：
+``fc-list :lang=zh`` → ``fc-match -s 中文测试 family`` → 扫描常见字体目录，
+都失败时回退 ``"Sans"``，交给系统 fontconfig。
 
-## 为什么必须搬到服务层
+## 语义与边界
 
-QML 运行时**不许 import ``ui/`` 包**：``ui/__init__.py`` 会
-``from ui.app import ModernApp`` → 把 ``customtkinter`` 拖进 PySide6 进程
-（阶段 0 第 10.4 节实测踩过；阶段 2 契约第六节决策 12 把它定成红线）。
-而字体检测**只依赖标准库 + ``services`` 自己**：``platform`` / ``subprocess``
-（``fc-list`` / ``fc-match``）/ ``glob`` / ``tempfile``，一行界面代码都没有。
-留在 ``ui/`` 里，QML 侧想给 ``QGuiApplication.setFont()`` 取字体名就只有两条路：
-要么 import ``ui/``（拖进 Tk），要么把检测逻辑抄第二份（迁移红线 2：业务逻辑只搬一次）。
-因此整体搬到服务层，由 ``services/palette.py`` / ``services/user_agent.py``
-同一条路线（那两个也是从 ``ui/constants.py`` 搬出来的）。
-
-## 本机实测值（Windows）
-
-Windows 分支直接返回 ``"Microsoft YaHei"``，**不跑任何 subprocess 探测**；
-本机（Python 3.11.14 / Windows x64）实测：
-
-    >>> from services.font_service import FONT_FAMILY
-    >>> print(FONT_FAMILY)
-    Microsoft YaHei
-
-macOS 分支返回 ``"PingFang SC"``。Linux 走三级兜底：
-``fc-list :lang=zh`` → ``fc-match -s 中文测试 family`` → 扫常见字体目录，
-三条都失败才回退 ``"Sans"`` 交给系统 fontconfig 兜底。
-
-## 语义与边界（本轮不改，与旧实现逐字一致）
-
-- ``FONT_FAMILY`` 是 :class:`services.user_agent.LazyStr`：**import 时不探测**，
-  首次 ``str()`` / f-string / 格式化时才跑检测并缓存 —— 启动路径不为它付代价。
+- ``FONT_FAMILY`` 是 :class:`services.user_agent.LazyStr`：import 时不探测，
+  首次转字符串时才检测并缓存，启动路径不为此付出代价。
 - 字体安装（:func:`_install_chinese_font` / :func:`_install_emoji_font`）
-  **不再由检测自动触发**，只供设置界面按需调用；否则每次启动都会弹
-  pkexec/sudo 密码框（旧实现踩过的坑，注释里保留了原话）。
-- 安装尝试标记文件 :data:`_FONT_INSTALL_MARKER` 落在系统临时目录，跨会话去重。
-
-## 与 ``ui/constants.py`` 原文的**唯一**差异
-
-两处 ``subprocess.run(..., text=True)`` 补了 ``errors="replace"``：这是阶段 1 的既有守卫
-``tests/test_server_service.py::test_subprocess_text_calls_tolerate_bad_bytes`` 强制的
-（``services/**`` 里读子进程文本输出的调用必须显式容忍坏字节，否则在项目自己的
-``-X utf8`` 命令下，reader 线程会抛 ``UnicodeDecodeError`` 而 ``stdout`` 变成半截）。
-阶段 1 已经为 ``services/`` 修过 13 处同类缺陷，搬到服务层的代码必须守同一条规矩。
-除此之外**逐字一致** —— ``poc/verify_font_move.py`` 逐函数比对基线 ``640f7eb``，
-唯一允许的差异就是这一处（脚本里显式列出）。
+  只由设置界面按需调用，检测过程不会自动触发安装，避免启动时弹权限框。
+- 安装尝试标记 :data:`_FONT_INSTALL_MARKER` 落在系统临时目录，跨会话去重。
+- 读取子进程输出时统一使用 ``errors="replace"``，避免坏字节导致解码异常。
 """
 
 import glob

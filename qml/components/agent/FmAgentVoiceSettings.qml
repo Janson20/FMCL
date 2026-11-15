@@ -1,4 +1,4 @@
-// FmAgentVoiceSettings.qml —— 语音模型状态 / 下载 / 导入（阶段 3.23）。
+// FmAgentVoiceSettings.qml —— 语音模型状态 / 下载 / 导入。
 import QtQuick
 import QtQuick.Dialogs
 import QtQuick.Layouts

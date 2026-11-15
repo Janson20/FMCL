@@ -1,15 +1,14 @@
-"""主题桥（阶段 2 任务 2.8）—— QML 侧唯一能读/改主题的地方。
+"""主题桥 —— QML 侧唯一能读/改主题的地方。
 
 注册名 ``Theme``（由 ``main_qml.register_bridges()`` 用
 **``qmlRegisterModule("FMCL", 1, 0)`` + ``setContextProperty("Theme", obj)``** 注册），
 QML 侧 ``import FMCL 1.0`` 之后按驼峰名读：``Theme.bgDark`` / ``Theme.fontSizeBase``。
 
-> **为什么不是 `qmlRegisterSingletonInstance`**：契约第四节原本写的是它，但实测
-> PySide6 6.7.3 下**任何** `qmlRegister*Type/Instance` 调用之后，同进程里再编译用到
-> `QtQuick.Controls` 的 QML 就会失败（`qml/App.qml` 的 `StackView` 必现
-> `Cannot assign object to list property "data"`）。矩阵见
-> ``poc/theme_register_hazard_2_8.py``，结论写在 ``main_qml.register_bridges`` 的文档里。
-> **QML 侧的写法一个字都没变**（`Theme.bgDark` / `Tr.map[…]`），改的只是注册机制。
+> **为什么不是 `qmlRegisterSingletonInstance`**：**任何** `qmlRegister*Type/Instance`
+> 调用之后，同进程里再编译用到 `QtQuick.Controls` 的 QML 就会失败
+> （`qml/App.qml` 的 `StackView` 必现 `Cannot assign object to list property "data"`）。
+> 因此注册一律走 `qmlRegisterModule` + `setContextProperty`；QML 侧的写法不受影响
+> （`Theme.bgDark` / `Tr.map[…]`）。
 
 ## 数据流（谁说了算）
 
@@ -19,7 +18,7 @@ QML 侧 ``import FMCL 1.0`` 之后按驼峰名读：``Theme.bgDark`` / ``Theme.f
     services/palette.COLORS（全进程唯一的可变字典）
               │ 读 + 归一化（本桥）
               ├─► QML 的 12 个 Q_PROPERTY（NOTIFY changed）
-              └─► FluentUI 的 FluTheme 九键（阶段 0 第 10.1 节的映射表）
+              └─► FluentUI 的 FluTheme 九键（见 :data:`FLUENT_MAP`）
 
 桥里**没有任何业务规则**：版本前缀匹配在 ``ThemeEngine.get_version_accent``、
 主题文件解析在 ``ThemeEngine.import_theme_from_file``、变亮算法在
@@ -28,88 +27,68 @@ QML 侧 ``import FMCL 1.0`` 之后按驼峰名读：``Theme.bgDark`` / ``Theme.f
 
 ## 为什么一律用信号（不用 invokeMethod）
 
-阶段 0 第 10.2 节实测：``QMetaObject.invokeMethod`` 调 QML 函数会**静默失败**
+``QMetaObject.invokeMethod`` 调 QML 函数会**静默失败**
 （QML 侧声明的是 ``var`` 参数，与 ``QVariantMap`` 签名不匹配，调用计数器始终为 0）。
-契约第六节决策 10 把它定成红线，``scripts/check_qml_rules.py`` 的 R7 静态拦截。
+``scripts/check_qml_rules.py`` 的 R7 静态拦截这条规则。
 
-## 颜色归一化（缺陷 D-63 / 风险 R-14）
+## 颜色归一化
 
-``COLORS`` 的值可能是 ``"#rrggbb"``，也可能是 ``(light, dark)`` 元组
-（``docs/refactor/07-known-defects.md`` 的 D-63；基线 ``ui/app_monitor.py:733-737``
-就对元组特判过）。QML 的 ``color`` **不接受元组**，所以本桥统一归一化成字符串：
+``COLORS`` 的值可能是 ``"#rrggbb"``，也可能是 ``(light, dark)`` 元组。
+QML 的 ``color`` **不接受元组**，所以本桥统一归一化成字符串：
 
-- 元组 / 列表 → 取**第一个**元素（旧界面把元组直接喂给 Tk，Tk 取的是亮色那一项）；
+- 元组 / 列表 → 取**第一个**元素（即亮色那一项）；
 - ``#rgb`` → 交给 ``QColor`` 展开成 ``#rrggbb``；带 alpha 的 ``#aarrggbb`` 保留 alpha；
 - 既不是颜色也不是元组（``None`` / 数字 / 乱写的串）→ 回退 ``#000000`` 并记 warning，
   **不抛异常** —— 一个坏色值不该让界面起不来。
 
 ## FluTheme 注入与优雅降级
 
-- 取法：``engine.singletonInstance("FluentUI", "FluTheme")``（阶段 0 第 10.1 节实测可用）；
-  ``poc/theme_probe_2_8.py`` 另测出**不必等 ``engine.load()``**，所以桥一拿到引擎
-  （构造参数注入 = 构造期；``use_engine`` 注入 = 注入那一刻）就能写。
+- 取法：``engine.singletonInstance("FluentUI", "FluTheme")``；**不必等 ``engine.load()``**，
+  所以桥一拿到引擎（构造参数注入 = 构造期；``use_engine`` 注入 = 注入那一刻）就能写。
 - **先查导入路径再调 ``singletonInstance``**（:func:`_fluent_module_dir`）：模块解析不了时
-  它不会优雅返回 ``None``，而是直接崩进程（全量测试里踩到，Windows access violation）。
+  它不会优雅返回 ``None``，而是直接崩进程（Windows access violation）。
 - 映射见 :data:`FLUENT_MAP`；``success`` / ``warning`` / ``error`` 在 FluTheme 里
   没有对应项，只留在我们这边给自研组件用。
-- **必须显式设 ``FluTheme.darkMode``**：实测 ``FluTheme.dark`` 只读（外部改不了），
-  而 5 个预设主题全是深色（契约第六节决策 9）。
+- **必须显式设 ``FluTheme.darkMode``**：``FluTheme.dark`` 只读（外部改不了），
+  而 5 个预设主题全是深色。
 - 取不到 FluTheme 时**绝不抛异常**，``fluentAvailable`` 变 False、界面照常起来；
-  两种情形的日志级别不同（D-153 之后）：
+  两种情形的日志级别不同：
   **还没人注入引擎** = 装配过程中的正常中间态，只记 debug（每次同步重试，
   注入那一刻就会成功）；**有引擎但导入路径里没有 FluentUI 模块** = 真降级，记一次 warning。
-  注意 ``singletonInstance`` 在模块不可用时返回的是 **undefined 的 QJSValue** 而不是 None
-  （``poc/theme_probe_engine_ref.py`` 实测），所以判据是"是不是 QObject"。
+  注意 ``singletonInstance`` 在模块不可用时返回的是 **undefined 的 QJSValue** 而不是 None，
+  所以判据是"是不是 QObject"。
 
-## 界面返工 A 组修掉的两个真缺陷（缺陷 D-139 / D-140）
+## darkMode 取值与写入顺序
 
-### D-139：``darkMode`` 的取值语义搞错了（``FLUENT_DARK`` 曾经是 1）
-
-FluentUI **不用** ``Qt::ColorScheme`` —— 它自己的枚举在
+FluentUI 不使用 ``Qt::ColorScheme``，它自己的枚举在
 ``third_party/FluentUI/src/Def.h``：
 
     namespace FluThemeType { enum DarkMode { System = 0x0000, Light = 0x0001, Dark = 0x0002 }; }
 
-所以旧值 ``1`` 是 **Light**。实测（``poc/_probe_fluent_darkmode.py``，本机复跑过）：
+因此 ``1`` 是 **Light**，不是深色：
 
-    setProperty("darkMode", 0) → dark=True   windowBg=#202020  frameActive=#303030   （System，本机系统是深色）
-    setProperty("darkMode", 1) → dark=False  windowBg=#ededed  frameActive=#ffffff   （Light）
-    setProperty("darkMode", 2) → dark=True   windowBg=#202020  frameActive=#303030   （Dark）
+    setProperty("darkMode", 0) → System
+    setProperty("darkMode", 1) → Light
+    setProperty("darkMode", 2) → Dark
 
-症状就是用户截图里那条**白色的窗口顶栏**：FluentUI 控件（FluWindow 的 appBar、
-FluButton、原生 TextField）全是浅色，而我们自己的壳层读的是深色调色板。
+写 ``darkMode`` 会触发 ``FluTheme::darkChanged``，而 ``refreshColors()`` 会把全部
+14 个颜色重置成 FluentUI 默认值。**先写 ``darkMode``，再写颜色**；反过来会把刚写入的
+调色板冲掉。顺序由 `test_dark_mode_is_written_before_colors` 固定。
 
-### D-140：写 ``darkMode`` 会把刚写进去的颜色**全部冲掉** —— 所以写序有硬要求
+## 语义令牌
 
-``FluTheme.cpp`` 里两条直连信号：
-
-    connect(this, &FluTheme::darkModeChanged, this, [=] { Q_EMIT darkChanged(); });
-    connect(this, &FluTheme::darkChanged, this, [=] { refreshColors(); });
-
-而 ``refreshColors()`` 会把**全部 14 个颜色**重置成 FluentUI 的默认值。实测：
-Light→Dark 切一次，刚写进去的 ``windowBackgroundColor=#1a1a2e`` 变回 ``#202020``。
-
-反过来，"同一个值再写一次"**不会**触发（``Q_PROPERTY_AUTO`` 宏里有
-``if (_##M != in_##M)`` 判断，``third_party/FluentUI/src/stdafx.h``），
-所以这个坑只在 darkMode **真的变化**的那一次出现 —— 也就是修好 D-139 的第一次同步。
-
-**结论：先写 ``darkMode``，再写颜色。** 顺序被 ``test_dark_mode_is_written_before_colors``
-钉住（把两行调过来该用例立刻变红）。
-
-## 语义令牌（返工 A 组新增）
-
-QML 侧**不许自己算颜色**（闸门 R8 禁颜色字面量，``Qt.rgba`` 也在禁列），
+QML 侧**不许自己算颜色**（R8 规则禁颜色字面量，``Qt.rgba`` 也在禁列），
 所以"比卡片亮 6% 的悬停色"这类派生值必须由本桥算好再暴露成属性。
 派生只依赖 :data:`COLOR_KEYS` 那 12 个键，因此：
 
-* **不改** `services.palette.COLORS` 的 12 键契约（主题文件格式一个字都没变，老主题照常能用）；
+* **不改** `services.palette.COLORS` 的 12 键结构（主题文件格式不变，老主题照常能用）；
 * 用户导入的主题只要定义那 12 键，派生令牌自动跟着走。
 
-派生表与理由见 :func:`derive_tokens`。锁深色是契约第六节决策 9 的延续
-（5 个预设主题全是深色），所以 ``itemHover`` / ``scrim`` 这类叠加色直接按
-"白 + alpha"给（浅色主题需要反过来，那是"支持亮色"时的事，见 ``05`` 的遗留项）。
+派生表与理由见 :func:`derive_tokens`。主题锁深色（5 个预设主题全是深色），
+所以 ``itemHover`` / ``scrim`` 这类叠加色直接按 "白 + alpha" 给
+（浅色主题需要反过来，留到支持亮色时再说）。
 
-## 引擎从哪来（**只认显式注入** —— 缺陷 D-153 的修法）
+## 引擎从哪来（**只认显式注入**）
 
 ``main_qml.register_bridges()`` 用 ``cls()`` **无参**实例化桥，紧接着调 ``use_engine(engine)``
 把它**自己刚建的那个**引擎交进来。桥只认这两条**显式**通道：
@@ -118,24 +97,23 @@ QML 侧**不许自己算颜色**（闸门 R8 禁颜色字面量，``Qt.rgba`` �
 2. ``use_engine(engine)``（装配方在注册时注入；**注入那一刻立刻试着注一次 FluTheme**，
    这样入口的行为与"构造期就拿到引擎"完全一致，不需要等下一次 ``refresh()``）。
 
-**不允许猜**。这里早先还有第三条"兜底"：在 ``gc.get_objects()`` 里找进程里最后一个
-``QQmlEngine``。那是缺陷 D-153 —— 只要进程里**先**存在一个游离引擎（测试探针、
-别的模块建的），"最后一个"就可能落在它身上，于是 ``fluentAvailable`` 变 False。
-阶段 1 的证据脚本 ``poc/_verify_group_b_independent.py`` 第 5 节那条红灯就是它。
-根因是"取值路径在猜"，所以那条兜底是**整条删除**，不是换成更聪明的猜法。
+**不允许猜**：不要从 ``gc.get_objects()`` 之类的路径找进程里最后一个
+``QQmlEngine``。只要进程里另有一个游离引擎（测试探针、别的模块建的），
+"最后一个"就可能落在它身上，``fluentAvailable`` 会莫名其妙变 False。
+取值路径只能来自上面的显式注入，不要换成"更聪明的猜法"。
 
 两条通道都还没来（桥先建、引擎后到）时：:meth:`ThemeBridge._resolve_fluent` 只记一条
 debug 日志并返回 None，之后每次同步都会重试 —— 见上面"两种情形的日志级别不同"。
 
-引擎用**强引用**持有（早期"自动发现"那条路用弱引用，随该路径一起删掉了）：
-显式注入意味着生命周期由注入方掌握，桥拖住引擎比"引擎先析构、桥还去写它"安全得多。
+引擎用**强引用**持有：显式注入意味着生命周期由注入方掌握，
+桥拖住引擎比"引擎先析构、桥还去写它"安全得多。
 
-## 设计令牌（契约第六节决策 11：放在 Theme 里）
+## 设计令牌（放在 Theme 里）
 
-取值是从 ``ui/`` 量出来的，不是拍脑袋 —— ``poc/measure_design_tokens.py`` 可复跑：
+取值按原界面的字号 / 间距使用频次取档，不是拍脑袋：
 
 +-------------------+----+---------------------------------------------------------+
-| 令牌              | 值 | 依据（``ui/**/*.py`` 递归统计的实测分布）                |
+| 令牌              | 值 | 依据（使用频次与场景）                                   |
 +===================+====+=========================================================+
 | ``fontSizeSmall`` | 10 | ``CTkFont(size=10)`` 89 处（小标签 / 次要说明）          |
 | ``fontSizeBase``  | 12 | 243 处，绝对主力（正文）                                 |
@@ -151,17 +129,16 @@ debug 日志并返回 None，之后每次同步都会重试 —— 见上面"两
 | ``radiusMd``      | 8  | 40 处（按钮 / 输入框的主力档）                            |
 | ``radiusLg``      | 12 | 27 处（卡片 / 面板）                                     |
 | ``iconSize``      | 20 | FluentUI ``FluAppBar.qml:34`` 的默认 ``iconSize``；       |
-|                   |    | 旧界面的字形图标是 22 / 24，同处一档                      |
+|                   |    | 原界面的字形图标是 22 / 24，同处一档                      |
 +-------------------+----+---------------------------------------------------------+
 
-字号单位：CTk 的 ``size`` 与 QML 的 ``font.pixelSize`` 都是像素，**1:1 沿用**，
-不做 pt→px 换算。旧界面里 11 / 13 也用得多（204 / 155 处），但它们紧贴 12，
-按"取最接近的档位"并入 Base；16（24 处）并入 Title。
+字号单位：原界面的字号与 QML 的 ``font.pixelSize`` 都是像素，**1:1 沿用**，
+不做 pt→px 换算。11 / 13 也用得多，但它们紧贴 12，按"取最接近的档位"并入 Base；
+16 并入 Title。
 
 ## 持久化
 
-``setTheme`` / ``setAccent`` 与旧界面 ``launcher/core.py:2660-2680`` 的
-``set_theme_name`` / ``set_accent_color`` 对齐：写 ``config.theme_name`` /
+``setTheme`` / ``setAccent`` 写 ``config.theme_name`` /
 ``config.accent_color`` 并 ``save_config()`` —— 不写的话重启后主题会丢。
 配置对象可以通过构造参数 ``config=`` 注入：测试传一个假对象就**既不读也不写**
 真实的 ``config.json``（不给它时懒取根模块的 ``config`` 单例）。
@@ -180,10 +157,10 @@ from services.font_service import FONT_FAMILY
 
 logger = logging.getLogger(__name__)
 
-#: 契约第四节冻结的 QML 注册名（由入口 `register_bridges` 注册成上下文属性）。
+#: QML 注册名（由入口 `register_bridges` 注册成上下文属性）。
 QML_NAME = "Theme"
 
-#: QML 属性名（驼峰）→ `services.palette.COLORS` 的键（下划线）。顺序按契约 §5.1。
+#: QML 属性名（驼峰）→ `services.palette.COLORS` 的键（下划线）。
 COLOR_KEYS: Tuple[Tuple[str, str], ...] = (
     ("bgDark", "bg_dark"),
     ("bgMedium", "bg_medium"),
@@ -200,7 +177,7 @@ COLOR_KEYS: Tuple[Tuple[str, str], ...] = (
 )
 
 #: `COLORS` 的键（下划线）→ QML 属性名（驼峰）。
-#: 返工 A 组之后，FluTheme 映射不再用它（映射表的左边已经是驼峰令牌名），
+#: FluTheme 映射不再用它（映射表的左边已经是驼峰令牌名），
 #: 但"蛇形键 ↔ 驼峰属性"的对照关系仍是主题文件与 QML 之间的桥，留着给诊断与测试用。
 SNAKE_TO_CAMEL: Dict[str, str] = {snake: camel for camel, snake in COLOR_KEYS}
 
@@ -212,7 +189,7 @@ SNAKE_TO_CAMEL: Dict[str, str] = {snake: camel for camel, snake in COLOR_KEYS}
 #: 旧映射把它写成 `bg_light`（`#0f3460`），等于给每个 Flu* 控件的常态底刷了一层蓝 ——
 #: 这是"界面发花"的一个来源。留给 FluTheme 自己的深色默认值。
 #: `accentColor` **也不写**：它是 `FluAccentColor` 对象，改它会触发 `refreshColors()`
-#: （见 D-140），而我们真正要的是 `primaryColor`。
+#: （见模块文档的写入顺序），而我们真正要的是 `primaryColor`。
 FLUENT_MAP: Tuple[Tuple[str, str], ...] = (
     ("accent", "primaryColor"),
     ("windowBgInactive", "backgroundColor"),
@@ -229,13 +206,13 @@ FLUENT_MAP: Tuple[Tuple[str, str], ...] = (
     ("itemCheck", "itemCheckColor"),
 )
 
-#: `FluTheme.darkMode` 的取值。**不是 `Qt::ColorScheme`**（缺陷 D-139）：
+#: `FluTheme.darkMode` 的取值。**不是 `Qt::ColorScheme`**：
 #: `FluThemeType::DarkMode` 是 `System=0 / Light=1 / Dark=2`（`third_party/FluentUI/src/Def.h`）。
-#: 证据：`poc/_probe_fluent_darkmode.py`，实测 1 → `dark=False`、2 → `dark=True`。
+#: 取值映射：1 → `dark=False`、2 → `dark=True`。
 FLUENT_LIGHT = 1
 FLUENT_DARK = 2
 
-#: `FluTheme.darkMode` 的属性名（写序有硬要求，见模块文档 D-140）。
+#: `FluTheme.darkMode` 的属性名（写序有硬要求，见模块文档）。
 FLUENT_DARK_MODE_PROP = "darkMode"
 
 #: `darkMode` 的默认值：本项目的主题集全是深色，且**不求值系统**。
@@ -266,7 +243,7 @@ RADIUS_MD = 8
 RADIUS_LG = 12
 ICON_SIZE = 20
 
-#: 返工 A 组新增的**动效与布局**令牌（数值取自参考项目 FusionMusicPlayer 的
+#: **动效与布局**令牌（数值取自参考项目 FusionMusicPlayer 的
 #: `app/ui/Theme.qml`，与我们的 `radius*` 档位对齐后取整）。
 DURATION_FAST = 110
 DURATION_NORMAL = 190
@@ -276,7 +253,7 @@ TITLE_BAR_HEIGHT = 40
 STATUS_BAR_HEIGHT = 28
 
 
-# ─── 语义令牌派生（返工 A 组任务 A5） ──────────────────────────
+# ─── 语义令牌派生 ────────────────────────────────────────────
 
 #: 派生令牌名（QML 属性名）。**与 :data:`COLOR_KEYS` 的 12 个名字不重叠** ——
 #: 重叠会让 `_tokens` 的合并悄悄覆盖掉主题文件里的值（有测试钉住不重叠）。
@@ -409,7 +386,7 @@ def derive_tokens(colors: Dict[str, QColor]) -> Dict[str, QColor]:
 def _coerce_color(value: Any) -> Optional[QColor]:
     """把值折成一个 QColor；折不出来返回 None（调用方负责回退与告警）。
 
-    元组 / 列表按 D-63 的约定取**第一个**元素，并递归下去
+    元组 / 列表按统一约定取**第一个**元素，并递归下去
     （``((light, dark), ...)`` 这种畸形值也能折到底或明确失败）。
     """
     if isinstance(value, QColor):
@@ -478,7 +455,7 @@ def _fluent_module_dir(engine: Any) -> Optional[Path]:
     """在引擎的导入路径里找 FluentUI 模块目录（必须带 `qmldir`）。
 
     **这不是"保险"，是硬前置条件**：`singletonInstance()` 在**解析不了该模块**的引擎上
-    不会老老实实返回 `None` 让你降级 —— 全量测试里实测**整个进程 access violation**
+    不会老老实实返回 `None` 让你降级 —— 而是**整个进程 access violation**
     （栈在 Qt 内部，Python 侧 `try/except` 兜不住）。触发条件很隐蔽：只要**同进程里
     另一个引擎**先加载过 FluentUI（例如测试建过一个真的 `FluWindow`），插件就被
     进程级注册了，此后拿一个没挂导入路径的引擎去 `singletonInstance` 就崩。
@@ -502,7 +479,7 @@ class ThemeBridge(QObject):
     """上下文属性……不，**单例** `Theme`：12 个色键 + 设计令牌 + 主题操作。
 
     线程前提：与其它桥一样**只许在主线程**使用（QML 绑定与槽都在主线程），
-    本桥不起线程、不接收 worker 回调（契约红线 3）。
+    本桥不起线程、不接收 worker 回调。
     """
 
     #: 12 个色键与 `revision` 共同的 NOTIFY。QML 侧只要读任意色键就有依赖，
@@ -513,7 +490,7 @@ class ThemeBridge(QObject):
     #: 可用主题列表变了（导入了新主题）。`themes` / `availableThemes()` 的 NOTIFY。
     themesChanged = Signal()
     #: 操作失败的人话原因（未知主题、颜色格式不对、主题文件非法……）。
-    #: 用信号而不是返回值：契约 §5.1 冻结了 `@Slot(str)` 的形态（无返回值），
+    #: 用信号而不是返回值：`@Slot(str)` 的形态是固定的（无返回值），
     #: 而 QML 侧要能把失败提示出来（决策 10：一律用信号）。
     themeFailed = Signal(str)
 
@@ -551,7 +528,7 @@ class ThemeBridge(QObject):
         self._accent = self._config_value("accent_color", None)
         self._apply_initial_theme()
 
-    # ─── 12 个色键（契约 §5.1 冻结的名字与顺序） ──────────────
+    # ─── 12 个色键（固定的名字与顺序） ───────────────────────
 
     def _color(self, camel: str) -> QColor:
         return QColor(self._colors.get(camel, FALLBACK_COLOR))
@@ -618,7 +595,7 @@ class ThemeBridge(QObject):
     def cardBorder(self) -> QColor:  # noqa: N802
         return self._color("cardBorder")
 
-    # ─── 派生语义令牌（返工 A 组任务 A5；派生规则见 derive_tokens） ──
+    # ─── 派生语义令牌（派生规则见 derive_tokens） ──────────────
     #
     # 为什么要有这一组：闸门 R8 不许 QML 出现颜色字面量（`Qt.rgba` 也在禁列），
     # 所以"比卡片亮 6% 的悬停色"这种值只能由 Python 算好。它们**全部**由那 12 个
@@ -683,8 +660,8 @@ class ThemeBridge(QObject):
     def accentText(self) -> QColor:  # noqa: N802
         """压在强调色上的文字色（按强调色亮度自动选白/近黑）。
 
-        这是阶段 2 记录在案的遗留项：`FmButton` 一直是"白字压强调色"，
-        遇到浅强调色（黄、青）就几乎看不见。现在由这里统一给。
+        按强调色亮度自动选白 / 近黑：白字压在浅强调色（黄、青）上几乎看不见，
+        由这里统一给。
         """
         return self._token("accentText")
 
@@ -709,7 +686,7 @@ class ThemeBridge(QObject):
     def revision(self) -> int:
         """整份调色板的版本号 —— 给"任意变化都重算"的绑定用。
 
-        与 `Tr.revision` 同一个理由（契约第六节决策 1）：QML 只跟踪**属性读取**，
+        与 `Tr.revision` 同一个理由：QML 只跟踪**属性读取**，
         不跟踪函数返回值；`setTheme` / `setAccent` / `applyVersionTheme` 都会自增它。
         """
         return self._revision
@@ -724,7 +701,7 @@ class ThemeBridge(QObject):
         """可用主题列表（预设 + 用户导入），与 :meth:`availableThemes` 同一份数据。
 
         **为什么槽之外还要一个属性**：QML 不跟踪函数返回值，`model: Theme.availableThemes()`
-        在导入新主题后**不会重算**（契约第六节决策 1 的同一条理由）。
+        在导入新主题后**不会重算**（同一条理由）。
         绑定请用 `Theme.themes`，命令式调用请用 `Theme.availableThemes()`。
         """
         return self.availableThemes()
@@ -743,7 +720,7 @@ class ThemeBridge(QObject):
         `FONT_FAMILY` 是 `LazyStr`：首次读这个属性时才跑检测并缓存
         （Windows 直接返回 "Microsoft YaHei"，不跑 subprocess）。
         Linux 上它可能是 `"Noto Color Emoji, Noto Sans CJK SC"` 这样的**组合链**
-        （旧实现在 Linux 上就这么返回的）；QML 的 `font.family` 只认单一家族名，
+        （Linux 上的检测结果就是这种组合链）；QML 的 `font.family` 只认单一家族名，
         那种情况下要取第一个逗号前的那段 —— 本属性**原样**透出，不改语义。
         """
         return str(FONT_FAMILY)
@@ -813,7 +790,7 @@ class ThemeBridge(QObject):
         """控件内图标边长（20；FluentUI `FluAppBar` 的默认值）。"""
         return ICON_SIZE
 
-    # ─── 动效与布局令牌（返工 A 组新增；数值来源见常量注释） ──
+    # ─── 动效与布局令牌（数值来源见常量注释） ────────────────
 
     @Property(int, constant=True)
     def durationFast(self) -> int:  # noqa: N802
@@ -845,7 +822,7 @@ class ThemeBridge(QObject):
         """底部状态栏高度（28）。"""
         return STATUS_BAR_HEIGHT
 
-    # ─── 主题操作（契约 §5.1 冻结的形态） ───────────────────
+    # ─── 主题操作 ────────────────────────────────────────────
 
     @Slot()
     def refresh(self) -> None:
@@ -975,7 +952,7 @@ class ThemeBridge(QObject):
         与旧的 `launcher/core.py:2691 apply_version_theme` 一致的落点：强调色换成
         版本色、`accent_hover` 由服务的 `_lighten_color` 重算。
         **不读 `config.dynamic_version_theme`**：那个开关是"要不要自动跟随版本"的
-        产品策略，属于调用方（阶段 3 的页面/设置），本槽只做"把这个版本应用上去"。
+        产品策略属于调用方（页面/设置），本槽只做"把这个版本应用上去"。
         """
         engine = self._ensure_theme_engine()
         text = str(versionId or "").strip()
@@ -1061,9 +1038,9 @@ class ThemeBridge(QObject):
     def _ensure_theme_engine(self) -> Optional[Any]:
         """取主题引擎；进程里没初始化过就按装配职责补一次 `init_theme_engine`。
 
-        阶段 2 的装配链（`main_qml.build_qt_context` → `app.bootstrap`）里没有主题
+        装配链（`main_qml.build_qt_context` → `app.bootstrap`）里没有主题
         这一类服务，而 `ThemeEngine` 的预设/用户主题目录需要 `base_dir`
-        （`services/theme_service.py:178`）—— 与旧入口 `launcher/core.py:163` 同一处调用。
+        （`services/theme_service.py:178`）。
         """
         if self._theme_engine is not None:
             return self._theme_engine
@@ -1087,7 +1064,7 @@ class ThemeBridge(QObject):
     def use_engine(self, engine: Any) -> None:
         """由装配方**显式**注入 QML 引擎（`main_qml.register_bridges` 会调）。
 
-        契约没规定注入方式，而 `register_bridges()` 用 `cls()` 无参实例化桥，
+        `register_bridges()` 用 `cls()` 无参实例化桥，
         所以这条方法是入口把引擎交给桥的**唯一**通道（另一条是构造参数 `engine=`）。
 
         **注入之后立刻试注一次 FluTheme**：入口的顺序是"建引擎 → 建桥并注册 → 注入 →
@@ -1113,9 +1090,8 @@ class ThemeBridge(QObject):
     def _current_engine(self) -> Optional[Any]:
         """当前引擎：**只有显式注入**才会有值，没人注入就是 None。
 
-        这里**刻意不做任何"找引擎"的尝试**（缺陷 D-153）：曾经的 `gc.get_objects()`
-        兜底会在"进程里先有游离引擎"时取错对象，把 `fluentAvailable` 变成 False
-        （阶段 1 证据脚本 `poc/_verify_group_b_independent.py` 第 5 节的红灯）。
+        这里**刻意不做任何"找引擎"的尝试**：`gc.get_objects()` 之类的兜底会在
+        "进程里先有游离引擎"时取错对象，把 `fluentAvailable` 变成 False。
         """
         return self._engine
 
@@ -1139,7 +1115,7 @@ class ThemeBridge(QObject):
             self._warn_fluent(f"singletonInstance 抛异常（{e}）")
             return None
         if not isinstance(candidate, QObject):
-            # 模块不可用时拿到的是 undefined 的 QJSValue，而不是 None（实测）
+            # 模块不可用时拿到的是 undefined 的 QJSValue，而不是 None
             self._warn_fluent(f"FluTheme 不可用（singletonInstance 返回 {type(candidate).__name__}）")
             return None
         self._fluent = candidate
@@ -1156,18 +1132,18 @@ class ThemeBridge(QObject):
         )
 
     def _apply_to_fluent(self) -> bool:
-        """写 FluTheme：**先 `darkMode`，再颜色**（写序有硬要求，见模块文档 D-140）。
+        """写 FluTheme：**先 `darkMode`，再颜色**（写序有硬要求，见模块文档）。
 
         为什么顺序不能反：`darkMode` 真的变化时会触发
         `darkModeChanged → darkChanged → refreshColors()`，而 `refreshColors()`
         会把**全部**颜色重置成 FluentUI 默认值。先写颜色再写 `darkMode`，
-        等于刚涂好的墙立刻被刷回原色 —— 实测 `#1a1a2e` → `#202020`。
+        等于刚涂好的墙立刻被刷回原色（例如 `#1a1a2e` → `#202020`）。
         """
         theme = self._resolve_fluent()
         if theme is None:
             return False
         try:
-            # 1) 先定明暗：本项目的主题集全是深色（契约第六节决策 9），不求值系统。
+            # 1) 先定明暗：本项目的主题集全是深色，不求值系统。
             theme.setProperty(FLUENT_DARK_MODE_PROP, FLUENT_DARK_MODE_DEFAULT)
             # 2) 再把我们的令牌逐个盖上去（这一步必须在 1) 之后）。
             for token, prop in FLUENT_MAP:

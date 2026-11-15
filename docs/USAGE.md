@@ -252,7 +252,7 @@
 
 **跨启动器互通：**
 
-- 本机创建的陶瓦房间与 HMCL（Terracotta）/ PCL CE 的房间完全互通，双方可互相加入，大厅编号（`U/` 前缀）格式一致
+- 本地创建的陶瓦房间与 HMCL（Terracotta）/ PCL CE 的房间完全互通，双方可互相加入，大厅编号（`U/` 前缀）格式一致
 - 共用 EasyTier 官方内核（与 PCL CE 同款版本），与 HMCL / FCL 的陶瓦定制版协议互通；若首次使用本页需点击「安装 EasyTier」，安装时自动测速选择最快镜像
 - 加入他人房间时会自动校验房间信令服务（Scaffolding 指纹握手），失败时日志面板会给出明确原因
 
@@ -287,8 +287,8 @@ python main.py -A "帮我安装 1.20.4 Fabric 版"
 # 交互模式
 python main.py -A
 
-# 独立控制台程序（需要构建 FMCL-Agent.exe）
-FMCL-Agent.exe
+# 同一入口的交互模式
+uv run python main.py -A
 ```
 
 > 💡 AGENT 支持 33 个工具，涵盖版本管理、模组安装、整合包管理、服务器操作、文件操作、联网搜索等，最多 50 轮工具调用循环。

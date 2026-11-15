@@ -1,4 +1,4 @@
-// FmAgentComposer.qml —— AGENT 输入区（阶段 3 任务 3.22）。
+// FmAgentComposer.qml —— AGENT 输入区。
 //
 // 什么时候用它：Agent 页底部。包含多行输入、发送/停止、语音按钮、免责声明。
 // 什么时候不要用：快速提问框（顶栏用 FmTextField；这里带语音与停止语义）。

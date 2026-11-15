@@ -1,7 +1,6 @@
-"""Fusion Minecraft Launcher - 主程序入口（QML）。
+"""Fusion Minecraft Launcher - 主程序入口。
 
-阶段 4.2 起旧 Tk 界面已退役；本文件只保留与界面无关的启动设施、CLI 模式和
-QML 入口。真正的界面装配在 `main_qml.py`。
+本文件只负责日志、CLI 模式与 QML 入口分发；界面装配在 `main_qml.py`。
 """
 
 import os

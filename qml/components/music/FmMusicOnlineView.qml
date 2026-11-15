@@ -1,4 +1,4 @@
-// FmMusicOnlineView.qml —— 在线搜索（阶段 3.17）。
+// FmMusicOnlineView.qml —— 在线搜索。
 //
 // 数据与搜索规则全在 fusion_music.bridges.search / core.player；本文件只组合
 // 输入框、音源标签、结果行与分页。播放失败、跨源兜底由桥提示。

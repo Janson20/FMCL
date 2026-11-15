@@ -89,7 +89,7 @@ Item {
             }
 
             // 确定进度 -> 进度条；不确定 -> 转圈（旧实现切 indeterminate 模式）。
-            // 返工 C 组：两个都换成自研件（闸门 R9 禁原生控件）。`objectName` 与 `value`
+            // 两个都用自研件（R9 禁原生控件）。`objectName` 与 `value`
             // 保持原样 —— `tests/test_dialogs_qml.py` 按这两个东西断言进度回填。
             FmProgressBar {
                 id: bar

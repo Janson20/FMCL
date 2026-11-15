@@ -1,8 +1,8 @@
-// LinksPage.qml —— Minecraft 相关网站目录（阶段 3 任务 3.26 / J-04）。
+// LinksPage.qml —— Minecraft 相关网站目录。
 //
-// 旧实现是 Tk 的一级「链接」标签页（29 条站点卡片：名称 + 最多 3 个标签 + 描述 +
-// URL + 打开/复制）。按用户 2026-11-13 的裁决（Q1-C）下沉为「工具箱 → 相关网站」，
-// 站点数据与译文在 services/links_service.py + ui/locales（页面只按 key 取文案）。
+// 29 条站点卡片（名称 + 最多 3 个标签 + 描述 + URL + 打开/复制），入口是
+// 「工具箱 → 相关网站」。站点数据与译文在 services/links_service.py + ui/locales
+// （页面只按 key 取文案）。
 //
 // 纪律：颜色只来自 Theme.*、图标走 FmIcon/FmButton、文案走 Tr.map（本页没有
 // 任何硬编码文本）；打开/复制都只发意图给 Links 桥，接口与失败提示由桥统一处理。

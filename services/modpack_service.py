@@ -1,31 +1,25 @@
-"""整合包服务 —— 「整合包浏览」「整合包安装」「整合包开服」三个窗口里那些
-**本质是逻辑、只是恰好写在界面类里**的代码（阶段 1 任务 1.8-B）。
+"""整合包服务 —— 「整合包浏览」「整合包安装」「整合包开服」背后的纯逻辑。
 
-来源文件：
+含：在线搜索、版本列表、下载、六种格式识别、客户端与服务端安装入口。
 
-- ``ui/windows/modpack_browser.py``（676 行 / 24 个方法）—— 在线搜索、版本列表、下载；
-- ``ui/windows/modpack_install.py``（624 行 / 23 个方法）—— 六种格式识别 + 客户端安装；
-- ``ui/windows/modpack_server.py``（434 行 / 13 个方法）—— 同上的服务端安装入口。
+## 边界
 
-## 切缝判据（只有一条）
-
-**这段代码是否 import GUI、或是否直接创建/销毁控件。** 是 → 留在界面；
-否 → 搬进本模块。服务自身不 import 任何 GUI、不弹窗、不 ``after``、
+本模块不 import 任何 GUI、不直接创建/销毁控件、不弹窗、不 ``after``、
 不 import ``ui.*``、不 import ``ui.i18n``。
 
 ## 落地规则
 
 1. **异常不翻译**：``load_pack_info`` 把"格式不支持"照样抛 ``ValueError``，
    ``download_modpack_version`` 把下载器抛的异常原样向上冒 —— 界面侧那两个
-   ``try/except`` 的边界与原文逐字相同。
+   ``try/except`` 负责翻译与提示。
 2. **i18n 文案一律留界面**：本模块里**没有** ``_("...")``。两处必须在服务内
    才能判定的分支改成参数/返回值：
    - ``build_sorted_version_list`` 的"未知版本"占位文案由调用方传
      ``unknown_version_label``（原文是 ``_("mp_browser_unknown_version")``）；
    - ``call_install_entry`` 的"走统一入口还是回退旧格式分发"由返回值表达。
-3. **线程**：本模块**不起任何线程**。原文把 ``_load_mrpack_info`` / ``_do_install``
-   丢进 ``threading.Thread`` 的那一层留在界面（原样）。 ``status_callback``
-   在**调用线程**里被下载器回调，界面侧照原文自己 ``after(0, ...)``。
+3. **线程**：本模块**不起任何线程**。把调用丢进 ``threading.Thread`` 的那一层
+   留在界面。 ``status_callback`` 在**调用线程**里被下载器回调，
+   界面侧自己 ``after(0, ...)``。
 4. **界面状态不动**：``_mrpack_path`` / ``_mrpack_info`` / ``_optional_var_map``
    （Tk ``BooleanVar``！）/ ``_launcher_instance`` / ``_polling`` 留在界面；
    ``_optional_var_map`` 的取值（``var.get()``）是 Tk 变量读取，**必须**留界面。
@@ -342,14 +336,13 @@ def call_server_install_entry(
     server_name: Optional[str],
     mods_filter_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Tuple[bool, Any]:
-    """服务端安装入口（原 ``ModpackServerWindow._do_install`` 里那次调用，逐字）。
+    """服务端安装入口。
 
     只有一条路：``callbacks["install_mrpack_server"]``；没有统一入口也没有格式分发
     （服务端窗口只收 ``.mrpack``）。异常同样原样上抛。
 
-    ``mods_filter_callback`` 是阶段 3.12 新增的**可选**出口：核心完成服务端模组
-    筛选后把可序列化结果交给界面（待人工确认的模组要弹窗）。传 None 时与旧行为
-    逐字一致。
+    ``mods_filter_callback`` 是**可选**出口：核心完成服务端模组筛选后把可序列化
+    结果交给界面（待人工确认的模组要弹窗）。传 None 时行为不变。
     """
     kwargs: Dict[str, Any] = {"optional_files": optional_files, "server_name": server_name}
     if mods_filter_callback is not None:

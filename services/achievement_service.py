@@ -1,18 +1,15 @@
-"""成就服务 —— `ui/app_achievements.py`（`AchievementTabMixin`，537 行 / 19 方法）
-里那些**本质是逻辑、只是恰好写在界面类里**的代码（阶段 1 任务 1.12）。
+"""成就服务 —— 成就页背后的纯逻辑。
 
-## 切缝判据（只有一条）
+## 边界
 
-**这段代码是否 import GUI、或是否直接创建/销毁控件。** 是 → 留在界面；
-否 → 搬进本模块。服务自身不弹窗、不起线程、不调 ``after``、不碰控件、
-不 ``import ui.*``、不 ``import ui.i18n``（文案一律留界面），
+本模块不 import GUI、不直接创建/销毁控件。服务自身不弹窗、不起线程、不调
+``after``、不碰控件、不 ``import ui.*``、不 ``import ui.i18n``（文案一律留界面），
 由 ``scripts/check_services_purity.py`` 持续守住。
 
 ## 这里的"引擎"与"服务"不是一回事
 
-`services/achievement_engine.py`（623 行 / 25 方法）、`achievement_sync.py`、
-`achievement_defs.py` 原本就是**零 GUI 的现成引擎**，本轮**一行都不改**。
-本服务只做"编排"：
+`services/achievement_engine.py`、`achievement_sync.py`、`achievement_defs.py`
+是**零 GUI 的现成引擎**。本服务只做"编排"：
 
 - 引擎单例的取用（原文各处都是函数体内 `from achievement_engine import
   get_achievement_engine`，这里保持惰性 import 与"全局单例"语义）；
@@ -361,13 +358,13 @@ class AchievementService(Service):
         return resetter(token)
 
     def reset_local(self) -> Optional[bool]:
-        """重置本地全部成就进度（原 `_do_reset_local`，`:392-399`）。
+        """重置本地全部成就进度。
 
-        记录现状、疑为缺陷：原文**不管有没有引擎**都会把状态栏写成"重置成功"
+        注意：界面**不管有没有引擎**都会把状态栏写成"重置成功"
         （``_set_sync_status(_("ach_reset_local_success"))`` 写在 ``if engine``
         之外）。本方法把"到底有没有真的重置"如实返回（无引擎 → ``None``），
-        但**不改**界面那句无条件成功提示 —— 那是既有行为，改它属于另一个
-        裁决（要连带改文案与用户可见语义），不在本轮"只搬不改"的范围里。
+        但**不改**界面那句无条件成功提示 —— 那是既有行为，改它属于行为变更
+        （要连带改文案与用户可见语义）。
         """
         engine = self.engine()
         if engine:

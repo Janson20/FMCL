@@ -1,6 +1,6 @@
-// FMCL QML 根窗口 —— 阶段 2 任务 2.12 的窗口骨架（对应 02 第三节的骨架图）。
+// FMCL QML 根窗口。
 //
-// 结构（自上而下三层，与骨架图一一对应；返工 B 组把原来那两条顶栏合并成了一条）：
+// 结构（自上而下三层）：
 //
 //   FluWindow                     窗口本体 + **定制 appBar**（shell/AppBar.qml）
 //     └ AppBar                    唯一一条顶栏：返回 / 面包屑 / 全局搜索 / 通知 / 账号
@@ -9,18 +9,16 @@
 //         └ PageStack             页面栈（Nav 的镜像，见 PageStack.qml 的说明）
 //     └ StatusBar                 状态文本 / 进度 / 后台任务数
 //
-// 为什么用 FluWindow：阶段 0 第 11.2 节定的分工 —— "需要标题栏按钮与窗口路由的主窗口
-// 用 FluWindow，悬浮窗一律用原生 Window"。`effect: "normal"` 是**必须显式写**的
-// （红线 5：禁渐变/亚克力；闸门 R1 只认字面量，写变量它看不见）。
+// 为什么用 FluWindow：需要标题栏按钮与窗口路由的主窗口用 FluWindow，悬浮窗用原生
+// Window。`effect: "normal"` 必须显式写（项目规则禁渐变与亚克力；闸门 R1 只认字面量）。
 //
 // 本文件里没有一处硬编码颜色（一律 Theme.*）、没有一个中文字面量（一律 Tr?.map[...]）、
 // 没有一个 emoji（图标一律 FmIcon / Runtime.iconUrl → qml/assets/icons/*.svg）。
 //
-// 关于 `Theme?.x ?? 兜底` 的写法：上下文属性在引擎析构时**先**被清成 null，而绑定还排在
-// 求值队列里 —— 不判空的话退出阶段每个绑定刷一条 `TypeError: … of null`，日志判据
-// （"有没有 QML 报错"）就永远为真了（2.2 实测的缺陷，`test_main_qml_entry.py` 钉住它）。
-// Qt 6.7 的 V4 支持可选链与 `??`（`poc/_probe_js_optional_chaining.py` 实测），
-// 兜底值只在析构那一瞬间用到，屏幕上永远看不到。同样的判空写在 shell/ 与 pages/ 里。
+// 关于 `Theme?.x ?? 兜底` 的写法：上下文属性在引擎析构时会先被清成 null，而绑定仍排在
+// 求值队列里。不判空的话退出阶段每个绑定都会刷一条 `TypeError: … of null`，日志中
+// 的 QML 报错判据就永远为真。当前 Qt 版本支持可选链与 `??`，兜底值只在析构瞬间用到。
+// 同样的判空写在 shell/ 与 pages/ 里。
 
 import QtQuick
 import QtQuick.Controls
@@ -41,14 +39,13 @@ FluWindow {
     minimumWidth: 960
     minimumHeight: 640
 
-    // 主窗口的可见性由**启动流程**决定（任务 2.14；返工 A 组修掉 D-142）。
+    // 主窗口的可见性由**启动流程**决定。
     //
     // 判据要**两段都判**：
     //   * `typeof Startup !== "undefined"` —— 挡住"完全没声明"（抛 ReferenceError）；
     //   * `&& Startup` —— 挡住"已声明但为 null"（引擎析构时上下文属性先被清空，
     //     绑定还排在求值队列里，这时 `Startup.startupActive` 会抛 TypeError）。
-    // 只写 `typeof` 的话守卫测试立刻会红（我第一版就是这么写的，被
-    // `test_no_qml_binding_errors_at_process_exit` 当场抓到）。
+    // 只写 `typeof` 的话，退出时的绑定错误守卫会失败。
     //
     // `startupActive` 的语义（含"启动流程没开跑就别藏窗口"这一档）写在
     // app/startup.py 的属主文档里 —— 测试、探针、只装配半个引擎的场景全都靠它
@@ -58,7 +55,7 @@ FluWindow {
 
     //: 游戏崩溃弹窗（GameCrashDialog）：由 Home.crashDialogRequested 打开，
     //: 分析中 / 结果 / 错误三份状态也放在壳层，页面切换不会丢掉这次崩溃。
-    //: 3.23：AI 处理中关闭窗口要先确认；确认后置 true 再 close()。
+    //: AI 处理中关闭窗口要先确认；确认后置 true 再 close()。
     property bool allowClose: false
     property bool closeConfirmVisible: false
 
@@ -127,21 +124,21 @@ FluWindow {
     //
     // 只调 `requestActivate()`，**不调 `raise()`** —— offscreen 平台不支持 raise()，
     // 会打一条 `QtWarningMsg: This plugin does not support raise()`，而 [P0] 冒烟测试
-    // 把"未登记的 Qt 警告"当作失败（返工 A 组第一版就这么把冒烟测红了）。
+    // 把"未登记的 Qt 警告"当作失败。
     // 置顶窗藏掉之后本来也不缺"提到前面"这一步。
     onVisibleChanged: {
         if (visible)
             app.requestActivate()
     }
 
-    // 红线 5 + 闸门 R1：材质必须显式关掉（"normal" = 纯色，阶段 0 第 2.4 节实测）。
+    // 项目规则与闸门 R1：材质必须显式关掉（"normal" = 纯色）。
     effect: "normal"
 
     // 标题走 Runtime（只读运行时信息），与窗口内置 appBar 的同一份文案。
-    // 判空是必须的：引擎析构时上下文属性会先被清掉，而求值还排在队列里（2.2 实测的日志污染）。
+    // 判空是必须的：引擎析构时上下文属性会先被清掉，而求值还排在队列里。
     title: Runtime ? (Runtime.appName + " " + Runtime.appVersion) : ""
 
-    // ── 唯一一条顶栏（返工 B 组）──────────────────────────────────
+    // ── 唯一一条顶栏 ──────────────────────────────────────────────
     // `FluWindow.appBar` 是可替换属性；换掉的代价是必须自己保留
     // `buttonMinimize / buttonMaximize / buttonClose` 与 `layoutStandardbuttons` ——
     // `FluFrameless` 强依赖它们（见 shell/AppBar.qml 的文件头），
@@ -218,7 +215,7 @@ FluWindow {
         return []
     }
 
-    // ── 服务器退出确认（阶段 3.10 L-34；3.12 反馈全局化）─────────────
+    // ── 服务器退出确认 ────────────────────────────────────────────
     // `takeExitPrompt` 是权威判据：主动停止不会留下待确认项，返回 null 时直接
     // 忽略这次退出（用户点了停止，不需要再被问“服务器是否正常运行”）。
     function enqueueServerExit(version, code) {
@@ -305,7 +302,7 @@ FluWindow {
                 Shell.setStatus(reason, "error")
         }
 
-        // ── 离开守卫（阶段 3 任务 3.4；M-Q1 的 B6）──────────────────────
+        // ── 离开守卫 ──────────────────────────────────────────────────
         // 设置域里有未保存改动时跨域导航会被挡下（`app/bridges/nav_bridge.py`
         // 的 `setLeaveGuard`），这里弹**一次**确认框：
         //   * 「确定」= 丢弃草稿并离开 —— 先让设置桥还原预览，再 `confirmLeave(true)`；
@@ -354,12 +351,12 @@ FluWindow {
         }
     }
 
-    // ── 启动流程 → 界面（返工 A 组补上的接线）────────────────────────
-    // 这两个信号在阶段 2 就发出去了，但**一直没有人接**：`Startup.statusChanged`
+    // ── 启动流程 → 界面 ──────────────────────────────────────────
+    // 这两个信号必须有人接：`Startup.statusChanged`
     // 只被 Splash 读（那是画面内的一条文案），`coreFailed` 压根没有消费者 ——
     // 于是"启动器初始化失败"这条路在 QML 界面上**完全看不见**（主窗口照常显示、
-    // 状态条空空如也、也没有任何提示）。旧实现（main.py 的 `_show_init_error`）
-    // 是"状态栏报错 + 弹错误框"，这里按同样的语义补齐，只是弹窗走 Toast：
+    // 状态条空空如也、也没有任何提示）。期望语义是"状态栏报错 + 弹错误框"，
+    // 这里只是把弹窗改成 Toast：
     // 启动失败发生在主线程的轮询里，用模态对话框会自己等自己。
     Connections {
         target: (typeof Startup !== "undefined" && Startup) ? Startup : null
@@ -383,7 +380,7 @@ FluWindow {
         }
     }
 
-    // ── 首页（阶段 3 任务 3.1）──────────────────────────────────────
+    // ── 首页 ──────────────────────────────────────────────────────
     // 首页桥把"游戏进程那边发生的事"转成信号发过来，这里负责**落到壳层**：
     // 状态条文案、窗口最小化、崩溃提示、公告重看。
     //
@@ -766,7 +763,7 @@ FluWindow {
         }
     }
 
-    // ── 音乐歌单详情覆盖层（阶段 3.17）──────────────────────────────
+    // ── 音乐歌单详情覆盖层 ────────────────────────────────────────
     // 与展开播放页同一层：从发现页打开后盖住导航 + 页面，避免点穿。
     Loader {
         anchors.fill: parent
@@ -827,7 +824,7 @@ FluWindow {
         }
     }
 
-    // ── 音乐展开播放页（阶段 3.17）──────────────────────────────────
+    // ── 音乐展开播放页 ────────────────────────────────────────────
     // 放在壳层而不是音乐页里：FMP 的展开页盖住导航 + 页面，根节点必须有全屏
     // 遮罩，否则点空白处会穿到下面的导航/页面。播放栏自己的展开按钮只改
     // Music.expanded，这里统一实例化，样式与页面无关。

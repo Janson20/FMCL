@@ -691,10 +691,9 @@ class ServerMixin:
 
     # ─── 多服务器进程表 ─────────────────────────────────────
     #
-    # 旧实现只有一个 _server_process；3.9 验收反馈要求同时运行多个服务器，
-    # 因此加一张 version -> Popen 的表。_server_process 继续指向“最近启动”的那台
-    # （旧 Tk 页面的无参 is_server_running / stop_server / send_server_command 行为
-    # 保持），新界面按版本号精确操作。
+    # 支持同时运行多个服务器：version -> Popen。_server_process 指向最近启动的那台，
+    # 无参的 is_server_running / stop_server / send_server_command 保持原有语义；
+    # 需要精确操作时按版本号查表。
 
     def _server_processes(self) -> Dict[str, subprocess.Popen]:
         processes = getattr(self, "_server_process_map", None)

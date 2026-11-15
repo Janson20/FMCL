@@ -1,4 +1,4 @@
-// PortPage.qml —— 端口检测与 MC 服务器查询（阶段 3 任务 3.20 / C-05）。
+// PortPage.qml —— 端口检测与 MC 服务器查询。
 //
 // 两种动作共用主机/端口：TCP 连通性检测 + Minecraft Server List Ping。
 // 最近 10 条检测记录只保存在桥的内存里（旧实现也不落盘）。

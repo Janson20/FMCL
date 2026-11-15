@@ -1,27 +1,24 @@
 """语音输入服务 —— 录音 / 识别 / 模型管理（与界面完全无关）
 
-实现整体搬自 ``ui/agent/voice_input.py`` 的 ``VoiceInputManager``：录音会话
-状态机、监听者事件队列、模型下载/解压/导入、引擎加载与识别调用。
-搬移后本模块遵守 ``services/`` 的三条硬性约束：
+包含：录音会话状态机、监听者事件队列、模型下载/解压/导入、引擎加载与识别调用。
+本模块遵守 ``services/`` 的三条硬性约束：
 
 1. **不 import 任何 GUI 库**（tkinter / customtkinter / PySide6 / ``ui.*``）；
 2. **不自己创建线程**：``begin_session()`` 只做状态转移，并把阻塞的会话主体
    交给调用方注入的调度器（``set_session_runner()``，与
-   ``app.tasks.TaskRunner.set_scheduler()`` 同形）。阶段 1 由
-   ``ui/agent/voice_input.py`` 注入"每次录音一个 daemon 线程"这一既有方式，
-   阶段 2 换成 Qt 线程池时本模块一行都不用改；
+   ``app.tasks.TaskRunner.set_scheduler()`` 同形）；
 3. **不弹窗、不碰界面**：所有提示都以 ``("state"/"progress"/"final"/"error", ...)``
    事件投递给监听者，由界面层决定怎么展示。本模块因此不需要 ``UIPort``
-   （``self.ui``）—— 搬移前 ``VoiceInputManager`` 也从不直接弹窗。
+   （``self.ui``）。
 
-线程模型（与搬移前逐字一致）：
+线程模型：
 
 - 采集与推理跑在调度器给的线程里；
 - 状态 / 帧缓冲 / 事件队列分别由 ``threading.Lock`` / ``queue.Queue`` 保护；
 - 界面在主线程轮询 ``poll_once(listener)``，工作线程绝不触碰界面对象
   （AGENTS.md：worker 线程永远不许碰 Tk）。
 
-可注入的依赖（便于单测与阶段 2 的 QML 侧复用）::
+可注入的依赖（便于单测与 QML 侧复用）::
 
     VoiceService(
         model_dir_fn=...,        # 默认 services.voice.models.model_dir
@@ -191,8 +188,8 @@ class VoiceService(Service):
 
         与 ``app.tasks.TaskRunner.set_scheduler()`` 同形：服务只决定
         "要跑什么"（``run_session``），"怎么跑"由调用方注入 ——
-        阶段 1 是 ``threading.Thread(..., daemon=True, name="VoiceInput")``
-        （与搬移前完全一致），阶段 2 可以换成 Qt 线程池或 ``TaskRunner``。
+        默认注入方式可以是每次录音一个 daemon 线程，也可以换成线程池或
+        ``TaskRunner``。
 
         为 ``None`` 时 ``begin_session()`` 只做状态转移，调用方必须自己
         调用 ``run_session()``（服务不会偷偷起线程）。
@@ -240,9 +237,8 @@ class VoiceService(Service):
     def poll_once(self, listener: VoiceInputListener) -> List[tuple]:
         """主线程"取一次结果"：非阻塞取走该监听者的全部待处理事件
 
-        这是服务对界面暴露的轮询接口 —— **何时调用由界面决定**（阶段 1 是
-        ``widget.after(100, ...)``；阶段 2 可以换成信号驱动）。服务里没有
-        ``after`` / ``winfo_exists`` 这类 Tk 概念。
+        这是服务对界面暴露的轮询接口 —— **何时调用由界面决定**（如定时器
+        或信号驱动）。服务里没有 ``after`` / ``winfo_exists`` 这类 Tk 概念。
         """
         events = self.drain_events(listener)
         for event in events:

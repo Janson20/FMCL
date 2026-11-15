@@ -1,4 +1,4 @@
-// FactPage.qml —— Minecraft 冷知识（阶段 3 任务 3.20 / C-06）。
+// FactPage.qml —— Minecraft 冷知识。
 //
 // 题库在 services/tool_service.py 的 MC_FACTS（40 条，与现有测试一致）。
 // 今日知识按日期种子取；随机一条使用 random.randint。

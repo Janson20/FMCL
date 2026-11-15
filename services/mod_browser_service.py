@@ -1,38 +1,27 @@
-"""模组浏览服务 —— 客户端「模组浏览」与服务端「服务器模组浏览」两个窗口里那些
-**本质是逻辑、只是恰好写在界面类里**的代码（阶段 1 任务 1.8-B）。
+"""模组浏览服务 —— 客户端「模组浏览」与服务端「服务器模组浏览」背后的纯逻辑。
 
-来源文件：
+## 边界
 
-- ``ui/windows/mod_browser.py``（1245 行 / 45 个方法）—— 模组 / 资源包 / 光影三个标签页；
-- ``ui/windows/server_mod_browser.py``（514 行 / 18 个方法）—— 只列服务端可用的模组。
-
-## 切缝判据（只有一条）
-
-**这段代码是否 import GUI、或是否直接创建/销毁控件。** 是 → 留在界面；
-否 → 搬进本模块。界面效果一律通过调用方传进来的 sink
+本模块不 import GUI、不直接创建/销毁控件。界面效果一律通过调用方传进来的 sink
 （``status_callback``）或返回值完成；服务自身不 import 任何 GUI、不弹窗、
 不 ``after``、不 import ``ui.*``、不 import ``ui.i18n``。
 
-## 五条落地规则（与 ``services/resource_service.py`` / ``services/agent_service.py`` 同一风格）
+## 落地规则
 
 1. **异常不翻译**：服务只做「网络 / 纯计算」，成功返回结果，失败**原样抛出**。
-   界面侧 ``try/except`` 的**边界与原文逐字相同**（原文 ``try`` 里同时包着
-   搜索调用、``logger.error``、``after`` 状态栏）。
+   界面侧 ``try/except`` 的边界同时包着搜索调用、``logger.error`` 与状态栏更新。
 2. **i18n 文案一律留界面**：本模块里**没有** ``_("...")``。少数必须在服务内部
    才能判定的分支（"服务端 AI 搜索没有返回关键词"、"安装入口先试统一入口还是
    回退旧格式分发"）改成**返回值/结构化结果**，由界面选文案。
-3. **线程**：本模块**不起任何线程**。原实现把 ``_do_tab_search`` 等丢进
-   ``threading.Thread`` 的那一层留在界面（原样）；服务函数在**调用线程**里同步执行。
-   ``status_callback`` 因此也在调用线程里被回调 —— 界面侧的 lambda 照原文
-   自己 ``after(0, ...)`` 切回主线程，契约写在每个 sink 参数上。
-4. **界面状态不动**：``_tab_states``（含 D-91 的纯值镜像、D-93 的 ``_req_seq``
-   世代号、``_cached_hits`` / ``_ai_cached_hits`` 缓存）留在界面，本模块只提供
+3. **线程**：本模块**不起任何线程**。把调用丢进 ``threading.Thread`` 的那一层
+   留在界面；服务函数在**调用线程**里同步执行。``status_callback`` 因此也在
+   调用线程里被回调 —— 界面侧自己 ``after(0, ...)`` 切回主线程。
+4. **界面状态不动**：``_tab_states``（含纯值镜像、``_req_seq`` 世代号、
+   ``_cached_hits`` / ``_ai_cached_hits`` 缓存）留在界面，本模块只提供
    操作它们的纯函数（``resolve_install_dir`` / ``match_installed_instance`` …）。
-   于是 ``tests/test_mod_browser_staleness.py`` 的 19 条 D-93 守卫一行都不用改。
 5. **两份实现不合并**：客户端与服务端窗口的同名功能**约定不同**
    （客户端是双源 + ``limit=300`` 本地分页 + 带依赖安装，服务端是单源 +
-   ``limit=PAGE_SIZE`` 后端分页 + 无依赖列表），逐字确认不等价，因此**各自保留**，
-   不合并成"看起来更干净"的一份（与 ``resource_service`` 的做法一致）。
+   ``limit=PAGE_SIZE`` 后端分页 + 无依赖列表），逐字确认不等价，因此**各自保留**。
 """
 
 from __future__ import annotations
@@ -451,11 +440,10 @@ def server_install_mod(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 详情页：项目信息 / 版本列表 / 依赖预览 / 按版本安装（阶段 3.7）
+# 详情页：项目信息 / 版本列表 / 依赖预览 / 按版本安装
 # ═══════════════════════════════════════════════════════════════════
 #
-# 这三样旧窗口**没有**（卡片直接装最新兼容版本）。用户 2026-10-17 裁决
-# 「三页 + 详情页本轮一并做」，于是详情页需要它们。
+# 详情页需要这三样；卡片式入口则直接装最新兼容版本。
 #
 # 两个源的字段形状不同（Modrinth：title/description/icon_url/version_number；
 # CurseForge：name/summary/logo/displayName），全部在这一层归一成**同一套键**，
@@ -665,13 +653,13 @@ def describe_version(version_id: Optional[str]) -> Dict[str, Optional[str]]:
 
 
 def install_dir_for(mc_dir: Path, version_id: Optional[str], tab_key: str) -> Path:
-    """**从某个版本进来时**的安装目录（阶段 3.7，用户 2026-10-23 反馈）。
+    """**从某个版本进来时**的安装目录。
 
-    与旧 ``resolve_install_dir`` 的区别：那条路靠"已安装实例列表 + 筛选值"反查，
-    拿不到列表（核心没起来）时会退到 ``Path(".")/<sub>`` —— 相对的、也不是当前版本的目录
-    （实测：从 ``1.20.4-forge`` 进来，对话框定位在 ``mods``）。这里直接用**已知的来源版本**：
+    不靠"已安装实例列表 + 筛选值"反查：拿不到列表（核心没起来）时会退到
+    ``Path(".")/<sub>`` —— 相对的、也不是当前版本的目录（从 ``1.20.4-forge``
+    进来时对话框会定位到 ``mods``）。这里直接用**已知的来源版本**：
 
-    * 该版本装了模组加载器 → ``.minecraft/versions/<id>/<sub>``（版本隔离，与 3.6 资源页一致）；
+    * 该版本装了模组加载器 → ``.minecraft/versions/<id>/<sub>``（版本隔离）；
     * 没装加载器（原版）→ ``.minecraft/<sub>``（游戏本来就写全局目录）。
 
     ``mc_dir`` 必须是**绝对路径**（调用方负责解析），否则又会拼出相对的影子目录。
@@ -971,7 +959,7 @@ class ModBrowserService(Service):
         """服务端模组安装（``(success, result, installed_names)``）。"""
         return server_install_mod(project_id, game_version, mod_loader, mods_dir, status_callback)
 
-    # ─── 详情页（阶段 3.7）───────────────────────────────────
+    # ─── 详情页 ─────────────────────────────────────────────
 
     @staticmethod
     def project_detail(source: str, project_id: str) -> Dict[str, Any]:
@@ -1017,11 +1005,10 @@ class ModBrowserService(Service):
     def describe_version(version_id: Optional[str]) -> Dict[str, Optional[str]]:
         """来源版本的游戏版本与加载器（筛选默认值 / 安装参数都靠它）。
 
-        ⚠ 这个薄委托**漏过一次**（阶段 3.7，2026-10-23）：模块级函数早就写好了，
-        但类上没加同名方法，于是桥调 `self._service.describe_version(...)` 抛
-        `AttributeError` 被 `except` 吞成"解析失败" —— 症状是**游戏版本筛选永远是
-        「全部版本」**（加载器还能从路由参数拿到，所以只有版本空着，更难看出来）。
-        桥测试当时用的是假服务（自己带这个方法），所以没抓到。
+        ⚠ 这个薄委托必须与模块级 :func:`describe_version` **同时存在**：类上漏加
+        同名方法时，桥调 `self._service.describe_version(...)` 抛 `AttributeError`，
+        被 `except` 吞成"解析失败" —— 症状是**游戏版本筛选永远是「全部版本」**
+        （加载器还能从路由参数拿到，所以只有版本空着，更难看出来）。
         """
         return describe_version(version_id)
 

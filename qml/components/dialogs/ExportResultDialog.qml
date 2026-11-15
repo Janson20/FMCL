@@ -1,12 +1,8 @@
-// ExportResultDialog.qml —— 导出结果对话框（阶段 3 任务 3.5，对照表 M-29）；「打开所在目录」是本轮新增。
+// ExportResultDialog.qml —— 导出结果对话框。
 //
-// ## 与旧实现的关系
-//
-// 旧界面导出成功后弹一句 `messagebox.showinfo(_("account_export_title"), _("account_export_success"))`
-// （`account_manager.py:578`）—— 用户看完只知道自己"导出成功"，文件在哪还得自己去找。
-// 用户 2026-10-06 裁决：在结果框上加一颗**「打开所在目录」**（本轮新增能力，
-// 已登记在对照表 M-29 的备注里）。其余分支（失败 → `account_export_failed`）
-// 仍走 Toast，与旧实现"失败弹 `showerror`"等价。
+// 只有"导出成功"经结果框展示，所以结果框上加一颗**「打开所在目录」**：
+// 否则用户看完只知道自己"导出成功"，文件在哪还得自己去找。
+// 失败分支（`account_export_failed`）仍走 Toast。
 //
 // 按钮文案复用 `version_open_folder`（3.4 的「打开目录」/「打开日志目录」两处已在用的键），
 // 不新增 i18n 键 —— R3/R4 只增不减，能复用就不加。

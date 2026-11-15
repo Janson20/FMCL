@@ -1,29 +1,11 @@
-"""QML 版入口 —— 程序装配（阶段 2 任务 2.2）。
+"""QML 入口 —— 程序装配。
 
-## 它做什么、不做什么
+职责：QML 引擎、导入路径、桥接对象注册、`AppContext` 装配、单实例、
+致命错误兜底窗口、CLI 模式透传，以及把 `Theme.fontFamily` 应用到应用级字体。
 
-**做**：QML 引擎、QML 导入路径、桥接对象注册、`AppContext` 装配、单实例、
-致命错误兜底窗口、CLI 模式透传、把 `Theme.fontFamily` 应用到应用级字体（任务 2.10，
-见 `apply_theme_font()`）。
-
-**不做**（留给后面的任务）：
-
-* 启动画面与"协议 → 公告 → 预下载"链条 → 任务 2.14（`03` 的 2.1 曾把它写进入口，
-  按 `06` 的任务集拆出去了）；
-* 窗口骨架与一级导航 → 任务 2.12；
-* 主题 / i18n 单例的实现 → 任务 2.8 / 2.9（本文件只负责**注册**它们，
-  且**在它们还不存在时优雅跳过**，这样入口可以先独立跑起来并被测试）。
-
-## 三条硬约束
-
-1. **不 import 旧 Tk 界面代码**：4.2 已删除 `ui/` 下的 Python 模块；现在 `ui/` 只剩
-   `locales/` 与 `static/` 两份共享数据，不会拉起任何 GUI 栈。
-2. **复用而不是重写**：CLI 解析、登录模式、Agent CLI 模式、日志初始化全部从 `main.py`
-   导入复用 —— `main.py` 的顶层 import 只有标准库 + logzero + config。
-   迁移红线 2：业务逻辑只搬一次，入口不许出现第二份实现。
-3. **注册容错**：某个桥模块缺失/导入报错时只记警告并继续，不能因此起不来 ——
-   阶段 2 是分四条支线并行落地的，入口必须能在"桥只到齐一半"时启动，
-   否则每个人都被别人的进度卡住。
+启动画面、协议/公告/预下载链条与窗口显隐由 `app/startup.py` 的启动控制器负责；
+窗口骨架与导航在 QML 侧。某个桥模块缺失或导入报错时只记警告并继续，避免单个
+可选功能阻止整个应用启动。
 """
 
 from __future__ import annotations
@@ -55,7 +37,7 @@ logger = logging.getLogger("main_qml")
 os.environ.setdefault("QML_DISABLE_DISK_CACHE", "1")
 
 #: `QML` 单例（C++ 侧注册成 URI 类型，QML 里 `import FMCL 1.0`）。
-#: 名字必须与 `docs/refactor/11-phase2-contract.md` 第四节一致。
+#: 名字由 QML 侧直接引用，修改时需要同步 shell 与页面。
 SINGLETON_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Theme", "app.bridges.theme_bridge", "ThemeBridge"),
     ("Tr", "app.bridges.tr_bridge", "TrBridge"),
@@ -74,50 +56,47 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Home", "app.bridges.home_bridge", "HomeBridge"),
     ("Versions", "app.bridges.version_bridge", "VersionsBridge"),
     ("Install", "app.bridges.install_bridge", "InstallBridge"),
-    # 设置域（阶段 3 任务 3.4）：三个桥对应设置页的三块能力 ——
-    # 草稿/主题/Java/语言（`Settings`）、日志（`Logs`）、关于（`About`）。
+    # 设置域：草稿、主题、Java、语言（Settings）；日志（Logs）；关于（About）。
     ("Settings", "app.bridges.settings_bridge", "SettingsBridge"),
     ("Logs", "app.bridges.log_bridge", "LogBridge"),
     ("About", "app.bridges.about_bridge", "AboutBridge"),
-    # 账号页（阶段 3 任务 3.5）：登录 / 切换 / 删除 / 刷新 / 导入导出。
+    # 账号页：登录、切换、删除、刷新、导入导出。
     ("Accounts", "app.bridges.accounts_bridge", "AccountsBridge"),
-    # 资源页（阶段 3 任务 3.6）：模组 / 资源包 / 地图 / 光影的扫描、启停、删除、
-    # 安装、缩略图、双源更新检查与批量更新。
+    # 资源页：模组、资源包、地图、光影的扫描、启停、删除、安装、缩略图与更新。
     ("Resources", "app.bridges.resources_bridge", "ResourcesBridge"),
-    # 在线资源浏览（阶段 3 任务 3.7）：Modrinth + CurseForge 双源搜索 / AI 搜索 /
-    # 分页 / 卡片安装 / 详情页（版本选择 + 依赖预览）。
+    # 在线资源浏览：双源搜索、AI 搜索、分页、卡片安装与详情页。
     ("ModBrowser", "app.bridges.mod_browser_bridge", "ModBrowserBridge"),
-    # 整合包（阶段 3 任务 3.8）：浏览 / 客户端安装 / 服务器开服共用一桥。
+    # 整合包：浏览、客户端安装、服务器开服共用一桥。
     ("Modpack", "app.bridges.modpack_bridge", "ModpackBridge"),
-    # 服务器（阶段 3 任务 3.9）：列表 / 生命周期 / 安装进度 / 每服内存。
+    # 服务器：列表、生命周期、安装进度与每服内存。
     ("Servers", "app.bridges.servers_bridge", "ServersBridge"),
-    # 服务器配置编辑器（阶段 3 任务 3.11）：草稿 / 分类搜索 / 校验 / 保存 / 原文。
+    # 服务器配置编辑器：草稿、分类搜索、校验、保存与原文。
     ("ServerConfig", "app.bridges.server_config_bridge", "ServerConfigBridge"),
-    # 服务器本地模组 / 资源包（阶段 3 任务 3.12）：扫描 / 搜索 / 启停 / 删除 / 更新。
+    # 服务器本地模组与资源包：扫描、搜索、启停、删除、更新。
     ("ServerMods", "app.bridges.server_mods_bridge", "ServerModsBridge"),
-    # 服务端模组在线浏览（阶段 3 任务 3.12）：Modrinth 单源搜索 / AI / 安装到服务器。
+    # 服务端模组在线浏览：搜索、AI 搜索与安装到服务器。
     ("ServerModBrowser", "app.bridges.server_mod_browser_bridge", "ServerModBrowserBridge"),
-    # 联机（阶段 3 任务 3.13）：EasyTier 环境 / 创建与加入大厅 / 局域网 / 日志。
+    # 联机：EasyTier 环境、创建与加入大厅、局域网与日志。
     ("Online", "app.bridges.online_bridge", "OnlineBridge"),
-    # 存档备份（阶段 3 任务 3.14）：世界扫描 / 备份 / 恢复 / 校验 / 导出 / 设置。
+    # 存档备份：世界扫描、备份、恢复、校验、导出与设置。
     ("Backups", "app.bridges.backup_bridge", "BackupBridge"),
-    # 基岩版（阶段 3 任务 3.15）：已安装 / 下载 / 安装 / 启动 / 删除 / MSA 设备码。
+    # 基岩版：已安装、下载、安装、启动、删除与 MSA 设备码。
     ("Bedrock", "app.bridges.bedrock_bridge", "BedrockBridge"),
-    # 音乐（阶段 3 任务 3.16）：播放核心 / 本地曲库 / 队列 / 歌词。
+    # 音乐：播放核心、本地曲库、队列与歌词。
     ("Music", "app.bridges.music_bridge", "MusicBridge"),
-    # 工具箱（阶段 3 任务 3.20）：8 个工具 / 异步任务 / 问答 / 续传下载。
+    # 工具箱：八个工具、异步任务、问答与续传下载。
     ("Tools", "app.bridges.tools_bridge", "ToolsBridge"),
-    # 相关网站（阶段 3 任务 3.26 / J-04）：29 条 MC 站点目录 / 打开与复制。
+    # 相关网站：站点目录、打开与复制。
     ("Links", "app.bridges.links_bridge", "LinksBridge"),
-    # 成就（阶段 3 任务 3.21）：总览 / 分类 / 详情 / 云同步与重置 / 解锁通知。
+    # 成就：总览、分类、详情、云同步与重置、解锁通知。
     ("Achievements", "app.bridges.achievements_bridge", "AchievementsBridge"),
-    # 净读账号（3.21 设置补充）：登录 / 退出 / 用户信息。
+    # 净读账号：登录、退出与用户信息。
     ("Jingdu", "app.bridges.jingdu_bridge", "JingduBridge"),
-    # AGENT 对话（阶段 3 任务 3.22）：会话 / 流式 / 工具确认 / 待办 / 语音按钮。
+    # AGENT 对话：会话、流式输出、工具确认、待办与语音按钮。
     ("Agent", "app.bridges.agent_bridge", "AgentBridge"),
-    # 插件（阶段 3 任务 3.27）：管理器 / 市场 / 权限确认 / v2 页面路由与数据通道。
+    # 插件：管理器、市场、权限确认、页面路由与数据通道。
     ("Plugins", "app.bridges.plugin_bridge", "PluginBridge"),
-    # 更新入口（阶段 3 任务 3.28）：设置 → 关于 / 启动期更新通知。
+    # 更新入口：设置 → 关于与启动期更新通知。
     ("Update", "app.bridges.update_bridge", "UpdateBridge"),
 )
 
@@ -131,8 +110,7 @@ QML_MODULE_VERSION_MAJOR = 1
 def qml_import_path() -> Path:
     """FluentUI 自编译插件的 QML 模块目录。
 
-    * 打包后：PyInstaller 把 `third_party/_install/qml` 整体放到 `<_MEIPASS>/qml`
-      （见 `poc/fmcl_qml_poc.spec` 的做法，阶段 4 的 `build.spec` 会照抄）。
+    * 打包后：PyInstaller 把 `third_party/_install/qml` 整体放到 `<_MEIPASS>/qml`。
     * 开发态：直接用仓库里的构建产物。
     """
     meipass = getattr(sys, "_MEIPASS", None)
@@ -201,32 +179,19 @@ def _instantiate(module_name: str, class_name: str) -> Any:
 def register_bridges(engine: Any, context: Any, prebuilt: Optional[Dict[str, Any]] = None) -> Dict[str, List[str]]:
     """注册单例与上下文属性。
 
-    返回 ``{"registered": [...], "missing": [...]}`` —— **缺哪个桥不影响启动**，
-    缺失项会记 warning 并出现在返回值里，供测试与诊断使用。
+    返回 ``{"registered": [...], "missing": [...]}``。缺哪个桥不影响启动，缺失项会记
+    warning 并出现在返回值里，供测试与诊断使用。
 
-    ## 为什么单例桥用"模块登记 + 上下文属性"，而不是 `qmlRegisterSingletonInstance`
+    ## 单例桥的注册方式
 
-    阶段 2 任务 2.8 报告的说法是"任何 `qmlRegister*` 之后同进程再编 `QtQuick.Controls`
-    必现 `Cannot assign object to list property "data"`"。**我独立复核后把这个说法收窄了**
-    （证据：`poc/_verify_register_hazard.py`、`_verify_register_signature.py`、
-    `_verify_register_forms.py`、`_verify_register_subclass.py`，每个变体独立子进程）：
+    PySide6 6.7.3 上未找到可用的 `qmlRegisterSingletonInstance` /
+    `qmlRegisterSingletonType` 调用形式（6 参签名均抛 `ValueError`）。因此 Theme 与 Tr
+    采用：
 
-    | 调用 | 实测结果 |
-    |------|----------|
-    | 什么都不注册 | 最小 QML（Window + StackView）**可编译** |
-    | `qmlRegisterType(...)` | **可编译** —— 所以"任何 `qmlRegister*` 都有害"**不成立** |
-    | `qmlRegisterModule(...)` | 可编译 |
-    | `setContextProperty(...)` | 可编译，且 QML 真能取到对象（实测读到 `probe-ok`） |
-    | `qmlRegisterSingletonInstance(...)` / `qmlRegisterSingletonType(...)` | **只试出"抛错"这一种结果** —— 按 `PySide6/QtQml.pyi` 的签名 `(type_obj, uri, major, minor, qml_name, callback)` 传满 6 个参数（名字用 bytes、末参分别试过实例/`lambda: 实例`/`lambda eng, api: 实例`）都得到 `ValueError: wrong argument values`。**本次没能找到可用的调用形式。** |
+    1. `qmlRegisterModule("FMCL", 1, 0)`，让 QML 的 `import FMCL 1.0` 可解析；
+    2. `setContextProperty(name, obj)`，QML 直接按属性名访问。
 
-    所以准确的结论是："**单例注册的可用调用形式在 PySide6 6.7.3 上没找到**"，而不是
-    "注册函数有平台级缺陷"。既然目标是"QML 侧写法不变"，那就用实测可用的那两步：
-
-    1. `qmlRegisterModule("FMCL", 1, 0)` —— 让 QML 里的 `import FMCL 1.0` 有东西可导入；
-    2. `setContextProperty(name, obj)` —— `Theme.bgDark` / `Tr.map[…]` 的写法**一个字都不用改**。
-
-    后续若有人要让 `Theme` / `Tr` 变成真正的 QML 单例类型，先把上面四种 6 参形式再试一遍
-    （四个探针都是现成的），别照抄网上 5 参的写法 —— 那在 6.7.3 上一定抛 TypeError。
+    如果以后要改成真正的单例类型，需要先在当前 PySide6 版本上验证 6 参调用形式。
     """
     from PySide6.QtQml import qmlRegisterModule
 
@@ -288,11 +253,11 @@ def register_bridges(engine: Any, context: Any, prebuilt: Optional[Dict[str, Any
     return {"registered": registered, "missing": missing}
 
 
-# ─── 应用级字体（任务 2.10） ───────────────────────────────────
+# ─── 应用级字体 ────────────────────────────────────────────────
 
 
 def apply_theme_font(engine: Any) -> bool:
-    """把 `Theme.fontFamily` 设成**应用级字体**（阶段 2 任务 2.10）。
+    """把 `Theme.fontFamily` 设成**应用级字体**。
 
     为什么在入口做而不是在桥里：`QGuiApplication.setFont()` 改的是进程级默认字体，
     属于"装配"而不是"主题状态"，而且必须在 `engine.load()` **之前**设好 ——
@@ -376,13 +341,12 @@ def make_dialog_host(prebuilt: Optional[Dict[str, Any]] = None) -> Any:
 
 
 def raise_main_window(engine: Any) -> bool:
-    """把主窗口提到前面并抢焦点 —— 逐字对齐旧实现 `main.py` 的 `app.lift() + app.focus_force()`。
+    """把主窗口提到前面并抢焦点。
 
     ## 为什么需要它
 
-    启动画面是 `WindowStaysOnTopHint` 的置顶窗（基线用的是 Tk 的 `-topmost`），而主窗口在
-    启动期间是**藏起来的**（返工 A 组修掉的缺陷 D-142）。启动链条跑完之后，主窗口虽然显示了，
-    但它不一定在别的窗口前面 —— 返工 A 组真机截图时就撞到过"界面在文件资源管理器后面"。
+    启动画面是 `WindowStaysOnTopHint` 的置顶窗，而主窗口在启动期间是藏起来的。
+    启动链条跑完后主窗口虽然显示了，但不一定在别的窗口前面，因此需要主动提升。
 
     ## 为什么在 Python 侧做，而不是写进 QML 的 `onVisibleChanged`
 
@@ -545,7 +509,7 @@ def assemble(
 
         setup_logging()
     logger.info("=" * 60)
-    logger.info("FMCL QML 版启动（阶段 2 骨架）")
+    logger.info("FMCL 启动")
     logger.info("=" * 60)
 
     app = create_application(argv)
@@ -587,13 +551,13 @@ def assemble(
     result = register_bridges(engine, context, prebuilt=prebuilt)
     logger.info("桥接注册完成：%s；缺失 %s", result["registered"], result["missing"])
 
-    # 任务 2.10：中文字体注入（必须在 engine.load() 之前；桥缺席时静默跳过）。
+    # 中文字体注入（必须在 engine.load() 之前；桥缺席时静默跳过）。
     apply_theme_font(engine)
 
-    # 任务 2.16：图标上色 provider（**必须**在 engine.load() 之前注册）。
+    # 图标上色 provider（**必须**在 engine.load() 之前注册）。
     # 为什么需要它：`fill="currentColor"` 在 QtSvg 里被解析成**不透明黑**，而
     # `ColorOverlay` / `MultiEffect` 在 offscreen（本仓库所有测试的跑法）下静默失效
-    # （阶段 2 任务 2.10 的实测结论）—— 唯一在两种环境下都精确的做法是
+    # —— 在离屏与真实窗口下都精确的做法是
     # Python 侧换色：`image://fmcl-icon/<name>?color=%23RRGGBB`。
     # 没注册也不会白屏：`FmIcon` 会退化成未上色的 SVG（看得见但黑），
     # 并把 `fallbackUsed` 置真，Gallery 的自检会因此报警。
@@ -648,9 +612,8 @@ def assemble(
         # `Startup` —— 而 `HomeBridge.use_engine()` 正是**那一刻**去桥表里找 Startup 的
         # （它要接公告入口与启动链条的两个信号）。结果：`Home.hasNotice` 恒为 False、
         # 首页那个「查看公告」按钮**永远点不了**，而且启动链条跑完也不会刷首页。
-        # 用户 2026-10-06 实测报的就是这个（"打开公告的按钮点不了"）。
-        # 修法照搬 `tests/qml_home_probe.py` 里那条既有的正确顺序：Startup 进桥表之后
-        # **再注入一次**（`use_engine` 本来就是幂等的：它只存引用 + 接信号）。
+        # 现象是首页「查看公告」按钮不可点、启动链跑完后首页不刷新。
+        # 修法是在 Startup 进桥表之后**再注入一次**（`use_engine` 幂等，只存引用 + 接信号）。
         for name in ("Home", "Versions"):
             obj = engine._fmcl_bridges.get(name)
             inject = getattr(obj, "use_engine", None)
@@ -660,8 +623,7 @@ def assemble(
                 inject(engine)
             except Exception as e:  # noqa: BLE001 - 注不进只是那一页少一块信息
                 logger.warning("第二次注入引擎给 %s 失败: %s", name, e)
-        # 3.9 的服务器桥同样要接 Startup.chainFinished（启动链条跑完后再取核心），
-        # 但它不是 D-171 的公告桥，所以单列一段而不是改上面那行被台账钉住的字面量。
+        # 服务器桥同样要接 Startup.chainFinished（启动链条跑完后再取核心）。
         servers_obj = engine._fmcl_bridges.get("Servers")
         servers_inject = getattr(servers_obj, "use_engine", None)
         if callable(servers_inject):
@@ -669,7 +631,7 @@ def assemble(
                 servers_inject(engine)
             except Exception as e:  # noqa: BLE001
                 logger.warning("第二次注入引擎给 Servers 失败: %s", e)
-        # 3.28：启动期自动检查到新版本时，把版本号/更新说明交给 Update 桥；
+        # 启动期自动检查到新版本时，把版本号/更新说明交给 Update 桥；
         # 设置 → 关于 的入口也用它。只提示，不自动下载。
         update_obj = engine._fmcl_bridges.get("Update")
         offer = getattr(update_obj, "offer", None)
@@ -678,9 +640,9 @@ def assemble(
                 startup.updateAvailable.connect(offer)
             except Exception as e:  # noqa: BLE001
                 logger.warning("接 Startup.updateAvailable 失败: %s", e)
-        # 3.15 的基岩桥同样要接 Startup.chainFinished：桥在 register_bridges() 时绑定，
+        # 基岩桥同样要接 Startup.chainFinished：桥在 register_bridges() 时绑定，
         # 那一刻 launcher 还没进上下文；启动链跑完后必须再取一次，否则页面会一直停在
-        # "核心尚未就绪"（用户 2026-10-31 实测）。与 Servers 一样单列一段。
+        # "核心尚未就绪"。与 Servers 一样单列一段。
         bedrock_obj = engine._fmcl_bridges.get("Bedrock")
         bedrock_inject = getattr(bedrock_obj, "use_engine", None)
         if callable(bedrock_inject):
@@ -726,15 +688,12 @@ def assemble(
             except Exception as e:  # noqa: BLE001
                 logger.warning("悬浮窗热键接线失败（热键不可用）: %s", e)
 
-    # ── 启动画面收起 / 启动链条走完后，把主窗口提到前面（返工 A 组接线）──
-    # 基线 `main.py` 的 `_on_app_ready` 结尾是两行：`app.lift()` + `app.focus_force()`；
-    # 另外 `_dismiss_splash` 里那一下 `app.deiconify()` 在 Tk 上本身就会把窗口提到前面。
-    # Qt 这边只 `show()` 不一定会激活（Windows 的前台窗口锁），真机实测会出现
-    # "启动完成后界面在别的窗口后面" —— 所以两处都要提一次。
+    # ── 启动画面收起 / 启动链条走完后，把主窗口提到前面 ──
+    # Qt 的 `show()` 不一定会激活窗口（Windows 前台窗口锁），窗口可能留在其他窗口后面，
+    # 因此两个时点都主动提升一次。
     #
-    # **必须走 dispatcher**：`chainFinished` 是从任务线程发出来的（`tasks.submit`），
-    # 直连的 Python lambda 会在那条线程上执行，而 `QWindow.raise_()` 只能在 GUI 线程调
-    # —— 真机实测的表现是进程静默消失（窗口不出现、日志停在"初始化完成"、无 traceback）。
+    # **必须走 dispatcher**：`chainFinished` 从任务线程发出，直连 lambda 会在该线程执行，
+    # 而 `QWindow.raise_()` 只能在 GUI 线程调用。
     if startup is not None:
         try:
             schedule = dispatcher.as_scheduler()
@@ -753,15 +712,11 @@ def assemble(
             logger.warning("接线『启动完成提窗口』失败: %s", e)
 
     def _on_quit() -> None:
-        """退出清理链（对照表 A-20，逐条对齐旧实现：
-        插件 APP_SHUTDOWN → Toast 队列 → 音乐热键 → 监控热键 → 监控窗 → 音乐停止）。
-
-        QML 侧能做的六步里，涉及本阶段落地的三样：启动流程停表、Toast 队列、
-        悬浮窗（含监控/歌词窗与它们的热键）。插件与音乐那两步在阶段 3 的页面迁移里接。
+        """退出清理链：插件 APP_SHUTDOWN → Toast 队列 → 音乐热键 → 监控热键 →
+        监控窗 → 音乐停止，并停止后台任务与窗口观察者。
         """
         logger.info("开始退出清理...")
-        # 插件 APP_SHUTDOWN 是旧实现退出链的第一步（对照表 A-20）：插件可能在
-        # 钩子里落盘/关连接，必须排在其它清理之前。
+        # 插件 APP_SHUTDOWN 必须排在其它清理之前：插件可能在钩子里落盘或关闭连接。
         plugins_bridge = bridges.get("Plugins")
         if plugins_bridge is not None:
             shutdown = getattr(plugins_bridge, "shutdown", None)
@@ -784,7 +739,7 @@ def assemble(
                         slot()
                     except Exception as e:  # noqa: BLE001
                         logger.warning("%s 失败: %s", slot_name, e)
-        # 账号桥：注销服务层进度监听（阶段 3.5）。不做的话"登录线程回调打到已销毁的
+        # 账号桥：注销服务层进度监听。不做的话"登录线程回调打到已销毁的
         # QObject"会在退出时刷一串告警 —— 3.4 的日志桥是同一类收尾。
         accounts = bridges.get("Accounts")
         if accounts is not None:
@@ -794,7 +749,7 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("注销账号进度监听失败: %s", e)
-        # 资源桥：取消在跑的模组元数据任务（阶段 3.6）。不做的话退出时那几个
+        # 资源桥：取消在跑的模组元数据任务。不做的话退出时那几个
         # 后台任务还会往一个正在销毁的对象上投递事件。
         resources = bridges.get("Resources")
         if resources is not None:
@@ -804,7 +759,7 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("取消资源后台任务失败: %s", e)
-        # 在线浏览桥：取消在跑的安装任务（阶段 3.7），理由同上。
+        # 在线浏览桥：取消在跑的安装任务，理由同上。
         mod_browser = bridges.get("ModBrowser")
         if mod_browser is not None:
             detach = getattr(mod_browser, "detach", None)
@@ -813,7 +768,7 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("取消在线浏览后台任务失败: %s", e)
-        # 整合包桥：停进度轮询并取消下载/查询（阶段 3.8）。
+        # 整合包桥：停进度轮询并取消下载/查询。
         modpack = bridges.get("Modpack")
         if modpack is not None:
             detach = getattr(modpack, "detach", None)
@@ -822,7 +777,7 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("停止整合包后台任务失败: %s", e)
-        # 服务器进程：退出启动器时关闭由本进程启动的全部服务器（阶段 3.9 反馈）。
+        # 服务器进程：退出启动器时关闭由本进程启动的全部服务器。
         # 先停进程再摘观察者，否则最后几条退出事件会被丢掉。
         launcher = context.try_get("launcher") if context is not None else None
         shutdown_servers = getattr(launcher, "shutdown_servers", None)
@@ -840,8 +795,7 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("停止服务器观察者失败: %s", e)
-        # 联机桥：停 EasyTier / 转发 / 广播 / 成员轮询（阶段 3.13）。旧 Tk 版退出时
-        # 没有这一步，EasyTier 可能残留；QML 侧按用户裁决收口。
+        # 联机桥：停 EasyTier、端口转发、局域网广播与成员轮询，避免退出后残留进程。
         online = bridges.get("Online")
         if online is not None:
             detach = getattr(online, "detach", None)
@@ -850,7 +804,7 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("停止联机会话失败: %s", e)
-        # 存档备份桥：取消在跑的扫描/备份/恢复任务（阶段 3.14）。
+        # 存档备份桥：取消在跑的扫描/备份/恢复任务。
         backups = bridges.get("Backups")
         if backups is not None:
             detach = getattr(backups, "detach", None)
@@ -859,7 +813,7 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("取消备份后台任务失败: %s", e)
-        # 基岩版桥：取消在跑的加载/安装任务并恢复 on_progress 链（阶段 3.15）。
+        # 基岩版桥：取消在跑的加载/安装任务并恢复 on_progress 链。
         bedrock = bridges.get("Bedrock")
         if bedrock is not None:
             detach = getattr(bedrock, "detach", None)
@@ -868,7 +822,7 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("取消基岩版后台任务失败: %s", e)
-        # 音乐桥：停播放、存会话/曲库/配置（阶段 3.16）。
+        # 音乐桥：停播放、存会话/曲库/配置。
         music = bridges.get("Music")
         if music is not None:
             shutdown = getattr(music, "shutdown", None)
@@ -877,7 +831,7 @@ def assemble(
                     shutdown()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("关闭音乐后端失败: %s", e)
-        # 工具箱桥：请求暂停下载并取消其余任务（阶段 3.20）。
+        # 工具箱桥：请求暂停下载并取消其余任务。
         tools_bridge = bridges.get("Tools")
         if tools_bridge is not None:
             detach = getattr(tools_bridge, "detach", None)
@@ -886,7 +840,7 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("停止工具箱后台任务失败: %s", e)
-        # 成就桥：注销引擎解锁回调（引擎是进程级单例，QObject 会先销毁，阶段 3.21）。
+        # 成就桥：注销引擎解锁回调（引擎是进程级单例，QObject 会先销毁）。
         achievements_bridge = bridges.get("Achievements")
         if achievements_bridge is not None:
             detach = getattr(achievements_bridge, "detach", None)
@@ -895,7 +849,7 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("注销成就桥失败: %s", e)
-        # AGENT 对话桥：取消在跑的流式任务、放行工具确认、注销语音监听（阶段 3.22）。
+        # AGENT 对话桥：取消在跑的流式任务、放行工具确认、注销语音监听。
         agent_bridge = bridges.get("Agent")
         if agent_bridge is not None:
             detach = getattr(agent_bridge, "detach", None)
@@ -904,7 +858,7 @@ def assemble(
                     detach()
                 except Exception as e:  # noqa: BLE001
                     logger.warning("停止 AGENT 对话后台任务失败: %s", e)
-        # 净读账号桥：取消仍在跑的登录/信息刷新任务（阶段 3.21 设置补充）。
+        # 净读账号桥：取消仍在跑的登录/信息刷新任务。
         jingdu_bridge = bridges.get("Jingdu")
         if jingdu_bridge is not None:
             detach = getattr(jingdu_bridge, "detach", None)
@@ -941,8 +895,8 @@ def assemble(
             startup.start()
         except Exception as e:  # noqa: BLE001 - 启动流程失败不该让程序起不来
             logger.error("启动流程启动失败: %s", e, exc_info=True)
-        # 插件系统（阶段 3 任务 3.27）：只在生产装配里自动初始化。`register_bridges()`
-        # 是测试与探针也会走的路径，若在那里自动扫描，会把开发机上真实安装的插件
+        # 插件系统：只在生产装配里自动初始化。`register_bridges()`
+        # 是测试与探针也会走的路径，若在那里自动扫描，会把本地真实安装的插件
         # 拉进每个 UI 测试；页面首次进入仍会幂等地调一次 `initialize()`。
         plugins_bridge = bridges.get("Plugins")
         init_plugins = getattr(plugins_bridge, "initialize", None)

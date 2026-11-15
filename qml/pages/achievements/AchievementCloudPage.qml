@@ -1,4 +1,4 @@
-// AchievementCloudPage.qml —— 成就云同步与重置（阶段 3 任务 3.21）。
+// AchievementCloudPage.qml —— 成就云同步与重置。
 //
 // 路由 achievements/cloud。同步按钮沿用总览卡；重置云端 / 重置本地都要经过
 // FmAchievementResetDialog 的"危险确认 → 输入短语"两步，输入不匹配不会关窗。

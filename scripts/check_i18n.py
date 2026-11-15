@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""i18n 键完整性校验（阶段 1 任务 1.20 的工具，阶段 4 验收复用）。
+"""i18n 键完整性校验。
 
 校验四件事，每件都对应真实会出的问题：
 
@@ -43,7 +43,7 @@ TRANSLATE_FUNCS = {"_", "tr", "_translate", "translate"}
 
 #: 扫描范围（生产代码）。
 #:
-#: **`services/` 必须在内**：阶段 1 正在把业务逻辑（连带其中的 `_()` 调用）
+#: **`services/` 必须在内**：业务逻辑（连带其中的 `_()` 调用）
 #: 从 `ui/` 搬进 `services/`，如果这里不同步扩大范围，那些键就会掉出
 #: 「缺键 / 占位符一致 / 调用点缺参」三项检查 —— 覆盖范围会随着重构**静默缩水**。
 #: 这个漏洞是实测发现的：语音服务搬家后，9 个 `voice_*` 键被判成"零引用"。
@@ -79,11 +79,11 @@ class Findings:
     missing_call_kwargs: List[Tuple[str, List[str], Usage]] = field(default_factory=list)
     unused: List[str] = field(default_factory=list)
     dynamic_calls: List[Usage] = field(default_factory=list)
-    #: QML 侧扫描结果（返工 D 组）：引用到的静态键数量、动态键、缺键。
+    #: QML 侧扫描结果：引用到的静态键数量、动态键、缺键。
     qml_usages: int = 0
     qml_dynamic_calls: List[Usage] = field(default_factory=list)
     qml_absent: Dict[str, List[Usage]] = field(default_factory=dict)
-    #: 路由表 / 导航分组里登记的键与其中的缺键（返工 D 组追加）。
+    #: 路由表 / 导航分组里登记的键与其中的缺键。
     route_keys: List[Usage] = field(default_factory=list)
     route_absent: Dict[str, List[Usage]] = field(default_factory=dict)
 
@@ -95,7 +95,7 @@ class Findings:
         第一版写的是 `not self.lang_missing` —— 而 `check_language_parity` 总会给
         **每个**语言建一个键（内容可能是空列表），字典非空但没有任何问题，
         于是 `ok` **永远是 False**。CLI 走的是 `problems` 计数而不是这个属性，
-        所以这个错一直没被看见（返工 D 组给闸门补测试时抓到）。
+        所以这个错一直没被看见。
         `lang_extra`（参照语言没有的键）按原判据**只报不判失败**，这里保持一致。
         """
         return not (
@@ -308,11 +308,11 @@ def check_call_site_kwargs(
     return problems
 
 
-# ─── QML 侧取词（返工 D 组补：语言文件是 ui/locales，但 QML 也在读它） ──
+# ─── QML 侧取词（语言文件在 ui/locales，QML 也在读它） ──
 #
 # 为什么必须补这一项：本脚本原来的扫描范围是**Python**（`CODE_ROOTS`），
 # 而 QML 侧走的是 `Tr?.map["key"]` —— 语言文件对两侧是同一份，检查却只覆盖了
-# 一侧。返工 C 组给画廊补 5 个键时就是手工数的（`poc/_fix_locale_newlines.py`），
+# 一侧。静态扫描无法发现字符串拼接出的键名，
 # D 组一量才发现另有 **27 个** `dev_gallery_*` 键从来没进过语言文件：
 # 它们在界面上直接显示成键名本身（`dev_gallery_hint_button`），而闸门一直是绿的。
 
@@ -456,7 +456,7 @@ def check_qml_keys(
     return absent
 
 
-# ─── 路由表里的 i18n 键（返工 D 组追加的一项） ────────────────────
+# ─── 路由表里的 i18n 键 ────────────────────────────────────────
 #
 # 为什么还要单独查这一处：`app/bridges/nav_bridge.py` 的 `_ROUTE_TABLE` 把**键名写在表里**
 # （`("versions/detail", "version_detail_title", …)`），QML 侧用

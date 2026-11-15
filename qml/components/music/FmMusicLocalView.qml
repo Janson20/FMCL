@@ -1,4 +1,4 @@
-// FmMusicLocalView.qml —— 本地音乐（阶段 3.16）。
+// FmMusicLocalView.qml —— 本地音乐。
 //
 // 文件夹管理 + 扫描进度 + 曲库列表。业务状态来自 Music.library；本文件不拼规则。
 

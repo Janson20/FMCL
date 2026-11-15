@@ -1,4 +1,4 @@
-"""版本页桥 —— QML 侧的 `Versions` 上下文属性（阶段 3 任务 3.2）。
+"""版本页桥 —— QML 侧的 `Versions` 上下文属性。
 
 ## 它是什么
 
@@ -427,10 +427,8 @@ class VersionsBridge(QObject):
         else:
             self._set_load_state(STATE_EMPTY if not self._rows else STATE_READY, "")
         self._rebuild()
-        # 装完一个版本之后（3.3）：列表重扫完要**自动选中新装的那个** ——
-        # 这是用户 2026-10-06 裁决的"装完自动回列表并选中"，也是旧界面
-        # "清空输入框 + 刷新列表"的等价物。待选中的 id 由 `VersionService` 记着，
-        # 取走即清（只用一次）。
+        # 装完一个版本之后：列表重扫完要**自动选中新装的那个**。
+        # 待选中的 id 由 `VersionService` 记着，取走即清（只用一次）。
         pending = ""
         consume = getattr(self._service, "consume_pending_selection", None)
         if callable(consume):

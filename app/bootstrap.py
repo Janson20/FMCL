@@ -1,29 +1,19 @@
-"""装配层：把 ``services/`` 里的服务注册进 ``AppContext``（阶段 1 任务 1.17）。
+"""装配层：把 ``services/`` 里的服务注册进 ``AppContext``。
 
-## 为什么需要它
+## 为什么懒注册
 
-在写这个文件之前，`AppContext` 虽然已经完整（注册表 / 拓扑启动 / 事件总线 /
-UI 端口 / 任务调度器），但**没有任何生产代码构造它** —— 也就是说：
-
-* 界面侧的 `_get_xxx_service(owner)` 永远 `ctx is None`，于是**每个窗口各自 new 一份服务**；
-* "新旧 UI 共用同一份业务逻辑"这句话在运行期并不成立（只是"共用同一份代码"）。
-
-本模块补上这段接线，并且**用懒注册**（`AppContext.register_lazy`）避免副作用：
-服务模块里有几个 import 就拉起重依赖（`onnxruntime` / `pygame` / `winsdk`），
-启动时它们多数用不到；懒注册让实例在**第一次被取用**时才建出来。
+服务模块可能 import 重依赖（`onnxruntime` / `winsdk`），启动时多数用不到。
+`AppContext.register_lazy` 让实例在第一次被取用时才建出来，避免拖慢启动。
 
 ## 表里为什么是"模块:类名"字符串
 
-这样 `app/bootstrap.py` 顶层**不 import 任何服务** —— 只 import `app` 自己。
-真正的导入推迟到工厂被调用的那一刻。顺带还有一个好处：
-某个服务模块临时坏掉（缺三方依赖）时，只有用到它的那条路径受影响，
-启动与其它服务照常（`_resolve` 里对工厂异常的处理就是为这个写的）。
+这样 `app/bootstrap.py` 顶层不 import 任何服务，真正的导入推迟到工厂被调用时。
+某个服务模块临时坏掉（缺三方依赖）时，只有用到它的路径受影响，启动与其他服务照常。
 
 ## 完整性
 
 `tests/test_app_context_wiring.py` 会扫 `services/` 下所有 `Service` 子类，
-要求它们要么在这张表里、要么在 `NOT_REGISTERED` 里写明理由 ——
-防止以后新增服务却忘了注册（那种缺陷没有任何运行期报错）。
+要求它们要么在这张表里、要么在 `NOT_REGISTERED` 里写明理由，防止新增服务漏注册。
 """
 
 from __future__ import annotations
@@ -138,10 +128,10 @@ def build_context(
 
     Args:
         config: 全局配置对象（None 时上下文会懒加载根模块的 ``config`` 单例）。
-        ui: ``UIPort`` 实现（Tk 界面是 ``ui/ports_tk.TkUIPort``）。
-        scheduler: 主线程调度器（旧界面传 ``lambda fn: app.after(0, fn)``）。
+        ui: ``UIPort`` 实现。
+        scheduler: 主线程调度器，用于把回调切回界面线程。
         register: 是否注册默认服务表。
-        set_current: 是否把它设为进程级"当前上下文"（界面侧的取服务辅助函数会用它）。
+        set_current: 是否把它设为进程级"当前上下文"。
     """
     ctx = AppContext(config=config, ui=ui, tasks=tasks, events=events)
     if scheduler is not None:

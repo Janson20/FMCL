@@ -1,4 +1,4 @@
-// ToolsPage.qml —— 工具箱首页（阶段 3 任务 3.20）。
+// ToolsPage.qml —— 工具箱首页。
 //
 // 8 个工具 + 相关网站各自是独立二级页（03 的 C-09；相关网站见 3.26）。这里只做
 // 入口卡片，不承载任何工具逻辑；
@@ -24,7 +24,7 @@ FmPage {
         {"key": "fact", "route": "tools/fact", "titleKey": "tool_fact_title", "descKey": "tool_fact_desc", "icon": "bulb"},
         {"key": "quiz", "route": "tools/quiz", "titleKey": "tool_quiz_title", "descKey": "tool_quiz_desc", "icon": "guide"},
         {"key": "download", "route": "tools/download", "titleKey": "tool_download_title", "descKey": "tool_download_desc", "icon": "download"},
-        //: 相关网站（3.26 / J-04）：旧 Tk 的「链接」一级标签，下沉到工具箱（用户裁决）。
+        //: 相关网站：工具箱的二级入口。
         {"key": "links", "route": "tools/links", "titleKey": "links_title", "descKey": "links_description", "icon": "link"}
     ]
 

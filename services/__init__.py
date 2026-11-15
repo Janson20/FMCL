@@ -1,6 +1,6 @@
 """业务服务层 —— 与界面无关的全部业务逻辑。
 
-**硬性约束（阶段 1 验收标准第 1 条，CI 固化在 ``scripts/check_services_purity.py``）**
+**硬性约束（CI 固化在 ``scripts/check_services_purity.py``）**
 
 本包及其子包内**不得**出现：
 
@@ -13,15 +13,15 @@
 需要后台线程时，使用 ``self.tasks``（``app.tasks.TaskRunner``）。
 需要通知界面时，使用 ``self.publish("事件名", ...)``。
 
-包结构约定（随阶段 1 推进逐步补齐）::
+包结构::
 
     services/
         errors.py            统一异常体系
         base.py              Service 基类
-        i18n_service.py      多语言（1.16）
-        theme_service.py     主题引擎（1.16）
-        palette.py           12 色调色板（1.16）
-        ...                  其余见 docs/refactor/03-phases.md 阶段 1 任务表
+        i18n_service.py      多语言
+        theme_service.py     主题引擎
+        palette.py           12 色调色板
+        ...                  其余模块见各文件 docstring
 """
 
 from services.base import Service

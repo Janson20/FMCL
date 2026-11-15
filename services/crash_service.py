@@ -1,47 +1,31 @@
-"""崩溃诊断与 AI 分析（原 ``ui/app_crash.py`` 的业务逻辑部分，阶段 1 任务 1.7）。
+"""崩溃诊断与 AI 分析。
 
-搬运来源与方法映射（改造前 → 本模块）::
+本模块负责：崩溃类型识别（``CRASH_TYPES``）、诊断（``diagnose_crash``）、
+读取文件尾部（``read_file_tail``）、收集 AI 上下文（``collect_ai_context`` /
+``collect_server_ai_context``）、以及 AI 分析的"建消息 + 发请求"
+（``analyze_crash`` / ``analyze_server_crash``）。
 
-    ui/app_crash.py（改造前）                 本模块
-    ──────────────────────────────────────────────────────────────────────────
-    CrashHandlerMixin.CRASH_TYPES         →  CRASH_TYPES（同一个 list 对象）
-    _diagnose_crash(crash_files)          →  diagnose_crash(crash_files)
-    _read_file_tail(path, lines)          →  read_file_tail(path, lines)
-    _collect_ai_context(files, code)      →  collect_ai_context(files, code, log_buffer=…)
-    _collect_server_ai_context(code)      →  collect_server_ai_context(code, version_id=…,
-                                                                            server_log_lines=…,
-                                                                            log_buffer=…)
-    _do_ai_analyze 的"建消息 + 发请求"    →  analyze_crash(context, exit_code, token,
-                                                              *, transport=None)
-    _do_server_ai_analyze 的同名部分      →  analyze_server_crash(context, exit_code, token,
-                                                                   *, transport=None)
+**纯逻辑、不碰 Tk、不起线程**：``analyze_*`` 是同步阻塞调用，跑在哪个线程由
+调用方决定；崩溃对话框、隐私同意弹窗、AI 结果弹窗与加载窗口留在界面侧。
 
-**留在** ``ui/app_crash.py`` 的是纯界面部分：崩溃对话框（``_show_crash_dialog``）、
-隐私同意弹窗、AI 结果弹窗、AI 加载窗口，以及"起线程 / 用 ``after(0, …)`` 把结果切回
-主线程"的接线。本模块**不碰 Tk、不起线程**：``analyze_*`` 是同步阻塞调用，
-跑在哪个线程由调用方决定（现役界面把它放在原来的守护线程里）。
-
-三处必要的形参化（原实现直接读 ``self``，而 ``self`` 是 Tk 应用对象）:
+上下文以形参传入（不读界面对象的 ``self``）：
 
 ===================  ==========================  ==================================
-形参                  原属性                      调用方取值方式
+形参                  含义                        缺省值
 ===================  ==========================  ==================================
-``log_buffer``       ``self._log_buffer``        ``getattr(self, "_log_buffer", None)``
-``version_id``       ``self.selected_server_version``  ``getattr(self, "selected_server_version", "") or ""``
-``server_log_lines`` ``self._server_log_lines``  ``getattr(self, "_server_log_lines", [])``
+``log_buffer``       当前日志缓冲                ``None``
+``version_id``       服务器版本 ID               ``""``
+``server_log_lines`` 服务器日志行                ``[]``
 ===================  ==========================  ==================================
-
-取值与原来的 ``hasattr(self, "_log_buffer") and self._log_buffer`` 判定等价
-（属性缺失 → ``None`` → 假值）。
 
 **网络调用可注入替换**：``analyze_crash`` / ``analyze_server_crash`` 接受
 ``transport`` 参数，签名 ``(url, data, headers, timeout) -> dict``；默认走
 ``_http_post_json()`` 的真实 urllib 实现。单测注入假实现即可完全离线，
 也能断言真实发出的 URL / 请求体 / 请求头 / 超时。
 
-失败表达：AI 请求失败时抛 ``NetworkError``，其 ``message`` 与旧实现显示给用户的
-``_err_msg`` **逐字一致**（``HTTP {code}: {body[:200]}`` 或 ``str(e)``）；
-旧实现是在 worker 线程内 ``except`` 掉再回调弹窗，现在由 UI 侧捕获同一个字符串。
+失败表达：AI 请求失败时抛 ``NetworkError``，其 ``message`` 与显示给用户的
+``_err_msg`` 一致（``HTTP {code}: {body[:200]}`` 或 ``str(e)``）；
+界面捕获同一个字符串。
 """
 
 import os
@@ -163,8 +147,8 @@ CRASH_TYPES = [
 def read_file_tail(filepath: str, lines: int = 200) -> str:
     """读取文件最后 lines 行。
 
-    阶段 1.23 修正（既有缺陷）：原实现在三个编码上都用 ``errors="ignore"``，
-    而 ``errors="ignore"`` 意味着 ``UnicodeDecodeError`` **永远不会抛出** ——
+    三个编码上都用 ``errors="ignore"`` 时，``UnicodeDecodeError``
+    **永远不会抛出** ——
     于是 gbk/latin-1 两级回退是**不可达的死代码**，GBK 编码的日志会被当作
     utf-8 逐字节丢弃（中文全部消失）后送给 AI 分析。
 
@@ -993,13 +977,12 @@ def analyze_server_crash(context: str, exit_code: int, token: str, *, transport:
 class CrashService(Service):
     """崩溃诊断与 AI 分析服务（``name = "crash"``）。
 
-    每个方法都是上文模块级函数的薄转发。之所以保留实例方法这一层：界面侧统一写
-    ``self._crash_service().diagnose_crash(...)``，阶段 2 接上 ``AppContext`` 后
-    只要把实例换成注册表里的那一个，调用点不用动。
+    每个方法都是上文模块级函数的薄转发。保留实例方法这一层：界面侧统一写
+    ``self._crash_service().diagnose_crash(...)``，换成注册表里的实例时调用点不用动。
 
-    本服务**不需要** ``AppContext``：``CrashService()`` 可以独立实例化并直接使用
-    （阶段 1 的 Tk 界面就是这么取的），也不访问 ``self.ui`` / ``self.tasks`` /
-    ``self.config`` —— 需要弹窗或后台线程时由调用方负责。
+    本服务**不需要** ``AppContext``：``CrashService()`` 可以独立实例化并直接使用，
+    也不访问 ``self.ui`` / ``self.tasks`` / ``self.config`` ——
+    需要弹窗或后台线程时由调用方负责。
 
     Args:
         context: 可选 ``AppContext``。

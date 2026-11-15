@@ -1,4 +1,4 @@
-// MusicPage.qml —— 音乐（阶段 3.16：播放核心与本地音乐）。
+// MusicPage.qml —— 音乐。
 //
 // 五条路由共用本页：music（发现首页）/ music/playlist（歌单管理）/ music/local（本地）/
 // music/online（在线搜索）/ 播放队列（页签内切换）。默认页与 FMP 一样是发现页。
@@ -30,7 +30,7 @@ Item {
     readonly property var account: (page.live && Music.ready) ? Music.account : null
     readonly property bool expanded: page.live && Music.expanded
     readonly property bool failed: page.live && !page.ready && String(Music.errorText || "").length > 0
-    //: `FmPage` 同名的三态入口：强制切三态供冒烟/人工验收；正常时由后端状态派生。
+    //: `FmPage` 同名的三态入口：强制切三态供冒烟走查；正常时由后端状态派生。
     property string contentState: "ready"
     readonly property string effectiveState: page.contentState !== "ready"
                                                  ? page.contentState

@@ -1,4 +1,4 @@
-// PasswordDialog.qml —— 密码输入对话框（阶段 3 任务 3.5，对照表 M-29 的密码框）。
+// PasswordDialog.qml —— 密码输入对话框。
 //
 // ## 为什么不用 `components/dialogs/TextInputDialog.qml`
 //
@@ -10,14 +10,14 @@
 //
 // ## 与旧实现的关系
 //
-// 旧界面用 `CTkInputDialog`（`account_manager.py:526-557`）：
+// 两种用法：
 //   * 导入：一次密码；
-//   * 导出：先设密码、再输一遍核对，**不一致就 `showwarning` 并整段放弃**。
+//   * 导出：先设密码、再输一遍核对，**不一致就报错**。
 //
-// 本件的语义与之一致，只有两处形态差异（记在对照表 M-29 备注）：
-//   1. **掩码**：旧 `CTkInputDialog` 是明文，这里 `password: true`（M-Q6 的既有裁决）；
+// 两处形态约定：
+//   1. **掩码**：`password: true`，输入内容不回显；
 //   2. **不返回空串**：用户点「取消」或直接关掉时发 `cancelled()`，由调用方决定
-//      "什么都不做"（旧实现是 `get_input()` 返回空 → `return`），语义等价。
+//      "什么都不做"。
 
 import QtQuick
 import QtQuick.Layouts

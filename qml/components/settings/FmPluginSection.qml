@@ -1,4 +1,4 @@
-// FmPluginSection.qml —— 设置 → 插件分区的概况页（阶段 3 任务 3.27，M-23）。
+// FmPluginSection.qml —— 设置 → 插件分区的概况页。
 //
 // 旧实现是 Tk 设置窗的「插件」标签页（ui/windows/launcher_settings.py:2095-2178）：
 // 标题 + 说明 + 「打开插件管理」+ 概况摘要（已启用/总数）+ 三条使用提示 +

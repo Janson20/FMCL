@@ -1,4 +1,4 @@
-// ResourcesPage.qml —— 「我的资源」页（阶段 3 任务 3.6，对照表 L-55）。
+// ResourcesPage.qml —— 「我的资源」页。
 //
 // 旧实现：`ui/windows/resource_manager.py`（Tk 独立窗口 760x600）。业务早就在
 // `services/resource_service.py`，本轮的**会话状态**（当前标签页 / 扫描缓存 / 页码 /

@@ -1,10 +1,9 @@
-// LogView.qml —— 通用日志面板 / 控制台组件（阶段 2 任务 2.18；对照表 A-13 的
-// "实时捕获 + 清空"，以及 02 第 4.4 节服务器控制台 / 第 3.10 节控制台的同一条需求）。
+// LogView.qml —— 通用日志面板 / 控制台组件（"实时捕获 + 清空"，服务器控制台与
+// 启动器日志面板共用同一份实现）。
 //
 // ## 为什么是 ListView + ListModel，而不是一个不断增长的 Text
 //
-// 旧实现用的是 `ctk.CTkTextbox`（一个 Tk 文本控件）+ 每次追加都整体裁剪，
-// 阶段 1.22（D-86）踩到的正是"四个日志框只 append 从不删除"。
+// 用 Tk 文本控件逐次追加并整体裁剪的做法，踩到的正是"四个日志框只 append 从不删除"。
 // QML 侧若写成 `Text { text: text + line + "\n" }`，问题会更严重：字符串每追加一行
 // 都要整份重新分配，而且**文本框会重新排版全文** —— 安装/下载/服务器控制台这类
 // 每秒上千行的场景下，界面会直接卡死。
@@ -311,7 +310,7 @@ Item {
                     font.bold: true
                 }
 
-                // 搜索框：返工 C 组换成自研件（闸门 R9 禁原生控件 —— 原生输入框在 Basic
+                // 搜索框用自研件（R9 禁原生控件 —— 原生输入框在 Basic
                 // 样式下是浅色的，锁深色的界面里必然突兀）。`search` 是既有 i18n 键，
                 // 不新造前缀；`onTextChanged` 能直接用，因为 FmSearchField 的根节点就是
                 // TextField（`text` / `placeholderText` / 自带信号都转发得到）。
@@ -391,7 +390,7 @@ Item {
                 // 等宽字体 + 定高行：追加时不重新排版（这是"每秒上千行"能跑住的关键）
                 spacing: 0
                 boundsBehavior: Flickable.StopAtBounds
-                // 返工 C 组：原来的 `ScrollBar {}`（原生 Basic 样式 = 浅色亮条）换成自研件。
+                // 用自研件换掉原生 `ScrollBar {}`（Basic 样式 = 浅色亮条）。
                 // 附着属性名 `ScrollBar.vertical` 来自 Qt，改不了；换的是"值"这个实例。
                 ScrollBar.vertical: FmScrollBar {}
 

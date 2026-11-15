@@ -1,4 +1,4 @@
-// FmPluginCard.qml —— 插件管理器里的单张插件卡片（阶段 3 任务 3.27，M-30）。
+// FmPluginCard.qml —— 插件管理器里的单张插件卡片。
 //
 // 字段全部来自 Plugins 桥的 plugins 列表（item 是普通 JS 对象）：
 //   id / name / version / author / description（多语言字典）/ state / error /

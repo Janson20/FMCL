@@ -1,4 +1,4 @@
-"""账号桥 —— QML 侧的 `Accounts` 上下文属性（阶段 3 任务 3.5，对照表 M-13 / M-26 ~ M-29）。
+"""账号桥 —— QML 侧的 `Accounts` 上下文属性。
 
 ## 它在链路的哪一环
 
@@ -45,17 +45,15 @@
                      → submitExportPath(path)     → exported(path) → 结果框（可「打开目录」）
 
 密码**只留在桥的 Python 属性里**（QML 只回传明文，不自己存），拿到就用、出错就报。
-导出的两步核对与旧实现 `account_manager.py:547-560` 一一对应：同样的两次问答、同样的
-`account_export_password_mismatch` 文案；差别只在"不一致时退回首步重输"而不是整段放弃。
+导出是**两步核对**：同样两次问答、同样的 `account_export_password_mismatch` 文案；
+"不一致时退回首步重输"，而不是整段放弃。
 
-## 与旧实现的差异（详见对照表 M-13 / M-26 ~ M-29 与 `16` §十九）
+## 关键行为
 
-* **取消**：旧窗口登录期间只把三个按钮置灰、最长干等 180 秒，没有取消按钮；
-  新界面给 `cancel()`（本轮用户裁决"真取消"，核心层加了协作式取消口）。
-* **导出成功**多一颗「打开所在目录」（用户 2026-10-06 裁决）。
-* **密码框**全部走掩码（`TextInputDialog` 的 `password=true`，M-Q6 的既有裁决）。
-* **两次密码不一致**：旧实现是"弹警告 + 整段放弃"，新实现是"旧文案就地显示 + 退回第 1 步重输"
-  （判定与文案逐字相同，只有"要不要从头再来"这一处不同）。
+* **可取消**：登录期间给 `cancel()`（核心层有协作式取消口），不再只能干等。
+* **导出成功**多一颗「打开所在目录」。
+* **密码框**全部走掩码（`TextInputDialog` 的 `password=true`）。
+* **两次密码不一致**：文案就地显示 + 退回第 1 步重输，而不是整段放弃。
 """
 
 from __future__ import annotations
@@ -407,8 +405,8 @@ class AccountsBridge(QObject):
         服务层的进度记录里，`message` 是**已经成句的中文**（核心层那批，原样透出），
         而 `message_key` 是**界面要翻译的 i18n 键**（登录刚开始时那句占位）。
         两者在这里合并成同一个 `message` 字段给 QML —— 页面只显示、不判断
-        （2026-10-06 用户验收报的"`account_ms_verifying` 直接显示了出来"，
-        根因就是当时两边共用 `message` 字段、页面把键名当文案印了）。
+        （两者共用 `message` 字段时，页面会把 `account_ms_verifying` 这样的键名
+        当文案直接印出来）。
         """
         data = dict(record)
         key = str(data.get("message_key", "") or "")
@@ -426,8 +424,7 @@ class AccountsBridge(QObject):
             self._status(_("logging_in") + " " + str(record.get("name", "")), "success")
             self._refresh_home()
             return
-        # 失败：旧实现是 `messagebox.showwarning(_("warning"), _("account_login_failed", type=…))`
-        # —— 一个**看得见、不会自己消失**的提示；本轮照做，并补上真实原因（用户 2026-10-06 反馈）。
+        # 失败要**看得见、不会自己消失**，并带上真实原因。
         self._fail(record)
 
     def _report_refresh_all(self, record: Dict[str, Any]) -> None:
@@ -517,7 +514,7 @@ class AccountsBridge(QObject):
         if str(kind) == "offline":
             name = str(data.get("name", "")).strip()
             if self._service.has_duplicate_name(name, "offline"):
-                # 用户裁决：重名只提醒不拦截（旧实现连提醒都没有）
+                # 重名只提醒不拦截
                 self._notify(_("account_name_duplicate", name=name), "warning")
         self._busy = True
         self.busyChanged.emit()

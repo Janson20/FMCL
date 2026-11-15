@@ -1,4 +1,4 @@
-// FmMusicTrackRow.qml —— 所有歌曲列表共用的曲目行（阶段 3.18 统一）。
+// FmMusicTrackRow.qml —— 所有歌曲列表共用的曲目行。
 //
 // 什么时候用它：发现页短列表、本地曲库、歌单曲目、播放队列、在线搜索结果。
 // 什么时候不要用：歌单/专辑卡片（FmMusicPlaylistCard）、非曲目实体。
@@ -50,7 +50,7 @@ Rectangle {
 
     // 这些信号必须带上当前行的 index：FmMusicTrackList 的 delegate 把 index
     // 当作“第几首”转给页面。只发无参信号时，QML 会把 undefined 转成 0，
-    // 结果就是“点哪首都是第一首”（3.19 验收反馈修复）。
+    // 结果就是“点哪首都是第一首”。
     signal activated(int index)
     signal addRequested(int index)
     signal removeRequested(int index)

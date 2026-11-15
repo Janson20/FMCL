@@ -1,4 +1,4 @@
-# qml/components —— 通用组件库白名单（阶段 2 任务 2.16 / 2.17）
+# qml/components —— 通用组件库白名单
 
 > 这份文件就是闸门 **R5** 的白名单数据源（`scripts/check_qml_rules.py` 的
 > `load_component_whitelist()`）：`qml/pages/**` 里用了自研组件而名字不在本文件里，
@@ -20,11 +20,11 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
   需要行内代码样式时用**双反引号**（示例列就是这么写的）。
 - 组件名一律 Fm 前缀 + 大驼峰，一个组件一个文件（文件名 = 组件名 = 白名单里的名字）。
 
-## 二、页面能用的 26 个组件（阶段 3 只允许用这些）
+## 二、页面能用的 26 个组件
 
 | 组件 | 用途（什么时候用 / 什么时候不要用） | 关键属性 | 最小示例 |
 |------|--------------------------------------|----------|----------|
-| `FmPage` | **每个页面的根节点**（返工 C 组新增）：路由帧五件套、页头（图标 + 标题 + 描述）、内容区三态（ready / loading / empty / error）。顶层页面一律用它；对话框与浮层不要用（那是第三节的件） | `routeId` `routeTitleKey` `routeDescriptionKey` `routeIcon` `routeParams` `title` `description` `iconName` `contentState` `loadingText` `emptyText` `errorText` `emptyActionText` `emptyActionPrimary` `retryText` `demoControlsVisible` `retried()` `emptyActionTriggered()` | ``FmPage { objectName: "versionsPage"; contentState: page.loadState; FmTable { anchors.fill: parent } }`` |
+| `FmPage` | **每个页面的根节点**：路由帧五件套、页头（图标 + 标题 + 描述）、内容区三态（ready / loading / empty / error）。顶层页面一律用它；对话框与浮层不要用（那是第三节的件） | `routeId` `routeTitleKey` `routeDescriptionKey` `routeIcon` `routeParams` `title` `description` `iconName` `contentState` `loadingText` `emptyText` `errorText` `emptyActionText` `emptyActionPrimary` `retryText` `demoControlsVisible` `retried()` `emptyActionTriggered()` | ``FmPage { objectName: "versionsPage"; contentState: page.loadState; FmTable { anchors.fill: parent } }`` |
 | `FmButton` | 任何"点一下发生一件事"的动作；一个界面最多一个主按钮。不要用于导航项、纯图标命中区、整行点击 | `text` `primary` `danger` `loading` `iconName` `iconOnly` `enabled` `clicked()` | ``FmButton { text: Tr?.map["confirm"] ?? "confirm"; onClicked: save() }`` |
 | `FmTextField` | 表单里的单行输入（版本名、玩家名、路径）。不要用于搜索、多行、只读展示 | `text` `label` `placeholder` `errorText` `password` `readOnly` `accepted()` `edited(v)` | ``FmTextField { label: "ID"; errorText: page.idError; text: page.versionId }`` |
 | `FmTextArea` | 需要换行的输入（公告、备注、启动参数、提示词）。不要用于单行、只读长文、日志 | `text` `label` `placeholder` `errorText` `lines` `readOnly` `edited(v)` | ``FmTextArea { lines: 6; text: page.jvmArgs }`` |
@@ -46,16 +46,16 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `FmLoadingState` | 整块内容区正在等数据。不要用于可量化进度、局部小块、空、错 | `title` `description` `iconName` `spinning` | ``FmLoadingState { title: Tr?.map["plugin_state_loading"] ?? "loading" }`` |
 | `FmErrorState` | 取数据失败（网络、磁盘、服务异常）。不要用于字段校验、一次性提示、加载中 | `title` `description` `detailText` `retryText` `iconName` `retried()` | ``FmErrorState { description: page.errorText; detailText: page.errorDetail; retryText: "retry"; onRetried: page.reload() }`` |
 | `FmTable` | 多列、需要对照阅读的结构化数据。不要用于一两列的行、卡片内容、行内编辑 | `columns`（`[{key,title,width,align}]`） `rows` `emptyText` `clickable` `rowActivated(i,row)` | ``FmTable { columns: page.cols; rows: page.rows; emptyText: "no rows" }`` |
-| `FmScrollView` | **整块内容比可视区高**时的滚动容器（组件画廊、启动期的协议/公告长文、阶段 3 的长表单与详情面板）。不要用于列表数据（原生列表视图自己滚，外面再套一层会两条滚动条打架）、多行输入（`FmTextArea` 自己滚）、本来就装得下的内容 | `verticalBarEnabled` `horizontalBarEnabled` `verticalBarAlwaysVisible` `horizontalBarAlwaysVisible` `barThickness` | ``FmScrollView { anchors.fill: parent; ColumnLayout { … } }`` |
+| `FmScrollView` | **整块内容比可视区高**时的滚动容器（组件画廊、启动期的协议/公告长文、长表单与详情面板）。不要用于列表数据（原生列表视图自己滚，外面再套一层会两条滚动条打架）、多行输入（`FmTextArea` 自己滚）、本来就装得下的内容 | `verticalBarEnabled` `horizontalBarEnabled` `verticalBarAlwaysVisible` `horizontalBarAlwaysVisible` `barThickness` | ``FmScrollView { anchors.fill: parent; ColumnLayout { … } }`` |
 | `FmScrollBar` | 给**自己就会滚**的容器贴一条跟随主题的滚动条（List View / Grid View / Flickable 的 `ScrollBar.vertical`）。`FmScrollView` 内部用的就是它。不要给不滚动的容器贴条（永远不出现的滚动条只会让人以为能滚） | `thickness` `alwaysVisible` `policy`（原生） `engaged` | ``ListView { ScrollBar.vertical: FmScrollBar {} }`` |
 | `FmIcon` | 界面上的一切图标（唯一的上色入口）。不要用于 FluentUI 控件内部图标、多色插画 | `name` `color` `size` `fallbackUsed` | ``FmIcon { name: "check"; color: Theme?.success ?? "transparent"; size: Theme?.iconSize ?? 0 }`` |
 | `FmTabBar` | **同一屏内切换"看哪一组数据"**且各组数量不多（4±2 个）——资源管理页的「模组 / 资源包 / 地图 / 光影」就是它的场景。不要用于：只有一个选项（写个标题就行）、条目多到要滚动（那是 `shell/Navigation.qml`）、表单里的互斥选项（`FmRadio` / `FmComboBox`）、可关闭的多文档页签（本件没有关闭语义） | `items`（`[{key,labelKey,label}]`） `currentKey` `tabRequested(key)` | ``FmTabBar { items: page.tabs; currentKey: page.tab; onTabRequested: page.go(key) }`` |
 | `FmDropZone` | **接受从文件管理器拖进来的文件**、且"拖进来"是这一块的主要交互——资源管理页的「把 .jar / .zip 拖到这里」，它同时也是空态。不要用于：只是想让某个列表"顺便"支持拖放（用裸 DropArea 铺在列表上）、界面**内部**的拖拽（列表项排序之类，那不是文件拖放） | `text` `iconName` `active` `dropped(urls)` | ``FmDropZone { text: page.hint; onDropped: page.take(urls) }`` |
 | `FmToolButton` | **纯图标**的方形命中区（顶栏的返回/通知/账号、行尾的复制/删除）。不要用于有文字的按钮（`FmButton`）、导航项、整行点击（`FmListItem`） | `iconName` `iconColor` `hoverIconColor` `iconSize` `selected` `side` `badgeText` `enabled` `clicked()` | ``FmToolButton { iconName: "notify"; selected: page.unread > 0; badgeText: page.unread > 0 ? String(page.unread) : "" }`` |
 
-## 三、宿主与对话框组件（2.13 / 2.15 落地，页面一般不直接用，但一样登记）
+## 三、宿主与对话框组件（页面一般不直接用，但一样登记）
 
-它们在 `qml/components/` 下、也确实是自研件；登记是为了让阶段 3 的页面
+它们在 `qml/components/` 下、也确实是自研件；登记是为了让页面
 （例如"设置 → 日志/关于"里放一个对话框宿主预览）不会撞上 R5 的误报。
 
 | 组件 | 用途 | 关键属性 |
@@ -64,26 +64,26 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `ToastHost` | 右下角 Toast 队列（`App.qml` 里挂一层；业务侧用 Dialogs.notify() 触发） | `itemHeight` `itemWidth` `itemGap` `itemMargin` `fadeInDuration` |
 | `MessageDialog` | info / warning / error 三合一提示框 | `request` `level` `accept()` `cancel()` |
 | `ConfirmDialog` | 确认框（确定 -> true，取消 -> false）；页面内使用时可选遮罩与单按钮 | `request` `defaultIsConfirm` `cancelVisible` `modalScrim` `accept()` `cancel()` `activateDefault()` |
-| `ModReviewDialog` | 待确认模组的逐项选择框（阶段 3.12）：每项一个 `FmCheckBox`，「禁用 (N) / 模组管理 / 关闭」；`disableRequested(names)` 交给 `ServerMods.disableMods`。页面内浮层用 `Loader.active` 控制存在性 | `rows` `checked` `revision` `titleText` `hintText` `disableText` `manageText` `closeText` `disableRequested(names)` `manageRequested()` `cancelled()` |
-| `ServerExitDialog` | 服务器退出质量确认 + AI 分析（L-34；3.12 反馈从控制台页移到壳层）：任意页面都能弹，`是` / `否（AI 分析日志）`、分析中 / 结果 / 失败同卡切换；由 `App.qml` 直接驱动，不走 DialogHost 队列 | `serverId` `exitInfo` `analyzing` `resultText` `errorText` `promptError` `closeRequested()` `analyzeRequested()` |
+| `ModReviewDialog` | 待确认模组的逐项选择框：每项一个 `FmCheckBox`，「禁用 (N) / 模组管理 / 关闭」；`disableRequested(names)` 交给 `ServerMods.disableMods`。页面内浮层用 `Loader.active` 控制存在性 | `rows` `checked` `revision` `titleText` `hintText` `disableText` `manageText` `closeText` `disableRequested(names)` `manageRequested()` `cancelled()` |
+| `ServerExitDialog` | 服务器退出质量确认 + AI 分析（从控制台页移到壳层）：任意页面都能弹，`是` / `否（AI 分析日志）`、分析中 / 结果 / 失败同卡切换；由 `App.qml` 直接驱动，不走 DialogHost 队列 | `serverId` `exitInfo` `analyzing` `resultText` `errorText` `promptError` `closeRequested()` `analyzeRequested()` |
 | `TextInputDialog` | 单行文本输入框（`ask_text`；页面内直接实例化时打开 `modalScrim`） | `request` `fieldText` `modalScrim` `accept()` `cancel()` `submitted(value)` `cancelled()` |
 | `ChoiceDialog` | 选项框（选项即按钮，点了立即作答） | `request` `options` `primaryIndex` `select(value)` |
 | `ProgressDialog` | 进度面板（确定进度 / 不确定转圈 / 可取消） | `request` `report` `cancellable` `requestCancel()` |
-| `LogView` | 通用日志面板 / 控制台（任务 2.18，`qml/pages/dev/LogDemo.qml` 是它的自查页）：ListModel + 列表视图虚拟化、按块裁剪（内存硬上限 `maxLines + trimChunk`）、用户上滚后不再抢滚动位置；日志内容由调用方喂进来，组件不读文件、不碰服务 | `maxLines` `trimChunk` `lineCount` `autoScroll` `searchText` `title` `emptyText` `showToolbar` `append(line,level)` `appendLines(list)` `clear()` `copyAll()` `cleared()` `copied(n)` |
+| `LogView` | 通用日志面板 / 控制台（`qml/pages/dev/LogDemo.qml` 是它的自查页）：ListModel + 列表视图虚拟化、按块裁剪（内存硬上限 `maxLines + trimChunk`）、用户上滚后不再抢滚动位置；日志内容由调用方喂进来，组件不读文件、不碰服务 | `maxLines` `trimChunk` `lineCount` `autoScroll` `searchText` `title` `emptyText` `showToolbar` `append(line,level)` `appendLines(list)` `clear()` `copyAll()` `cleared()` `copied(n)` |
 
-### 3.2 页面内联的表单对话框（阶段 3 任务 3.5 新增的三个件）
+### 3.2 页面内联的表单对话框（三个件）
 
 `DialogHost.qml` 那套是**桥的对话框队列**的视图：请求来自对话框桥，答案按请求 id
 回填。有些场景是页面**自己发起**的问答（账号页的"填密码 → 选文件 → 导出"就是一条三步链），
 没有桥那边的 id —— 这类用下面三个件，答案走各自的信号就地回到调用方（同 `ConfirmDialog`
-在 3.4 为"QML 自己发起的确认"加的 `answered(bool)` 口子）。
+为"QML 自己发起的确认"加的 `answered(bool)` 口子）。
 
 | 组件 | 用途 | 关键属性 |
 |------|------|----------|
 | `AddAccountDialog` | 添加账号表单（微软说明+按钮 / 离线角色名 / 外置三格）；校验只做"空则报错"，业务校验在服务层 | `kind` `errorText` `hintText` `reset()` `submitted(payload)` `cancelled()` |
 | `PasswordDialog` | 密码输入（可选"再输一次"核对）；`password: true` 走掩码 | `title` `prompt` `confirmPrompt` `needConfirm` `value` `reset()` `submitted(value)` `cancelled()` |
 | `ExportResultDialog` | 导出结果（成功文案 + 文件路径 + 「打开目录」） | `exportPath` `closed()` `openFolderRequested()` |
-| `ResourceUpdateDialog` | 模组更新选择（阶段 3.6）：一行一个模组（复选框 + 名字 + `v旧 -> v新`）+ 底部「取消 / 全部更新 / 更新选中」。**不分页**（旧 Tk 实现分页是性能妥协，QML 的列表视图会虚拟化）。只做显示与勾选，勾选状态留在自己这儿；点按钮只发信号，不碰服务 | `rows` `checked` `titleText` `headerText` `hintText` `cancelText` `allText` `selectedText` `syncChecked()` `checkedIds()` `allIds()` `cancelled()` `selected(modids)` `allRequested()` |
+| `ResourceUpdateDialog` | 模组更新选择：一行一个模组（复选框 + 名字 + `v旧 -> v新`）+ 底部「取消 / 全部更新 / 更新选中」。**不分页**（分页是历史性能妥协，QML 的列表视图会虚拟化）。只做显示与勾选，勾选状态留在自己这儿；点按钮只发信号，不碰服务 | `rows` `checked` `titleText` `headerText` `hintText` `cancelText` `allText` `selectedText` `syncChecked()` `checkedIds()` `allIds()` `cancelled()` `selected(modids)` `allRequested()` |
 
 > 三个件都是"页内浮层"（普通 Item + 遮罩，没有独立窗口），所以**必须用 `Loader.active`
 > 控制存在性**而不是 `visible` —— 留着的不可见实例会继续吃键盘焦点。
@@ -93,7 +93,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 ## 四、新增一个组件要走完的四步
 
 1. **加文件**：`qml/components/FmXxx.qml`。文件头必须写两段注释：**什么时候用它**、
-   **什么时候不要用**（阶段 3 的人靠这个决定用哪个件）；根节点必须有稳定的 `objectName`
+   **什么时候不要用**（靠这个决定用哪个件）；根节点必须有稳定的 `objectName`
    （Gallery 与冒烟测试按它找件，例如 `fmXxx`）。
 2. **守纪律**：颜色只来自 `Theme.*`（闸门 R8 拦十六进制字面量）、文案由调用方给或
    来自 `Tr.map[...]`（闸门 R3/R4）、图标走 `FmIcon`（闸门 R2 禁 emoji）、
@@ -105,7 +105,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
    `python -m pytest tests/test_components_qml.py -q`（它会实例化**每一个** `Fm*.qml`
    并断言 Gallery 里也有对应实例）。
 
-> 阶段 3 的纪律（`03` 的 3.0 SOP 第 3 条）：页面上出现"一次性控件"时**不是**往页面里
+> 纪律：页面上出现"一次性控件"时**不是**往页面里
 > 就地写，而是回到本文件按上面四步补一个通用件 —— 组件清单是锁定的，越用越少而不是越多。
 
 ## 五、四条纪律（页面作者最常踩的）
@@ -128,10 +128,10 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
    （闸门 **R9** 静态拦）。这条的由来不是洁癖：本项目跑的是 QtQuick Controls 的 **Basic**
    样式（main_qml.py 的 create_application() 设的 QT_QUICK_CONTROLS_STYLE），原生控件的
    底色/文字色来自**系统调色板** —— 锁深色的界面里必然是浅色的外来件，而且不跟随
-   Theme.*（与 D-102 同一类问题；返工 C 组之前 StartupDialogs / LogDemo /
+   Theme.*（StartupDialogs / LogDemo /
    TextInputDialog / ProgressDialog 里就有这样的件）。
 
-   **这句话现在是量过的，不再是论述**（返工 D 组补的像素级证据）：同一块深色底上，
+   **这句话是量过的，不是论述**（像素级证据）：同一块深色底上，
    原生 Button 刷出 **1 片浅色成片**（`#e0e0e0`，270 个 4x4 块，填充率 0.87，
    浅色像素占 5.143%），自研 `FmButton` 是 **0 片 / 0.000%**；
    12 个一级页 + 5 个预设主题 + 画廊两帧的**成片数全是 0**。
@@ -156,12 +156,12 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
      它们的颜色来自 FluTheme 的 17 个键，与我们的 12 键 + 15 个派生令牌是两套来源，
      混用会出现"同一个界面两种灰"（`FmToolButton.qml` 头部记的顾虑就是这个）；要拦下来
      得先与壳层必需的 FluWindow / FluAppBar / FluTheme 划清界限，已登记为
-     阶段 3 的候选 **R10**。
+     候选 **R10**。
 
-> `FmTabBar` / `FmDropZone` 是阶段 3 任务 3.6 新增的两个通用件（登记见上表）；
-> `ResourceUpdateDialog` 是同一任务新增的第三个页内浮层（登记见 3.2 节）。
+> `FmTabBar` / `FmDropZone` 是两个通用件（登记见上表）；
+> `ResourceUpdateDialog` 是第三个页内浮层（登记见 3.2 节）。
 
-## 六、音乐播放器组件（阶段 3.16~3.17）
+## 六、音乐播放器组件
 
 这些件放在 `qml/components/music/`，只被音乐页组合使用；仍按通用件登记，
 页面才能通过 R5。它们不读服务、不解析歌词，数据一律由 ``Music.player`` /
@@ -190,7 +190,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | `FmMusicFooterBar` | 主窗口底部音乐控制条：歌名-歌手（40 字截断）、上一首/播放/下一首 | `player` |
 | `FmMusicRiskDialog` | B站风控验证提示：浏览器滑块期间的说明与取消 | `cancelRequested()` |
 
-## 七、成就页组件（阶段 3.21）
+## 七、成就页组件
 
 这些件放在 `qml/components/achievements/`，只被成就四条路由组合使用；仍按通用件
 登记，页面才能通过 R5。它们不读服务，数据一律由 Achievements 桥传入。
@@ -204,7 +204,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 > 阶段名由"成就名 + 罗马数字"生成，不显示定义表里的中文 `stage_names`：那会让
 > en_US / ja_JP 出现硬编码中文。解锁 Toast 的图标同样由桥按成就 id 换成单色 SVG。
 
-## 八、设置页组件（阶段 3.21）
+## 八、设置页组件
 
 | 组件 | 用途 | 关键属性 |
 |------|------|----------|
@@ -213,7 +213,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 > 登录是**即时动作**，不属于设置草稿；因此本区块不受底部「保存/取消」影响。
 
 
-## 九、AGENT 对话组件（阶段 3.22）
+## 九、AGENT 对话组件
 
 这些件放在 `qml/components/agent/`，只被 Agent 页组合使用。它们不直接读服务：
 消息、工具卡、待办全部由 Agent 桥传入，确认对话框只发 `answered`。
@@ -238,7 +238,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 > `Theme.*`，代码/参数的等宽字体是本件唯一的字体族声明。
 
 
-## 十、插件页组件（阶段 3.27）
+## 十、插件页组件
 
 设置 → 插件分区、插件管理器、插件市场三处共用的件；数据全部来自 Plugins 桥，
 组件自己不碰服务、不弹窗（权限确认与卸载确认由页面编排）。

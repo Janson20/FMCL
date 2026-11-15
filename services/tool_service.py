@@ -1,7 +1,4 @@
-"""工具箱业务服务（阶段 1 任务 1.6 抽取）。
-
-从 ``ui/app_tools.py`` （``ToolsTabMixin``，2172 行 / 57 个方法）**逐字搬运**而来，
-承载 8 个工具的全部算法与 IO：
+"""工具箱业务服务，承载 8 个工具的全部算法与 IO：
 
 ======================  ==========================================================
 工具                     本模块提供的入口
@@ -45,53 +42,14 @@ customtkinter / 任何 ``ui.*`` 模块，不弹窗、不碰控件、不读控件
 =
 
 i18n：本模块通过 ``services.i18n_service._`` 取词（与 ``ui.i18n._`` 是**同一个函数
-对象**，见 ``ui/i18n.py`` 的转发 shim），因此界面文案与搬运前逐字一致。
+对象**），因此界面文案一致。
 
-----
+## 行为约定与已知边界
 
-「必要改动」清单（除下列各点外，函数体逐字搬自 ``ui/app_tools.py``）：
-
-1. ``self._is_protected_system_dir(...)`` → 模块级 ``is_protected_system_dir(...)``
-   （原为 Mixin 方法，搬运后不再是方法）。
-2. ``socket.socket(...)`` → ``factory(...)``；``sock.settimeout(5)`` → ``sock.settimeout(timeout)``
-   （默认值仍是 5，等价）。
-3. ``requests.head/get`` → ``http.head/get``（``http`` 默认就是 ``requests`` 模块）。
-4. ``self._dl_cancel_flag`` → ``is_cancelled()``（默认 ``lambda: False``，
-   而原实现里 ``_dl_cancel_flag`` 从未被置 True —— 见下方"记录现状"）。
-5. 进度回调 ``self.after(0, _update)`` 改为 ``emit(downloaded, total_size, speed)``：
-   原实现在 ``after`` 里读闭包变量（可能在主线程执行时已经不是当次的值），
-   现在把当次的值作为参数传出，数值来源更明确，界面可见效果一致。
-6. ``raise ValueError(...)`` → ``raise InvalidArgument(...)``，**message 文本逐字不变**，
-   因此调用方 ``str(e)`` / ``e.message`` 拿到的字符串与搬运前完全一致
-   （界面侧本来就是 ``str(e)`` 填进 ``tool_quiz_*_error`` 的）。
-7. 日志器由 ``logzero.logger`` 改为 ``logging.getLogger("services.tool_service")``
-   （与其它服务一致）；**日志文本逐字不变**。
-8. ``_format_size`` 改为转调 ``services.monitor_service._format_bytes``（返工 E 组
-   D-27）：两边原来是一份**逐字同构**的副本（同阶梯、同精度），合并成一份实现后
-   返回值、精度、边界行为逐字不变，调用点也不用动
-   （``ui/app_tools.py`` 的 ``_format_size = _tool_svc._format_size`` 拿到的仍是同一个对象）。
-9. 进度回调不再被"时钟刻度"挡住（缺陷 **D-154**，阶段 3 首轮）：原实现把 ``emit`` 写在
-   ``if elapsed > 0:``（``time.time()`` 的差值）**里面**，那层本意只是给"算速率"的除法防零，
-   副作用却是**一个时钟刻度内跑完的下载一次回调都不发**（Windows 上 ``time.time()`` 步长约
-   0.5 ms，内存/局域网的小文件很容易撞上）——界面进度条全程不动，而文件其实已经下好了。
-   现在只把"算速率"留在判断里（没跨过刻度给 ``0.0``），``emit`` **每块都发**。
-   这是本文件里**第一处故意与搬运前不一致的行为**；3.20 又补了跨进程续传与暂停
-   （见第 10 条）。其余各点保持逐字等价；D-154 的实证与钉子见
-   ``poc/_probe_tool_progress_tick.py`` 与
-   ``tests/test_tool_service.py::test_download_multi_reports_progress_even_without_a_clock_tick``。
-10. 3.20 下载器：新增 ``<dest>.fmcl-resume.json`` 元数据、按分片实际大小续传、
-    ``pause_check``（保留分片）与 ``cancel_check``（清理分片）两套语义；线程异常
-    不再被吞掉，合并前校验分片与最终长度。旧 ``ui/app_tools.py`` 的 Tk 界面仍只
-    调用旧参数，行为不变；QML 工具箱通过 ``ToolsSession`` 启用新能力。
-
-----
-
-「记录现状、疑为缺陷」（**未修**，按"只搬家不改逻辑"要求原样保留）：
-
-- ``_dl_cancel_flag`` 在整个 ``ui/app_tools.py`` 里只被赋值为 ``False``，没有任何地方
-  置 ``True`` —— **旧 Tk 界面**的取消机制不可达；3.20 的 QML 工具箱已经用
-  ``ToolsSession`` / ``ToolsBridge`` 接上真正的暂停与取消。
-  :func:`download_multi` 把旧机制参数化为 ``cancel_check``，并新增 ``pause_check``。
+- :func:`download_multi` 每块都发进度回调（"算速率"之外没有额外门槛）；支持
+  ``<dest>.fmcl-resume.json`` 元数据、按分片实际大小续传、``pause_check``（保留分片）
+  与 ``cancel_check``（清理分片）两套语义；线程异常向上抛，合并前校验分片与最终长度。
+  旧 Tk 界面只调用旧参数，行为不变；QML 工具箱通过 ``ToolsSession`` 启用新能力。
 - ``save_quiz_questions`` 把 ``path.parent.mkdir(...)`` 放在 ``try`` **之外**：
   建目录失败会直接抛出，而写文件失败只记日志、静默返回。
   日志文本硬编码为 "保存 quiz.json 失败"，即使实际路径不是 quiz.json。
@@ -99,11 +57,8 @@ i18n：本模块通过 ``services.i18n_service._`` 取词（与 ``ui.i18n._`` �
   填空题判分用 ``answer.strip().lower() == correct.strip().lower()``
   （**大小写不敏感**）—— 两处判分口径不一致，见
   :func:`check_choice_answer` / :func:`check_text_answer`。
-- ``_on_quiz_next`` 里 ``self._quiz_current_index = len(...) - 1`` 之后的
-  ``if self._quiz_current_index < 0`` 是**死分支**（前面已 ``return`` 掉空列表的情况）。
-  该分支留在界面侧，逐字保留。
 - ``ToolsTabMixin._PORT_PRESETS`` 在本仓库中**没有任何引用**（死代码），
-  未搬运，原样留在 ``ui/app_tools.py``。
+  未搬运，留在 ``ui/app_tools.py``。
 """
 
 import base64
@@ -138,14 +93,10 @@ logger = logging.getLogger(__name__)
 
 
 def _format_size(bytes_count: int) -> str:
-    """把字节数格式化成可读字符串（D-27：与监控侧共用**同一份实现**）。
+    """把字节数格式化成可读字符串（与监控侧共用**同一份实现**）。
 
-    这里原本是 ``services/monitor_service._format_bytes`` 的**逐字副本**（同样的
-    1024 阶梯、同样的 ``.1f`` KB/MB 与 ``.2f`` GB 精度），阶段 2 返工 E 组按
-    "同一件事只有一份实现"合并成转调。返回值逐字不变 ——
-    ``tests/test_tool_service.py`` 的 9 个边界值（含 ``-1`` / ``1023`` /
-    ``1024**3 - 1``）与 ``ui/app_tools.py`` 的 ``_format_size = _tool_svc._format_size``
-    别名都原样通过。
+    按 1024 阶梯：KB/MB 保留 1 位小数，GB 保留 2 位；返回值与
+    ``services/monitor_service._format_bytes`` 完全一致。
 
     这里的**延迟导入**是有意的，不是漏写：``monitor_service`` 在导入期会去探测
     psutil / pynvml / keyboard / gpu-detector 这几个"随时可能缺席"的可选依赖，
@@ -1485,13 +1436,12 @@ def download_multi(
 class ToolService(Service):
     """工具箱服务（``name = "tool"``）。
 
-    每个方法都是上文模块级函数的薄转发。之所以保留实例方法这一层：界面侧统一写
-    ``self._tool_service().scan_junk_files(...)``，阶段 2 接上 ``AppContext`` 后
-    只要把实例换成注册表里的那一个，调用点不用动。
+    每个方法都是上文模块级函数的薄转发。保留实例方法这一层：界面侧统一写
+    ``self._tool_service().scan_junk_files(...)``，换成注册表里的实例时调用点不用动。
 
-    本服务**不需要** ``AppContext``：``ToolService()`` 可以独立实例化并直接使用
-    （阶段 1 的 Tk 界面就是这么取的），也不访问 ``self.ui`` / ``self.tasks`` /
-    ``self.config`` —— 需要弹窗、确认框或后台线程时由调用方负责。
+    本服务**不需要** ``AppContext``：``ToolService()`` 可以独立实例化并直接使用，
+    也不访问 ``self.ui`` / ``self.tasks`` / ``self.config`` ——
+    需要弹窗、确认框或后台线程时由调用方负责。
 
     Args:
         context: 可选 ``AppContext``。

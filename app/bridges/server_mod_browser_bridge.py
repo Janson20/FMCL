@@ -1,4 +1,4 @@
-"""服务端模组在线浏览桥 —— QML 侧的 `ServerModBrowser`（阶段 3 任务 3.12 / L-51）。
+"""服务端模组在线浏览桥 —— QML 侧的 `ServerModBrowser`。
 
 链路：
 

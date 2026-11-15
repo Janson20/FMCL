@@ -1,4 +1,4 @@
-// FmMusicPlaylistPicker.qml —— 「加入歌单」选择层（阶段 3.17，3.18 补齐勾选与新建）。
+// FmMusicPlaylistPicker.qml —— 「加入歌单」选择层。
 //
 // 什么时候用它：把一首在线/本地曲目加入自建歌单。
 // 什么时候不要用：歌单本身的增删改（那是 FmMusicLibraryView 的左侧栏）。

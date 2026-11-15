@@ -1,7 +1,6 @@
-"""服务器配置编辑器服务（阶段 3 任务 3.11）。
+"""服务器配置编辑器服务。
 
-本模块承接旧 ui/windows/server_config_editor.py 的全部业务规则，但不再碰
-Tk / QML 控件：
+业务规则全在本模块，不碰 Tk / QML 控件：
 
 - 读取 server.properties、eula.txt、.fmcl_server.json（每服内存）
 - 分类 / 搜索 / 六种控件的数据快照（52 条：49 条 properties + 内存/EULA/目录）

@@ -42,12 +42,12 @@ _ui_port: UIPort = NullUIPort()
 
 
 def set_ui_port(port: UIPort) -> None:
-    """注入 UI 能力端口（由 main.py 在 TkUIPort 启动后调用）。"""
+    """注入 UI 能力端口（由启动装配在界面就绪后调用）。"""
     global _ui_port
     _ui_port = port if port is not None else NullUIPort()
 
 
-# ─── 协作式取消（阶段 3 任务 3.5 新增，**可选**）──────────────
+# ─── 协作式取消（可选）────────────────────────────────────
 #
 # 背景：微软浏览器登录与设备码登录都是"等用户 + 轮询"的长流程（前者最长
 # `OAUTH_TIMEOUT_SECONDS`，后者最长设备码有效期 900 秒）。QML 界面要能在页面上
@@ -257,7 +257,7 @@ class MicrosoftLoginManager:
         #: 最后一次失败的原因（中文，给界面显示）。
         #: 失败路径原先只 `logger.error(…)`，界面拿不到任何东西，只能显示一句
         #: "登录失败，请重试" —— 而"DNS 解析不了 xsts.auth.xboxlive.com"这类
-        #: 与账号自身无关的失败，用户根本看不出该做什么（阶段 3.5 验收反馈）。
+        #: 与账号自身无关的失败，用户无法从账号状态判断原因。
         #: 每次登录/刷新开始时清空，任何一条失败分支都会写它。
         self.last_error: str = ""
 
@@ -315,7 +315,7 @@ class MicrosoftLoginManager:
             return None
         except Exception as e:
             #: 这条分支最常见的是网络/DNS 失败（`getaddrinfo failed`）—— 与账号本身无关，
-            #: 界面必须把原文给出来，否则用户会以为"账号坏了"（2026-10-06 验收反馈）。
+            #: 界面必须把原文给出来，否则用户会误以为账号本身有问题。
             self._fail(f"认证失败: {e}")
             if status_callback:
                 status_callback(self.last_error)
@@ -354,9 +354,9 @@ class MicrosoftLoginManager:
         """浏览器 OAuth 登录（PKCE + localhost 回调）。取消时返回 None。
 
         Args:
-            status_callback: 逐句状态回调（**硬编码中文**，原样保留；见 `docs/refactor/16` §17.3）。
-            cancel_event: 可选协作式取消事件（阶段 3.5 新增）。置位后：不再等回调、
-                立刻关掉本地 HTTP 服务并返回 None。`None` = 行为与旧实现逐字一致。
+            status_callback: 逐句状态回调（**硬编码中文**，原样保留）。
+            cancel_event: 可选协作式取消事件。置位后不再等回调，立刻关闭本地 HTTP
+                服务并返回 None。`None` = 不启用取消。
         """
         import minecraft_launcher_lib.microsoft_account as microsoft
 
@@ -402,7 +402,7 @@ class MicrosoftLoginManager:
         timeout = OAUTH_TIMEOUT_SECONDS
         start_time = time.time()
 
-        # 等待回调（阶段 3.5：切成 0.1 秒一格的分段等待，总时长仍是 `timeout`）。
+        # 等待回调（按 0.1 秒分段，总时长仍是 `timeout`）。
         # 取消时 `while` 条件为假 → 直接往下走到收尾段，关服务、返回 None。
         cancelled = False
         while server.auth_code is None and (time.time() - start_time) < timeout:
@@ -503,9 +503,8 @@ class MicrosoftLoginManager:
     ) -> Optional[Account]:
         """设备码登录（微软 /devicelogin 页面）。
 
-        阶段 3.5 **不改脚本界面**（用户裁决：微软登录照旧走浏览器 OAuth），但把这个方法
-        也接上同一套协作式取消 —— 它是"暴露在外的能力"，将来（`docs/refactor/03` 的 E-05
-        基岩版微软绑定）会用到，接口两侧保持一致才不会有第二个取消语义。
+        设备码登录也接入同一套协作式取消，与浏览器 OAuth 保持一致的取消语义；
+        基岩版微软绑定等调用方可以直接复用。
         """
         DEVICE_CODE_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode"
         TOKEN_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"

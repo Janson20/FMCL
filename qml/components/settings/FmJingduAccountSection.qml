@@ -1,4 +1,4 @@
-// FmJingduAccountSection.qml —— 设置里的净读账号登录（阶段 3.21）。
+// FmJingduAccountSection.qml —— 设置里的净读账号登录。
 //
 // 什么时候用它：设置 settings/ai 分区，负责净读 AI 账号的登录、退出与用户信息。
 // 什么时候不要用：Minecraft 账号管理（settings/account）、网易云音乐账号（settings/music）。

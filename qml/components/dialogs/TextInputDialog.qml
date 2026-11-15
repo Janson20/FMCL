@@ -168,7 +168,7 @@ Item {
                 wrapMode: Text.WordWrap
             }
 
-            // 返工 C 组：原生 TextField 换成 FmTextField（闸门 R9）。密码态用它自己的
+            // 原生 TextField 换成 FmTextField（R9）。密码态用它自己的
             // `password` 属性表达（内部就是 TextInput.Password），页面上不再直接引用
             // QtQuick.Controls 的枚举；`id` 与 `objectName` 保持不变（本文件别处与
             // `tests/test_dialogs_qml.py` 都按 `inputField` / `field.text` 取值）。

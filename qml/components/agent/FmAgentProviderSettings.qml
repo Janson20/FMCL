@@ -1,4 +1,4 @@
-// FmAgentProviderSettings.qml —— AI 提供商 / 模型 / 思考（阶段 3.23）。
+// FmAgentProviderSettings.qml —— AI 提供商 / 模型 / 思考。
 import QtQuick
 import QtQuick.Layouts
 import ".."

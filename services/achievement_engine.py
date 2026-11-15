@@ -81,7 +81,7 @@ class AchievementEngine:
                 self._unlock_callbacks.append(callback)
 
     def unregister_unlock_callback(self, callback: Callable[[AchievementDef, int, str], None]):
-        """注销解锁回调（阶段 3.21）。
+        """注销解锁回调。
 
         QML 桥在退出链里必须摘掉自己：引擎是进程级单例，QObject 却会先销毁；
         不摘的话下一次 ``update_progress`` 会往已析构的桥发信号。
@@ -304,15 +304,15 @@ class AchievementEngine:
                 conn.close()
 
     def get_checkin_streak(self) -> int:
-        """获取当前连续签到天数（阶段 3 任务 3.1 新增的只读接口）。
+        """获取当前连续签到天数（只读接口）。
 
         为什么需要它：``checkin()`` 的返回值是 ``update_progress("advanced_checkin", …)``
         的产物，里面**没有** ``streak`` 字段（它只有 ``progress_current`` /
-        ``progress_stage`` 之类的成就条目字段）。旧入口却按
-        ``result.get("streak", 0)`` 取值 —— 于是"签到成功! 连续 N 天"
-        这句提示**永远不会显示**（对照表 F-09 的"连续天数提示"是死代码）。
+        ``progress_stage`` 之类的成就条目字段）。按
+        ``result.get("streak", 0)`` 取值的话，"签到成功! 连续 N 天"
+        这句提示**永远不会显示**。
 
-        正本清源的做法不是猜 ``checkin()`` 的返回值，而是**把真正的事实读回来**：
+        正确做法不是猜 ``checkin()`` 的返回值，而是**把真正的事实读回来**：
         ``checkin()`` 写的就是 ``achievement_state.checkin_streak`` 这一行。
 
         Returns:

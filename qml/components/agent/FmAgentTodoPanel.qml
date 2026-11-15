@@ -1,4 +1,4 @@
-// FmAgentTodoPanel.qml —— 对话的待办面板（阶段 3 任务 3.22）。
+// FmAgentTodoPanel.qml —— 对话的待办面板。
 //
 // 数据来自 todo_write 工具写到 data/agent/todos/<session>.json 的列表；
 // 桥在工具结果后刷新，页面只负责显示。没有待办时显示空态，不隐藏整块面板

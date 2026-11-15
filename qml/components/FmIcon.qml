@@ -1,4 +1,4 @@
-// FmIcon.qml —— 主题上色图标（阶段 2 任务 2.16；把 2.10 的"上色只能在 Python 侧做"落地）。
+// FmIcon.qml —— 主题上色图标。
 //
 // 什么时候用它：界面上的一切图标。图标资源是 `qml/assets/icons/*.svg`（一个语义一个文件）。
 // 什么时候不要用：FluentUI 控件**内部**自带的图标（那是第三方控件的实现部分，跟着控件走）；
@@ -45,7 +45,7 @@ Item {
         anchors.fill: parent
         // 注意：这一行**故意**把 URL 拼在表达式里，而不是写成 `name.length > 0 ? providerUrl : ""`。
         //
-        // 返工 C 组实测（`poc/_probe_fmicon_empty_request.py` 的最小复现）：`name` 从空串
+        // 最小复现过：`name` 从空串
         // 变成 "home" 时，"读一个**自身也依赖 name 的派生属性**"这种写法会让 Qt 先拿
         // **上一次的缓存值**求值一次 —— 于是先发出一条 `image://fmcl-icon/?color=…`
         // （名字为空）的取图请求，提供者回一条"图标名不合法"，`QQuickImage` 再刷一条

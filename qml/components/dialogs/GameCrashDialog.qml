@@ -1,4 +1,4 @@
-// GameCrashDialog.qml —— 游戏客户端崩溃提示 + AI 分析弹窗（阶段 3.10 补充）。
+// GameCrashDialog.qml —— 游戏客户端崩溃提示 + AI 分析弹窗。
 //
 // 与 2.13 的 DialogHost 不同：这个弹窗由**壳层**直接驱动（App.qml 接
 // Home.crashDialogRequested），因为它必须覆盖整个窗口，而不是某个页面的内容区。

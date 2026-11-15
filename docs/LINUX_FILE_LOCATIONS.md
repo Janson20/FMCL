@@ -47,8 +47,8 @@ FMCL 会在首次启动时自动创建所有必要的目录，无需手动干预
 
 ```bash
 # 只需确保系统依赖已安装
-sudo apt install python3-tk python3-venv  # Debian/Ubuntu
-sudo dnf install python3-tkinter          # Fedora
+sudo apt install python3 python3-venv libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0  # Debian/Ubuntu
+sudo dnf install python3 python3-devel mesa-libGL libxkbcommon xcb-util-cursor         # Fedora
 ```
 
 ## 🎯 设计理由

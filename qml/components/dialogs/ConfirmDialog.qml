@@ -24,19 +24,19 @@ Item {
     objectName: "confirmDialog"
 
     property var request: ({})
-    //: 是否显示「取消」（默认 true）。阶段 3.11 的校验错误提示只需要一个「确定」。
+    //: 是否显示「取消」（默认 true）。校验错误提示只需要一个「确定」。
     property bool cancelVisible: true
     //: 是否铺一层遮罩并吞掉卡片外的点击（默认 false：对话框宿主自己已有遮罩）。
-    //: 阶段 3.11 的页面内确认框打开它，避免底部动作条仍可点。
+    //: 页面内确认框打开它，避免底部动作条仍可点。
     property bool modalScrim: false
-    //: 按钮文案覆盖（阶段 3.12）：空串 = 沿用通用的“确定 / 取消”。
+    //: 按钮文案覆盖：空串 = 沿用通用的“确定 / 取消”。
     //: 只改文案，不改按钮顺序与返回值语义。
     property string confirmText: ""
     property string cancelText: ""
 
     readonly property bool defaultIsConfirm: !!(request && request.default === true)
 
-    //: 本组件自己的作答信号（阶段 3 任务 3.4 新增）。
+    //: 本组件自己的作答信号。
     //: 为什么需要它：`DialogHost` 现在也支持**QML 自己发起**的确认框（设置页的
     //: "有未保存改动"提示走的就是这条路）。那类请求没有桥那边的 id，
     //: 答案只能靠信号回到发起方；有 id 的请求照旧走 `Dialogs.submitDialog(…)`。

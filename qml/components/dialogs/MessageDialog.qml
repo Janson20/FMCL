@@ -1,4 +1,4 @@
-// MessageDialog.qml —— info / warning / error 三合一（阶段的"提示框"）。
+// MessageDialog.qml —— info / warning / error 三合一。
 //
 // 契约（app/bridges/dialog_host.py 顶部表）：
 //   payload = {title, message, level, blocking, fallback}

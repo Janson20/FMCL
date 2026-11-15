@@ -1,4 +1,4 @@
-// FmAgentMessage.qml —— 一条用户/助手消息（阶段 3 任务 3.22）。
+// FmAgentMessage.qml —— 一条用户/助手消息。
 //
 // 工具调用不是这个组件：role === "tool" 由 FmAgentToolCard 画。这里只负责
 // 用户气泡、助手 Markdown、思考块折叠、复制/重发动作。

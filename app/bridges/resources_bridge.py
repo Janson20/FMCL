@@ -1,4 +1,4 @@
-"""资源桥 —— QML 侧的 `Resources` 上下文属性（阶段 3 任务 3.6，对照表 L-55）。
+"""资源桥 —— QML 侧的 `Resources` 上下文属性。
 
 ## 它在链路的哪一环
 
@@ -12,13 +12,12 @@
 
 桥只做三件事：**把会话的属性念给 QML 听**、**把 QML 的动作转成会话调用**、
 **把后台任务的进度回调变成 Qt 信号**。"mtime 缓存能不能复用""目录不存在算不算空态"
-"页码越界怎么钳"一条都不在这里判（迁移红线 2）。
+"页码越界怎么钳"一条都不在这里判。
 
 ## 版本选择器（本页在两个入口之间共用）
 
-旧实现只有 `versions/<id>/mods` 一个入口（从版本页的齿轮进来），窗口自带 `version_id`。
-新界面的左侧一级导航 `resources/mods` **没有版本上下文**，所以页面顶部放一个版本
-选择器（2026-10-06 用户裁决）。本桥的 `activate(routeVersion)` 负责"路由给的版本优先、
+左侧一级导航 `resources/mods` **没有版本上下文**，所以页面顶部放一个版本
+选择器。本桥的 `activate(routeVersion)` 负责"路由给的版本优先、
 否则最近使用版本、否则第一个已安装版本"（判定在
 `services/resource_session.py::resolve_version_id`）：
 
@@ -31,30 +30,27 @@
 模组元数据提取、更新检查、批量更新都走 `ResourceService.tasks.submit`，任务的
 `on_progress` / `on_done` / `on_error` **在工作线程上**被回调，所以它们**只排队 +
 emit `posted`**（`_deliver` 住在主线程，跨线程 emit 是队列投递）。这与
-`AccountsBridge.progressPosted` 是同一套手法 —— 契约第六节决策 10 禁止
-`QMetaObject.invokeMethod`（var 签名不匹配会静默失败），见闸门 R7。
+`AccountsBridge.progressPosted` 是同一套手法 —— `QMetaObject.invokeMethod` 不能用
+（var 签名不匹配会静默失败），见 R7 规则。
 
-## 与旧实现的差异（详见对照表 L-55 与 `16` §二十二）
+## 关键行为
 
-* **启用/禁用文案统一**：旧窗口模组卡片用 `resource_enable` / `resource_disable`，
-  普通资源行用 `rm_enable` / `rm_disable`（同义两套键）。新界面统一走后者
-  （用户 2026-10-06 裁决），对照表记「行为变更」。
-* **导出模组列表照旧只写剪贴板**（不落盘）：这是对照表 L-Q7 的既有待裁决项，
-  本轮**不擅自改**，行为与旧实现逐字一致。
-* **拖拽安装**保留（旧实现同时注册了"空态放置区"与"列表"两处 `<<Drop>>`）。
-* **页缓存去掉**：旧实现的 `_page_cache` 缓存的是 CTk 控件对象；QML 的 ListView
-  自己复用委托，没有对应物可缓存（见 `resource_session.py` 头部对照表）。
+* **启用/禁用文案统一**：模组卡片与普通资源行统一走 `rm_enable` / `rm_disable`
+  （同义的两套键只保留一套）。
+* **导出模组列表只写剪贴板**（不落盘）。
+* **拖拽安装**保留：空态放置区与列表两处都注册 `<<Drop>>`。
+* **不做页缓存**：QML 的 ListView 自己复用委托，没有对应物可缓存
+  （见 `resource_session.py` 头部说明）。
 
-## 2026-10-07 用户验收反馈改的三处（`16` §二十三）
+## 版本与页签
 
-1. **版本不再在 `bind()` 期就自动定成"列表第一个"**：`bind()` 早于 `routeParams`
-   赋值，于是从版本页齿轮进来时桥已经"选好了版本"，`activate(路由版本)` 里那句
-   "和当前一样就跳过"永远命中 —— **路由版本被忽略，从哪个版本进来都是同一个**。
-   现在版本一律由 `activate()` 定（路由参数 → 最近使用 → 第一个已安装）。
-2. **选择器多了「全局 .minecraft」这一项**（`versionId == ""`）：没版本上下文时
-   读 `.minecraft/<folder>`（旧窗口从原版版本进来看到的就是它），而不是报
-   "未指定游戏版本"。
-3. **页签按模组加载器过滤**：原版版本只给「资源包 / 地图」（用户裁决，行为变更）。
+1. **版本只在 `activate()` 里定**（路由参数 → 最近使用 → 第一个已安装）。
+   `bind()` 早于 `routeParams` 赋值，不要在那里提前把版本定成"列表第一个"：
+   `activate(路由版本)` 里"和当前一样就跳过"会命中，路由版本被忽略，
+   从哪个版本进来都是同一个。
+2. **选择器有「全局 .minecraft」这一项**（`versionId == ""`）：没版本上下文时
+   读 `.minecraft/<folder>`，而不是报"未指定游戏版本"。
+3. **页签按模组加载器过滤**：原版版本只给「资源包 / 地图」。
 """
 
 from __future__ import annotations
@@ -206,17 +202,16 @@ class ResourcesBridge(QObject):
             logger.error("创建资源会话失败: %s", e)
             self._session = None
             return
-        #: **刻意不在这里定版本**（2026-10-07 用户验收反馈的根因就在这里）：
-        #: `bind()` 跑在 `PageStack.pushFrame()` 之前，那时 `routeParams` 还没赋值，
-        #: 于是这里只能"猜"一个默认版本；等页面 `Component.onCompleted` 调
-        #: `activate(路由版本)` 时，桥已经认定"版本选好了"，那句"和当前一样就跳过"
-        #: 永远命中 → **从哪个版本进来都看第一个版本**。
-        #: 现在只把版本列表准备好，真正的版本由 `activate()` 一次定死。
+        #: **刻意不在这里定版本**：`bind()` 跑在 `PageStack.pushFrame()` 之前，
+        #: 那时 `routeParams` 还没赋值，这里只能"猜"一个默认版本；等页面
+        #: `Component.onCompleted` 调 `activate(路由版本)` 时，桥已经认定"版本选好了"，
+        #: 那句"和当前一样就跳过"永远命中 → **从哪个版本进来都看第一个版本**。
+        #: 这里只把版本列表准备好，真正的版本由 `activate()` 一次定死。
         self._refresh_version_choices()
 
     @staticmethod
     def _tasks_of(context: Any) -> Any:
-        """取任务调度器（任务 3.6）。
+        """取任务调度器。
 
         为什么要**容错**地取：`AppContext.tasks` 是普通属性，但测试与诊断用的上下文
         替身不一定有它；真跑起来时缺调度器的后果是"模组元数据 / 更新检查 / 批量更新
@@ -283,8 +278,7 @@ class ResourcesBridge(QObject):
         """版本选择器的选项：`[{"text": 显示名, "value": id}, …]`（`FmComboBox` 的 model）。
 
         **第一项永远是「全局 .minecraft」**（`value` 为空串）：它的含义是"四个资源目录
-        都取 `.minecraft/<folder>`"，也就是旧窗口从原版版本进来时看到的那一个
-        （用户 2026-10-07 裁决）。
+        都取 `.minecraft/<folder>`"，也就是原版版本对应的那一份。
         """
         rows = [{"text": _("resource_scope_global"), "value": ""}]
         rows.extend({"text": vid, "value": vid} for vid in self._version_ids)
@@ -311,7 +305,7 @@ class ResourcesBridge(QObject):
 
     @Property("QVariantList", notify=itemsChanged)
     def allowedTabs(self) -> List[str]:  # noqa: N802
-        """这一屏允许显示的页签键（原版版本没有"模组/光影" —— 用户 2026-10-07 裁决）。"""
+        """这一屏允许显示的页签键（原版版本没有"模组/光影"）。"""
         if self._session is None:
             return list(TAB_KEYS)
         try:
@@ -352,7 +346,7 @@ class ResourcesBridge(QObject):
 
         **必须由桥给**：标签页的键（`resourcepacks` / `shaderpacks`）不是图标名，
         页头把它们直接塞给 `FmIcon` 会找不到 svg 并刷 `Failed to get image from
-        provider` 警告（阶段 3.6 探针实测）。
+        provider` 警告。
         """
         return TAB_ICONS.get(self._tab, "mods")
 
@@ -399,9 +393,9 @@ class ResourcesBridge(QObject):
     def noVersion(self) -> bool:  # noqa: N802
         """**一个版本都没装、也没在看全局目录** —— 只有这种情况下空态才该说"先装一个版本"。
 
-        为什么要单列一条：空态标题原先写死成"还没有已安装的版本"，可"文件夹不存在"
-        （用户截图里状态栏那句话）与"文件夹是空的"也是空态，于是**标题和真实原因对不上**
-        （2026-10-07 用户第二次反馈）。真正的判据是"有没有版本可选"：
+        为什么要单列一条：空态标题若写死成"还没有已安装的版本"，而"文件夹不存在"
+        与"文件夹是空的"也是空态，**标题就和真实原因对不上**。
+        真正的判据是"有没有版本可选"：
         `_version_ids` 为空 = 选择器里只有「全局 .minecraft」那一项。
         """
         return not self._version_ids and not self._version
@@ -448,7 +442,7 @@ class ResourcesBridge(QObject):
 
     @Property(str, constant=True)
     def titleKey(self) -> str:  # noqa: N802
-        """页面标题键（旧 `rm_title` 带 `{version}`，版本由页面拼）。"""
+        """页面标题键（`rm_title` 带 `{version}`，版本由页面拼）。"""
         return "rm_title"
 
     @Property(str, constant=True)
@@ -469,7 +463,7 @@ class ResourcesBridge(QObject):
 
     @Property(str, constant=True)
     def enableKey(self) -> str:  # noqa: N802
-        """启用/禁用文案（**统一走 `rm_*`**，见模块文档"与旧实现的差异"）。"""
+        """启用/禁用文案（**统一走 `rm_*`**，见模块文档"关键行为"）。"""
         return "rm_enable"
 
     @Property(str, constant=True)
@@ -513,16 +507,15 @@ class ResourcesBridge(QObject):
     def noVersionKey(self) -> str:  # noqa: N802
         """**一个版本都没装**时的空态文案。
 
-        2026-10-07 用户反馈后改：原先复用 `mod_browser_need_version_install`
-        （「未指定游戏版本，无法安装。请在已安装版本中打开资源浏览后安装。」）——
-        那是给**安装流程**用的话，摆在"我的资源"里既不准确也吓人（用户截图里的就是
-        它）。现在是一句"还没有已安装的版本，先装一个再回来管理"。
+        不要复用 `mod_browser_need_version_install`（「未指定游戏版本，无法安装。
+        请在已安装版本中打开资源浏览后安装。」）—— 那是给**安装流程**用的话，
+        摆在"我的资源"里既不准确也吓人。这里用"还没有已安装的版本，先装一个再回来管理"。
         """
         return "resource_no_version_hint"
 
     @Property(str, notify=itemsChanged)
     def fileFilter(self) -> str:  # noqa: N802
-        """当前标签页的文件对话框过滤器（旧 `_select_file_install` 那两行）。
+        """当前标签页的文件对话框过滤器。
 
         形如 `"JAR 文件 (*.jar *.jar.disabled);;所有文件 (*.*)"`（i18n 后的类型名）。
         """
@@ -546,7 +539,7 @@ class ResourcesBridge(QObject):
     def activate(self, routeVersion: str) -> None:  # noqa: N802 - QML 槽名
         """页面出现时调它：`routeVersion` 来自路由参数（一级导航进来时是空串）。
 
-        **本方法是"这一屏看哪个版本"的唯一权威**（2026-10-07 用户验收反馈后改）：
+        **本方法是"这一屏看哪个版本"的唯一权威**：
 
         * `bind()` 期**不**定版本（那时 `routeParams` 还没赋值，只能猜 —— 一猜就
           把路由版本盖掉了，症状是"从哪个版本进来都看第一个"）；
@@ -584,12 +577,10 @@ class ResourcesBridge(QObject):
 
     @Slot(str)
     def setTab(self, tab: str) -> None:  # noqa: N802
-        """换标签页：清搜索、重置页码、重扫（旧 `_switch_tab`）。
+        """换标签页：清搜索、重置页码、重扫。
 
-        **没有"相同页签就早退"这条捷径**：页签相同也意味着"重新点了一次这一栏"，
-        旧实现同样会重扫（`_switch_tab` 无条件走到 `_refresh_current_list`）。
-        早退还会让"先清搜索、再重扫"的顺序失效（阶段 3.6 单测抓到过：
-        重复点当前页签时搜索框没被清掉）。
+        **没有"相同页签就早退"这条捷径**：页签相同也意味着"重新点了一次这一栏"。
+        早退还会让"先清搜索、再重扫"的顺序失效（重复点当前页签时搜索框没被清掉）。
         """
         if self._session is None:
             return
@@ -662,7 +653,7 @@ class ResourcesBridge(QObject):
 
     @Slot(str)
     def confirmDelete(self, path: str) -> None:  # noqa: N802
-        """确认删除（旧 `_delete_resource` 的 yes 分支）。"""
+        """确认删除。"""
         if self._session is None:
             return
         name = ""
@@ -687,9 +678,9 @@ class ResourcesBridge(QObject):
 
     @Slot("QVariantList")
     def submitFiles(self, paths: Any) -> None:  # noqa: N802
-        """选好文件之后的安装（旧 `_select_file_install` 的循环体）。
+        """选好文件之后的安装。
 
-        计数与三条结果文案与旧实现一一对应：`rm_install_count`（成功 N 个）/
+        计数与三条结果文案：`rm_install_count`（成功 N 个）/
         `rm_no_resources_installed`（一个都没装）/ 逐个失败时 `_report_install_result`
         那四条（已存在 / 地图已存在 / 不支持 / 安装失败）。
         """
@@ -716,16 +707,16 @@ class ResourcesBridge(QObject):
             self._notify(_("notify_resource_done"), "success")
             self._reload(force=False)
         else:
-            #: 旧实现在这里报 `rm_no_resources_installed`（**不判"认不认得"**）
+            #: 这里报 `rm_no_resources_installed`（**不判"认不认得"**）
             self._set_status("rm_no_resources_installed", {})
 
     @Slot("QVariantList")
     def dropFiles(self, paths: Any) -> None:  # noqa: N802
         """拖拽放下（`DropArea.onDropped` 调它）。**只收认得的类型**。
 
-        与文件对话框的差别照抄旧实现：拖拽先过一道 `accept_drop_entry`
-        （扩展名 / 目录判定），不认的直接跳过；一个都没装时报 `rm_no_valid_files`
-        （旧 `_on_drop` 的 else 分支），而不是 `rm_no_resources_installed`。
+        与文件对话框的差别：拖拽先过一道 `accept_drop_entry`
+        （扩展名 / 目录判定），不认的直接跳过；一个都没装时报 `rm_no_valid_files`，
+        而不是 `rm_no_resources_installed`。
         """
         if self._session is None:
             return
@@ -753,7 +744,7 @@ class ResourcesBridge(QObject):
             self._set_status("rm_no_valid_files" if accepted == 0 else "rm_no_resources_installed", {})
 
     def _accepted_for_drop(self, path: str) -> bool:
-        """这一条能不能按当前标签页装（旧 `_on_drop` 里那道判定）。
+        """这一条能不能按当前标签页装。
 
         判定函数本身在服务层（`accept_drop_entry`）；它抛异常时按"不认"处理 ——
         拖进来一个坏路径不该让整个放下动作中断。
@@ -766,7 +757,7 @@ class ResourcesBridge(QObject):
 
     @Slot()
     def openFolder(self) -> None:  # noqa: N802
-        """在系统文件管理器里打开当前标签页的资源目录（旧 `_open_folder`）。"""
+        """在系统文件管理器里打开当前标签页的资源目录。"""
         if self._session is None:
             return
         try:
@@ -781,7 +772,7 @@ class ResourcesBridge(QObject):
         为什么在 Python 侧做而不是让 QML 切字符串：QML 的 `String(url)` 给出
         `file:///D:/a%20b/c.jar`，而**UNC 路径**（`file://server/share/x.jar`，网络
         共享或部分虚拟盘符）在被"砍掉前两个斜杠"的写法下会丢掉前导 `//`
-        （阶段 3.6 探针实测，见 `docs/refactor/16-phase3-execution-log.md` §二十二）。
+        （UNC 路径在这类"砍斜杠"写法下会丢前导 `//`）。
         `QUrl.toLocalFile()`
         一次处理完协议、百分号解码与 UNC 三种情况，没有自己写正则的必要。
 
@@ -808,8 +799,7 @@ class ResourcesBridge(QObject):
         为什么需要它：文件对话框给的 `selectedFiles` 与 `DropArea` 给的 `drop.urls`
         都是 `url` 列表，而折路径这件事**必须用 `QUrl.toLocalFile()`**（QML 里
         "砍掉 `file://`" 的写法会在 UNC 路径上丢前导 `//`，见 `toLocalPaths`）。
-        折完之后的**后续语义两条路不同**（旧实现就是两条路，只是当年一个来自
-        `filedialog`、一个来自 `event.data`）：
+        折完之后的**后续语义两条路不同**：
 
         * `drop=False`（文件对话框）→ `submitFiles`：不判扩展名（文件类型过滤器已经
           筛过，且地图允许选目录），"一个都没装上"报 `rm_no_resources_installed`；
@@ -828,10 +818,10 @@ class ResourcesBridge(QObject):
 
     @Slot()
     def exportList(self) -> None:  # noqa: N802
-        """导出模组列表 —— **只写剪贴板，不落盘**（旧行为；对照表 L-Q7 的待裁决项）。
+        """导出模组列表 —— **只写剪贴板，不落盘**。
 
-        标题行由界面层用 i18n 拼好（服务层不 import 文案），与旧实现
-        `f"=== {_('mod_export_header', version=…)} ===\\n"` 逐字一致。
+        标题行由界面层用 i18n 拼好（服务层不 import 文案），格式为
+        `f"=== {_('mod_export_header', version=…)} ===\\n"`。
         剪贴板走 `Dialogs.set_clipboard`（已带"非主线程拒绝 + 失败返回 False"），
         本槽由 QML 在主线程调用，所以正常路径一定成功。
         """
@@ -858,10 +848,9 @@ class ResourcesBridge(QObject):
         else:
             #: 剪贴板写不进去（被别的程序占用是常态）。文案复用**已经在用的**
             #: `rm_operation_failed`（"操作失败: {error}"）—— 刻意不新增 i18n 键：
-            #: 上一版这里引用了一个 4 个语言文件里都不存在的 `clipboard_failed`，
-            #: i18n 闸门与分层测试当场判红（阶段 3.6 收尾）。
-            #: 错误详情是一个**技术标识**（不是给人看的句子），与
-            #: `_set_status` 透出核心层中文状态串同属"阶段 4 统一收口"那一批。
+            #: 不要引用语言文件里不存在的键（如 `clipboard_failed`）：i18n 闸门
+            #: 与分层测试会判红。错误详情是一个**技术标识**（不是给人看的句子），
+            #: 与 `_set_status` 透出核心层中文状态串同属待统一收口的一批。
             self._fail("rm_operation_failed", {"error": "clipboard"})
 
     # ─── 槽：更新 ───────────────────────────────────────────
@@ -898,7 +887,7 @@ class ResourcesBridge(QObject):
 
     @Slot("QVariantList")
     def applyUpdates(self, modids: Any) -> None:  # noqa: N802
-        """批量更新选中的模组（旧 `_batch_update_mods`）。"""
+        """批量更新选中的模组。"""
         if self._session is None:
             return
         wanted = [str(m) for m in (modids or [])]
@@ -926,9 +915,9 @@ class ResourcesBridge(QObject):
     def cancel(self) -> None:  # noqa: N802
         """取消正在跑的后台任务（真取消：协作式 `cancel_event`）。
 
-        只取消**可取消的那一类**（模组元数据提取）—— 更新检查/批量更新在旧实现里
-        也没有取消，且半途取消批量更新会留下"旧文件已删、新文件没下"的中间态
-        （服务层 docstring 里记着这条既有缺陷），所以**不提供**那两颗的取消。
+        只取消**可取消的那一类**（模组元数据提取）—— 更新检查 / 批量更新不提供取消：
+        半途取消批量更新会留下"旧文件已删、新文件没下"的中间态
+        （服务层 docstring 里记着这条边界）。
         """
         handle = self._handles.get(TASK_META)
         if handle is None:
@@ -959,9 +948,9 @@ class ResourcesBridge(QObject):
         注意 `TaskHandle.done` / `TaskHandle.cancelled` 是**属性**（`app/tasks.py`），
         写成 `handle.done()` 会抛 `TypeError: 'bool' object is not callable` ——
         而调用点外面就是 `except Exception`（取消失败不许让界面崩），于是取消变成
-        **静默空操作**：事件永远不置位、任务照跑、半份结果照铺（阶段 3.6 单测
-        `test_cancel_stops_the_metadata_task_without_publishing_half_a_list` 抓到过：
-        `assert 4 == 0`）。所以这两条判定收在这两个小工具里，一处写对。
+        **静默空操作**：事件永远不置位、任务照跑、半份结果照铺
+        （`test_cancel_stops_the_metadata_task_without_publishing_half_a_list` 覆盖）。
+        所以这两条判定收在这两个小工具里，一处写对。
         """
         try:
             return bool(handle.done)
@@ -986,8 +975,8 @@ class ResourcesBridge(QObject):
         ``explicit_global=False``（= `activate()`）时空串的含义是"**路由没给版本**"
         （一级导航进来），必须继续走 `resolve_version_id` 的兜底链：最近使用 →
         第一个已安装 → 一个都没装时才是全局目录。**这两条路的空串不是一回事**：
-        曾经把 `activate` 也接到这条短路判断上，症状是"一级导航进来永远看全局目录、
-        `last_launched_version` 再也用不上"（2026-10-07 验收反馈修复后的回归）。
+        别把 `activate` 也接到这条短路判断上：那样一级导航进来会永远看全局目录，
+        `last_launched_version` 再也用不上。
         """
         available = self._session.available_versions()
         self._version_ids = list(available)
@@ -1077,7 +1066,7 @@ class ResourcesBridge(QObject):
 
         这是**例行作废**（马上就有新一轮），所以置 `_suppress_fallback`：那一轮回来时
         不要再退回"只有文件名的目录列表"，否则它会和紧接着的新一轮抢 `loadState`
-        （阶段 3.6 冒烟走查：切到 empty 之后自己跳回 ready）。
+        （表现为切到 empty 之后自己跳回 ready）。
         """
         handle = self._handles.pop(TASK_META, None)
         if handle is None:
@@ -1095,7 +1084,7 @@ class ResourcesBridge(QObject):
         注意**先对齐标签页再装饰条目**：`_decorate` 用 `self._tab` 决定 `isMod` /
         `iconName`，而"换页签"这件事只发生在会话里 —— 不对齐的话 `setTab` 之后
         桥还在按旧页签念属性（`tab` / `isMods` / `tabLabelKey` / `tabs` 全是旧的，
-        行也按旧页签装饰），阶段 3.6 单测抓到过：`assert 'mods' == 'resourcepacks'`。
+        行也按旧页签装饰），单测断言会变成 `'mods' == 'resourcepacks'`。
         """
         if not isinstance(result, dict):
             return
@@ -1132,13 +1121,13 @@ class ResourcesBridge(QObject):
     def _decorate(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """给条目补好**显示用**的字段（QML 里不再拼字符串）。
 
-        `display_name` = 名字 + 旧实现那两个后缀（`rm_disabled_suffix` /
+        `display_name` = 名字 + 两个后缀（`rm_disabled_suffix` /
         `rm_non_standard_map`），`path_key` 是缩略图缓存键，`has_thumbnail` 决定
         列表委托是画预览图还是画兜底图标。
         """
         row = dict(item)
         name = str(row.get("name") or row.get("filename") or "???")
-        #: 两个后缀是**独立**的（旧实现里地图那条是 `if is_dir and not has_level_dat`
+        #: 两个后缀是**独立**的（地图那条是 `if is_dir and not has_level_dat`
         #: 单独加的，不是 `elif`）—— 所以禁用中的非标准地图两个后缀都有
         if row.get("disabled"):
             name += _("rm_disabled_suffix")
@@ -1169,7 +1158,7 @@ class ResourcesBridge(QObject):
         #: 卡片/行左侧的兜底图标（按标签页与状态给一个**存在的**图标名）。
         #: 两个字段是刻意分开的：`icon` 是"要让 QML **画出来的图**"（jar 内图标，
         #: 空串 = 没有），`iconName` 是"没有图时画哪个 `FmIcon`"。合成一个字段会
-        #: 让 QML 分不清该画图还是画图标（探针实测过 `Cannot open: …/resourcepack`）。
+        #: 让 QML 分不清该画图还是画图标（会报 `Cannot open: …/resourcepack`）。
         row["iconName"] = TAB_ICONS.get(self._tab, "file") if row["isMod"] else (
             "folder" if row["isDir"] else "file"
         )
@@ -1186,7 +1175,7 @@ class ResourcesBridge(QObject):
     # ─── 内部：模组元数据 ───────────────────────────────────
 
     def _start_metadata(self) -> None:
-        """起"读模组元数据"任务（旧 `_refresh_mod_list` 的那个线程）。"""
+        """起"读模组元数据"任务。"""
         self._set_busy(True, cancellable=True)
         self._progress = {"message": _("mod_loading_metadata"), "current": 0, "total": 0}
         self.progressChanged.emit()
@@ -1215,7 +1204,7 @@ class ResourcesBridge(QObject):
         （`task_id=` / `name=` / `current=` / `total=` / …）。写成 `(done, total)`
         会被 `TaskRunner._safe_call` 静默吞掉（`TypeError: got an unexpected keyword
         argument 'task_id'`），症状是页面上那条进度条永远停在"正在读取模组信息…"
-        的 0/0 —— 阶段 3.6 单测抓到过（`tests/test_resources_session_bridge.py`）。
+        的 0/0（`tests/test_resources_session_bridge.py` 覆盖）。
         """
         self._post({"kind": "meta_progress", "done": int(current or 0), "total": int(total or 0)})
 
@@ -1237,7 +1226,7 @@ class ResourcesBridge(QObject):
         self.progressChanged.emit()
 
     def _apply_metadata_done(self, record: Dict[str, Any]) -> None:
-        """元数据到手：重算列表 + 触发成就（旧 `_on_mod_metadata_loaded`）。
+        """元数据到手：重算列表 + 触发成就。
 
         **取消**也走这条路（`TaskRunner` 把取消当成一次正常结束），所以这里先看
         句柄状态：取消时**不**把半份结果铺到界面上（用户已经离开这一页或换了页签），
@@ -1255,14 +1244,14 @@ class ResourcesBridge(QObject):
         if cancelled:
             #: 取消之后列表停在"加载中"会卡住页面，所以退回一次**真实重扫**；
             #: 但这一轮**不再重提元数据**（`metadata=False`）：立刻重提等于把
-            #: "取消"变成"重跑"，用户按下的取消按钮就永远停不下来（阶段 3.6
-            #: 单测 `test_cancel_...` 抓到过：取消一轮之后 `modCount` 又是 4）。
+            #: "取消"变成"重跑"，用户按下的取消按钮就永远停不下来
+            #: （`test_cancel_...` 覆盖：取消一轮之后 `modCount` 又是 4）。
             #:
             #: "还要不要重扫"由 `_suppress_fallback` 决定：**我们自己取消**的那一轮
             #: （`cancel_metadata()`，即换页签/换版本/重扫前的例行作废）什么都不做 ——
             #: 紧接着就有一轮新的扫描和新的元数据任务，这里再扫一次纯粹是白干，
-            #: 而且那一轮会把 `loadState` 又推成别的值（冒烟走查里表现为"切到 empty
-            #: 之后自己跳回 ready"，`page.resources.states` 判红）。
+            #: 而且那一轮会把 `loadState` 又推成别的值（表现为"切到 empty
+            #: 之后自己跳回 ready"，页面 states 断言会判红）。
             #: 只有**用户按的取消**（`cancel()`）才退回"只有文件名的目录列表"。
             if not self._suppress_fallback:
                 try:
@@ -1365,10 +1354,10 @@ class ResourcesBridge(QObject):
             self._fail("mod_update_check_failed", {"error": error})
 
     def _collect_updates(self) -> List[Dict[str, Any]]:
-        """把会话的 `{modid: info}` 变成对话框要的列表（排序与旧实现逐字一致）。
+        """把会话的 `{modid: info}` 变成对话框要的列表。
 
-        排序键是 `mod_name`（旧实现 `sorted(..., key=lambda x: x[1].get("mod_name", x[0]))`）。
-        **不给勾选状态**：旧实现的 `BooleanVar(value=True)` 与复选框都建在对话框里，
+        排序键是 `mod_name`（`sorted(..., key=lambda x: x[1].get("mod_name", x[0]))`）。
+        **不给勾选状态**：复选框建在对话框里，
         勾选是对话框自己的状态（`ResourceUpdateDialog.checked`），桥不该替它记一份。
         """
         if self._session is None:
@@ -1434,11 +1423,10 @@ class ResourcesBridge(QObject):
     # ─── 内部：缩略图 ───────────────────────────────────────
 
     def _start_thumbnails(self) -> None:
-        """给本页的资源包 / 光影取预览图（旧 `_refresh_current_list` 后半段）。
+        """给本页的资源包 / 光影取预览图。
 
         去重（`claim_thumbnail`）与代际判定（`thumbnail_is_current`）都在服务层，
-        线程池用 `ResourceService.tasks`（**不再自己起线程**：旧实现自带一个
-        4 线程的 `TaskRunner`，新架构里任务调度器是全局的）。
+        线程池用 `ResourceService.tasks`（**不要自己起线程**：任务调度器是全局的）。
         """
         if self._session is None:
             return
@@ -1478,15 +1466,14 @@ class ResourcesBridge(QObject):
 
         这里**不能**调 `ctx.raise_if_cancelled()`：取消是给"用户主动放弃"用的，
         缩略图在列表刷新换代时只是**过时**，代际判定会丢掉它 —— 而它的结果是
-        可复用的一张图，丢掉太浪费。旧实现同样不取消缩略图。
+        可复用的一张图，丢掉太浪费，所以不取消。
         """
         return self._register_thumbnail(path)
 
     def _register_thumbnail(self, path: str) -> Optional[str]:
         """取图并注册给 QML（返回可直接塞进 `Image.source` 的字符串）。
 
-        **这是本任务唯一一处需要"图片通道"的地方**：服务层的 `load_thumbnail`
-        返回 base64，而 QML 的 `Image` 不认 data URI（实测见 `16` §二十二），
+        服务层的 `load_thumbnail` 返回 base64，而 QML 的 `Image` 不认 data URI，
         所以走 image provider。具体通道由 `_thumbnail_source()` 决定 ——
         它是**唯一**的决策点，换实现只改那一处。
         """
@@ -1519,7 +1506,7 @@ class ResourcesBridge(QObject):
         self._apply_thumbnail(record, ok=False)
 
     def _apply_thumbnail(self, record: Dict[str, Any], *, ok: bool) -> None:
-        """缩略图回家：换代过期的直接丢，否则进缓存（旧 `_apply_thumbnail`，D-92/D-114）。"""
+        """缩略图回家：换代过期的直接丢，否则进缓存。"""
         key = str(record.get("key", ""))
         path = str(record.get("path", ""))
         self._pending_thumbs.pop(key, None)
@@ -1546,7 +1533,7 @@ class ResourcesBridge(QObject):
     # ─── 内部：状态 / 提示 / 投递 ───────────────────────────
 
     def _report_install(self, result: Any) -> bool:
-        """安装结果 → 状态栏文案；返回是否算成功（旧 `_report_install_result`）。"""
+        """安装结果 → 状态栏文案；返回是否算成功。"""
         outcome = str(getattr(result, "outcome", "") or "")
         name = str(getattr(result, "name", "") or "")
         ext = str(getattr(result, "ext", "") or "")
@@ -1575,7 +1562,7 @@ class ResourcesBridge(QObject):
         self.statusMessage.emit(text, "info")
 
     def _fail(self, key: str, params: Optional[Dict[str, Any]] = None) -> None:
-        """失败：状态栏 + Toast 都要有（"失败别静默"是 3.5 的验收反馈）。"""
+        """失败：状态栏 + Toast 都要有（**失败别静默**）。"""
         data = dict(params or {})
         label_key = str(data.pop("label_key", "") or "")
         if label_key:

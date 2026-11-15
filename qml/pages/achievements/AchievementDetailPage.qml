@@ -1,4 +1,4 @@
-// AchievementDetailPage.qml —— 单个成就详情（阶段 3 任务 3.21）。
+// AchievementDetailPage.qml —— 单个成就详情。
 //
 // 路由 achievements/detail，参数 id=成就 id。展示名称 / 描述 / 分类 / 总进度，
 // 以及每个阶段的阈值与解锁状态。阶段名用"成就名 + 罗马数字"生成，不读定义表里

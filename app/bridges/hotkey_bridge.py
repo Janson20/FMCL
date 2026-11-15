@@ -1,57 +1,34 @@
-"""全局热键桥（阶段 2.6）—— 把现有非 Qt 全局热键实现接到 Qt 信号上。
+"""全局热键桥 —— 把现有非 Qt 全局热键实现接到 Qt 信号上。
 
-QML 侧通过上下文属性 ``Hotkeys`` 使用（注册名由阶段 2 契约第四节冻结）::
+QML 侧通过上下文属性 ``Hotkeys`` 使用::
 
     Connections { target: Hotkeys; function onTriggered(name) { ... } }
     Hotkeys.register("music_next", "ctrl+shift+right", "下一首")
 
-## 技术决策（沿用阶段 0，本任务不改）
+## 技术决策
 
 全局热键**保留现有非 Qt 方案**（``keyboard`` 库），回调必须经信号回到主线程，
-**不得改用 ``QShortcut``**。依据 ``docs/refactor/08-phase0-execution-log.md`` 第七节：
+**不得改用 ``QShortcut``**：
 
 - 全局热键是**进程级**的（游戏运行时也生效），这是产品卖点；
 - ``QShortcut`` 只在应用有焦点时生效，**无法平替**；
-- 阶段 0 的 POC（``poc/hotkey_thread_test.py``，6/6 通过）实测了
-  ``keyboard 回调 → Signal.emit → 主线程槽`` 这条链路成立，本桥就是它的生产化版本。
+- ``keyboard 回调 → Signal.emit → 主线程槽`` 这条链路已验证，本桥是它的生产化版本。
 
-## 现有 8 组热键清单（阶段 3 要用；机器可读版本见 ``LEGACY_HOTKEYS``）
+## 现有 8 组热键清单（机器可读版本见 ``LEGACY_HOTKEYS``）
 
-注册入口只有两个模块：``services/monitor_service.py``（1 组）与
-``services/music_hotkeys.py``（7 组）；真正调后端的是 UI 侧的两个方法。
+1. 性能监控开关 —— ``ctrl+shift+m``
+2. 播放/暂停 —— ``ctrl+shift+space``
+3. 上一首 —— ``ctrl+shift+left``
+4. 下一首 —— ``ctrl+shift+right``
+5. 停止 —— ``ctrl+shift+down``
+6. 音量 +5 —— ``ctrl+shift+up``
+7. 音量 -5 —— ``ctrl+shift+page down``
+8. 静音切换 —— ``ctrl+shift+m``
 
-+----+------------------+---------------------+---------------------------+--------------------------------+
-| #  | 动作              | 组合键               | 注册模块                   | 回调做了什么                     |
-+====+==================+=====================+===========================+================================+
-| 1  | 性能监控开关      | ctrl+shift+m        | services/monitor_service   | ui/app_monitor.py              |
-|    |                  |                     | MONITOR_HOTKEY:37          | _toggle_monitor → after(0,     |
-|    |                  |                     | HotkeyManager:484          | _toggle_monitor_ui) 显示/隐藏   |
-+----+------------------+---------------------+---------------------------+--------------------------------+
-| 2  | 播放/暂停         | ctrl+shift+space    | services/music_hotkeys.py | _music_hotkey_play_pause →     |
-|    |                  |                     | DEFAULT_HOTKEYS:32        | after(0, _music_toggle_play)   |
-+----+------------------+---------------------+---------------------------+--------------------------------+
-| 3  | 上一首            | ctrl+shift+left     | 同上                      | → after(0, _music_prev)        |
-+----+------------------+---------------------+---------------------------+--------------------------------+
-| 4  | 下一首            | ctrl+shift+right    | 同上                      | → after(0, _music_next)        |
-+----+------------------+---------------------+---------------------------+--------------------------------+
-| 5  | 停止              | ctrl+shift+down     | 同上                      | → after(0, _music_stop)        |
-+----+------------------+---------------------+---------------------------+--------------------------------+
-| 6  | 音量 +5           | ctrl+shift+up       | 同上                      | → after(0, _adjust_volume(+5)) |
-+----+------------------+---------------------+---------------------------+--------------------------------+
-| 7  | 音量 -5           | ctrl+shift+page down| 同上                      | → after(0, _adjust_volume(-5)) |
-+----+------------------+---------------------+---------------------------+--------------------------------+
-| 8  | 静音切换          | ctrl+shift+m        | 同上                      | → after(0, _music_toggle_mute) |
-+----+------------------+---------------------+---------------------------+--------------------------------+
-
-第 2~8 组由 ``ui/app_music.py:_register_hotkeys``（:3171）在**后台线程**里按
-``music_hotkeys.register_all`` 注册，注销走同一份 ``HOTKEY_ACTIONS`` 顺序；
-第 1 组由 ``ui/app_monitor.py:_register_monitor_hotkeys``（:411）调
-``HotkeyManager.register(callback)``，它内部同样起线程并做预热 ``hook()`` + ``sleep(0.1)``。
-
-**已知冲突（本轮发现，未修）**：第 1 组与第 8 组是**同一个组合键** ``ctrl+shift+m``
+**已知冲突（未修）**：第 1 组与第 8 组是**同一个组合键** ``ctrl+shift+m``
 （监控开关 vs 静音切换）。两处各自独立注册，``keyboard`` 库会让两个回调都触发。
 本桥只在注册时对这种"组合键撞车"记 warning，**不做拦截** —— 拦截会改变现有产品
-行为（先注册的一方把后注册的挤掉），那属于阶段 3 的决策。
+行为（先注册的一方把后注册的挤掉）。
 
 ## 可注入后端
 
@@ -144,16 +121,16 @@ class NullHotkeyBackend:
 class KeyboardHotkeyBackend:
     """现有全局热键实现（``keyboard`` 库）的薄封装 —— **真后端**。
 
-    与 ``services/monitor_service.HotkeyManager`` / ``ui/app_music._register_hotkeys``
-    用的是同一个库、同一套调用序列，只是把"回调怎么回主线程"交给桥：
+    与 ``services/monitor_service.HotkeyManager`` 用的是同一个库、同一套调用序列，
+    只是把"回调怎么回主线程"交给桥：
 
     - **懒导入** ``keyboard``：导入失败（未安装/受限环境）→ ``available`` 为 False，
       ``add_hotkey`` 抛 :class:`HotkeyBackendUnavailable`，绝不在这里抛 ImportError；
-    - **预热**：首次注册前 ``hook(lambda e: None)`` + ``sleep(0.1)``，逐字保留阶段 1 的
-      hack（阶段 0 第 7.3 节记录了"是否仍必要尚未定论"，迁移期先保留）；
+    - **预热**：首次注册前 ``hook(lambda e: None)`` + ``sleep(0.1)`` —— 这段 hack 的
+      必要性尚未定论，先保留（去掉会让首次注册偶发失败）；
     - ``add_hotkey`` / ``remove_hotkey`` 直接透传，句柄原样返回。
 
-    注意预热会**阻塞约 0.1 秒**。旧实现在后台线程里注册以避开这次阻塞；桥的
+    注意预热会**阻塞约 0.1 秒**。后台线程里注册可以先避开这次阻塞；桥的
     ``register`` 是同步的，启动路径若在意这 0.1 秒，可以在 work 线程里先调一次
     :meth:`prewarm`（QML 设置页里点一次"应用"的 0.1 秒可以接受）。
     """

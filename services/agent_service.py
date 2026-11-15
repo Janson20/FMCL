@@ -1,37 +1,33 @@
-"""AGENT 服务 —— `ui/agent/` 里"逻辑与界面混在一起"的那部分。
+"""AGENT 服务 —— AGENT（AI 助手）中与界面无关的那部分。
 
-任务 1.14 的交付面分两层：
+## 组成
 
-1. **形态 1（整体搬家）**：`ui/agent/` 下 30 个零 UI 依赖的模块已由
-   `scripts/relocate_module.py` 逐字搬进 `services/agent/`，旧路径留**真别名**
-   shim（`ui.agent.models is services.agent.models`）。见该脚本 MOVES 的任务 1.14 段。
-2. **形态 2（切缝）**：本模块 —— `AgentChatView` / `AgentMixin` 里那些**本质是逻辑、
-   只是恰好写在界面类里**的代码。搬走的判据只有一条：**它不 import 任何 GUI、
-   不直接创建/销毁控件**。界面效果一律通过调用方传进来的 ``sink`` 对象完成。
+1. **Agent 子包**：`services/agent/` 下是 models / provider / providers / stream /
+   session / permission / config / skill / system_prompt / tool_registry / tools。
+   `ui/agent/` 留真别名 shim（`ui.agent.models is services.agent.models`）。
+2. **本模块**：`AgentChatView` / `AgentMixin` 里那些**本质是逻辑、只是恰好写在
+   界面类里**的代码。判据只有一条：**它不 import 任何 GUI、不直接创建/销毁控件**。
+   界面效果一律通过调用方传进来的 ``sink`` 对象完成。
 
-## 切缝在哪（三条线）
+## 切分在哪（三条线）
 
 - **纯函数**（零参数依赖）：`system_prompt_text`、`build_callbacks`、
   `resolve_active_model`、`resolve_provider_id`、`build_provider`、`apply_file_edit`、
-  `load_provider_configs`、`fetch_credits`。这些从 `AgentChatView` / `AgentMixin`
-  里逐字搬出，参数就是原来读的那些 `self.xxx`。
+  `load_provider_configs`、`fetch_credits`。参数就是原先读的那些 `self.xxx`。
 - **AI 处理循环**：`run_loop` / `handle_stream_events` / `execute_tool_call`
-  —— 原 `AgentChatView._process_ai_loop` / `_handle_stream_events` /
-  `_execute_tool_call` 的**逐字搬迁**，只做一处机械替换：`self.` → `sink.`。
-  即循环体里的每一次界面动作（`after` / `_append_*` / `_schedule_render` /
-  `_token_label` …）都改成"调用注入进来的 sink 的同名成员"。
+  —— 循环体里的每一次界面动作（`after` / `_append_*` / `_schedule_render` /
+  `_token_label` …）都改成"调用注入进来的 sink 的同名成员"，即 `self.` → `sink.`。
 - **留在界面**：控件创建与布局、Markdown 渲染、三个确认弹窗
   （危险命令 / 文件编辑 / ask_user）、线程启动。服务**不弹窗、不自己起线程**：
-  原来循环里的两次 `show_notification(...)` 改成调用 `sink.notify_ai_task_done()`
-  / `sink.notify_ai_task_failed(err)`；跑循环的 `threading.Thread` 仍由视图起。
+  循环里的两次 `show_notification(...)` 改成调用 `sink.notify_ai_task_done()` /
+  `sink.notify_ai_task_failed(err)`；跑循环的线程仍由视图起。
 
 ## 为什么 sink 就是 `AgentChatView` 本身
 
 因为要**保住既有行为**：循环里几十处界面交互的时序（先 `_append_*` 再
 `_schedule_render`、`after(0, ...)` 切主线程、`finally` 里的收尾顺序）都是现网行为，
 一旦重新设计成一个"干净的"回调接口，就必须逐条重新论证等价性，风险远大于收益。
-`self.` → `sink.` 是**纯文本替换**，可以用脚本机械复核（见
-`poc/probe_agent_service_parity.py`），并且把 sink 换成假对象就能**完全离线**跑循环。
+`self.` → `sink.` 是**纯文本替换**，把 sink 换成假对象就能**完全离线**跑循环。
 
 服务自身对 GUI 的依赖为 0：`scripts/check_services_purity.py` 会持续守住这一点。
 """
@@ -222,10 +218,10 @@ def load_provider_configs() -> Dict[str, Any]:
 
 
 def fetch_credits(fetch_jdz_user_info: Callable[[], Any]) -> Optional[int]:
-    """取 AI 积分余额（原 `AgentMixin._refresh_agent_credits` 的内部线程体，逐字）。
+    """取 AI 积分余额。
 
-    原实现在这里 `threading.Thread(...).start()`；服务**不自己起线程**，
-    因此只保留"取值"这一步，调度交给调用方（视图用现有线程，阶段 2 换 TaskRunner）。
+    这里不自己起线程：只保留"取值"这一步，调度交给调用方（视图用现有线程或
+    ``TaskRunner``）。
     """
     info = fetch_jdz_user_info()
     if info:
@@ -234,10 +230,10 @@ def fetch_credits(fetch_jdz_user_info: Callable[[], Any]) -> Optional[int]:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# AI 处理循环（原 AgentChatView 的三个方法，逐字搬迁，self. → sink.）
+# AI 处理循环（self. → sink.）
 # ═══════════════════════════════════════════════════════════════════
 #
-# `sink` 需要提供（原 `self.` 的全部成员）：MAX_ITERATIONS、_ai_processing、
+# `sink` 需要提供：MAX_ITERATIONS、_ai_processing、
 # _session、_registry、_provider、_callbacks、_thinking_var、_effort_var、
 # _streaming_block、_message_blocks、_pending_dangerous、_pending_ask_user、
 # _pending_file_edit、_token_label，以及方法 after / _get_active_model /
@@ -249,11 +245,10 @@ def fetch_credits(fetch_jdz_user_info: Callable[[], Any]) -> Optional[int]:
 
 
 def run_loop(sink) -> None:
-    """原 `AgentChatView._process_ai_loop`（`:1512-1628`）逐字搬迁。
+    """AI 处理循环。
 
-    与原文的全部差异（机械可复核，见 `poc/probe_agent_service_parity.py`）：
-    `self.` → `sink.`；两次 `show_notification(...)` → `sink.notify_ai_task_done()` /
-    `sink.notify_ai_task_failed(str(e)[:50])`。
+    与调用方的契约：`self.` → `sink.`；两次 `show_notification(...)` →
+    `sink.notify_ai_task_done()` / `sink.notify_ai_task_failed(str(e)[:50])`。
     """
     max_iterations = sink.MAX_ITERATIONS
     iteration = 0

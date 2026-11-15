@@ -1,7 +1,7 @@
 """成就云同步模块 - Achievement Cloud Sync
 
 下载/上传 achievements.db 到净读 API，支持冲突合并。
-D-113（任务 1.24）：落盘/校验/记账三件事都改走 services/achievement_db.py。"""
+落盘/校验/记账三件事都走 services/achievement_db.py。"""
 
 from services.achievement_db import build_empty_db_bytes, dump_db_bytes, record_last_sync_time
 import threading
@@ -198,10 +198,10 @@ def run_sync(
 def reset_cloud_db(token: str) -> bool:
     """重置云存档（上传一份**结构完整**的空数据库）
 
-    D-113 ②（任务 1.24）：旧实现新建 AchievementEngine 后直接 read_bytes()，而引擎是
-    WAL 模式 —— 表定义还在 -wal 里没并回主文件，主文件只有 4096 字节头部。上传上去
-    的就是这个空壳：云端下次下载它会合并失败（_do_merge_db 读不到表 → 返回 None →
-    记"合并失败，仅上传本地数据"），于是"重置云存档"并不真的生效。
+    引擎是 WAL 模式 —— 表定义还在 -wal 里没并回主文件，主文件只有 4096 字节头部。
+    直接 read_bytes() 得到的就是这个空壳：云端下次下载它会合并失败
+    （_do_merge_db 读不到表 → 返回 None → 记"合并失败，仅上传本地数据"），
+    于是"重置云存档"并不真的生效。
 
     现在：建临时库 → 把 -wal checkpoint 进主文件 → 显式关连接 → **断言要上传的字节**
     **里真的有那三张表**（校验不过就放弃上传，宁可不重置也不拿空壳覆盖云端）；

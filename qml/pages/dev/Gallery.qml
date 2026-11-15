@@ -1,24 +1,24 @@
-// Gallery.qml —— 组件画廊（阶段 2 任务 2.17，开发自查页）。
+// Gallery.qml —— 组件画廊（开发自查页）。
 //
 // 它是什么：**每一个**组件库成员各有一个"名字 + 说明 + 活的实例"。活的实例指的是
-//   真的能点、能输入、能切换状态（不是静态截图）—— 阶段 3 的人在这一页上挑件，
-//   验收的人在这一页上过一遍"点/输/切"是否都正常。
+//   真的能点、能输入、能切换状态（不是静态截图）—— 开发时在这一页上挑件，
+//   并过一遍"点/输/切"是否都正常。
 //   本页同时是 `tests/test_components_qml.py` 的被测对象：探针在子进程里加载它、
 //   逐个 `galleryItem_<组件名>` 核对、点几下断言状态真的变了、抓帧留证据。
 //
 // 它不是业务页：**不在 12 个一级导航里露出**。进入方式是深链 `fmcl://dev/gallery`
 //   或显式 `Nav.push("dev/gallery")`（路由定义在 `app/bridges/nav_bridge.py`，
-//   `parent` 挂 settings，所以 Shell.navItems() 不会把它当一级导航项；理由见 2.16 报告）。
+//   `parent` 挂 settings，所以 Shell.navItems() 不会把它当一级导航项）。
 //
-// 纪律（与其它页面一致）：颜色只来自 Theme.*（闸门 R8）、图标走 FmIcon（闸门 R2）、
-//   文案走 Tr.map[…]（闸门 R3/R4）。本页里以英文字面量出现的只有**组件名与属性名**
+// 纪律（与其它页面一致）：颜色只来自 Theme.*（R8）、图标走 FmIcon（R2）、
+//   文案走 Tr.map[…]（R3/R4）。本页里以英文字面量出现的只有**组件名与属性名**
 //   这类技术串（"FmButton"、"primary"、"indeterminate"），与其它页面的 pageRouteInfo 同理：
 //   那是给开发者看的标识符，不是用户文案。
 //   `Theme?.x ?? 兜底` 的判空是必需的：引擎析构时上下文属性先被清成 null 而绑定还排在
-//   求值队列里，不判空会每个绑定刷一条 TypeError（2.2 实测的缺陷）。
+//   求值队列里，不判空会每个绑定刷一条 TypeError。
 //
-// 本页需要的 26 个 i18n 键（`dev_gallery_*`，语言文件不在 2.16 的可改范围，阶段 3 补；
-//   缺键时按契约 §5.2 的约定回退显示键名）：标题 1 + 分区 5 + 每个组件一条说明 20。
+// 本页需要的 26 个 i18n 键（`dev_gallery_*`）：标题 1 + 分区 5 + 每个组件一条说明 20；
+//   缺键时回退显示键名。
 
 import QtQuick
 import QtQuick.Controls
@@ -49,10 +49,10 @@ Item {
     property int demoRetries: 0
     property real demoFraction: 0.15
     property int toolButtonClicks: 0
-    //: 返工 C 组新增的两件（FmCheckBox 的勾选态、FmSpinBox 的当前值）
+    //: 演示状态：FmCheckBox 的勾选态、FmSpinBox 的当前值
     property bool demoAgreed: false
     property int demoThreads: 8
-    //: 阶段 3.6 新增的两件（FmTabBar 的当前页签、FmDropZone 收到的文件数）
+    //: 演示状态：FmTabBar 的当前页签、FmDropZone 收到的文件数
     property string tabBarKey: "mods"
     property var tabBarModel: [
         {"key": "mods", "labelKey": "resource_mods"},
@@ -1445,7 +1445,7 @@ Item {
                 }
             }
 
-            // ── FmPage：页面骨架（返工 C 组新增）—— 页头 + 三态区都在里面 ──
+            // ── FmPage：页面骨架 —— 页头 + 三态区都在里面 ──
             ColumnLayout {
                 objectName: "galleryItem_FmPage"
                 Layout.fillWidth: true
@@ -1494,7 +1494,7 @@ Item {
                 }
             }
 
-            // ── FmCheckBox：勾选 / 半选 / 禁用（返工 C 组新增） ──
+            // ── FmCheckBox：勾选 / 半选 / 禁用 ──
             ColumnLayout {
                 objectName: "galleryItem_FmCheckBox"
                 Layout.fillWidth: true
@@ -1561,7 +1561,7 @@ Item {
                 }
             }
 
-            // ── FmSpinBox：数值步进 + 可编辑 / 禁用（返工 C 组新增） ──
+            // ── FmSpinBox：数值步进 + 可编辑 / 禁用 ──
             ColumnLayout {
                 objectName: "galleryItem_FmSpinBox"
                 Layout.fillWidth: true
@@ -1619,7 +1619,7 @@ Item {
                 }
             }
 
-            // ── FmScrollView：整块内容比可视区高（返工 C 组新增） ──
+            // ── FmScrollView：整块内容比可视区高 ──
             ColumnLayout {
                 objectName: "galleryItem_FmScrollView"
                 Layout.fillWidth: true
@@ -1665,7 +1665,7 @@ Item {
                                 // 引用 `scrollDemoColumn` 而不是 `parent`：`Repeater` 建委托时
                                 // 父对象还没赋值，`parent.width` 会先抛一次
                                 // `TypeError: Cannot read property 'width' of null`
-                                // （缺陷 D-145；24 个委托 = 每次进画廊刷 24 条）
+                                // （24 个委托 = 每次进画廊刷 24 条）
                                 width: scrollDemoColumn.width
                                 text: "scroll row " + index
                                 color: Theme?.textSecondary ?? "transparent"
@@ -1676,7 +1676,7 @@ Item {
                 }
             }
 
-            // ── FmScrollBar：贴在 ListView 上的滚动条（返工 C 组新增） ──
+            // ── FmScrollBar：贴在 ListView 上的滚动条 ──
             ColumnLayout {
                 objectName: "galleryItem_FmScrollBar"
                 Layout.fillWidth: true

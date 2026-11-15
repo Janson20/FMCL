@@ -1,4 +1,4 @@
-// FmScrollBar.qml —— 主题化滚动条（阶段 2 任务 2.16 组件库／界面返工 C 组新增）。
+// FmScrollBar.qml —— 主题化滚动条。
 //
 // 什么时候用它：给**自己就会滚的容器**贴一条跟随主题的滚动条 —— `ListView` / `GridView` /
 //   `Flickable` 的 `ScrollBar.vertical` / `ScrollBar.horizontal`（日志面板的 `LogView`

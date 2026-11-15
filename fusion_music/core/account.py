@@ -302,7 +302,7 @@ class AccountManager(QObject):
 
     @Property(bool, notify=credentialsChanged)
     def keyUsable(self) -> bool:  # noqa: N802
-        """主密钥在本机解得开吗。``False`` = 数据目录是从别的机器拷过来的。"""
+        """主密钥在当前设备解得开吗。``False`` = 数据目录是从别的机器拷过来的。"""
         return vault.key_usable()
 
     @Property(str, notify=credentialsChanged)
@@ -313,10 +313,10 @@ class AccountManager(QObject):
         if not self.dpapiAvailable:
             return "当前平台没有 DPAPI，密钥只能以原始字节保存 —— 便携模式是常开的。"
         if not self.keyUsable:
-            return "主密钥由另一台机器 / 另一个 Windows 用户保护，本机解不开，已保存的登录状态无法恢复。"
+            return "主密钥由另一台机器 / 另一个 Windows 用户保护，当前设备解不开，已保存的登录状态无法恢复。"
         if self.portableMode:
-            return "主密钥不以本机绑定：整个程序目录拷到别的电脑也能保持登录。"
-        return "主密钥由本机 DPAPI 保护：拷到别的电脑就解不开，需要重新登录。"
+            return "主密钥不以当前设备绑定：整个程序目录拷到别的电脑也能保持登录。"
+        return "主密钥由当前设备 DPAPI 保护：拷到别的电脑就解不开，需要重新登录。"
 
     @Slot(bool)
     def setPortableMode(self, enabled: bool) -> None:  # noqa: N802
@@ -338,7 +338,7 @@ class AccountManager(QObject):
         elif enabled:
             self.message.emit("已记下便携模式：本平台的密钥本来就与机器无关")
         elif source == "dpapi":
-            self.message.emit("便携模式已关闭：主密钥改由本机 DPAPI 保护，换电脑需要重新登录")
+            self.message.emit("便携模式已关闭：主密钥改由当前设备 DPAPI 保护，换电脑需要重新登录")
         else:
             self.errorOccurred.emit(
                 "当前平台没有 DPAPI，密钥只能以原始字节保存，关不掉便携模式"
@@ -367,7 +367,7 @@ class AccountManager(QObject):
         """把配置里的便携模式落到密钥文件上（启动时调用一次）。
 
         配置是「意图」，密钥文件是「事实」：换机之后配置写着便携、密钥却还是
-        本机绑定的，一样解不开 —— 所以每次启动都对齐一次。
+        当前设备绑定的，一样解不开 —— 所以每次启动都对齐一次。
         """
         want = bool(self._config.get("account.portable", False))
         try:
@@ -443,7 +443,7 @@ class AccountManager(QObject):
         try:
             payload = vault.load()
         except VaultError as e:
-            # 设置页据此显示「密钥在本机解不开」那张卡片，所以这里要刷新一次 ——
+            # 设置页据此显示「密钥在当前设备解不开」那张卡片，所以这里要刷新一次 ——
             # 这条路径上不会走到下面的 credentialsChanged
             self.credentialsChanged.emit()
             self.errorOccurred.emit(str(e))

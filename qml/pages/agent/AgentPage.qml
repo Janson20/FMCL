@@ -1,4 +1,4 @@
-// AgentPage.qml —— AGENT 对话主页面（阶段 3 任务 3.22）。
+// AgentPage.qml —— AGENT 对话主页面。
 //
 // 三条 L2 路由（agent/sessions、agent/models、agent/tools、agent/skills）目前都
 // 指向本页：3.22 只交付 I1（对话与流式输出），模型/工具权限/技能/语音设置在

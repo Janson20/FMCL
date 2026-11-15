@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 构建脚本 —— 阶段 4.3 起 QML-only、onedir-only。
+"""PyInstaller 构建脚本 —— QML-only、onedir-only。
 
 真正的构建计划在 `scripts/build_plan.py`（普通模块，测试可以 import）；本文件只负责
 平台相关的 EXE / BUNDLE / COLLECT 组装，因为这部分本来就与平台绑死。
@@ -10,11 +10,9 @@
 
 产物形态：QML 用 **onedir**（`COLLECT`）。onefile 每次启动都要把 Qt 运行时（约 200 MB）
 解压到临时目录，启动器的冷启动体验不可接受。`updater.py` 只认 `FMCL-Setup-*.exe` 安装包，
-**装目录不影响自动更新链路**（已核对 `updater.py::find_suitable_asset`）。回滚靠上一版安装包
-（用户 2026-11-14 裁决：1-B / 2-A / 3-B）。
+**装目录不影响自动更新链路**（已核对 `updater.py::find_suitable_asset`）。回滚使用上一版安装包。
 
-历史分支已清理：4.2 之前为 Tk 单文件产物保留的 onefile / Windows Agent 入口不再存在；
-QML 产物永远走 COLLECT，因此 EXE 永远带 `exclude_binaries=True`。
+产物永远走 COLLECT，因此 EXE 永远带 `exclude_binaries=True`。
 """
 
 import os
@@ -151,7 +149,6 @@ coll = COLLECT(
 )
 
 if _platform == "mac":
-    # macOS 的目录产物**未实测**（阶段 0 的出门条件是 Windows x64 一个目标）。
     # BUNDLE 必须包 COLLECT（目录），不能像 onefile 那样包 EXE。
     app = BUNDLE(
         coll,

@@ -1,4 +1,4 @@
-// FmMusicNowPlaying.qml —— 展开播放页（阶段 3.16）。
+// FmMusicNowPlaying.qml —— 展开播放页。
 //
 // 大封面 + 歌词滚动 + 传输控件。歌词来自 Music.player.lyricLines；本文件不解析 LRC。
 

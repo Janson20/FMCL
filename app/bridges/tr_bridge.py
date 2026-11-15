@@ -1,4 +1,4 @@
-"""i18n 桥 —— QML 侧的 `Tr` 单例（阶段 2 任务 2.9）。
+"""i18n 桥 —— QML 侧的 `Tr` 单例。
 
 ## 为什么是"整表 `map`"而不是 `t(key)` + `revision`
 
@@ -11,8 +11,8 @@
 * `text: Tr.t("app_title")` —— QML 记下的是"这个绑定依赖 `t` 这个函数"，而函数不会被通知，
   于是**语言切了但界面不动**，而且**不报错**（静默失效，最难查的一类）。
 
-阶段 0 的记录里给的写法是 `revision >= 0 ? Tr.t(k) : ""`（靠手写一个假依赖）。本实现不用它：
-整表属性本身就是真依赖，不需要每个使用处记得多写一句。**这条由闸门 R4 静态检查兜底**
+不要用 `revision >= 0 ? Tr.t(k) : ""` 这类写法（靠手写一个假依赖）。整表属性本身就是
+真依赖，不需要每个使用处记得多写一句。**这条由 R4 静态检查兜底**
 （绑定里出现 `Tr.t(` 即违规，命令式 JS 里允许）。
 
 ## 动态拼接的键（缺陷 D-77）
@@ -43,9 +43,9 @@ def locales_dir() -> Optional[Path]:
     """找到语言文件目录。
 
     * 开发态：`<仓库>/ui/locales`；
-    * 打包态：PyInstaller 的 `<_MEIPASS>/<候选名>`（阶段 4 会按 `build.spec` 实际收集名调整）。
+    * 打包态：PyInstaller 的 `<_MEIPASS>/<候选名>`（实际收集名见 `build.spec`）。
 
-    只拼路径、**不 import `ui/`** —— 契约决策 12：QML 运行时导入 `ui` 包会拉起 customtkinter。
+    只拼路径、**不 import `ui/`** —— QML 运行时导入 `ui` 包会拉起 customtkinter。
     """
     roots = []
     meipass = getattr(sys, "_MEIPASS", None)
@@ -90,8 +90,8 @@ class TrBridge(QObject):
             config: 注入的配置对象（测试用；注入后只读写它，不碰真实的 `config.json`）。
                 **不注入时**用根模块的 `config` 单例 —— 生产路径就是这条：
                 `main_qml._instantiate` 是 `TrBridge()` 无参构造，而"配置里选的语言"
-                必须生效（阶段 3.1 人工验收报的缺陷 D-160：`config.json` 改成 en_US
-                之后界面还是中文，因为这里拿到的是 None）。
+                必须生效（`config.json` 改成 en_US 之后界面必须是英文，
+                所以这里不能拿到 None）。
             locales: 覆盖语言文件目录（测试用）。
         """
         super().__init__(parent)
@@ -227,7 +227,7 @@ class TrBridge(QObject):
 
         两种调用方：
         1. 语言文件在运行期被改过（原来的唯一用途）；
-        2. **设置页的语言预览**（阶段 3 任务 3.4）——`SettingsService` 直接调
+        2. **设置页的语言预览** —— `SettingsService` 直接调
            `i18n_service.set_language()` 改内存（不落盘），本桥必须跟着同步
            `language` 属性，否则界面上文字变了、`Tr.language` 还停在旧值
            （下拉框的选中项与"当前语言"就会对不上）。

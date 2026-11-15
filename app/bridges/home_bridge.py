@@ -1,4 +1,4 @@
-"""首页桥 —— QML 侧的 `Home` 上下文属性（阶段 3 任务 3.1）。
+"""首页桥 —— QML 侧的 `Home` 上下文属性。
 
 ## 它是什么
 
@@ -76,7 +76,7 @@ class HomeBridge(QObject):
     #: 游戏崩溃（退出码非 0 且非用户强杀）。`message` 已翻译（B-07）。
     crashDetected = Signal(int, str)
     #: 崩溃详情（退出码, 已整理的快照）—— 壳层据此弹崩溃/AI 分析对话框。
-    #: 与 crashDetected 分开是为了不破坏 3.1 已验收的两参数信号契约。
+    #: 与 crashDetected 分开是为了不改动它的两参数信号契约。
     crashDialogRequested = Signal(int, "QVariantMap")
     #: AI 分析开始 / 完成 / 失败（失败参数为**已翻译**的整句）。
     crashAnalysisStarted = Signal()

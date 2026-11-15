@@ -1,36 +1,24 @@
-"""启动流程控制器（阶段 2 任务 2.14）—— 把旧 `main.py` 的启动时序**逐条复刻**到 QML 侧。
+"""启动流程控制器：启动画面、初始化时序与启动后链条。
 
-## 旧实现有 4 条互相竞争的退出路径（风险 R-34 明确点名不能简化掉）
+## 状态机
 
-`main.py:259-306` 的 `_try_dismiss_splash` / `_dismiss_splash` / `_show_init_error` 是一个
-带容错的时序状态机，本模块逐条对齐：
+| # | 条件 | 行为 |
+|---|------|------|
+| 1 | launcher 与成就引擎都就绪，且已过 1 秒 | 关闭启动画面，显示主窗口 |
+| 2 | 到 30 秒仍未就绪 | 记 warning 并强制关闭启动画面 |
+| 3 | launcher 初始化失败 | 关闭启动画面，主窗口照常显示，状态栏与弹窗报错 |
+| 4 | 关闭启动画面本身抛异常 | 记录错误，继续后续流程 |
 
-| # | 条件 | 旧行为 | 本实现 |
-|---|------|--------|--------|
-| 1 | launcher 与成就引擎**都就绪**，且已过 1 秒 | 关启动画面 → 显示主窗口 | `splashDismissed` + `mainWindowReady` |
-| 2 | 到 30 秒仍未就绪 | 记 warning 并**强制**关启动画面 | 同左（`timeout` 计入 `describe()`） |
-| 3 | launcher 初始化**失败** | 关启动画面 → **仍然显示主窗口** → 状态栏报错 → 弹错误框 | `coreFailed(title, message)`；主窗口照常显示 |
-| 4 | 关启动画面本身抛异常 | 记 error，继续走后续流程 | 同左（`_dismiss` 里兜住） |
+两个初始化并行执行；每 200ms 轮询一次，满足条件后按剩余时间补足 1 秒。
 
-另外两条与旧实现一致的行为：
+## 启动后的链条
 
-* 每 200ms 轮询一次（不是轮询到就关，而是"轮询 + 满足条件后按剩余时间补足 1 秒"）；
-* 两个初始化**并行**跑（启动器核心与成就引擎各一条后台任务）。
+1. `terms_consent` 或 `ai_privacy_consent` 任一为假 → 弹协议 → 用户确认后写回配置；
+2. 拉公告（失败静默跳过）→ 用户关闭后继续；
+3. 预下载检查，通过 `UIPort` 报告进度。
 
-## 启动后的链条：协议 → 公告 → 预下载（对照表 A-21 / A-22 / A-23）
-
-`main.py:456` 的顺序是 `_on_app_ready(on_agreement_complete=...)` → 公告 → 预下载：
-
-1. `terms_consent` 或 `ai_privacy_consent` 任一为假 → 弹协议（旧实现延迟 500ms）→ 用户确认后写回配置；
-2. 拉公告（`services.notice_service.fetch_notice`，失败**静默跳过**）→ 用户关闭后继续；
-3. 预下载检查（`launcher.predownload.run_predownload_check(ui_port, minecraft_dir, _)`，它走 `UIPort`，
-   所以 QML 侧**不需要改服务层**）。
-
-## 为什么这些逻辑不写在 QML 里
-
-计时、超时、失败兜底、链条顺序都是**容错语义**，属于"简化实现就会丢容错"的那一类（R-34）。
-放在 Python 侧可以被单元测试用注入的时钟与假初始化函数**快速、确定地**验证；
-写在 QML 里就只能靠等真实时间。
+计时、超时、失败兜底与链条顺序都属于容错语义，放在 Python 侧便于用注入时钟和
+假初始化函数做确定性测试，而不是在 QML 里等真实时间。
 """
 
 from __future__ import annotations
@@ -49,11 +37,11 @@ PHASE_SPLASH = "splash"
 PHASE_READY = "ready"
 PHASE_FAILED = "failed"
 
-#: 默认时序（与旧实现逐字一致：≥1 秒、30 秒硬超时、200ms 轮询）
+#: 默认时序：至少 1 秒、30 秒硬超时、200 ms 轮询。
 DEFAULT_MIN_SPLASH_MS = 1000
 DEFAULT_HARD_TIMEOUT_MS = 30000
 DEFAULT_POLL_MS = 200
-#: 协议弹窗的延迟（旧实现 `self.after(500, ...)`）
+#: 协议弹窗延迟：500 ms。
 DEFAULT_AGREEMENT_DELAY_MS = 500
 
 
@@ -62,7 +50,7 @@ class StartupController(QObject):
 
     phaseChanged = Signal()
     splashDismissed = Signal()
-    #: 核心初始化失败（**主窗口仍然要显示**，这是旧实现的行为）
+    #: 核心初始化失败（**主窗口仍然要显示**）
     coreFailed = Signal(str, str)
     #: 状态栏文本（旧 `set_status(text, level)`，10 秒自动清空由 Shell 桥负责）
     statusChanged = Signal(str, str)
@@ -127,7 +115,7 @@ class StartupController(QObject):
         #: 默认实现读仓库根的 `TERMS_OF_USE.md`（16 KB），测试没必要真读盘。
         self._terms_loader = terms_loader or self._default_terms_loader
         #: "要不要问界面语言"的判定（默认读 `config.language_chosen`）。**测试注入点**：
-        #: 不注入的话用例会依赖开发机上那份 `config.json`（它有没有 `language` 键）。
+        #: 不注入的话用例会依赖本地 `config.json`（它有没有 `language` 键）。
         self._language_required = language_required
         #: 懒加载缓存（协议全文只读一次；`termsText` 是 constant 属性）
         self._terms_cache: Optional[str] = None
@@ -135,7 +123,7 @@ class StartupController(QObject):
         #: `config.json` / `accounts.json`，单元测试必须能把它换掉（见 `_wire_launcher`）。
         self._launcher_wiring = launcher_wiring
         #: 自动检查更新的实现（默认 `updater.check_for_update`）。**测试注入点**：
-        #: 真实实现会发 HTTP，测试里必须能换掉（阶段 2 的启动测试全是毫秒级时序断言，
+        #: 真实实现会发 HTTP，测试里必须能换掉（启动测试全是毫秒级时序断言，
         #: 一次网络往返就能让它们全红）。
         self._update_checker = update_checker
 
@@ -205,10 +193,9 @@ class StartupController(QObject):
         """用户协议**全文**（`TERMS_OF_USE.md` 的 Markdown 原文）。
 
         为什么是 Markdown 原文而不是 HTML：QML 的 `Text { textFormat: Text.MarkdownText }`
-        自带渲染，而且颜色/字号来自 `Theme.*`（旧实现把 `_TERMS_DARK_CSS` 塞进 `<style>`，
-        Qt 的富文本引擎根本不认 `<style>`，照搬会得到黑字黑底）。
-        读不到时返回空串 —— `StartupDialogs.qml` 会退回语言文件里的摘要
-        （旧实现在读不到时也是给一句提示，语义一致）。
+        自带渲染，而且颜色/字号来自 `Theme.*`。Qt 的富文本引擎不解析 `<style>`，
+        因此不能沿用 HTML 样式表。读不到时返回空串，`StartupDialogs.qml` 会退回
+        语言文件里的摘要。
         """
         if self._terms_cache is None:
             try:
@@ -281,7 +268,7 @@ class StartupController(QObject):
         self._chrono.append(("start", 0))
         # 级别用 "info" 而不是自造的 "loading"：状态条（`ShellBridge.setStatus`）只认
         # info / success / warning / error 四档，其它值会被它降级成 info 并打一条 warning
-        # （返工 A 组接线时在日志里实测到 `未知状态级别 'loading'`）。四档是跨界面的公共词汇，
+        # 四档是跨界面的公共词汇，
         # 不该在这里另立一套。
         self._set_status("startup_initializing", "info")
         tasks = getattr(self._context, "tasks", None)
@@ -335,7 +322,7 @@ class StartupController(QObject):
                 self._dismiss("ready")
             return
 
-        # 路径 2：硬超时 → 强制关（保留旧实现的 warning 语义）
+        # 路径 2：硬超时 → 强制关并记录 warning
         if elapsed_ms >= self.hard_timeout_ms:
             logger.warning(
                 "启动等待超时 %d ms，强制关闭启动画面（launcher=%s achievements=%s）",
@@ -363,16 +350,16 @@ class StartupController(QObject):
 
         if reason == "failed":
             self._set_phase(PHASE_FAILED)
-            # 旧实现：初始化失败时**仍然显示主窗口**并报错，不退出。
+            # 初始化失败时**仍然显示主窗口**并报错，不退出。
             logger.error("启动器初始化失败，主窗口仍会显示：%s", self._launcher_error)
             return
 
         self._set_phase(PHASE_READY)
         self._set_status("startup_ready", "success")
-        # 链条：延迟一点再查协议（旧实现 `after(500, ...)`）
+        # 链条：延迟 500 ms 再查协议
         self._agreement_timer.start(self.agreement_delay_ms)
         # 启动后置任务（Token 刷新 / 自动检查更新 / 成就云同步 / 签到）。
-        # 时机与旧实现一致：旧 `main.py` 在 `_dismiss_splash()` 之后立刻
+        # 时机：启动画面关闭之后立刻
         # `threading.Thread(target=_post_init_achievements)`，Token 刷新也是
         # 在 launcher 就绪的同一段里踢出去的。
         self.start_post_ready_tasks()
@@ -434,7 +421,7 @@ class StartupController(QObject):
             logger.error("启动器接线失败: %s", e, exc_info=True)
 
     def _default_launcher_wiring(self, launcher: Any) -> None:
-        """生产路径的接线（六件事，顺序与旧实现一致）。"""
+        """生产路径的接线（六件事）。"""
         port = self._ui_port or (getattr(self._context, "ui", None) if self._context else None)
         if port is not None:
             try:
@@ -472,7 +459,7 @@ class StartupController(QObject):
                 except Exception as e:  # noqa: BLE001
                     logger.warning("初始化成就桥失败: %s", e)
             self._chrono.append(("achievements_ready", int((self._clock() - self._started_at) * 1000)))
-        except Exception as e:  # noqa: BLE001 - 成就初始化失败**不影响启动**（旧实现同）
+        except Exception as e:  # noqa: BLE001 - 成就初始化失败不影响启动
             logger.error("成就引擎初始化失败: %s", e)
         finally:
             self._achievements_ready.set()
@@ -488,16 +475,14 @@ class StartupController(QObject):
     def start_post_ready_tasks(self) -> None:
         """启动完成后要跑的四件事。**幂等**（重复调用只跑一次）。
 
-        与旧实现的对应关系（都在 `main.py` 的启动段里）：
+        四件事分别是：
 
-        * Token 刷新 —— ``main.py:429`` 的 ``_auto_refresh_tokens``（A-25）；
-        * 自动检查更新 —— ``main.py:465-466``，受 ``config.auto_check_update`` 控制、
-          **静默模式**（没新版本不提示，A-24）；
-        * 成就云同步 —— ``main.py:317-327``（F-09 前半句）；
-        * 每日签到 —— ``main.py:328-334``（F-09 后半句"连续天数提示"）。
+        * Token 刷新；
+        * 自动检查更新（受 ``config.auto_check_update`` 控制，静默模式）；
+        * 成就云同步；
+        * 每日签到。
 
-        四件事都在后台任务里跑（旧实现也是各自一个线程），失败只记日志 ——
-        它们是"顺手做的事"，不该让界面弹错误框。
+        四件事都在后台任务里跑，失败只记日志；它们是顺手做的事，不应让界面弹错误框。
         """
         if self._post_ready_started:
             return
@@ -555,7 +540,7 @@ class StartupController(QObject):
             logger.info("启动时自动刷新了 %d 个微软账号的 Token", count)
 
     def _check_update(self) -> None:
-        """A-24：后台静默检查更新。有新版本才发信号（旧实现同）。"""
+        """后台静默检查更新。有新版本才发信号。"""
         checker = self._update_checker
         if checker is None:
             try:
@@ -567,7 +552,7 @@ class StartupController(QObject):
                 return
         try:
             info = checker()
-        except Exception as e:  # noqa: BLE001 - 旧实现在静默模式下连状态栏都不写
+        except Exception as e:  # noqa: BLE001 - 静默模式下不写状态栏
             logger.warning("自动检查更新失败（静默跳过）: %s", e)
             return
         if not info:
@@ -602,11 +587,11 @@ class StartupController(QObject):
                 self._chrono.append(("achievements_synced", int((self._clock() - self._started_at) * 1000)))
                 self._set_status("startup_ach_synced", "success")
             else:
-                # 旧实现在这里无论 `run_sync` 返回什么都会提示"同步完成"
+                # 无论 `run_sync` 返回什么都提示"同步完成"
                 # （它压根没看返回值）。本版如实区分 —— 见 `07-known-defects.md` 的 D-163。
                 self._set_status("startup_ach_sync_failed", "warning")
 
-        # 签到：连续天数由 `AchievementService.checkin()` 如实返回（旧实现在这里
+        # 签到：连续天数由 `AchievementService.checkin()` 如实返回（既有流程在这里
         # 读的是 `result.get("success")/get("streak")`，两个键都不存在 —— 提示是死代码，
         # 详见 `services/achievement_service.py` 的 `checkin()`）。
         try:
@@ -618,7 +603,7 @@ class StartupController(QObject):
             if result.get("checked_in"):
                 self._chrono.append(("checked_in", int((self._clock() - self._started_at) * 1000)))
                 self._set_status("startup_checkin_ok", "success")
-            # 已签到时**不发提示**（旧实现同样什么都不显示），但天数仍然要显示在首页上
+            # 已签到时**不发提示**，但天数仍然要显示在首页上
 
         self._publish_achievements(service)
         bridge = self._service_bridge("Achievements")
@@ -666,7 +651,7 @@ class StartupController(QObject):
         """用户是否已经选过界面语言（首次启动要问一次）。
 
         **默认实现读配置**；测试可以整体替换（`language_required` 注入点），
-        免得用例依赖"开发机上那份 config.json 长什么样"。
+        免得用例依赖本地 `config.json` 的内容。
         """
         if self._language_required is not None:
             try:
@@ -737,7 +722,7 @@ class StartupController(QObject):
             content = None
             try:
                 content = self._notice_fetcher()
-            except Exception as e:  # noqa: BLE001 - 公告失败静默跳过（旧实现同）
+            except Exception as e:  # noqa: BLE001 - 公告失败静默跳过
                 logger.warning("拉取公告失败（跳过）: %s", e)
             self._after_notice(content)
 
@@ -865,7 +850,7 @@ class StartupController(QObject):
             self.phaseChanged.emit()
 
     def _set_status(self, key_or_text: str, level: str) -> None:
-        """状态文本。**直接给 i18n 键名**（旧实现传的是已翻译的中文；
+        """状态文本。**直接给 i18n 键名**（不传已翻译的中文；
         这里传键名，由 QML 侧 `Tr.map[...]` 翻译 —— 避免 Python 侧持有界面文案）。"""
         self._status_text = key_or_text
         self._status_level = level

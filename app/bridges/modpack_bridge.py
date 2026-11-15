@@ -1,4 +1,4 @@
-"""整合包桥 —— QML 侧的 `Modpack` 上下文属性（阶段 3 任务 3.8，对照表 L-52 ~ L-54）。
+"""整合包桥 —— QML 侧的 `Modpack` 上下文属性。
 
 ## 它在链路的哪一环
 
@@ -11,28 +11,25 @@
         ↓ 委托
     modrinth.py + launcher/mrpack.py 等五个 mixin
 
-旧实现是三扇独立 Tk 窗口（浏览 703 行 / 安装 638 行 / 开服 479 行），
-阶段 1 已把"搜索、分组、格式识别、安装入口、百分比口径"搬进服务层，所以本任务的
+搜索、分组、格式识别、安装入口、百分比口径全在服务层，所以本模块的
 正文是**桥 + 两页 QML + 四条路由**。
 
-## 用户裁决（2026-10-23）
+## 页面与格式的约定
 
 * **一条安装页承担客户端与服务器两种模式**：两者的文件选择、信息展示、可选组件、
-  进度与结果完全同形，只有"安装入口 + 服务器名 + 成功文案"三处不同。照旧拆两个
-  页面会让这 80% 的界面复制两份（3.7 已经因为"搜索页和结果页重复"返工过一次）。
-* **浏览器仍是独立页**：旧实现是模态子窗口，新界面用 `versions/modpack/browse` /
-  `servers/modpack/browse` 两层路由表达，面包屑能正确回到调用它的安装页。
-* **服务器只收 .mrpack**（旧 `ModpackServerWindow._select_file` 的文件类型就是如此）；
-  客户端页才收 .mrpack / .zip 六种格式。
-* 验证走精简档（桥测试 + 一次性 QML 探针 + 截图 + 全量 pytest + 五道闸门）。
+  进度与结果完全同形，只有"安装入口 + 服务器名 + 成功文案"三处不同。
+  拆成两个页面会让这 80% 的界面复制两份。
+* **浏览器是独立页**：用 `versions/modpack/browse` / `servers/modpack/browse`
+  两层路由表达，面包屑能正确回到调用它的安装页。
+* **服务器只收 .mrpack**；客户端页才收 .mrpack / .zip 六种格式。
 
 ## 线程与世代
 
 所有网络/安装动作都走 `context.tasks.submit`。回调可能落在工作线程，因此
 **只排队 + emit `posted`**，真正落属性的是主线程上的 `_deliver()`。搜索、版本列表、
-元数据各有一个只增不减的 `seq`（3.7 的 D-93 桥侧同形），晚到的旧结果整批丢弃。
+元数据各有一个只增不减的 `seq`（与其它桥同形），晚到的旧结果整批丢弃。
 
-安装进度不能读旧 Tk 那个 `launcher._mp_progress` 的"最后一帧"就完事：核心在安装
+安装进度不能只读 `launcher._mp_progress` 的"最后一帧"：核心在安装
 开始时**替换**整个字典，所以这里记住调用前的对象身份，只有看到新字典才开始投递
 快照。这样上一次安装留下的 `phase=done` 不会让新进度条一开局就满格。
 """
@@ -144,10 +141,10 @@ class ModpackBridge(QObject):
     #: 安装结束，参数 = 目标模式 / 是否成功 / 结果文本。
     installFinished = Signal(str, bool, str)
     #: 服务器装好了（参数 = 服务器目录名）—— 3.9 的服务器列表据此刷新；
-    #: 现在还没有服务器桥，先把这个口子留出来（旧实现是 `_refresh_parent_server_list`）。
+    #: 先把这个口子留出来，服务器列表接上后据此刷新。
     serverInstalled = Signal(str)
     #: 服务端模组筛选后仍有“待人工确认”的条目（服务器名，条目列表，总数）。
-    #: 阶段 3.12 修复：旧实现只往日志里写一行，用户完全看不到这些模组。
+    #: 这些模组必须让用户看见，不能只往日志里写一行。
     serverModsNeedReview = Signal(str, "QVariantList", int)
     #: 内部投递信号：worker 只排队并 emit 它。
     posted = Signal()
@@ -903,8 +900,8 @@ class ModpackBridge(QObject):
         def work() -> Any:
             try:
                 if target == TARGET_SERVER:
-                    #: 阶段 3.12 之前的服务/测试替身没有这个关键字参数；只在对方
-                    #: 明确接受时才传，避免把“旧接口”变成安装失败。
+                    #: 服务/测试替身可能没有这个关键字参数；只在对方
+                    #: 明确接受时才传，避免把缺少参数变成安装失败。
                     kwargs: Dict[str, Any] = {}
                     try:
                         params = inspect.signature(self._service.call_server_install_entry).parameters

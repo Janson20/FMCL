@@ -1,4 +1,4 @@
-// FmDropZone.qml —— 文件拖放区（阶段 2 任务 2.16 的组件库，阶段 3 任务 3.6 落地）。
+// FmDropZone.qml —— 文件拖放区。
 //
 // 为什么现在才出现：2.16 锁定的清单里没有它，因为当时没有页面需要"收文件"；
 // 3.6 的资源管理页要拖拽安装，按 2.16 的四步补件流程（加文件 → 守纪律 → 进白名单 → 跑闸门）
@@ -66,7 +66,7 @@ Rectangle {
             //: 虚线。**必须用具名枚举**：实测 `strokeStyle: 4` 报
             //: `Invalid property assignment: unknown enumeration`，整个组件变成
             //: `Type FmDropZone unavailable`，用它的页面直接加载不了
-            //: （阶段 3.6 探针实测，见 `docs/refactor/16-phase3-execution-log.md` §二十二）。
+            //: （写 `strokeStyle: 4` 会报上面那条错误）。
             //: `dashPattern` 的单位是 `strokeWidth` 的倍数。
             strokeStyle: ShapePath.DashLine
             dashPattern: [4, 3]

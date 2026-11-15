@@ -10,13 +10,16 @@
 ```bash
 # Ubuntu/Debian
 sudo apt-get update
-sudo apt-get install -y build-essential zlib1g-dev libncurses5-dev \
-    libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev \
-    libsqlite3-dev libbz2-dev liblzma-dev tk-dev uuid-dev
+sudo apt-get install -y git curl python3 python3-venv build-essential cmake ninja-build \
+    pkg-config libgl1-mesa-dev libegl1 libxkbcommon-dev libxkbcommon-x11-0 \
+    libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+    libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 \
+    libfontconfig1 libdbus-1-3 libportaudio2 libcups2-dev
 
 # Fedora/RHEL
-sudo dnf groupinstall "Development Tools"
-sudo dnf install python3-devel tk-devel
+sudo dnf install -y git curl python3 python3-devel gcc-c++ cmake ninja-build pkgconf \
+    mesa-libGL-devel libxkbcommon-devel xcb-util-cursor xcb-util-wm xcb-util-image \
+    xcb-util-keysyms xcb-util-renderutil fontconfig dbus-libs portaudio cups-devel
 ```
 
 ### macOS 签名问题
@@ -71,12 +74,14 @@ codesign --deep --force --verify --verbose --sign "Developer ID Application: You
 
 **解决方案**:
 ```bash
-# 重新安装依赖
-pip install -r requirements.txt --force-reinstall
-
-# 或使用uv
+# 以锁文件为准重建虚拟环境
 uv sync --reinstall
+
+# 只重建某一个包
+uv sync --reinstall-package <包名>
 ```
+
+不要用 `pip install` 直接改写项目虚拟环境，否则 `uv.lock` 与实际环境会不一致。
 
 ### 权限错误
 
@@ -84,12 +89,14 @@ uv sync --reinstall
 
 **解决方案**:
 ```bash
-# 添加执行权限
-chmod +x FMCL
+# 目录产物：给入口文件执行权限
+chmod +x FMCL/FMCL
 
-# 或使用sudo运行
-sudo ./FMCL
+# 安装目录无写权限时，改装到用户目录
+bash scripts/install.sh ~/.local/share/fmcl
 ```
+
+不要用 `sudo` 启动图形界面：配置、日志与游戏数据会写入 root 所有的目录，后续普通用户无法读写。
 
 ### Minecraft 启动失败
 
@@ -122,22 +129,22 @@ sudo ./FMCL
 **问题**: 文件下载速度很慢
 
 **解决方案**:
-1. 使用多线程下载（已内置）
-2. 更换镜像源（编辑`config.py`）
-3. 使用代理
+1. 在「设置」中确认已启用国内镜像与合适的下载线程数。
+2. 切换网络或代理后重试；部分资源站点的速度不受镜像影响。
+3. 查看日志中的具体失败 URL，确认不是 DNS 或证书问题。
 
 ### GUI 界面不显示
 
 **问题**: 启动后没有界面显示
 
 **解决方案**:
-- **Linux**: 确保安装了图形界面
-  ```bash
-  sudo apt-get install xvfb
-  xvfb-run python main.py
-  ```
-- **macOS**: 检查是否在终端中运行，尝试双击.app文件
-- **Windows**: 检查是否有杀毒软件拦截
+
+1. 先看 `latest.log` 末尾是否有 QML 加载错误或 Qt 平台插件错误。
+2. Linux 确认已安装 XCB/OpenGL 运行库与图形会话；远程或无显示环境可用
+   `QT_QPA_PLATFORM=offscreen` 做启动检查，但这不会显示窗口。
+3. Linux Wayland 会话可临时用 `QT_QPA_PLATFORM=xcb` 排除平台插件问题。
+4. Windows 检查杀毒软件是否隔离了 `FMCL.exe` 或 `_internal/` 下的 DLL。
+5. 仍无法启动时，用 `QT_DEBUG_PLUGINS=1` 运行并查看缺失的 Qt 插件。
 
 ## GitHub Actions 问题
 
@@ -169,7 +176,7 @@ env:
 2. 检查文件大小（最大2GB）
 3. 查看Actions日志获取详细错误
 
-## 开发环境问题
+## 开发工具问题
 
 ### Git Hooks 不工作
 
@@ -203,17 +210,15 @@ git commit -m "docs: 更新文档"
 
 **解决方案**:
 ```bash
-# 清理并重新安装
-pip uninstall -y -r requirements.txt
-pip cache purge
-pip install -r requirements.txt
+# 删除并重建项目虚拟环境
+rm -rf .venv
+uv sync
 
-# 或使用虚拟环境
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-venv\Scripts\activate     # Windows
-pip install -r requirements.txt
+# 检查锁文件是否与 pyproject.toml 一致
+uv lock --check
 ```
+
+Windows PowerShell 删除虚拟环境：`Remove-Item -Recurse -Force .venv`。
 
 ## AI Agent 问题
 
@@ -263,7 +268,7 @@ pip install -r requirements.txt
 **问题**: 插件状态变为 ERROR 或启动器功能异常
 
 **解决方案**:
-1. 在「设置 → 插件管理」中禁用该插件
+1. 在「设置 → 插件」中禁用该插件
 2. 检查插件请求的权限是否被拒绝（高风险权限如 `core.process`、`network.socket` 可能被限制）
 3. 查看 `latest.log` 中的 Python 异常堆栈
 4. 联系插件开发者获取支持
@@ -341,7 +346,7 @@ pip install -r requirements.txt
 
 如果以上方法都无法解决问题：
 
-1. **查看日志**: `latest.log` 文件包含详细的错误信息
+1. **查看日志**: `latest.log` 与 `latest_structured.log` 包含详细错误信息
 2. **搜索Issues**: [GitHub Issues](https://github.com/Janson20/FMCL/issues)
 3. **提交Issue**: 提供以下信息：
    - 操作系统和版本

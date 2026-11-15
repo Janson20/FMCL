@@ -2,7 +2,7 @@
 
 感谢你考虑为 FMCL 贡献力量！
 
-## 开发环境设置
+## 本地开发准备
 
 ### 前置要求
 
@@ -20,15 +20,15 @@ cd FMCL
 ### 2. 安装依赖
 
 ```bash
-# Python 依赖（推荐在虚拟环境中安装）
-pip install -r requirements-dev.txt
+# Python 依赖（以 uv.lock 为准）
+uv sync
 
 # Node.js 依赖（用于 Git hooks）
 npm install
 npm run prepare
 
 # 安装 pre-commit hooks（可选，但推荐）
-pip install pre-commit
+uv tool install pre-commit
 pre-commit install
 ```
 
@@ -191,6 +191,6 @@ git push origin v2.0.1
 
 - 阅读 [README.md](README.md) 了解项目概况
 - 阅读 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 了解项目架构
-- 阅读 [docs/SETUP.md](docs/SETUP.md) 了解开发环境设置
+- 阅读 [docs/SETUP.md](docs/SETUP.md) 了解本地开发准备
 - 查看 [Issues](https://github.com/Janson20/FMCL/issues) 了解待办任务
 - 在 [Discussions](https://github.com/Janson20/FMCL/discussions) 中提问

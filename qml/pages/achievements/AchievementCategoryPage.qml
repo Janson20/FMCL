@@ -1,4 +1,4 @@
-// AchievementCategoryPage.qml —— 单个成就分类（阶段 3 任务 3.21）。
+// AchievementCategoryPage.qml —— 单个成就分类。
 //
 // 路由 achievements/category，参数 category=分类 id。列表只显示该分类的成就；
 // 点一行进 achievements/detail。分类不存在时走空态而不是白屏。

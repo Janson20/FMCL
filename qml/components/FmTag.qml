@@ -1,4 +1,4 @@
-// FmTag.qml —— 标签 / 徽标（阶段 2 任务 2.16）。
+// FmTag.qml —— 标签 / 徽标。
 //
 // 什么时候用它：给一条数据挂一个**短**的语义标记 —— "已安装"、"快照"、"Forge"、
 //   "仅客户端"、"需更新"、"成就已解锁"。也用于列表项的次要状态。
@@ -31,12 +31,12 @@ Rectangle {
     border.width: 1
     border.color: tag.levelColor
 
-    //: 语义色。**是只读属性而不是"在绑定里调 JS 函数"**（阶段 3 任务 3.4 验收修复）：
+    //: 语义色。**是只读属性而不是"在绑定里调 JS 函数"**：
     //: 本组件现在会出现在顶栏（`AppBar.qml` 的未保存标记），而顶栏是
     //: `FluWindow` 的 C++ 属性 —— 引擎销毁时它的 QML 作用域比这些绑定先没，
     //: 于是原来那句 `tag.levelColor` 会在销毁瞬间抛
-    //: `TypeError: Property 'levelColor' … is not a function`（视觉回归探针实测，
-    //: 而同一个组件放在页面里就不会）。属性读在同样时刻只会拿到 undefined，
+    //: `TypeError: Property 'levelColor' … is not a function`（同一个组件放在页面里就不会）。
+    //: 属性读在同样时刻只会拿到 undefined，
     //: 被 `??` 兜住 —— 界面上一个像素都不会变。
     readonly property color levelColor: {
         if (level === "accent")

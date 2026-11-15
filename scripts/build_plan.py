@@ -15,16 +15,15 @@ PyInstaller 的静态分析**看不见**它们 —— 漏收一个的后果是"�
 
 ## 产物形态
 
-阶段 4.3 起只有一种产物：入口 `main_qml.py`，**onedir**（`COLLECT`）到 `dist/FMCL/`，
+只有一种产物：入口 `main_qml.py`，**onedir**（`COLLECT`）到 `dist/FMCL/`，
 收集 `qml/`、自编译的 FluentUI 模块与 Qt 运行时。没有后端开关，也没有 onefile。
 
 为什么 QML 走 onedir 而不是 onefile：onefile 每次启动都要把 Qt 运行时（约 200 MB）解压到临时
 目录，启动器的冷启动体验不可接受；而 `updater.py` 只认 `FMCL-Setup-*.exe` 安装包，**装目录
 不影响自动更新链路**（已核对 `updater.py::find_suitable_asset`）。
 
-安装目录固定为 `%LOCALAPPDATA%\Programs\FMCL`，与 2.12.6 及更早版本相同 —— 旧版用户把数据
-（`config.json`、`.minecraft`、账号、歌单、成就）留在安装目录的便携模式，路径一变就会"换一个
-启动器"，所以 4.3 不再使用迁移期的 `FMCL-QML` 后缀。
+安装目录固定为 `%LOCALAPPDATA%\Programs\FMCL`。用户数据默认跟随程序目录（`config.json`、
+`.minecraft`、账号、歌单、成就），产物名与安装路径保持不变，升级不会切换数据位置。
 """
 
 from __future__ import annotations
@@ -45,8 +44,8 @@ def detect_platform(sys_platform: str) -> str:
 
 
 # ─── 依赖清单 ──────────────────────────────────────────────────
-#: 通用隐式导入（与迁移前逐条一致，不要凭感觉删：tkinterweb / customtkinter 这类包
-#: 是"运行时按需 import"，静态分析未必收得全）。
+#: 通用隐式导入。动态 import 的包不要凭感觉删：它们不在静态分析结果里，
+#: 漏收的后果是打包产物运行到对应功能时才失败。
 COMMON_HIDDEN_IMPORTS: Tuple[str, ...] = (
     "minecraft_launcher_lib",
     "minecraft_launcher_lib._helper",
@@ -84,7 +83,7 @@ COMMON_HIDDEN_IMPORTS: Tuple[str, ...] = (
     "_build_secrets",
 )
 
-#: 语音输入栈（sounddevice + onnxruntime + sentencepiece），两种后端都要。
+#: 语音输入栈（sounddevice + onnxruntime + sentencepiece）。
 VOICE_HIDDEN_IMPORTS: Tuple[str, ...] = (
     "sounddevice",
     "_sounddevice_data",
@@ -116,44 +115,35 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "app.bridges.home_bridge",
     "app.bridges.version_bridge",
     "app.bridges.install_bridge",
-    # 阶段 3 任务 3.4 的三个设置桥
+    # 设置、日志、关于
     "app.bridges.settings_bridge",
     "app.bridges.log_bridge",
     "app.bridges.about_bridge",
-    # 阶段 3 任务 3.5 的账号桥
+    # 账号、资源、在线资源浏览
     "app.bridges.accounts_bridge",
-    # 阶段 3 任务 3.6 的资源桥
     "app.bridges.resources_bridge",
-    # 阶段 3 任务 3.7 的在线资源浏览桥
     "app.bridges.mod_browser_bridge",
-    # 阶段 3 任务 3.8 的整合包桥
+    # 整合包、服务器、服务器配置
     "app.bridges.modpack_bridge",
-    # 阶段 3 任务 3.9 的服务器桥
     "app.bridges.servers_bridge",
-    # 阶段 3 任务 3.11 的服务器配置编辑器桥
     "app.bridges.server_config_bridge",
-    # 阶段 3 任务 3.12 的服务器模组 / 资源包与在线浏览桥
+    # 服务器模组与资源包
     "app.bridges.server_mods_bridge",
     "app.bridges.server_mod_browser_bridge",
-    # 阶段 3 任务 3.13 的联机桥
+    # 联机、存档备份、基岩版
     "app.bridges.online_bridge",
-    # 阶段 3 任务 3.14 的存档备份桥
     "app.bridges.backup_bridge",
-    # 阶段 3 任务 3.15 的基岩版桥
     "app.bridges.bedrock_bridge",
-    # 阶段 3 任务 3.16 的音乐桥
+    # 音乐、工具箱、相关网站
     "app.bridges.music_bridge",
-    # 阶段 3 任务 3.20 的工具箱桥
     "app.bridges.tools_bridge",
-    # 阶段 3 任务 3.26 的相关网站桥
     "app.bridges.links_bridge",
+    # 成就、净读账号、AGENT
     "app.bridges.achievements_bridge",
     "app.bridges.jingdu_bridge",
-    # 阶段 3 任务 3.22 的 AGENT 对话桥
     "app.bridges.agent_bridge",
-    # 阶段 3 任务 3.27 的插件桥
+    # 插件、更新
     "app.bridges.plugin_bridge",
-    # 阶段 3 任务 3.28 的更新桥
     "app.bridges.update_bridge",
     # app.bootstrap 的服务表（`_make_factory` 按 "模块:类名" 导入）
     "services.about_service",
@@ -171,9 +161,9 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "services.mod_browser_service",
     "services.modpack_service",
     "services.online_service",
-    # 阶段 3 任务 3.27 的插件服务（管理与市场共用）
+    # 插件服务（管理与市场共用）
     "services.plugin_service",
-    # 阶段 3 任务 3.28 的更新服务
+    # 更新服务
     "services.update_service",
     "services.plugin_browser_service",
     "services.resource_service",
@@ -185,7 +175,7 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
 )
 
 #: QML 产物排除的 Python 绑定：**不能**排 PySide6（那正是 QML 的界面栈）。
-#: QML 后端额外 hiddenimports：不在 main_qml 桥表 / 服务表里，但运行时才 import 的包。
+#: 额外 hiddenimports：不在 main_qml 桥表 / 服务表里，但运行时才 import 的包。
 #: 单独一张表，避免污染 `QML_DYNAMIC_IMPORTS` 的"真源表"反向检查。
 QML_EXTRA_HIDDEN_IMPORTS: Tuple[str, ...] = ("fusion_music.host", "fusion_music.migration")
 
@@ -199,9 +189,8 @@ QML_EXCLUDES: Tuple[str, ...] = (
     "IPython",
     "jupyter",
     "notebook",
-    # 用不到的 Qt 绑定（体积大头；依据 poc/fmcl_qml_poc.spec 的实测裁剪表 + 本项目
-    # `app/` 与 `main_qml.py` 里的 `from PySide6.* import` 实测清单：
-    # QtCore / QtGui / QtNetwork / QtQml / QtQuick / QtSvg，仅此六个）。
+    # 用不到的 Qt 绑定（体积大头）。保留的模块以 `app/` 与 `main_qml.py` 的
+    # `from PySide6.* import` 实际清单为准。
     "PySide6.QtWebEngineCore",
     "PySide6.QtWebEngineQuick",
     "PySide6.QtWebEngineWidgets",
@@ -244,7 +233,7 @@ QML_EXCLUDES: Tuple[str, ...] = (
 
 #: 收集到的二进制里按**子串**丢弃的名字（PyInstaller 的 PySide6 hook 会连带收集一批
 #: 未使用的大体积 DLL，其中 Qt6WebEngineCore.dll 单个就有 142 MB）。
-#: 依据 `poc/fmcl_qml_poc.spec` 的实测裁剪表（POC 打包后能跑）。
+#: 依据实测裁剪表（POC 打包后能跑）。
 QML_DROP_BINARY_PATTERNS: Tuple[str, ...] = (
     "Qt6WebEngineCore",
     "Qt6WebEngineQuick",
@@ -292,9 +281,9 @@ def should_drop_collected_binary(name: str) -> bool:
 def should_drop_qml_module_dir(path: str) -> bool:
     """`PySide6\\qml\\<模块>` 下的文件是否该丢（只保留 `QML_KEEP_MODULE_DIRS` 里的目录）。
 
-    **必须带 `PySide6` 前缀**，这是踩过的坑：第一版只找 `/qml/`，于是本项目自己的
-    `qml/App.qml` 与 `third_party/_install/qml/FluentUI/**` 的**源路径**里也含 `/qml/`，
-    整个 App 的 QML 与 FluentUI 的 120 个文件被当场裁光 —— 产物"看着正常、一启动就没有界面"。
+    **必须带 `PySide6` 前缀**：本项目自己的 `qml/App.qml` 与
+    `third_party/_install/qml/FluentUI/**` 的**源路径**里也含 `/qml/`，只按 `/qml/`
+    匹配会把整个 App 的 QML 与 FluentUI 模块裁掉，产物"看着正常、一启动就没有界面"。
     判据只认 Qt 自己的包内路径（大小写不敏感，`\\` 与 `/` 都当分隔符）。
     """
     normalized = path.replace("\\", "/").lower()
@@ -312,7 +301,7 @@ def should_drop_qml_module_dir(path: str) -> bool:
 
 
 def _data(root: Path, relative_source: str, target: str) -> Optional[Tuple[str, str]]:
-    """存在才收（与迁移前 spec 的 `if os.path.exists(...)` 语义一致）。"""
+    """存在才收（与 `build.spec` 的 `if os.path.exists(...)` 语义一致）。"""
     source = root / relative_source
     if not source.exists():
         return None
@@ -402,7 +391,7 @@ def missing_qml_requirements(root: Path) -> List[str]:
 
 
 #: 唯一产物名。安装器、快捷方式、注册表键与
-#: `%LOCALAPPDATA%\Programs\FMCL` 都依赖它，不能带迁移期的后缀。
+#: `%LOCALAPPDATA%\Programs\FMCL` 都依赖它，不要改名。
 PRODUCT_NAME = "FMCL"
 
 
@@ -417,7 +406,7 @@ def plan(root: Optional[str] = None, platform: Optional[str] = None) -> Dict[str
         dict：product_name / entry / datas / hidden_imports / excludes /
         filter_collected / with_qt。
 
-    阶段 4.3 起没有后端参数：4.2 删除 Tk 后只剩 QML，`UI_BACKEND` 环境变量一并退休。
+    QML 是唯一界面，没有后端参数，也不再读取 `UI_BACKEND`。
     """
     root_path = Path(root or os.getcwd()).resolve()
     resolved_platform = platform or detect_platform(sys.platform)

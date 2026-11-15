@@ -1,34 +1,29 @@
-"""基岩版服务 —— `ui/app_bedrock.py`（`BedrockMixin`，726 行 / 28 方法）里那些
-**本质是逻辑、只是恰好写在界面类里**的代码（阶段 1 任务 1.11）。
+"""基岩版服务 —— 基岩版页面的纯逻辑。
 
-## 切缝判据（只有一条）
+## 边界
 
-**这段代码是否 import GUI、或是否直接创建/销毁控件。** 是 → 留在界面；
-否 → 搬进本模块。界面效果一律通过调用方传进来的 sink（``status_cb`` /
-``code_cb`` / ``done_cb``）或返回值完成。服务自身：
+本模块不 import GUI、不直接创建/销毁控件。界面效果一律通过调用方传进来的
+sink（``status_cb`` / ``code_cb`` / ``done_cb``）或返回值完成。服务自身：
 
 - 不弹窗、不起线程、不调 ``after``、不碰控件；
 - 不 ``import ui.*``、不 ``import ui.i18n``（**文案一律留界面**）；
 - 对 GUI 的依赖为 0，由 ``scripts/check_services_purity.py`` 持续守住。
 
-## 切缝落在哪（四段）
+## 四段职责
 
 1. **纯逻辑**：可用版本的过滤（关键字 + UWP/GDK 筛选）、分页（每页 20 条、
    页码夹紧、切片）、release 计数、已安装版本里按 name 查找。
-   这些从 `_on_bedrock_filter_change` / `_get_bedrock_total_pages` /
-   `_render_bedrock_available` / `_handle_bedrock_task` / `_on_bedrock_launch`
-   里逐字搬出，零改写。
 2. **前置检查的判定**：MCAPPX 条款是否已同意、GDK 版是否需要先装 .NET 10 SDK
    （并给出官方下载直链）、GDK 版启动前闭源认证组件是否就绪。
    "要不要问用户"由界面决定，服务只回答"缺什么"。
 3. **编排**：安装 / 启动 / 删除各自那一次回调解调 + 结果归一化；MSA 设备码
    登录的完整流程（缓存快速路径 → 互斥锁 → 设备码 → 轮询 → 落盘）；
    在资源管理器里打开版本根目录。界面只负责把结果映射成 ``_task_queue`` 任务。
-4. **锁**：原来的两个**模块级**锁（启动防重入 `_BEDROCK_LAUNCH_LOCK`、
-   设备码登录互斥 `_MSA_LOGIN_LOCK`）搬到这里，仍是模块级（进程范围内唯一），
-   语义不变；`ui/app_bedrock.py` 保留同名别名以便旧引用继续解析。
+4. **锁**：两个**模块级**锁（启动防重入 `_BEDROCK_LAUNCH_LOCK`、
+   设备码登录互斥 `_MSA_LOGIN_LOCK`）保持模块级（进程范围内唯一），
+   语义不变。
 
-## 留在界面（不搬）的部分
+## 留在界面
 
 控件创建与布局、主题色登记（`_theme_refs`）、列表渲染与空态、
 `winfo_children()` 清理、`_run_in_thread` 调度、**全部 `_("...")` 文案**、

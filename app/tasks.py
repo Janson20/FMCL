@@ -1,14 +1,11 @@
-"""后台任务调度器（阶段 1 的 threading 实现）。
+"""后台任务调度器。
 
-阶段 2 会换成 QThreadPool + 信号；**接口保持不变**，这样阶段 1 搬进
-services 的业务代码在阶段 2 不需要再改一遍。
-
-三个设计决定，都是为了修掉现有代码里的真实缺陷：
+三个设计决定：
 
 1. **自己管 daemon 线程池，不用 ThreadPoolExecutor**。
    ``ThreadPoolExecutor`` 的工作线程是非 daemon 的，解释器退出时会 join，
    一个卡住的长下载会让整个启动器退不掉。同时并发数有上限，
-   直接消灭"缩略图线程风暴"（阶段 1.22）。
+   避免缩略图等短任务瞬间占满线程。
 2. **取消是协作式的**。``cancel()`` 只置位 ``cancel_event``，任务自己
    在安全点检查 ``ctx.cancelled`` 并尽快返回。已排队未开跑的任务会被跳过。
 3. **回调统一切回主线程**。``dispatch`` 通过注入的 scheduler 完成；
@@ -203,13 +200,13 @@ class TaskRunner:
 
     @property
     def scheduler(self) -> Optional[Dispatcher]:
-        """当前的主线程调度器（阶段 2 任务 2.4：Qt 侧的桥要用它把回调排回主线程）。"""
+        """当前的主线程调度器：Qt 桥用它把回调排回主线程。"""
         return self._scheduler
 
     def set_executor(self, executor: Optional[Callable[[Callable[[], None]], None]]) -> None:
-        """替换**执行基底**（阶段 2 任务 2.4）。
+        """替换**执行基底**。
 
-        默认基底是内建线程池（`_queue` + `_worker_loop`，旧 Tk 界面用）。QML 侧传一个
+        默认基底是内建线程池（`_queue` + `_worker_loop`）。QML 侧传一个
         `QThreadPool` 适配器进来，就完成了"`TaskRunner` 换成 Qt 实现"这件事 ——
         **而取消语义、回调契约、进度上报、任务回收全部只有一份实现**。
 

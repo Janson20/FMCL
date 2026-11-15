@@ -58,7 +58,7 @@ class HookPoint(str, Enum):
     UI_TAB_REGISTER = "ui.tab.register"  # 注册主界面标签页（v1，tkinter 容器）
     UI_SIDEBAR_REGISTER = "ui.sidebar.register"  # 注册侧边栏项目（v1）
     UI_SETTINGS_REGISTER = "ui.settings.register"  # 注册设置条目（v1）
-    #: 注册 QML 页面（v2，阶段 3 任务 3.27）。清单 `ui_api >= 2` 的插件才会被
+    #: 注册 QML 页面（v2）。清单 `ui_api >= 2` 的插件才会被
     #: 启动器采集；处理器返回 `{id, title, icon, order, qml_url}`（或它的列表）。
     UI_PAGE_REGISTER = "ui.page.register"
 
@@ -179,7 +179,7 @@ class PluginBase(abc.ABC):
         log_func(f"[Plugin:{self.manifest.id}] {message}")
 
     def emit_ui_event(self, name: str, payload: Any = None) -> bool:
-        """向自己的 QML 页面广播一个事件（v2，阶段 3 任务 3.27）。
+        """向自己的 QML 页面广播一个事件（v2）。
 
         页面侧监听 `Plugins.pageEvent(owner, name, payload)`。用于"后台数据变了，
         页面该刷新了"这类**推送**语义；页面主动取数走导出的 API（见

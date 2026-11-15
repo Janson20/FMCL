@@ -1,4 +1,4 @@
-// AchievementsPage.qml —— 成就总览（阶段 3 任务 3.21）。
+// AchievementsPage.qml —— 成就总览。
 //
 // 路由 achievements：总进度 + 9 大分类入口。分类列表、详情、云端同步各自是
 // 独立二级页（achievements/category、/detail、/cloud），本页只做入口，不再把

@@ -24,7 +24,7 @@ _OPTIONAL_DEFAULTS: Dict[str, Any] = {
     "exports": [],
     "imports": [],
     "entry": "__init__",
-    #: UI 扩展 API 版本（阶段 3 任务 3.27）。缺省 1 = 旧版 Tk 界面协议
+    #: UI 扩展 API 版本。缺省 1 = 旧界面协议
     #: （`get_tab_ui(parent)` 拿 tkinter 容器），QML 界面无法渲染；
     #: 2 = 新版 QML 页面协议（`ui.page.register` 返回 `qml_url`）。
     "ui_api": 1,
@@ -135,7 +135,7 @@ class PluginManifest:
         if not self.entry or not self.entry.isidentifier():
             errors.append(f"入口模块名 '{self.entry}' 不是有效的 Python 标识符")
 
-        # 检查 UI API 版本（阶段 3 任务 3.27）：只接受 >=1 的整数。
+        # 检查 UI API 版本：只接受 >=1 的整数。
         # 写成字符串 "2" 时 **不** 自动转换 —— 清单是外部输入，宽容解析会让
         # "作者以为声明了 v2、启动器却按 v1 降级"变成无声的界面缺失。
         if not isinstance(self.ui_api, int) or isinstance(self.ui_api, bool) or self.ui_api < 1:

@@ -1,4 +1,4 @@
-// FmAgentToolSettings.qml —— 工具清单与三级权限（阶段 3.23）。
+// FmAgentToolSettings.qml —— 工具清单与三级权限。
 import QtQuick
 import QtQuick.Layouts
 import ".."

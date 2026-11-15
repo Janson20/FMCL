@@ -1,14 +1,12 @@
-// PluginMarketPage.qml —— 插件市场（阶段 3 任务 3.27，M-31）。
+// PluginMarketPage.qml —— 插件市场。
 //
-// 旧实现 ui/windows/plugin_browser.py（715 行 Tk Toplevel）：标题 / 刷新 / 搜索 /
-// 标签筛选 / 状态栏 / 卡片（更新标记、已安装标记、权限统计 H:M:L、许可证）/
-// 下载安装 / 更新 / 启用 / 每页 10 条 / 焦点重载。
+// 内容：标题 / 刷新 / 搜索 / 标签筛选 / 状态栏 / 卡片（更新标记、已安装标记、
+// 权限统计 H:M:L、许可证）/ 下载安装 / 更新 / 启用 / 每页 10 条 / 焦点重载。
 //
-// 新界面是设置域的二级路由 settings/plugin/market，与旧窗口的差别只有两条
-// （均为本轮裁决）：
-//   * 刷新按钮恒传 force=True —— M-Q7："点刷新没反应"是因为受 1 小时缓存约束；
+// 两条要点：
+//   * 刷新按钮恒传 force=True —— "点刷新没反应"是因为受 1 小时缓存约束；
 //   * 权限统计复用 services/browse_common.permission_summary（与 plugin_manager
-//     的权限风险表同一真值来源）—— M-Q8。
+//     的权限风险表同一真值来源）。
 //
 // 线程：索引拉取 / 安装 / 更新都在 Plugins 桥的 TaskRunner 里；本页只发意图。
 

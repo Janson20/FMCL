@@ -1,4 +1,4 @@
-"""Agent 消息的 Markdown → QML 富文本块解析（阶段 3 任务 3.22）。
+"""Agent 消息的 Markdown → QML 富文本块解析。
 
 旧 Tk 版用 `markdown` + HtmlFrame 直接渲染一整段 HTML。QML 侧没有
 WebEngine（打包会多出 142 MB 的 Qt6WebEngineCore，`scripts/build_plan.py`

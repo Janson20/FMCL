@@ -10,7 +10,7 @@ from __future__ import annotations
 
 
 class InstallCancelled(Exception):
-    """安装被用户取消（阶段 3 任务 3.3 的「尽力取消」）。
+    """安装被用户取消。
 
     语义（写清楚，免得调用方猜）：
 

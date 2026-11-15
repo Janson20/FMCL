@@ -1,4 +1,4 @@
-"""QtUIPort —— ``app.ports.UIPort`` 的 Qt/QML 实现（阶段 2 任务 2.3）。
+"""QtUIPort —— ``app.ports.UIPort`` 的 Qt/QML 实现。
 
 与 ``ui/ports_tk.py:TkUIPort`` **逐个方法对齐**（契约 ``docs/refactor/11`` 第 5.3 节），
 只换底座：Tk 的 ``after`` 轮询加 ``wait_window`` 换成 ``QTimer`` 轮询加 ``QEventLoop``。

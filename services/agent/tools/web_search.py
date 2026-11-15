@@ -2,7 +2,7 @@
 
 后端按可用性回退：
 1. Bing Web Search API（配置了 BING_API_KEY）
-2. Bing 网页搜索（免费，无需 Key；本机实测可达）
+2. Bing 网页搜索（免费，无需 Key）
 3. DuckDuckGo HTML（免费后端，部分网络会超时）
 """
 
@@ -65,8 +65,8 @@ def _web_search(params: Dict[str, str], callbacks: Dict[str, Callable]) -> str:
     if results:
         return _format_results(query, results, "Bing")
 
-    # Bing 网页偶发被风控时再试 DuckDuckGo；它的后端在本机经常连接超时，
-    # 因此只作为最后兜底，且把真实失败原因带回给模型。
+    # Bing 网页偶发被风控时再试 DuckDuckGo；部分网络下它可能超时，
+    # 因此只作为最后兜底，并把真实失败原因带回给模型。
     return _search_duckduckgo(query, num)
 
 

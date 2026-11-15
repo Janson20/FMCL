@@ -1,4 +1,4 @@
-// 启动画面（阶段 2 任务 2.14；界面返工 A 组重做并修掉"加载完不消失"）。
+// 启动画面。
 //
 // ## 时序语义**不在 QML 里**
 //
@@ -9,23 +9,22 @@
 //   startupActive === true   → 本窗口显示（并且主窗口由 App.qml 藏起来）
 //   startupActive === false  → 本窗口淡出后隐藏
 //
-// 为什么计时不放 QML：那属于"简化实现就会丢容错"的一类语义（风险 R-34），
+// 为什么计时不放 QML：那属于"简化实现就会丢容错"的一类语义，
 // 放 Python 侧才能用注入的时钟快速确定地测出来。详见 app/startup.py 的模块文档。
 //
-// ## 返工 A 组修掉的缺陷（D-142）：加载完了窗口不消失
+// ## 可见性必须是绑定，不能写字面量
 //
-// 旧版本这里写的是 **`visible: true` 字面量**，而全工程**没有任何一行**把它关掉 ——
-// Python 侧四条退出路径全都正常跑完（`dismissed` 已为真、主窗口也显示了），
-// 那个顶层窗口却一直盖在所有东西上面。用户看到的就是"加载窗加载完后没消失"。
+// 可见性**必须是绑定**，而且绑定到 `Startup.startupActive`：写成 `visible: true`
+// 字面量而没人负责关它，就是一个一直盖在所有东西上面的顶层窗口。
 //
-// 两个教训写进测试里，不再靠"记得写"：
+// 两条约束写进测试里，不再靠"记得写"：
 //
-//   * 可见性**必须是绑定**，而且绑定到 `Startup.startupActive`（`tests/qml_startup_probe.py`
-//     真的跑一遍启动流程，断言收尾后本窗口不可见、主窗口可见）；
+//   * `tests/qml_startup_probe.py` 真的跑一遍启动流程，断言收尾后本窗口不可见、
+//     主窗口可见；
 //   * `Startup` 完全缺席时**默认不显示**（`?? false`）—— 没有控制器就没有人关它，
-//     宁可没有启动画面，也不能再留一个关不掉的窗口。
+//     宁可没有启动画面，也不能留一个关不掉的窗口。
 //
-// 约束（闸门 R1/R3/R4/R8）：无渐变、无 emoji、无中文字面量、无颜色字面量。
+// 约束（R1/R3/R4/R8）：无渐变、无 emoji、无中文字面量、无颜色字面量。
 
 import QtQuick
 import QtQuick.Layouts
@@ -37,7 +36,7 @@ Window {
 
     //: 启动流程是否占屏。`typeof` 挡"完全没声明"（抛 ReferenceError），
     //: 后面的 `&& Startup` 挡"已声明但为 null"（引擎析构时上下文属性先被清空、
-    //: 绑定还排在求值队列里，这时 `Startup.startupActive` 会抛 TypeError —— 2.2 实测）。
+    //: 绑定还排在求值队列里，这时 `Startup.startupActive` 会抛 TypeError）。
     readonly property bool active: (typeof Startup !== "undefined" && Startup) ? Startup.startupActive : false
     //: 淡出进行中：这段时间里窗口还得可见，否则动画会被自己掐掉
     property bool fading: false
@@ -49,25 +48,23 @@ Window {
     // （R8 只管 `#hex` 与 `Qt.rgba`，命名色 `transparent` 是允许的。）
     color: "transparent"
 
-    // **必须显式切断 transientParent**（返工 A 组的实测结论，`poc/_probe_splash_window_visibility.py`）：
+    // **必须显式切断 transientParent**：
     //
     // 声明在另一个 Window 内部的 Window 会自动把外层窗口设成 `transientParent`，
     // 而 Qt **不允许 transient 子窗口在父窗口不可见时显示** —— 那一步会把 QML 侧的
-    // `visible` 直接压成 false（实测：父窗口藏着时子窗口 `visible=false` / `visibility=0`，
+    // `visible` 直接压成 false（父窗口藏着时子窗口 `visible=false` / `visibility=0`，
     // 把父窗口 show 出来之后子窗口自己就变可见了）。
     //
-    // 也就是说：既然返工 A 组让"启动画面占屏期间主窗口藏起来"（缺陷 D-142），
-    // 这个子窗口就会被连带藏掉 —— 用户看到的会是"启动时什么都没有"，
-    // 比原来那个关不掉的加载窗更糟。显式置 null 之后实测：
-    // 父窗口不可见时本窗口照样 `isVisible=true`（visibility=2），父窗口后来显示也不影响它。
+    // 启动画面占屏期间主窗口是藏起来的，这个子窗口就会被连带藏掉 —— 用户看到的会是
+    // "启动时什么都没有"。显式置 null 之后：父窗口不可见时本窗口照样 `isVisible=true`
+    // （visibility=2），父窗口后来显示也不影响它。
     transientParent: null
     visible: active || fading
 
-    // 居中到主屏（阶段 0 第 12.5 节的教训：多屏时要用"窗口所在的 QScreen"，
-    // 但启动画面此刻还没有归属屏幕，取主屏是旧实现的等价行为）
+    // 居中到主屏（多屏时应使用"窗口所在的 QScreen"，但启动画面此刻还没有归属屏幕）。
     //
     // 判空是必须的：**offscreen 平台上 `screen.geometry` 可能是 undefined**
-    // （实测报 `Cannot read property 'x' of undefined`），而那是加载期错误、
+    // （会报 `Cannot read property 'x' of undefined`），而那是加载期错误、
     // 会污染"日志里有没有 QML 报错"这条判据。
     function centerOnPrimary() {
         var screen = splash.screen

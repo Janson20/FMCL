@@ -1,4 +1,4 @@
-// FmAgentAskDialog.qml —— ask_user 的多问题选择浮层（阶段 3 任务 3.22）。
+// FmAgentAskDialog.qml —— ask_user 的多问题选择浮层。
 //
 // 工具循环在 worker 里等这个答案；关闭/拒绝都必须发 answered(false, [])。
 // 支持 1~4 个问题、单选/多选、自定义输入、上一题/下一题；选项数据完全来自

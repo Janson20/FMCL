@@ -1,4 +1,4 @@
-// FmAgentSkillSettings.qml —— Skills 管理（阶段 3.23）。
+// FmAgentSkillSettings.qml —— Skills 管理。
 import QtQuick
 import QtQuick.Layouts
 import "../dialogs"

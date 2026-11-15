@@ -1,4 +1,4 @@
-"""在线资源浏览桥 —— QML 侧的 `ModBrowser` 上下文属性（阶段 3 任务 3.7，对照表 L-56）。
+"""在线资源浏览桥 —— QML 侧的 `ModBrowser` 上下文属性。
 
 ## 它在链路的哪一环
 
@@ -11,20 +11,16 @@
         ↓ 委托
     modrinth.py / curseforge.py（网络与下载）
 
-旧实现是一个 1248 行的 Tk 窗口（`ui/windows/mod_browser.py`）：三标签页 + 页内搜索 +
-页内结果 + 卡片直接安装。**服务层在阶段 1/2 已经迁完**（`services/mod_browser_service.py`
-634 行，D-91 / D-93 / D-100 / D-103 四条缺陷都已修好并被
-`tests/test_mod_browser_staleness.py` 钉住），所以本任务的正文是**桥 + 两页 QML**。
+页面形态：三标签页 + 页内搜索 + 页内结果 + 卡片直接安装。业务规则全在
+`services/mod_browser_service.py`（搜索 / 安装 / 详情），过期结果由
+`tests/test_mod_browser_staleness.py` 钉住；本模块的正文是**桥 + 两页 QML**。
 
-## 用户裁决
+## 页面与搜索的约定
 
-* **2026-10-17：按 IA 拆页** —— 原计划三页（在线浏览 → 搜索结果 → 资源详情），
-  详情页本轮一并做（版本选择 + 依赖预览 + 按所选版本安装，旧实现没有这一页）。
-* **2026-10-23：并回两页** —— 用户看到实物后指出「搜索和资源搜索两个页面重复」：
-  L1 只有一张表单，L2 又是一个一模一样的工具条。现在**搜索与结果同页**
-  （旧窗口也是一屏），只保留 `resources/browse` 与 `resources/browse/detail` 两层。
-* **来源不切换**：Modrinth + CurseForge **合并搜索**，卡片上标来源（与旧实现逐字一致）。
-* 验证走精简档（1 个桥测试文件 + 1 个 QML 判据脚本 + 截图 + 全量 pytest + 五道闸门）。
+* **两层页面**：`resources/browse`（搜索 + 结果同页，只有一张表单）与
+  `resources/browse/detail`（版本选择 + 依赖预览 + 按所选版本安装）。不要把搜索与结果
+  拆成两页 —— 那样 L1 与 L2 会各有一张一模一样的工具条。
+* **来源不切换**：Modrinth + CurseForge **合并搜索**，卡片上标来源。
 
 ## 两个页面的状态怎么共享
 
@@ -35,9 +31,9 @@
   用户点「搜索」时才走 :meth:`search` / :meth:`aiSearch`，结果与分页**在同一页**渲染；
 * `resources/browse/detail` 入场时调 :meth:`ModBrowserBridge.openDetail`。
 
-**世代号（D-93 的延续）**：每个标签页一个只增不减的 `seq`，搜索 / AI 搜索启动时自增；
-worker 与投递回调都带着自己那一代，对不上就整批丢弃（连缓存都不写）。这条约定旧实现
-有、`tests/test_mod_browser_staleness.py` 钉着服务侧的同形实现，桥侧照抄。
+**世代号**：每个标签页一个只增不减的 `seq`，搜索 / AI 搜索启动时自增；
+worker 与投递回调都带着自己那一代，对不上就整批丢弃（连缓存都不写）。
+`tests/test_mod_browser_staleness.py` 钉着服务侧的同形实现，桥侧保持一致。
 
 ## 线程约定
 
@@ -225,8 +221,7 @@ class ModBrowserBridge(QObject):
         """`main_qml.register_bridges` 在注册前调它：取服务 / 配置 / 任务调度器。
 
         **不在这里解析"来源版本"**（那是路由参数的活，见 `activate`）：
-        装配早于 `routeParams` 赋值，提前猜一个版本就会盖掉路由给的版本
-        —— 阶段 3.6 的第一条验收缺陷就是它（`16` §二十三）。
+        装配早于 `routeParams` 赋值，提前猜一个版本就会盖掉路由给的版本。
         """
         self._context = context
         self._service = self._service_of(context, "mod_browser")
@@ -770,9 +765,9 @@ class ModBrowserBridge(QObject):
         return browsable_count(None, state["hits"], int(state["total"] or 0))
 
     def _defaults_version(self) -> str:
-        """拿不到路由版本时，用哪个版本来算筛选默认值（用户 2026-10-23 要求「自动填充」）。
+        """拿不到路由版本时，用哪个版本来算筛选默认值（「自动填充」）。
 
-        顺序与 3.6 资源页一致：**最近使用 → 第一个已安装**。
+        顺序与资源页一致：**最近使用 → 第一个已安装**。
         为什么要这一步：从"浏览全部资源"进来时路由没有版本，筛选会停在
         「全部版本 / 全部加载器」，而用户期望的是"按我现在玩的版本先筛好"。
         """
@@ -1045,7 +1040,7 @@ class ModBrowserBridge(QObject):
         self.directoryRequested.emit(tab_key, default_dir, QUrl.fromLocalFile(default_dir))
 
     def _install_target(self, tab: str) -> str:
-        """默认安装目录 —— **当前浏览版本**的资源目录（用户 2026-10-23 反馈）。
+        """默认安装目录 —— **当前浏览版本**的资源目录。
 
         之前直接调 `resolve_install_dir(callbacks, ...)`，有两个问题：
 
@@ -1092,7 +1087,7 @@ class ModBrowserBridge(QObject):
         """回调字典；装配期还没 launcher 时**在这里补一次**（懒解析）。
 
         `bind()` 早于启动链条完成，那时 `try_get("launcher")` 是 None —— 一次性抓死
-        会让整个会话都拿不到 `.minecraft`（阶段 3.6 在资源页也踩过同类问题）。
+        会让整个会话都拿不到 `.minecraft`。
         """
         if not self._callbacks:
             self._launcher = self._launcher or self._launcher_of(self._context)
@@ -1319,8 +1314,8 @@ def install(engine: Any, name: str = QML_NAME) -> Any:
 
     `ResourcesBridge` 有这个函数是因为它要接图片通道；本桥没有引擎侧的额外依赖，
     上下文属性由 `main_qml.register_bridges()` 统一注册。**保留这个名字**是为了让
-    "阶段 3 的桥都有 `install(engine)`"这条读代码的心智模型不必分叉，
-    调用形状与 3.6 完全一致（返回桥对象，找不到返回 None）。
+    "每个桥都有 `install(engine)`"这条读代码的心智模型不必分叉，
+    调用形状与其它桥一致（返回桥对象，找不到返回 None）。
     """
     return (getattr(engine, "_fmcl_bridges", None) or {}).get(name)
 

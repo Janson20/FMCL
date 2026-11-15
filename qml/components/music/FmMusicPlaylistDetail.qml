@@ -1,4 +1,4 @@
-// FmMusicPlaylistDetail.qml —— 发现页歌单详情覆盖层（阶段 3.17，对齐 FMP PlaylistDetailPanel）。
+// FmMusicPlaylistDetail.qml —— 发现页歌单详情覆盖层（对齐 FMP PlaylistDetailPanel）。
 //
 // 覆盖层自己吃点击/滚轮（FmMusicOverlayBackdrop），不让事件穿到下面的发现页。
 

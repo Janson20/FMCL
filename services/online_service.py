@@ -1,7 +1,6 @@
-"""联机服务（阶段 1 任务 1.5）—— EasyTier 组网与陶瓦大厅的纯逻辑。
+"""联机服务 —— EasyTier 组网与陶瓦大厅的纯逻辑。
 
-从 ``ui/app_online.py``（2672 行、12 个类、147 个方法）**逐字搬运**而来。留在界面
-文件里的是控件构建、``after`` 调度、弹窗、剪贴板与日志框投递；搬进来的是这些：
+本模块包含：
 
 - **EasyTier 生命周期**：``EasyTierManager``（检测 / 测速选镜像 / 下载解压 / 参数
   拼装 / 启动停止 / 输出读取 / 中继节点 / 端口转发 / peer 发现）
@@ -16,21 +15,19 @@
 设计约定（与 ``services/server_service.py`` / ``services/tool_service.py`` 一致）：
 
 - **零 UI 依赖**：不 import tkinter / customtkinter / ``ui.*``（由
-  ``scripts/check_services_purity.py`` 强制）。原 ``_get_vendor`` 里的
-  ``_get_fmcl_version`` 改从 ``services.user_agent`` 取 —— 那是**同一个函数对象**
-  （``ui/constants.py`` 就是 ``from services.user_agent import _get_fmcl_version``），
-  见报告"必要改动"第 1 条。
+  ``scripts/check_services_purity.py`` 强制）。``_get_vendor`` 里的
+  ``_get_fmcl_version`` 来自 ``services.user_agent``，与
+  ``ui/constants.py`` 导入的是**同一个函数对象**。
 - **不弹窗、不碰控件**：需要提示用户时由调用方（界面）自己做，服务只回传
   布尔 / ``None`` / 退出码。
-- **失败表达方式沿用改造前**：``False`` / ``None`` / ``0`` 哨兵，不新增异常类型
-  （见 ``services/errors.py`` 的阶段 1 约定）。
+- **失败表达方式**：``False`` / ``None`` / ``0`` 哨兵，不新增异常类型。
 - **线程**：``ScaffoldingServer`` / ``ScaffoldingClient`` / ``BroadcastListener`` /
-  ``McBroadcastSimulator`` / ``TcpPortForwarder`` 的内部线程是**改造前就有**的，
-  原样保留；``EasyTierManager.stop_async`` 同理。界面侧的
-  ``_run_online_thread``（起线程 + ``after`` 回主线程）也原样留在界面文件里。
+  ``McBroadcastSimulator`` / ``TcpPortForwarder`` 的内部线程由这些类自己管理；
+  ``EasyTierManager.stop_async`` 同理。界面侧的
+  ``_run_online_thread``（起线程 + ``after`` 回主线程）留在界面文件里。
 
 ``OnlineService()`` 构造期只保存参数、不读盘不联网，**不需要 AppContext** 即可
-独立实例化（阶段 1 的 Tk 界面就是这么取的）。
+独立实例化。
 
 .. note::
     日志用 ``logzero.logger`` 而不是 ``logging.getLogger(__name__)``，这是**刻意的**：
@@ -38,19 +35,15 @@
     换成模块自己的 logger 会让联机日志从界面日志框里消失。
 
 .. warning::
-    任务 1.5 搬家时这里留了**两处既有缺陷的现场**（``_cleanup_stale_versions`` 的
-    破坏性删除 D-83、``_read_output`` 里跨线程直进 UI 的输出回调 D-90）。
-    任务 1.24 的处置：
+    ``EasyTierManager.download()`` **不自动删除任何旧版本目录**。破坏性删除没有
+    了，换成"**只读**清单 :meth:`EasyTierManager.stale_version_dirs` + 只删显式
+    传入路径的 :meth:`EasyTierManager.remove_stale_versions`"。清单留在
+    :attr:`EasyTierManager.last_stale_version_dirs` 上交回调用方，由界面在主线程
+    问过用户之后才删；没人确认 → 一个目录都不删。
 
-    - **D-83 已修正**（有意的行为变更）：破坏性的自动删除**没有了**，
-      换成"**只读**清单 :meth:`EasyTierManager.stale_version_dirs` + 只删显式传入
-      路径的 :meth:`EasyTierManager.remove_stale_versions`"。``download()`` 不再删
-      任何东西，把清单留在 :attr:`EasyTierManager.last_stale_version_dirs` 上交回
-      调用方，由界面在主线程问过用户之后才删；没人确认 → 一个目录都不删。
-    - **D-107 已修正**：``_flatten_extracted_dir`` 只在子目录**已空**时才删，
-      非空则保留并记日志（旧实现无论如何都递归删掉）。
-    - **D-90 仍未修**（投递端在 ``ui/app_online.py``，不归服务层）：服务只负责
-      "如实在调用线程里回调 on_output"，跨线程投递由界面侧负责。
+    ``_flatten_extracted_dir`` 只在子目录**已空**时才删，非空则保留并记日志。
+
+    服务只负责"如实在调用线程里回调 on_output"，跨线程投递由界面侧负责。
 """
 
 import enum
@@ -87,7 +80,7 @@ EASYTIER_DOWNLOAD_URLS = [
 ]
 _EASYTIER_SPEED_TEST_TIMEOUT = 6.0
 
-#: 「看起来像 EasyTier 版本号目录」的名字形态（D-83 的判据之一）。
+#: 「看起来像 EasyTier 版本号目录」的名字形态（判据之一）。
 #: 认 `2.6.4` / `v2.6.4` / `2.5.0-terracotta.2`，不认 `mytools` / `backup-2024`。
 _VERSION_DIR_NAME_RE = re.compile(r"^v?\d+(?:\.\d+)*(?:[-+][0-9A-Za-z][0-9A-Za-z.\-]*)?$")
 
@@ -739,7 +732,7 @@ class EasyTierManager:
         urlopen: Optional[Callable[..., Any]] = None,
         relay_nodes: Optional[List[str]] = None,
     ):
-        # 外部依赖全部**可注入**（默认就是改造前用的那两个真实实现），
+        # 外部依赖全部**可注入**（默认是两个真实实现），
         # 便于离线测试：不启动 easytier-core.exe、不发任何 HTTP 请求。
         # relay_nodes 非 None 时直接充当已预取的动态节点缓存，
         # 从而不会触发 _ensure_relay_prefetch 的后台线程。
@@ -761,7 +754,7 @@ class EasyTierManager:
         )
         self._relay_prefetch_started = False
         #: 上一次 ``download()`` 之后算出来的"看起来是 EasyTier 旧版本"的目录清单。
-        #: **服务不删它们**（D-83）：由调用方（界面，主线程）问过用户之后再调
+        #: **服务不删它们**：由调用方（界面，主线程）问过用户之后再调
         #: :meth:`remove_stale_versions`。没有调用方的确认就一个都不会被删。
         self.last_stale_version_dirs: List[Path] = []
         #: 上一次 :meth:`remove_stale_versions` 里删失败的项（路径 -> 原因）。
@@ -857,7 +850,7 @@ class EasyTierManager:
         return [url for _, url in alive]
 
     def download(self, on_progress=None) -> bool:
-        # D-83（任务 1.24）：本次下载**不再删除任何目录**。清空上一次的清单，
+        # 本次下载**不再删除任何目录**。清空上一次的清单，
         # 装完只算/只回传"看起来是旧版本"的清单（见 stale_version_dirs 的判据）。
         self.last_stale_version_dirs = []
         self.last_remove_failures = []
@@ -921,10 +914,9 @@ class EasyTierManager:
     def _flatten_extracted_dir(self):
         """把 zip 里多套的一层子目录里的三个文件搬到 ``_base_dir``。
 
-        任务 1.24 修正（D-107）：**只在子目录搬空之后才删它**。旧实现不问内容、
-        无条件 ``shutil.rmtree(sub_path, ignore_errors=True)`` —— 这一层子目录里
-        **任何没被搬走的东西**（同一个 zip 带的 DLL、说明文档、附加工具……）都会被
-        一起静默销毁。现在：搬完还有东西就**原样保留**，并把"里面还剩什么"写进日志。
+        **只在子目录搬空之后才删它**：这一层子目录里**任何没被搬走的东西**
+        （同一个 zip 带的 DLL、说明文档、附加工具……）都不能被静默销毁。
+        搬完还有东西就**原样保留**，并把"里面还剩什么"写进日志。
         """
         target_files = {"easytier-core.exe", "easytier-cli.exe", "Packet.dll"}
         for entry in self._base_dir.iterdir():
@@ -938,7 +930,7 @@ class EasyTierManager:
                         except Exception as e:
                             logger.warning(f"Failed to move {target}: {e}")
 
-                # D-107：先看空不空，再决定删不删。删失败也不再静默 —— 记 warning，
+                # 先看空不空，再决定删不删。删失败也不再静默 —— 记 warning，
                 # 目录留着（留着最多是占点空间，删错了是数据丢失）。
                 try:
                     leftovers = sorted(p.name for p in sub_path.iterdir())
@@ -959,17 +951,15 @@ class EasyTierManager:
                         logger.warning(f"解压子目录已空但删除失败（保留）: {sub_path} —— {e}")
                 break
 
-    # ─── D-83：旧版本目录的"算清单 / 删清单"（**不再自动删**）─────────────
+    # ─── 旧版本目录的"算清单 / 删清单"（**不自动删**）─────────────
     #
-    # 旧实现 `_cleanup_stale_versions` 会 shutil.rmtree 掉版本根下**所有**非当前
-    # 版本目录：无提示、无备份、失败也静默（ignore_errors=True），而唯一调用点在
-    # download() 里跑于 worker 线程（不能就地弹确认框）。任务 1.24 按
-    # docs/refactor/09-phase1-execution-log.md §11.3 定的方向拆成两个函数：
-    # 服务只"算清单"和"删显式传入的清单"，"要不要删"由界面在主线程问用户。
+    # 清理拆成两个函数：服务只"算清单"和"删显式传入的清单"，
+    # "要不要删"由界面在主线程问用户 —— download() 跑在 worker 线程，
+    # 不能就地弹确认框。
 
     @staticmethod
     def _looks_like_version_dir_name(name: str) -> bool:
-        """目录名是否是版本号形态（D-83 判据之一）。"""
+        """目录名是否是版本号形态（判据之一）。"""
         return bool(_VERSION_DIR_NAME_RE.match(name))
 
     def _has_easytier_core(self, path: Path) -> bool:
@@ -990,7 +980,7 @@ class EasyTierManager:
     def stale_version_dirs(self) -> List[Path]:
         """列出"看起来是 EasyTier 旧版本目录"的项。**纯读取：一个字节都不删。**
 
-        真实布局（本机实测）::
+        真实布局::
 
             %LOCALAPPDATA%\\FMCL\\EasyTier\\<版本>\\easytier-windows-x86_64\\
                 easytier-core.exe / easytier-cli.exe / Packet.dll
@@ -1266,12 +1256,9 @@ class EasyTierManager:
             return 1
 
     def _read_output(self, on_output, on_exited):
-        # ⚠ 记录现状、疑为缺陷（D-90，docs/refactor/07-known-defects.md）：
-        # 本方法由 launch() 起的 **reader 线程**执行，而界面侧传进来的
-        # on_output 最终会走到 OnlineTabMixin._append_online_log —— 那个函数
-        # 内部调 winfo_exists()/after()，等于工作线程直接进 UI 函数
-        # （Tk 下不可靠，Qt 下会直接崩）。任务 1.5 只搬家不改逻辑，
-        # 因此这里**原样保留**：投递仍由界面侧负责，服务只负责解析与批处理。
+        # ⚠ 本方法由 launch() 起的 **reader 线程**执行，而界面侧传进来的
+        # on_output 最终会走到界面的日志追加函数（内部可能碰 UI 对象）。
+        # 因此**投递必须由界面侧切回主线程**，服务只负责解析与批处理。
         proc = self._process
         if proc is None:
             return
@@ -1867,18 +1854,16 @@ def _sort_player_list(profiles: list) -> list:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 以下为**新增**代码（非搬运）：把原先埋在界面方法体里的纯逻辑切出来，
-# 以及联机服务对象本身。逐条来源见报告"切缝"一节。
+# 以下为模块级纯函数与服务对象本身。
 # ═══════════════════════════════════════════════════════════════════════
 
 
 def parse_mc_port(raw: str) -> Tuple[Optional[int], str]:
     """把"主机端口"输入框的文本解析成 ``(端口, 用于报错的文本)``。
 
-    逐字对应 ``OnlineTabMixin._on_create_lobby`` 原先内联的那段：空串回落到
-    ``"25565"``；非整数或不在 ``1..65535`` 内时端口为 ``None``，调用方据此报
-    ``online_invalid_port``。返回的第二个值是**回落之后**的文本 —— 原实现的错误
-    消息用的就是它（``_("online_invalid_port", port=port_str)``）。
+    空串回落到 ``"25565"``；非整数或不在 ``1..65535`` 内时端口为 ``None``，
+    调用方据此报 ``online_invalid_port``。返回的第二个值是**回落之后**的文本，
+    错误消息用它（``_("online_invalid_port", port=port_str)``）。
     """
     port_str = raw.strip()
     if not port_str:
@@ -1941,9 +1926,8 @@ def parse_broadcast_message(
 def lobby_state_transition(old: Optional[LobbyState], new: LobbyState) -> LobbyState:
     """大厅状态机的转移函数：返回**应当写入**的当前状态。
 
-    逐字对应 ``OnlineTabMixin._set_lobby_state``：状态没变时不记日志、原样返回
-    （原实现是直接 ``return`` 不赋值 —— 赋的还是同一个值，对外不可见）；
-    变了就按 ``"Lobby state: a -> b"`` 记一条 info，再返回新状态。
+    状态没变时不记日志、原样返回；变了就按 ``"Lobby state: a -> b"`` 记一条 info，
+    再返回新状态。
     """
     if old is None:
         old = LobbyState.IDLE
@@ -1966,14 +1950,13 @@ def is_platform_supported() -> bool:
 class OnlineService(Service):
     """联机服务（``name = "online"``）。
 
-    每个方法都是上文模块级函数 / 类的薄转发。保留实例方法这一层，是为了让界面侧
-    统一写 ``self._online_service().xxx(...)``：阶段 2 接上 ``AppContext`` 之后只要
-    把实例换成注册表里的那一个，调用点不用动。
+    每个方法都是上文模块级函数 / 类的薄转发，界面侧统一写
+    ``self._online_service().xxx(...)``，换成注册表里的实例时调用点不用动。
 
     **不访问** ``self.ui`` / ``self.tasks`` / ``self.config``：本服务不弹窗，
-    也不自己调度后台线程 —— 线程由界面侧的 ``_run_online_thread`` 起（与改造前
-    一致），``EasyTierManager.start`` / ``ScaffoldingClient.connect`` 的内部线程
-    是它们本来就有的。
+    也不自己调度后台线程 —— 线程由界面侧的 ``_run_online_thread`` 起，
+    ``EasyTierManager.start`` / ``ScaffoldingClient.connect`` 的内部线程
+    由它们自己管理。
     """
 
     name = "online"
@@ -2047,11 +2030,11 @@ class OnlineService(Service):
         """转发 :func:`_get_random_port`（本地 bind 到一个空闲端口，不联网）。"""
         return _get_random_port()
 
-    # ─── 工厂（界面侧据此拿具体实现，阶段 2 换成依赖注入）────
+    # ─── 工厂（界面侧据此拿具体实现）────
 
     @staticmethod
     def create_manager(base_dir: Optional[Path] = None, **kwargs: Any) -> EasyTierManager:
-        """建一个 EasyTier 管理器；``base_dir`` 省略时用本机默认安装目录。
+        """建一个 EasyTier 管理器；``base_dir`` 省略时用默认安装目录。
 
         ``kwargs`` 透传给 :class:`EasyTierManager`（``popen`` / ``run`` /
         ``urlopen`` / ``relay_nodes`` 四个注入缝）。

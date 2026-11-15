@@ -53,11 +53,9 @@ def pump_game_output(
 
     返回是否检测到窗口标记。
 
-    为什么抽成模块级函数（阶段 3 任务 3.4 验收修复）：这段逻辑原来是 `launch_game`
-    里的一个闭包，**没法单测** —— 而它恰恰是"游戏窗口出现后没有检测到并最小化"
-    那个缺陷的现场。抽出来之后 `tests/test_game_window_detection.py` 能直接喂一个
-    假进程验它：标记行触发回调、之后不再读、并且把管道关掉（管道不关会把游戏的
-    stdout 缓冲填满，那是旧实现当年加这段的原因）。
+    抽成模块级函数是为了可以单独测试：`tests/test_game_window_detection.py` 能直接
+    喂一个假进程，验证标记行触发回调、之后不再读，并且正确关闭管道。管道不关会把
+    游戏的 stdout 缓冲填满。
 
     调用方（`_read_subprocess_output`）负责"要不要转写到终端"，本函数只管读与判定。
     """
@@ -209,15 +207,13 @@ class MinecraftLauncher:
         # UI回调 (可选,用于进度更新)
         self.on_progress: Optional[Callable[[int, int, str], None]] = None
 
-        # 游戏窗口出现的**唯一**检测点（阶段 3 任务 3.4 验收修复）。
+        # 游戏窗口出现的**唯一**检测点。
         #
         # 为什么必须在核心层：游戏进程的 stdout 管道是这里建的
         # （`subprocess.Popen(..., stdout=PIPE)`），下面那个读取线程已经在消费它。
         # 界面侧再开一个读取线程去抢同一根管道**不可靠** —— 两个读取方各自
-        # `for line in stdout`，marker 那一行只会被其中一方读到（旧 Tk 实现
-        # `ui/app_handlers.py:_watch_game_stdout` 与新的 `GameService._watch_stdout`
-        # 都是这个写法，用户 2026-10-06 验收报的"游戏窗口出现后没有检测到并最小化"
-        # 就是这么来的）。现在由核心层检测并置位，界面侧只**轮询**这一个事件。
+        # `for line in stdout`，marker 那一行只会被其中一方读到。现在由核心层检测
+        # 并置位，界面侧只**轮询**这一个事件。
         self._window_detected = threading.Event()
         #: 检测到窗口出现时的回调（可选；界面侧也可以直接轮询 `window_detected()`）
         self.on_window_detected: Optional[Callable[[], None]] = None
@@ -478,8 +474,8 @@ class MinecraftLauncher:
 
         **签名不许动**（一元的）：`MinecraftLauncher` 是**多继承**的，`MultiMCMixin`
         排在核心前面且定义了同名的一元方法（`launcher/multimc.py:921`）。给它多传一个
-        参数就是"装带加载器的版本必失败"——用户 2026-10-06 实测过（缺陷 D-172：
-        `_set_status() takes 2 positional arguments but 3 were given`）。
+        参数就会让带加载器的版本安装失败，报错为
+        `_set_status() takes 2 positional arguments but 3 were given`。
         本次调用专用的出口在 `_emit_status()` / `_emit_progress()`（新名字，谁也覆盖不了）。
         """
         logger.info(status)
@@ -515,7 +511,7 @@ class MinecraftLauncher:
         return True
 
     def _emit_status(self, status: str, sink: Optional[Callable[[int, int, str], None]]) -> None:
-        """**本次调用专用**的状态出口（阶段 3 任务 3.3）。
+        """**本次调用专用**的状态出口。
 
         为什么另起名字而不是给 `_set_status` 加参数：见 `_set_status` 的 docstring
         —— 那个名字会被混入类遮住，加参数等于给真实类埋一颗必炸的雷（D-172）。
@@ -541,7 +537,7 @@ class MinecraftLauncher:
     ) -> Dict[str, Callable]:
         """获取回调函数字典。
 
-        阶段 3 任务 3.3 给两个可选参数（**都不传时与从前逐字节等价**）：
+        两个可选参数（**都不传时保持原有行为**）：
 
         * ``on_progress``：本次调用的进度出口；不给就还是 `self.on_progress`。
         * ``cancel_check``：取消标志的检查函数。mcllib 的下载循环**每个文件**都会
@@ -672,7 +668,7 @@ class MinecraftLauncher:
     QUERYABLE_MOD_LOADERS: Tuple[str, ...] = ("forge", "fabric", "neoforge", "quilt")
 
     def check_mod_loader_support(self, loader: str, minecraft_version: str) -> Optional[bool]:
-        """问加载器自己的元数据：它支不支持这个 MC 版本（阶段 3 任务 3.3 的兼容提示）。
+        """问加载器自己的元数据：它支不支持这个 MC 版本。
 
         **返回三态，不是 bool**：
 
@@ -791,7 +787,7 @@ class MinecraftLauncher:
 
         为什么必须收口到一处（缺陷 D-170）：`_read_instance_info()` 只认 1 与 3，
         `verify_installed_version()` 原来只认 2 —— 于是**同一个版本，列表里看得见、
-        一校验就说"版本 JSON 不存在"**（用户 2026-10-06 实测的那条日志）。
+        一校验就说"版本 JSON 不存在"。
         """
         versions_dir = self.config.get_versions_dir()
         version_dir = versions_dir / version_id
@@ -1475,10 +1471,8 @@ class MinecraftLauncher:
                 logger.info(f"追加 --quickPlayMultiplayer {server_addr}")
 
             # ── GTNH 检测 ──
-            # 阶段 1.3：原先直接 import tkinter.messagebox 弹窗。这里不仅违反分层，
-            # 而且 launch_game 通常在后台线程执行 —— 从 worker 线程碰 Tk 正是
-            # AGENTS.md 明令禁止的（可能死锁/崩溃）。改走 UI 端口后，弹窗由主线程
-            # 真正显示，而 blocking=True 保住了原来的时序：用户点掉提示才继续启动。
+            # 通过 UI 端口弹窗：launch_game 通常在后台线程执行，不能从 worker 线程
+            # 直接操作界面。blocking=True 保持原有时序，用户点掉提示后才继续启动。
             if self._is_gtnh_instance(target_version):
                 try:
                     self.ui.show_warning(
@@ -2620,9 +2614,7 @@ class MinecraftLauncher:
             "get_game_process": self.get_game_process,
             "kill_game_process": self.kill_game_process,
             "is_game_running": self.is_game_running,
-            # 游戏窗口出现的**唯一**检测结果（阶段 3 任务 3.4 验收修复）：
-            # 界面侧（Tk 的 `_watch_game_stdout` 与 QML 的 `GameService._watch_stdout`）
-            # 都只轮询它，不再各自去抢 stdout 管道。
+            # 游戏窗口出现的**唯一**检测结果：界面侧只轮询它，不各自去抢 stdout 管道。
             "window_detected": self.window_detected,
             "clear_window_detected": self.clear_window_detected,
             "get_player_name": self.get_player_name,
@@ -3023,7 +3015,7 @@ class MinecraftLauncher:
         """从版本 JSON 里算出**可校验/可重下的文件清单**（库 + 主程序 jar）。
 
         每项 ``{"path": Path, "url": str, "sha1": str, "kind": "library"/"client"}``。
-        **不判断文件是否存在** —— 校验只看已存在的那批（3.2 已验收的语义不变），
+        **不判断文件是否存在** —— 校验只看已存在的那批，
         修复还要靠"不存在"来发现缺文件，所以清单必须是全集。
 
         为什么必须只有这一份清单（缺陷 D-170 的教训）：读 JSON 与找 jar 原来各写一套
@@ -3106,7 +3098,7 @@ class MinecraftLauncher:
         try:
             version_data = self._read_version_json_data(version_json)
 
-            # 只看**已存在**的文件（缺失不算"损坏"，这是 3.2 交付并验收过的语义；
+            # 只看**已存在**的文件（缺失不算"损坏"；
             # 缺失由修复链路负责补齐，见 `repair_installed_version()`）。
             file_hash_pairs: List[Tuple[Path, str, str]] = [
                 (item["path"], item["sha1"], "sha1")
@@ -3266,7 +3258,7 @@ class MinecraftLauncher:
         return getattr(self, "_game_process", None)
 
     def window_detected(self) -> bool:
-        """游戏窗口是否已经出现（阶段 3 任务 3.4 验收修复新增）。
+        """游戏窗口是否已经出现。
 
         这是**唯一**的窗口检测结果：由核心层那个消费 stdout 的读取线程置位
         （见 `_read_subprocess_output`），界面侧只轮询它，不再各自去抢管道。

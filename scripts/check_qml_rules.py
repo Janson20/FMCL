@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""QML 规则闸门（阶段 2 任务 2.7；规则表见 docs/refactor/11-phase2-contract.md 第七节）。
+"""QML 规则闸门。
 
 用法::
 
@@ -14,13 +14,11 @@
 退出码：0 = 通过；1 = 有未登记违规或有登记项过期；2 = 用法错误。
 
 `--base` 默认是仓库根，目录结构假定与仓库一致（`qml/`、`app/bridges/`）；
-`poc/qml_rules_fixtures/` 下的正负例就是靠它被同一套判据检查的 —— 闸门自己也要被测试。
+测试用的正负例用同一套判据检查。
 
-## 九条规则的判据（写清楚，免得阶段 3 靠猜）
+## 九条规则的判据
 
-> R1~R7 是任务 2.7 冻结的七条（`docs/refactor/11-phase2-contract.md` 第七节）；
-> **R8 是任务 2.8 新增的第八条**；**R9 是界面返工 C 组新增的第九条**（"界面只用自研
-> `Fm*`"这条决定的闸门化）。三条的判据与边界都写在下面，契约第七节的表要按本文件同步。
+> R1~R9 的判据与边界都写在下面，修改规则时需要同步更新本文档。
 
 **R1 禁渐变**：`.qml`/`.js` 里出现渐变类型（`Gradient` / `LinearGradient` /
 `RadialGradient` / `ConicalGradient` / `GradientStop`）、`gradient:` 属性，或亚克力/Mica
@@ -54,12 +52,12 @@
 而又不是 `services` / `app.bridges` → 违规；
 (b) `qml/pages/**` 里使用了 `qml/` 下自定义组件、但该组件名不在
 `qml/components/COMPONENTS.md` 白名单里 → 违规。
-白名单文件不存在（2.16 之前）或解析不出任何名字时，(b) **降级为"跳过并说明"**，
+白名单文件不存在或解析不出任何名字时，(b) **降级为"跳过并说明"**，
 (a) 照常判定。
 
 **R6 transparent**：`qml/overlays/**` 里出现 `color: "transparent"` / `"#00000000"` /
 `"#0000"`（大小写不敏感）或 `Qt.rgba(0, 0, 0, 0)` → 违规。依据：无合成器的 X11 下
-整窗透明会黑屏（阶段 0 第 12.5 节），悬浮窗要用 `Window.opacity` + 实色。
+整窗透明会黑屏，悬浮窗要用 `Window.opacity` + 实色。
 
 **R7 线程红线**：`app/bridges/**/*.py` 里
 - `QMetaObject.invokeMethod` —— **无条件**违规（契约第六节决策 10：一律发信号）；
@@ -75,13 +73,13 @@
 `fill="#ffffff"`，扫了会满屏误报）里出现颜色字面量即违规：`#rgb` / `#rgba` /
 `#rrggbb` / `#aarrggbb`（大小写不敏感），或 `Qt.rgba(...)` 字面量。
 依据：缺陷 **D-102**「大量主题外的硬编码颜色，主题切换后不跟随」与风险 **R-15**
-「禁止手工登记颜色」—— 颜色只能来自 `Theme.*`（2.8 的桥）或设计令牌。
+「禁止手工登记颜色」—— 颜色只能来自 `Theme.*` 或设计令牌。
 判据写在 `no_comments` 视图上，所以**注释里写颜色不算**（注释正是该说明颜色的地方）；
 `color: Theme.bgDark` 这类绑定本来就不匹配任何颜色字面量。
 两条**刻意留出的口子**：alpha 为 0 的写法（`#0000` / `#00rrggbb` / `Qt.rgba(0, 0, 0, 0)`）
 交给 R6 与布局，不重复报；`.svg` 不在扫描范围。
 
-**R9 禁原生视觉控件**（任务 2.8 之后的第九条；界面返工 C 组新增，判据与边界同样写在这里）：
+**R9 禁原生视觉控件**：判据与边界如下：
 `qml/**` 下的 `.qml` 里**声明**了 QtQuick.Controls 的原生控件即违规 —— 判据是
 "类型名后面跟一个对象体"（正则见 `NATIVE_DECL_RE`：类型名前面不能是标识符字符或点号），
 类型取自 `NATIVE_CONTROL_TYPES`
@@ -111,7 +109,7 @@
     混用会出现"同一个界面两种灰"（这正是 `FmToolButton.qml` 头部记下的顾虑）。
     R9 这一版只拦 Qt 原生控件；把 FluentUI 控件也拦下来要另起一条（名单长、
     且要与 `FluWindow` / `FluAppBar` / `FluTheme` 这些**壳层必需**的类型划清界限），
-    已登记为阶段 3 的候选 R10，见 `qml/components/COMPONENTS.md` 第五.4 节；
+    已登记为候选 R10，见 `qml/components/COMPONENTS.md` 第五.4 节；
   * `.js` 文件不判（那里没有控件声明）。
 
 `NATIVE_CONTROL_EXEMPT` 是**零依赖兜底窗**的豁免（`qml/FatalError.qml`）：它在
@@ -122,7 +120,7 @@
 ## 已知边界（哪边会漏判、哪边会误报）
 
 每条规则都刻意做窄 —— 宽而误报的闸门会被绕过。下面这些写法**现在抓不到**
-（阶段 3 的评审要盯）：
+（评审时需要盯）：
 
 - **R1**：材质只认字面量。`effect: Theme.windowEffect` / `effect: someVar` 不判；
   反过来，第三方组件里恰好也叫 `gradient` / `effect` 的自定义属性会被误报。
@@ -264,12 +262,12 @@ _EMOJI_SMP_RANGES: Tuple[Tuple[int, int], ...] = (
     (0x1F200, 0x1F2FF),  # 带圈表意文字补充
     (0x1F300, 0x1F5FF),  # 杂项符号与图形
     (0x1F600, 0x1F64F),  # 表情
-    (0x1F650, 0x1F67F),  # 装饰符号（任务 2.10 补：原先漏了这一整块）
+    (0x1F650, 0x1F67F),  # 装饰符号
     (0x1F680, 0x1F6FF),  # 交通与地图符号
     (0x1F700, 0x1F7FF),  # 炼金术符号 —— **含 1F7E0–1F7EB 的彩色圆点**（🟡🟢 就在里面）
     (0x1F800, 0x1F8FF),  # 补充箭头-C
     (0x1F900, 0x1F9FF),  # 补充符号与图形
-    (0x1FA00, 0x1FA6F),  # 象棋符号（任务 2.10 补）
+    (0x1FA00, 0x1FA6F),  # 象棋符号
     (0x1FA70, 0x1FAFF),  # 符号与图形扩展 A
 )
 
@@ -277,8 +275,8 @@ _EMOJI_SMP_RANGES: Tuple[Tuple[int, int], ...] = (
 #:
 #: 为什么单独列一张表而不是把整段 `Emoji=Yes` 都收进来：那些符号里绝大多数是
 #: **真·文字符号**（数学、箭头、标点、`✓ ★ ♥` 等），全收会造成大量误报，闸门就会被绕过。
-#: 但下面这些在 FMCL 里**就是当图标用的**（`07-known-defects.md` 的 D-07），
-#: 换 UI 时必须一起换掉 —— 任务 2.10 的清单实测：这批符号原来的判据完全看不见。
+#: 但下面这些在 FMCL 里**就是当图标用的**（D-07），
+#: 换 UI 时必须一起换掉：这批符号的判定范围要与新字符集同步，否则会漏检。
 _EMOJI_AS_ICON_SINGLES: Dict[int, str] = {
     0x23F9: "⏹ 停止方块（旧界面的「强杀游戏」按钮）",
     0x23F3: "⏳ 沙漏（下载等待）",
@@ -632,7 +630,7 @@ ACRYLIC_TYPE_RE = re.compile(r"(?<![\w.])FluAcrylic\b")
 EFFECT_PROP_RE = re.compile(r"""(?<![\w.])effect\s*:\s*(['\"])([^'\"]*)\1""")
 WINDOW_EFFECT_RE = re.compile(r"""windowEffect\s*(?:=|:)\s*(['\"])([^'\"]*)\1""")
 
-#: 纯色无材质的取值（阶段 0 第 2.4 节实测：设为 normal 即无渐变/噪声）
+#: 纯色无材质的取值：设为 normal 即无渐变/噪声。
 MATERIAL_NORMAL = "normal"
 
 
@@ -649,7 +647,7 @@ def check_r1(project: ProjectInfo) -> Checked:
         for m in GRADIENT_PROP_RE.finditer(ctx.code):
             out.append(_violation("R1", ctx, m.start(), "出现 gradient: 属性（项目 UI 规范：永不使用渐变）"))
         for m in ACRYLIC_TYPE_RE.finditer(ctx.code):
-            out.append(_violation("R1", ctx, m.start(), "使用了 FluAcrylic 亚克力材质（阶段 0 第 2.4 节：材质必须关闭）"))
+            out.append(_violation("R1", ctx, m.start(), "使用了 FluAcrylic 亚克力材质（项目规则：材质必须关闭）"))
         for m in EFFECT_PROP_RE.finditer(ctx.without_comments):
             value = m.group(2).strip()
             if value.lower() == MATERIAL_NORMAL:
@@ -1030,7 +1028,7 @@ def load_component_whitelist(base: Path) -> Tuple[Optional[Set[str]], str]:
     """
     path = base / COMPONENTS_WHITELIST
     if not path.exists():
-        return None, (f"{COMPONENTS_WHITELIST} 还不存在（阶段 2 的 2.16 才产出）—— "
+        return None, (f"{COMPONENTS_WHITELIST} 还不存在 —— "
                       "R5 的「白名单外自研组件」判定本次跳过，文件一落地就自动生效")
     text = load_text(path) or ""
     names: Set[str] = set()
@@ -1074,7 +1072,7 @@ def check_r5(project: ProjectInfo) -> Checked:
                 continue
             out.append(_violation("R5", ctx, m.start(),
                                   f"使用了白名单外的自研组件 {name}（定义在 {project.local_types[name]}）—— "
-                                  "阶段 3 只允许用 qml/components/ 白名单里的件；"
+                                  "页面只允许用 qml/components/ 白名单里的件；"
                                   "确需例外请登记 REGISTERED_EXCEPTIONS"))
     return out, files, project.whitelist_note
 
@@ -1099,7 +1097,7 @@ def check_r6(project: ProjectInfo) -> Checked:
             out.append(_violation("R6", ctx, m.start(),
                                   '悬浮窗里出现 color: "transparent"（或 "#00000000"）—— '
                                   "无合成器的 X11 下会黑屏；整窗透明用 Window.opacity、底色用实色"
-                                  "（阶段 0 第 12.5 节 / 契约第六节决策 5）"))
+                                  ""))
         for m in CLEAR_RGBA_RE.finditer(ctx.without_comments):
             out.append(_violation("R6", ctx, m.start(),
                                   "悬浮窗里出现 Qt.rgba(0, 0, 0, 0)（与 transparent 同一个坑）—— 请改实色"))
@@ -1367,7 +1365,7 @@ def check_r8(project: ProjectInfo) -> Checked:
     return out, files, ""
 
 
-# ─── R9 禁原生视觉控件（界面返工 C 组新增） ────────────────────
+# ─── R9 禁原生视觉控件 ────────────────────────────────────────
 
 #: 有"自己的皮肤"的 QtQuick.Controls 控件 —— 它们的底色/文字色来自系统调色板，
 #: 锁深色的界面里必然是浅色的外来件（判据与边界见文件头 R9 那一段）。
@@ -1580,7 +1578,7 @@ def run_gate(base: Path, only: Optional[Sequence[str]] = None) -> GateReport:
             report.notes.append(f"{ctx.rel}: {note}")
     if not project.qml_ctx:
         report.notes.append(
-            f"{QML_ROOT}/ 下目前一个 QML/JS 文件都没有（阶段 2 的 B/C/D 组才会开始写入）—— "
+            f"{QML_ROOT}/ 下目前一个 QML/JS 文件都没有 —— "
             "R1/R3/R4/R5/R6 的判定范围为空，本次不产生任何结论；闸门的判定能力由 "
             "poc/qml_rules_fixtures/ 下的负例证明（见 tests/test_qml_rules_gate.py）")
 
@@ -1623,7 +1621,7 @@ def run_gate(base: Path, only: Optional[Sequence[str]] = None) -> GateReport:
 def render_human(report: GateReport, show_ok: bool = False, strict: bool = False) -> int:
     """人读输出；返回退出码。"""
     print("=" * 88)
-    print(f"QML 规则闸门（阶段 2 任务 2.7）  base = {report.base}")
+    print(f"QML 规则闸门  base = {report.base}")
     print(f"扫描范围：{QML_ROOT}/ {report.qml_files} 个文件（.qml/.js/.svg）、"
           f"{BRIDGES_ROOT}/ {report.bridge_files} 个 .py")
     print("=" * 88)
@@ -1714,7 +1712,7 @@ def render_json(report: GateReport, strict: bool = False) -> Dict[str, object]:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="QML 规则闸门（阶段 2 任务 2.7）")
+    parser = argparse.ArgumentParser(description="QML 规则闸门")
     parser.add_argument("--base", default=str(REPO_ROOT),
                         help="基准目录（默认仓库根；fixture 测试用 poc/qml_rules_fixtures/bad 之类）")
     parser.add_argument("--rule", choices=RULE_IDS, action="append",
@@ -1723,7 +1721,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--list", action="store_true", help="打印规则与扫描范围后退出")
     parser.add_argument("--list-known", action="store_true", help="打印已登记例外后退出")
     parser.add_argument("--show-ok", action="store_true", help="连通过的文件也打印")
-    parser.add_argument("--strict", action="store_true", help="已登记例外也算失败（阶段收口时用）")
+    parser.add_argument("--strict", action="store_true", help="严格模式：已登记例外也计为失败")
     args = parser.parse_args(argv)
 
     base = Path(args.base)

@@ -1,4 +1,4 @@
-"""联机会话（阶段 3 任务 3.13）。
+"""联机会话。
 
 链路：
 
@@ -7,10 +7,8 @@
         -> services/online_session.py（本模块：状态机与全部时序）
         -> services/online_service.py（EasyTier / 陶瓦 / 转发 / 广播 / Ping 原语）
 
-为什么需要这一层：阶段 1.5 把联机的**原语**搬进了 services/，但"创建大厅 / 加入
-大厅 / 退出 / 成员轮询 / 客机 3 秒后建连 / 主机 5 秒后就绪"这些**时序**仍留在
-ui/app_online.py（Tk 的 after 与线程）。QML 不能复用 Tk 的界面类，所以把时序原样
-搬到这里；旧 Tk 路径不动，两者共用 services/online_service.py。
+本模块承载"创建大厅 / 加入大厅 / 退出 / 成员轮询 / 客机 3 秒后建连 /
+主机 5 秒后就绪"这些**时序**；网络与组网原语在 `services/online_service.py`。
 
 线程契约：
     - 公开方法只由桥在主线程调用。

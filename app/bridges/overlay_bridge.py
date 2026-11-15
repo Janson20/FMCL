@@ -1,4 +1,4 @@
-"""悬浮窗桥（阶段 2 任务 2.15）—— 一个桥管三个窗口：性能监控 / 桌面歌词 / Toast 宿主。
+"""悬浮窗桥 —— 一个桥管三个窗口：性能监控 / 桌面歌词 / Toast 宿主。
 
 ## 为什么三个窗口共用一个桥
 
@@ -6,7 +6,7 @@
 位置持久化；差别只在内容（监控指标 / 歌词 / Toast 卡片）。所以差异部分留给 QML，
 共同的窗口语义与持久化只写一份。
 
-## 这个桥**不**做什么（迁移红线 2）
+## 这个桥**不**做什么
 
 * 不算指标：CPU/内存/GPU 全部来自 `services/monitor_service.MetricsCollector`，
   桥只把它的返回字典原样发给 QML（`monitorMetrics`）；
@@ -16,19 +16,17 @@
 * 不做窗口摆放的数学：桌面歌词的"屏幕下方居中"直接调
   `services.desktop_lyric.calc_center_bottom_position`，不在这里重算。
 
-## 从阶段 0 的 PoC 搬进来的东西（逐条，来源 `poc/overlay/`）
+## 窗口语义的要点
 
-| PoC 位置 | 本模块 | 说明 |
+| 要点 | 本模块 | 说明 |
 |----------|--------|------|
-| `overlay_common.py:apply_no_activate` | `apply_no_activate()` | Win32 补丁，**顺序原样**：`winId()` → `GWL_EXSTYLE\\|=WS_EX_NOACTIVATE` → `SetWindowPos(SWP_FRAMECHANGED\\|SWP_NOACTIVATE)` |
-| `overlay_common.py` 的 user32 签名声明 | `_load_user32()` | 64 位下 HWND 必须按指针传，不能当 32 位 int 截断 |
-| `overlay_common.py:is_windows_platform` | `native_patch_supported()` | 判据收窄成"**真 HWND + Win32 user32**"两个条件（见下） |
-| `toast_manager.py` 的 280x72 / 16px 内缩 | `DEFAULT_PROPS["toast"]` / 默认位置 | Toast 宿主的默认尺寸与右下角内缩 |
-| `qml/WindowDragArea.qml` 的增量累加 | 两个 overlay QML 的拖拽区 | 行为搬进 QML（不允许新增 components 文件，见报告） |
+| Win32 免激活补丁 | `apply_no_activate()` | **顺序不可换**：`winId()` → `GWL_EXSTYLE\\|=WS_EX_NOACTIVATE` → `SetWindowPos(SWP_FRAMECHANGED\\|SWP_NOACTIVATE)` |
+| user32 签名声明 | `_load_user32()` | 64 位下 HWND 必须按指针传，不能当 32 位 int 截断 |
+| Windows 判据 | `native_patch_supported()` | 判据是"**真 HWND + Win32 user32**"两个条件（见下） |
+| Toast 默认尺寸与内缩 | `DEFAULT_PROPS["toast"]` / 默认位置 | 280x72，右下角内缩 16px |
+| 增量拖拽 | 两个 overlay QML 的拖拽区 | 行为在 QML 里实现（不新增 components 文件） |
 
-`poc/` 是**过程产物、不入库**，所以这里是**搬迁**而不是 import —— 生产代码不依赖 `poc.*`。
-
-## 坐标与 DPI（阶段 0 第 12.4 节，本机 dpr=1.25）
+## 坐标与 DPI
 
 两套坐标同时存在，**必须明确用哪一套**：
 
@@ -38,17 +36,17 @@
 | **物理像素** | Win32 窗口矩形 / `GetCursorPos` | 与系统坐标打交道的地方（读回窗口真实矩形、真实光标、跨进程对齐） |
 
 换算：`physical = 屏幕物理原点 + (logical - 屏幕逻辑原点) * dpr`，逆变换同理。
-物理原点当前按 `逻辑原点 * dpr` 得到 —— 这在**单一 dpr** 下与阶段 0 实测一致
-（逻辑 2048x1152、dpr 1.25 → 物理 2560x1440），但**混合 DPI 多屏下不成立**（见"未验证"。）
+物理原点当前按 `逻辑原点 * dpr` 得到 —— 这在**单一 dpr** 下成立，
+但**混合 DPI 多屏下不成立**（这条换算尚未验证）。
 
 **持久化只写逻辑像素**：物理像素落盘后一旦 dpr 变化（用户改缩放）就会错位。
 
 ## 平台差异
 
 * **Windows**（QPA `windows`）：`platformSupported == True`。无边框/置顶/整窗透明度
-  三件套在阶段 0 被 Win32 + 像素级双重验证（第 11、12 节，47/47）；
+  三件套按 Win32 + 像素级双重验证过；
   另外必须补 `WS_EX_NOACTIVATE`，否则点一下悬浮窗就会把全屏游戏踢出前台。
-* **Linux / macOS**：`platformSupported == False` —— 不是"用不了"，而是**未实测**。
+* **Linux / macOS**：`platformSupported == False` —— 不是"用不了"，而是**未验证**。
   降级路径：`applyNoActivate()` 直接返回 `False`（Linux 侧由 Qt 自己处理 X11 input hint），
   无边框/置顶交给 Qt 的平台实现，`Window.opacity` 在**无合成器的 X11 下可能被忽略**
   （Wayland 下置顶也由合成器决定）。QML 侧不需要写平台分支：窗口语义全靠 `flags` 与
@@ -90,17 +88,16 @@ CONFIG_FIELD = "overlay_geometry"
 #: 全局热键名（`app/bridges/hotkey_bridge.py:LEGACY_HOTKEYS` 里 `ctrl+shift+m` 那一条）。
 HOTKEY_MONITOR_TOGGLE = "monitor_toggle"
 
-#: 指标刷新节奏（毫秒）。与旧界面 `PerformanceMonitorWindow` 的 1 秒刷新一致
-#: （`services/monitor_service._REFRESH_INTERVAL = 1.0`）。
+#: 指标刷新节奏（毫秒）。与 `services/monitor_service._REFRESH_INTERVAL`（1.0 秒）一致。
 DEFAULT_METRICS_INTERVAL_MS = 1000
 
 #: 指标从 worker 取回后合并发出的节流周期（毫秒）—— 与 `qt_tasks.TaskBridge` 同一套路。
 METRICS_FLUSH_MS = 100
 
 #: 默认窗口属性。数值来源逐个标注，避免"拍脑袋的默认值"：
-#: * monitor：旧 `ui/app_monitor.py` 写死 400x200 / `attributes("-alpha", 0.80)`；
+#: * monitor：400x200、整窗不透明度 0.80；
 #: * lyric：`services/desktop_lyric.py` 的 `DEFAULT_WINDOW_WIDTH/HEIGHT/DEFAULT_ALPHA`；
-#: * toast：阶段 0 PoC `poc/overlay/toast_manager.py` 的 `TOAST_W=280` / `TOAST_H=72`
+#: * toast：`TOAST_W=280` / `TOAST_H=72`
 #:   （透明度由 Toast 自己的淡入淡出动画控制，所以默认 1.0）。
 DEFAULT_PROPS: Dict[str, Dict[str, Any]] = {
     "monitor": {"opacity": 0.80, "width": 400, "height": 200, "topMost": True, "locked": False},
@@ -138,10 +135,10 @@ def native_patch_supported() -> bool:
     1. `sys.platform == "win32"` —— 操作系统是 Windows；
     2. QPA 平台插件是 `windows` —— 窗口才有**真 HWND**。
 
-    第 2 条是被阶段 0 之外的场景逼出来的：`QT_QPA_PLATFORM=offscreen` 下
-    `QWindow.winId()` 返回的是一个假句柄（实测为 `1`），往它上面写扩展样式毫无意义。
-    把判据收窄到"真 HWND"之后，"非 Windows 直接降级"这条路径在离屏环境下**可被真断言**，
-    而不是靠 mock 装出来 —— 这也是 `platformSupported` 的语义。
+    第 2 条是为了 `QT_QPA_PLATFORM=offscreen`：那时 `QWindow.winId()` 返回的是
+    一个假句柄（`1`），往它上面写扩展样式毫无意义。
+    判据收窄到"真 HWND"之后，"非 Windows 直接降级"这条路径在离屏环境下**可被真断言**，
+    而不是靠 mock 造出来 —— 这也是 `platformSupported` 的语义。
     """
     return sys.platform == "win32" and _qpa_platform_name() == "windows"
 
@@ -154,8 +151,8 @@ def _load_user32(user32: Any = None) -> Any:
     """懒加载并声明 `user32` 的函数签名（非 Windows 返回 `None`）。
 
     签名必须显式声明：**64 位下 HWND 是 64 位指针**，不声明 argtypes 时 ctypes 会按
-    C int 传递，句柄被截断后 `SetWindowLongW` 会写到别的窗口上（阶段 0
-    `overlay_common.py` 的原注释）。这里用 `ctypes.c_void_p` 而不是 `ctypes.wintypes.HWND`，
+    C int 传递，句柄被截断后 `SetWindowLongW` 会写到别的窗口上。
+    这里用 `ctypes.c_void_p` 而不是 `ctypes.wintypes.HWND`，
     是为了让本模块在 Linux 上也能被 import（`ctypes.wintypes` 在非 Windows 上不保证可用）。
     """
     global _USER32, _USER32_LOADED
@@ -189,14 +186,14 @@ def _load_user32(user32: Any = None) -> Any:
 def apply_no_activate(window: Any, user32: Any = None) -> bool:
     """给悬浮窗补上 `WS_EX_NOACTIVATE`，做到"点击/显示都不抢焦点"。
 
-    **顺序不可换**（阶段 0 第 11.4 节，任务书硬约束）：
+    **顺序不可换**：
 
     1. 先 `winId()` 强制创建原生窗口 —— 句柄不存在时后面两步都是空操作；
     2. `GWL_EXSTYLE |= WS_EX_NOACTIVATE`；
     3. `SetWindowPos(..., SWP_FRAMECHANGED | SWP_NOACTIVATE)` 让样式立即生效；
     4. **然后**调用方才可以 `setVisible(True)`。
 
-    为什么必须自己做：Qt 6.7.3 的 Windows QPA **不会**把
+    为什么必须自己做：Qt 的 Windows QPA **不会**把
     `Qt::WindowDoesNotAcceptFocus` 翻成 `WS_EX_NOACTIVATE`，窗口 `show()` 之后照样
     成为前台窗口 —— 不补这一步，点一下性能监控悬浮窗就会打断全屏游戏。
 
@@ -299,9 +296,8 @@ class ScreenInfo:
 def read_screen_info(screen: Any = None) -> ScreenInfo:
     """读一块 `QScreen` 的两套几何；`screen` 为 `None` 时用主屏。
 
-    物理几何 = 逻辑几何 × dpr。本机（dpr 1.25）与阶段 0 实测的
-    "逻辑 2048x1152 / 物理 2560x1440" 完全一致；**混合 DPI 多屏下这个公式不成立**
-    （每块屏的物理原点不能各自缩放推导），这一条写在报告里当"未验证"。
+    物理几何 = 逻辑几何 × dpr。**混合 DPI 多屏下这个公式不成立**
+    （每块屏的物理原点不能各自缩放推导）。
     """
     scr = screen
     if scr is None:
@@ -358,8 +354,7 @@ def _parse_persisted(raw: Any) -> Tuple[Dict[str, Tuple[int, int]], Dict[str, Di
     """把配置里的 `overlay_geometry` 解析成 `(位置, 窗口属性)`，**坏值一律丢弃**。
 
     配置是用户可见、可手改的文件：这里不假设它长得对。非 dict、缺键、坐标是字符串、
-    布尔当数字、负的宽高……全部静默忽略并退回默认值，绝不让一个坏配置把悬浮窗卡死
-    （旧配置层也没有做校验）。
+    布尔当数字、负的宽高……全部静默忽略并退回默认值，绝不让一个坏配置把悬浮窗卡死。
     """
     positions: Dict[str, Tuple[int, int]] = {}
     props: Dict[str, Dict[str, Any]] = {}
@@ -462,7 +457,7 @@ class OverlayBridge(QObject):
                 Overlay.setupWindow("monitor", monitorWin)   // 让桥拿到窗口对象
                 var g = Overlay.geometryFor("monitor")
                 monitorWin.x = g.x; monitorWin.y = g.y        // x/y 用命令式赋值，避免与拖拽抢绑定
-                Overlay.applyNoActivate("monitor")           // 必须在可见之前（阶段 0 第 11.4 节）
+                Overlay.applyNoActivate("monitor")           // 必须在可见之前
                 hostReady = true
             }
         }
@@ -476,8 +471,7 @@ class OverlayBridge(QObject):
     toastVisibleChanged = Signal()
     #: 显示/隐藏切换结果（`toggleMonitor` 的产物；值 == 切换后的可见性）。
     monitorToggled = Signal(bool)
-    #: 从顶栏按钮打开时请求显示 10 秒快捷键提示（旧实现的 `show_hint=True`；
-    #: 热键打开不显示提示，保持旧行为）。
+    #: 从顶栏按钮打开时请求显示 10 秒快捷键提示（热键打开不显示提示）。
     monitorHintRequested = Signal()
     lyricToggled = Signal(bool)
     #: 悬浮窗位置变化（QML 在 `onXChanged/onYChanged` 里回报；桥只在**值真的变了**时发）。
@@ -521,7 +515,7 @@ class OverlayBridge(QObject):
         #: 配置是**显式注入**的还是懒加载的全局单例 —— 决定 `bind(context)` 能不能覆盖它。
         #: 不区分这两者会有一个很隐蔽的后果：`OverlayBridge()` 一构造就把全局 `config`
         #: 记下来（为了读持久化位置），随后 `bind(context)` 看到"_config 不是 None"就跳过，
-        #: 于是**写到另一份配置上**（阶段 2 实测踩过：把位置写进了仓库根目录的 config.json）。
+        #: 于是**写到另一份配置上**（曾把位置写进仓库根目录的 config.json）。
         self._config_injected = config is not None
         self._screen_provider = screen_provider
         self._metrics_provider = metrics_provider
@@ -612,7 +606,7 @@ class OverlayBridge(QObject):
         return read_screen_info(self._reference_screen())
 
     def _reference_screen(self) -> Any:
-        """参照屏幕 —— **不是**无条件 `primaryScreen()`（阶段 0 第 12.5 节的行为改进）。
+        """参照屏幕 —— **不是**无条件 `primaryScreen()`。
 
         1. 已注册的悬浮窗**自己所在**的 `QScreen`（窗口被拖到副屏后仍按那块屏算）；
         2. 否则第一个"可见且不是悬浮窗"的顶级窗口所在屏幕（实际就是主窗口 ——
@@ -663,18 +657,18 @@ class OverlayBridge(QObject):
         """没有持久化位置时的默认摆放（逻辑像素）。
 
         * **monitor**：参照屏幕右上角，`x = 右边界 - 宽 - 10`、`y = 上边界 + 50`
-          —— 与旧 `ui/app_monitor.py:68` 的 `screen_w - 400 - 10` / `+50` 逐字一致；
+          —— 即 `screen_w - 400 - 10` / `+50`；
         * **lyric**：屏幕下方居中 —— **调 `services.desktop_lyric.calc_center_bottom_position`**，
           不在桥里重算（该函数连"x 不钳制"这个已知现状都保留着）；
-        * **toast**：参照屏幕右下角内缩 16px（阶段 0 `toast_manager.py` 的 `MARGIN`；
-          真正的堆叠由 2.13 的 ToastHost 负责，这里只给基准点）。
+        * **toast**：参照屏幕右下角内缩 16px（真正的堆叠由 `ToastHost` 负责，
+          这里只给基准点）。
         """
         info = self._screen_info()
         sx, sy, sw, sh = info.logical
         props = self._props[kind]
         width, height = int(props["width"]), int(props["height"])
         if sw <= 0 or sh <= 0:
-            # 屏幕探不到时的兜底分辨率沿用服务层的常量（旧 Tk 是 1920x1080）
+            # 屏幕探不到时的兜底分辨率沿用服务层的常量
             from services.desktop_lyric import FALLBACK_SCREEN_SIZE
 
             sw, sh = FALLBACK_SCREEN_SIZE
@@ -726,7 +720,7 @@ class OverlayBridge(QObject):
 
     @Property(float, notify=screenChanged)
     def devicePixelRatio(self) -> float:  # noqa: N802 - QML 属性名
-        """参照屏幕的设备像素比（本机 1.25）。"""
+        """参照屏幕的设备像素比。"""
         return float(self._screen_info().dpr)
 
     @Property(str, notify=screenChanged)
@@ -753,10 +747,10 @@ class OverlayBridge(QObject):
 
     @Property(bool, constant=True)
     def platformSupported(self) -> bool:  # noqa: N802 - QML 属性名
-        """当前平台是否拿到了**已被实测**的"无边框 + 置顶 + 整窗透明度"三件套。
+        """当前平台是否具备**已验证**的"无边框 + 置顶 + 整窗透明度"三件套。
 
-        Windows 为 `True`（阶段 0 第 11、12 节，离屏 27 + 真实桌面 20 全绿）。
-        其它平台（含 CI 的 `offscreen`）为 `False` —— 语义是"**未实测/需要降级路径**"，
+        Windows 为 `True`（离屏与真实桌面都验证过）。
+        其它平台（含 CI 的 `offscreen`）为 `False` —— 语义是"**未验证/需要降级路径**"，
         不是"窗口建不出来"：Linux 侧无边框与置顶交给 Qt，`Window.opacity` 依赖合成器
         （无合成器的 X11 下可能被忽略），Wayland 下置顶由合成器决定。
         """
@@ -805,15 +799,14 @@ class OverlayBridge(QObject):
     def showMonitorWithHint(self) -> None:  # noqa: N802 - QML 槽名
         """顶栏按钮：显示监控窗，并请求 QML 显示 10 秒快捷键提示。
 
-        对应旧 `_toggle_monitor_ui(show_hint=True)` 的"显示"分支。已经可见时
-        不重复发可见性信号，但仍然发提示请求（再点一次按钮应重新提示）。
+        已经可见时不重复发可见性信号，但仍然发提示请求（再点一次按钮应重新提示）。
         """
         self._set_visible("monitor", True)
         self.monitorHintRequested.emit()
 
     @Slot()
     def toggleMonitorWithHint(self) -> None:  # noqa: N802 - QML 槽名
-        """顶栏按钮：可见就关，不可见就开并提示（旧按钮的 toggle 语义）。"""
+        """顶栏按钮：可见就关，不可见就开并提示。"""
         if self._visible["monitor"]:
             self._set_visible("monitor", False)
             return
@@ -978,7 +971,7 @@ class OverlayBridge(QObject):
 
     @Property(bool, notify=lyricLockChanged)
     def lyricLocked(self) -> bool:  # noqa: N802 - QML 属性名
-        """桌面歌词是否锁定（锁定后拖拽区失效 —— 旧实现的行为等价物）。"""
+        """桌面歌词是否锁定（锁定后拖拽区失效）。"""
         with self._lock:
             return bool(self._props["lyric"]["locked"])
 
@@ -986,8 +979,8 @@ class OverlayBridge(QObject):
     def toggleLyricLock(self) -> bool:  # noqa: N802 - QML 槽名
         """翻转桌面歌词锁定态并返回新值（规则来自 `services.desktop_lyric.toggle_lock`）。
 
-        旧实现用两个锁形 emoji（U+1F512 / U+1F513）表示该状态；本项目禁止 emoji（D-07），
-        QML 侧改用 `Runtime.iconUrl("lock"/"unlock")` 的图标 —— 桥这里只给布尔值。
+        锁态不用 emoji（U+1F512 / U+1F513），本项目禁止 emoji；
+        QML 侧用 `Runtime.iconUrl("lock"/"unlock")` 的图标 —— 桥这里只给布尔值。
         """
         from services.desktop_lyric import toggle_lock
 
@@ -1210,7 +1203,6 @@ class OverlayBridge(QObject):
     def applyNoActivate(self, kind: str) -> bool:  # noqa: N802 - QML 槽名
         """给某种悬浮窗补 Win32 `WS_EX_NOACTIVATE`（**必须在它可见之前调**）。
 
-        实现原样搬自阶段 0 的 `poc/overlay/overlay_common.py:apply_no_activate`；
         顺序（`winId()` -> 置位 -> `SetWindowPos(SWP_FRAMECHANGED)`）不可改。
 
         返回：Windows 上是否真的置上了该位；**非 Windows / offscreen 直接返回 `False`**
@@ -1250,7 +1242,7 @@ class OverlayBridge(QObject):
 
         为什么异步：`MetricsCollector.collect()` 是**阻塞式**的（`psutil.cpu_percent(0.1)`
         会真的睡 100ms），服务层文档明确要求"应在工作线程调用"。在 GUI 线程直接调会让
-        界面每秒卡 100ms —— 旧 Tk 实现也是 `after(0, ...)` 从 worker 切回主线程的。
+        界面每秒卡 100ms，所以必须从 worker 线程切回主线程。
         """
         with self._lock:
             if self._metrics_inflight:
@@ -1370,8 +1362,8 @@ class OverlayBridge(QObject):
         这是一条**装配期**接线（不是 `@Slot`：QML 侧若要自己接，用
         `Connections { function onTriggered(n) { Overlay.onHotkey(n) } }`）。
         真正的系统级注册仍由 `app/bridges/hotkey_bridge.py` 完成（唯一注册入口），
-        但阶段 2 漏了"把 `monitor_toggle` 注册进去"这一步，导致 `Ctrl+Shift+M` 永远
-        不触发；这里在接线时补一次幂等注册请求（测试替身没有 `register` 时跳过）。
+        但光接信号不注册 `monitor_toggle`，`Ctrl+Shift+M` 永远不会触发；
+        这里在接线时补一次幂等注册请求（测试替身没有 `register` 时跳过）。
 
         同一对象重复调用是幂等的 —— 否则热键触发时槽会被调两次，`toggle` 两次等于没反应。
         """
@@ -1395,8 +1387,8 @@ class OverlayBridge(QObject):
     def _ensure_monitor_hotkey_registered(self, hotkeys: Any) -> bool:
         """确保 `monitor_toggle` 已在 `HotkeyBridge` 注册（幂等）。
 
-        阶段 2 只把 `triggered` 信号接了过来，却没有任何地方调 `Hotkeys.register()`，
-        所以 `Ctrl+Shift+M` 从来不会触发。这里补上注册请求：系统级注册仍由
+        只把 `triggered` 信号接过来、却没有任何地方调 `Hotkeys.register()` 时，
+        `Ctrl+Shift+M` 不会触发。这里补上注册请求：系统级注册仍由
         `HotkeyBridge` 完成（唯一入口），本桥只在缺这一条时请求一次。
 
         测试替身只提供 `triggered` 时返回 False，不报错（接线本身仍然成立）。
@@ -1469,8 +1461,8 @@ class OverlayBridge(QObject):
     def shutdown(self) -> None:
         """退出路径：停表 + 等指标线程池收干净（由入口调用）。
 
-        刻意**不**接 `QObject.destroyed` 自动做（PySide6 6.7.3 下"接收者是发送者自己"
-        的连接收不到该信号，`event_bridge.py` 里记过这个实测结论）——
+        刻意**不**接 `QObject.destroyed` 自动做（PySide6 下"接收者是发送者自己"
+        的连接收不到该信号，`event_bridge.py` 里记过这个结论）——
         漏掉的代价只是退出时多等一次线程池，不会留下系统级热键那样的副作用。
         """
         for timer in (self._refresh_timer, self._flush_timer):

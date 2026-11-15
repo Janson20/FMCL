@@ -1,4 +1,4 @@
-// FmMusicPlaylistCard.qml —— 发现页的歌单/榜单卡片（阶段 3.17，对齐 FMP PlaylistCard）。
+// FmMusicPlaylistCard.qml —— 发现页的歌单/榜单卡片（对齐 FMP PlaylistCard）。
 //
 // 封面 + 名称 + 副标题；悬停时显示播放按钮。只发信号，不自己读服务。
 

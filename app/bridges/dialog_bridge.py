@@ -1,4 +1,4 @@
-"""对话框宿主（QML 版 ``Dialogs``）—— 阶段 2 任务 2.13。
+"""对话框宿主（QML 版 ``Dialogs``）。
 
 ## 它在链路的哪一环
 
@@ -309,7 +309,7 @@ class DialogBridge(QObject):
             return
 
         if kind not in PRESENT_KINDS:
-            # 不在这里拦死：阶段 3 会加新 kind，QML 宿主才是"有哪些组件"的权威。
+            # 不在这里拦死：以后会加新 kind，QML 宿主才是"有哪些组件"的权威。
             # 它认不出来会立刻回兜底值（DialogHost.qml 的未知 kind 分支，有测试钉住）。
             self.log.warning("present(%s) 的 kind 不在 PRESENT_KINDS 里，交给 QML 宿主决定", kind)
 
@@ -363,11 +363,11 @@ class DialogBridge(QObject):
     # ─── DialogHost：Toast 与剪贴板 ─────────────────────────
 
     @Slot("QVariantMap")
-    def notify(self, payload: Dict[str, Any]) -> None:  # noqa: N802 - QML 槽名（返工 A 组：给 QML 一个主动弹 Toast 的口子）
+    def notify(self, payload: Dict[str, Any]) -> None:  # noqa: N802 - QML 槽名（给 QML 主动弹 Toast 的口子）
         """弹一条 Toast（右下角、向上堆叠、超时自动消失）。
 
-        `@Slot` 是界面返工 A 组加的：`App.qml` 要把"启动器初始化失败"
-        （`Startup.coreFailed`）这条**以前没人接**的信号显示出来，而模态对话框
+        `@Slot` 是给 QML 用的：`App.qml` 要把"启动器初始化失败"
+        （`Startup.coreFailed`）这条信号显示出来，而模态对话框
         会与主线程的启动轮询互相等待，Toast 是唯一不会自锁的形态。
         Python 侧的调用方（`QtUIPort`）不受影响 —— 加装饰器只是多暴露一个入口。
         """
@@ -405,11 +405,9 @@ class DialogBridge(QObject):
 
         ``QGuiApplication.clipboard()`` 必须在主线程调用，所以非主线程一律拒绝。
 
-        `@Slot` 是阶段 3 任务 3.6 补的：**它一直是给 QML 用的口子，但没有 `@Slot`
-        时 QML 侧根本调不到** —— 实测 `Dialogs.set_clipboard("x")` 抛
-        `Property 'set_clipboard' … is not a function`（见
-        `docs/refactor/16-phase3-execution-log.md` §二十二）。漏了它一年也不会有人
-        发现，因为 3.5 之前的调用点全在 Python 侧。
+        **没有 `@Slot` 时 QML 侧根本调不到这个方法**：`Dialogs.set_clipboard("x")` 会抛
+        `Property 'set_clipboard' … is not a function`。只在 Python 侧调用时不会暴露，
+        但 QML 一旦要用就调不通。
         """
         if not self._on_main_thread():
             self.log.warning("set_clipboard 只能在主线程调用，已拒绝（返回 False）")

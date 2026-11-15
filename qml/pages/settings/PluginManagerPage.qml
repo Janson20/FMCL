@@ -1,4 +1,4 @@
-// PluginManagerPage.qml —— 插件管理器（阶段 3 任务 3.27，M-30）。
+// PluginManagerPage.qml —— 插件管理器。
 //
 // 旧实现是 ui/windows/plugin_manager.py（528 行 Tk Toplevel）：从文件安装、
 // 打开市场、刷新、状态栏、焦点自动刷新、插件卡片（9 种状态 / 版本 / 作者 /

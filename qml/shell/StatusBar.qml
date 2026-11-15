@@ -5,14 +5,14 @@
 //   * 状态文本：`Shell.statusText` / `Shell.statusLevel`（10 秒后自动清空，A-09）；
 //   * 后台任务数：`Shell.backgroundTaskCount`。
 //
-// 返工 B 组的改动（对齐参考项目的语言）：
+// 视觉要点：
 //   * 顶边一条 1px `Theme.divider`：状态条与页面区**同色**，没有这条就分不清边界；
 //   * 进度条从原生 `ProgressBar`（Basic 样式 = 系统灰，且与主题无关）换成自研
 //     `FmProgressBar`（强调色、不确定模式），高度 4px；
 //   * 文案层级：状态文本用 `textSecondary`，级别色只在 success/warning/error 时覆盖；
 //   * 高度走 `Theme.statusBarHeight` 令牌（28）。
 //
-// 颜色全部来自 `Theme.*`（闸门 R8），级别 → 颜色的映射写成函数是为了只有一处。
+// 颜色全部来自 `Theme.*`（R8），级别 → 颜色的映射写成函数是为了只有一处。
 
 import QtQuick
 import QtQuick.Controls
@@ -56,7 +56,7 @@ Rectangle {
         anchors.rightMargin: Theme?.spacingMd ?? 0
         spacing: Theme?.spacingSm ?? 0
 
-        // 桥接注册状态：**出问题才显示**（阶段 2 四条支线并行，缺桥是常态，
+        // 桥接注册状态：**出问题才显示**（缺桥不是不可能，
         // 关键是这个事实可见 —— 入口的 `test_main_qml_entry.py` 直接读这个 objectName）。
         // 一切正常时它显示 "bridges ok (N)"，为避免常驻噪声把它藏起来；
         // 元素本身一直在，所以 `text` 绑定始终有效（接线证据仍然成立）。

@@ -1,14 +1,12 @@
-"""服务器模组 / 资源包本地管理的会话状态机（阶段 3 任务 3.12）。
+"""服务器模组 / 资源包本地管理的会话状态机。
 
-旧实现 ``ui/windows/server_resource_manager.py`` 把目录推导、扫描、搜索、分页、
-模组元数据、启停、删除、导出、更新检查都写在 Tk 窗口里；阶段 1 已经把纯操作
-搬进 ``services/resource_service.py``。本模块补的是**会话状态**：当前服务器 /
-当前类型 / 搜索词 / 页码 / 元数据 / 进度 / 更新结果，以及“换服务器要清什么”。
+会话持有：当前服务器 / 当前类型 / 搜索词 / 页码 / 元数据 / 进度 / 更新结果，
+以及“换服务器要清什么”。扫描、元数据、启停、删除、导出等纯操作在
+``services/resource_service.py``。
 
 和 ``services/resource_session.py`` 的区别只有一处，但很关键：服务器目录不是
 ``.minecraft/versions/<id>/...``，而是 ``get_server_dir()/<id>/mods|resourcepacks``。
-旧代码用字符串里有没有 forge/fabric 来猜隔离层级，QML 侧永远有真实服务器名，
-所以这里直接拼 ``<server_root>/<version>/<kind>``，不再猜。
+这里直接用真实服务器名拼 ``<server_root>/<version>/<kind>``，不猜隔离层级。
 
 线程约定：本模块不起线程、不碰 Qt。长活（元数据 / 筛选 / 更新）由桥交给
 ``TaskRunner``，任务函数以 ``(session, ctx)`` 形式在这里实现，进度走 ctx.progress。

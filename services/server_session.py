@@ -1,21 +1,17 @@
-"""服务器会话状态机（阶段 3 任务 3.9 ~ 3.10；对照表 L-21 ~ L-35）。
+"""服务器会话状态机。
 
-## 为什么要有这个文件
+## 职责
 
-旧界面 ui/app_server.py 把“已安装服务器 / 运行状态 / 安装进度 / 每服内存”
-这些会话状态藏在 Tk 控件里：选中项是 selected_server_version，运行状态靠
-server_log_status_label 的文本，安装进度来自核心的全局 on_progress。QML 页面
-不能继承这些控件，也不该把这些规则用 JS 再写一份（迁移红线 2）。
+会话持有“已安装服务器 / 运行状态 / 安装进度 / 每服内存”这些状态，
+桥只负责把属性与操作暴露给 QML：
 
-本模块把这一坨状态搬进服务层，桥只负责把属性念给 QML 听：
-
-- selected_server_version → ServerSession.selected（选中项，空串 = 没选）
-- server_log_status_label → ServerSession.running（当前运行的服务器）
-- _server_mem_monitor_after → _spawn_watcher（进程退出监控，恰好一次，D-84）
-- _sync_server_memory_display → memory_for / set_memory（每服独立 .fmcl_server.json）
-- _render_server_available_page → available_rows（正式版每页 10 条）
-- _on_server_install → install（安装任务 + 进度回调）
-- 控制台（3.10）：按版本隔离的日志游标 / 在线玩家 / 内存 / 命令 / 退出确认 /
+- ServerSession.selected（选中项，空串 = 没选）
+- ServerSession.running（当前运行的服务器）
+- _spawn_watcher（进程退出监控，恰好一次）
+- memory_for / set_memory（每服独立 .fmcl_server.json）
+- available_rows（正式版每页 10 条）
+- install（安装任务 + 进度回调）
+- 控制台：按版本隔离的日志游标 / 在线玩家 / 内存 / 命令 / 退出确认 /
   崩溃 AI 分析都在这里；桥只转发，QML 不保存任何业务状态。
 
 ## 线程约定
@@ -26,7 +22,7 @@ server_log_status_label 的文本，安装进度来自核心的全局 on_progres
   观察者的 on_progress。桥侧把观察者事件排队后再 emit 信号（见
   app/bridges/servers_bridge.py），worker 不碰 QML。
 - 进程退出监控是独立的 daemon 线程，复用 ServerConsoleWatcher —— 它保证
-  on_exit 恰好一次（D-84 的修复不能因为换界面而丢掉）。
+  on_exit 恰好一次。
 
 ## 与旧实现刻意一致的地方
 
@@ -190,7 +186,7 @@ class ServerSession:
         self._available_page = 1
 
         self._selected = ""
-        #: 同时运行的服务器：version -> Popen。允许一台以上（3.9 验收反馈）。
+        #: 同时运行的服务器：version -> Popen。允许一台以上同时运行。
         self._running: Dict[str, Any] = {}
         self._running_order: List[str] = []
         self._last_exit_code: Optional[int] = None

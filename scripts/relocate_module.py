@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""模块搬家工具（阶段 1「形态 1：整体搬家 + 转发 shim」的机械化实现）。
+"""模块搬家工具（整体搬家 + 转发 shim 的机械化实现）。
 
 把已经**零 UI 依赖**的模块从旧位置搬进 `services/`，并在原位置留下
 命名空间完全一致的转发 shim。适用于那些"逻辑与界面本来就分得开"的模块 ——
@@ -24,13 +24,12 @@
    只验前者会漏掉锚点之间的空隙 —— 本仓库在抽取 `ui/app_monitor.py` 时
    就真的丢过两个常量，直到运行时 NameError 才暴露。
 
-**已登记的行数偏差**（`REGISTERED_LINE_DELTAS`）：搬家**完成之后**带任务号的
-缺陷修复会合法地改变新文件的行数，于是"行数与 git 原文一致"这条会永远报红。
-而**一个永远红的闸门比没有闸门更糟** —— 它会训练所有人忽略红色。
-折中办法与 `poc/_post_extraction_patches.py` 同一套路：偏差逐条登记（带任务号
-与理由），判据改成 `新文行数 == 原文行数 + 已登记偏差`；不在表里的文件仍然必须
-**完全一致**。另外每条例外都必须**被命中**，命中 0 次要报错 —— 防止这张表
-腐化成"哪里红了往哪里加"的垃圾场。
+**已登记的行数偏差**（`REGISTERED_LINE_DELTAS`）：搬家**完成之后**的合法修复会
+改变新文件的行数，于是"行数与 git 原文一致"这条会永远报红。而**一个永远红的闸门
+比没有闸门更糟** —— 它会训练所有人忽略红色。折中办法是偏差逐条登记（带理由），
+判据改成 `新文行数 == 原文行数 + 已登记偏差`；不在表里的文件仍然必须**完全一致**。
+另外每条例外都必须**被命中**，命中 0 次要报错 —— 防止这张表腐化成
+"哪里红了往哪里加"的垃圾场。
 
 **基线不是 `HEAD`**（`BASELINE_COMMIT`）：搬家提交进历史之后，`HEAD` 就是搬家
 **之后**的代码，"用 HEAD 取原文"会变成拿重构后的代码跟自己对比较 —— 轻则整片
@@ -57,7 +56,7 @@ if str(REPO_ROOT) not in sys.path:
 
 #: 「git 原文」的**唯一来源**：重构前最后一个提交（v2.12.6 的发布提交 `640f7eb`）。
 #:
-#: ## 为什么不能写 ``HEAD``（阶段 1 收尾时真的踩了这个坑）
+#: ## 为什么不能写 ``HEAD``
 #:
 #: 本工具的核心判据是"新文件必须与 git 原文一致"。搬家还在工作区里时，
 #: ``HEAD`` 恰好就是搬家**前**的形态，于是"用 HEAD 取原文"看起来没问题。
@@ -142,29 +141,27 @@ MOVES: List[Move] = [
          (("from ui.music_lyrics import", "from services.music_lyrics import"),)),
     Move("ui/music_effects.py", "services/music_effects.py",
          "音效 DSP（EQ/混响/变调/变速）", 1),
-    # 返工 E 组补登记：这次搬家当初**漏登**了（`ui/music_playlist.py` 的 shim 一直在、
-    # 测试侧的 `MOVED` 也一直覆盖它，但闸门这张表里没有它 —— 于是"行数是否与原文一致"
-    # 这件事在闸门侧**从来没被校验过**）。补上它之后，D-20 / D-22 的行数偏差才有了
-    # 合法的登记位置（两张登记表的键集合必须一致，见
-    # `tests/test_services_relocation.py::test_registered_line_deltas_agree_with_the_relocate_gate`）。
+    # 补登记：这次搬家当初**漏登**了（shim 与测试侧清单都有它，唯独闸门这张表没有 ——
+    # 于是"行数是否与原文一致"在闸门侧**从来没被校验过**）。补上它之后，
+    # D-20 / D-22 的行数偏差才有了合法的登记位置（两张登记表的键集合必须一致）。
     # refs = 11：按本文件的口径（全仓 .py 里「模块点分路径 + 非标识符字符」的出现次数，
-    # 排除 poc/）实测得出。
+    # 不含临时探针目录）实测得出。
     Move("ui/music_playlist.py", "services/music_playlist.py",
          "歌单持久化（歌单增删改、排序、拼音检索）", 11),
     Move("backup_manager.py", "services/backup_manager.py",
          "存档备份管理（备份/恢复/删除/校验/导出/ZIP 压缩）", 8),
-    # 任务 1.4 的"音乐源适配"整块：9 个文件、约 164KB，实测 UI 触点全为 0，
-    # 所以可以整包搬走，不需要切分逻辑/界面。
+    # "音乐源适配"整块：9 个文件、约 164KB，UI 触点全为 0，
+    # 整包搬走，不需要切分逻辑/界面。
     Move("ui/music_source", "services/music_source",
          "音乐源适配（网易云/QQ/酷狗/酷我/咪咕/B站）", 20,
          (("from ui.music_source", "from services.music_source"),), package=True),
-    # ─── 任务 1.14：Agent 服务 ───────────────────────────────────────
+    # ─── Agent 服务 ──────────────────────────────────────────────
     # 实测：ui/agent/ 下除 agent_chat.py / agent_mixin.py / agent_mixin / voice_input.py
     # 之外，所有模块对 GUI 栈（tkinter/customtkinter/tkinterweb/tkhtmlview）的
     # import 数都是 **0**；包内互相引用一律是 `from ui.agent.x import ...` 的绝对
     # 形式，所以一条改写 `from ui.agent.` → `from services.agent.` 即可全覆盖。
-    # refs 口径：全仓库 .py 中「模块点分路径 + 非标识符字符」的出现次数（已排除
-    # poc/ 下的临时探针），避免 provider 命中 providers 这种子串误计。
+    # refs 口径：全仓库 .py 中「模块点分路径 + 非标识符字符」的出现次数
+    # （不含临时探针目录），避免 provider 命中 providers 这种子串误计。
     Move("ui/agent/models.py", "services/agent/models.py",
          "Agent 数据模型（模型目录 / ModelInfo / 默认模型）", 7,
          (("from ui.agent.", "from services.agent."),)),
@@ -227,7 +224,7 @@ QQ 音乐接口**。
 的 GUI 导入，它会**保留 exec 之前的模块对象** —— 只做别名的话那个对象仍是空壳
 （实测踩到过：``mp.PlaylistSong`` AttributeError）。两种机制都很便宜，一起用最稳。
 
-阶段 3 完成后本文件可删除。
+本文件是兼容旧路径的转发 shim。
 """
 
 import sys
@@ -253,7 +250,7 @@ PACKAGE_SHIM_TEMPLATE = '''"""{title}（转发 shim）
 别名之外仍把名字复制一份到本模块 ``__dict__``，兼容"先取模块对象、再 exec"的
 加载方式（理由见单模块模板里的说明）。
 
-阶段 3 完成后本文件可删除。
+本文件是兼容旧路径的转发 shim。
 """
 
 import importlib
@@ -465,21 +462,20 @@ def apply_move(m: Move, rep: Reporter) -> None:
 
 #: 搬家完成之后**已登记**的行数变化：``{新文件相对路径(posix): (行数增量, 理由)}``。
 #:
-#: 这些不是"内容被删改"，而是搬家之后带任务号的缺陷修复。判据没有放松 ——
-#: 不在表里的文件仍然必须与原文行数完全一致；每条例外都要写清归属与原因。
+#: 这些不是"内容被删改"，而是搬家之后的独立修复。判据没有放松 ——
+#: 不在表里的文件仍然必须与原文行数完全一致；每条例外都要写清原因。
 #: **每条例外都必须被命中**：命中 0 次（或增量对不上）都会报错，防止登记过期后
 #: 这张表变成永远免疫的垃圾场。
 REGISTERED_LINE_DELTAS: Dict[str, Tuple[int, str]] = {
     "services/agent/config.py": (
         10,
-        "阶段 3 任务 3.23（设置 → AI 模型）：AgentConfig 新增 thinking / "
+        "设置 → AI 模型：AgentConfig 新增 thinking / "
         "reasoning_efforts 两个字段与序列化/反序列化，并补思考开关相关注释。"
-        "总行 +10（非空行 +8，多出的 2 行是空行）—— 搬家时没有登记，闸门从 3.23 "
-        "起一直红在这里；3.27 复核插件界面时顺手补齐登记。"
+        "总行 +10（非空行 +8，多出的 2 行是空行）。"
     ),
     "services/music_effects.py": (
         99,
-        "返工 E 组 D-147 + D-25（WP3，`poc/review/e_group/wp3_music_effects.md`）："
+        "D-147 + D-25："
         "D-147 是「音效链依赖外部 ffmpeg，却既没声明、也没探测，失败完全静默」——"
         "真正做解码/编码的是外部 ffmpeg 进程（pydub 只是容器），而原来的守卫连日志都没有，"
         "用户看到的是「设了没反应」；修法是新增 `_find_ffmpeg()` / `FFMPEG_PATH` / "
@@ -489,47 +485,44 @@ REGISTERED_LINE_DELTAS: Dict[str, Tuple[int, str]] = {
         "与 `_apply_reverb` 的无用赋值（删除），并新增 D-19 要用的纯函数 "
         "`effective_duration()` / `playback_duration()`。"
         "总行数 +99（非空行 +82，多出的 17 行是函数之间的空行与 docstring 分段）。"
-        "同一条偏差也登记在 tests/test_services_relocation.py 的 REGISTERED_LINE_DELTAS 里"
-        "（那里按**非空行**算，所以登记的是 +82）。",
+        "同一条偏差也登记在测试侧的行数偏差表里（那里按**非空行**算，登记的是 +82）。",
     ),
     "services/music_playlist.py": (
         53,
-        "返工 E 组 D-20 + D-22（用户已裁决的第 1、2 批）：D-20 是写盘前的目录创建没有保护"
+        "D-20 + D-22：D-20 是写盘前的目录创建没有保护"
         "（父目录建不出来/无权限时直接抛）而调用方都吞异常 → 表现为「歌单静默不落盘」；"
         "修法按 config.py 的同构做法（先试 primary、不可写就回退到 %LOCALAPPDATA%\\FMCL\\data "
         "并打日志、两者都不可写打 error），落盘失败保留脏标记等下次重试。"
         "D-22 是把 normpath 从「每首歌算一次」提到循环外（统一比对键）。"
         "总行数 +53（非空行 +34，多出的 19 行是注释块、空行与函数之间的分隔）。"
-        "同一条偏差也登记在 tests/test_services_relocation.py 的 REGISTERED_LINE_DELTAS 里"
-        "（那里按**非空行**算，所以登记的是 +34）。",
+        "同一条偏差也登记在测试侧的行数偏差表里（那里按**非空行**算，登记的是 +34）。",
     ),
     "services/backup_manager.py": (
         107,
-        "D-112（阶段 1 第 11 轮）：同一秒内的两次备份会因文件名只有秒级精度（"
+        "D-112：同一秒内的两次备份会因文件名只有秒级精度（"
         "{存档名}_{YYYYmmdd_HHMMSS}.zip）而互相覆盖 —— 索引留下多条指向同一文件的记录，"
         "于是删一条会连带删掉另一条的备份文件、自动清理会删掉仅存的那个文件。"
         "修法是撞名时追加 6 位短后缀（一次备份 = 一个文件）+ 说明注释："
         "总行数 +11（非空行 +10，多出的 1 行是注释块前后的空行）。"
-        "3.14（2026-10-31）：补公开 list_worlds()、恢复策略 rename/overwrite/trash 与"
+        "后续补公开 list_worlds()、恢复策略 rename/overwrite/trash 与"
         "失败回滚/回收站降级：总行再 +96（非空行 +79）。"
-        "同一条偏差也登记在 tests/test_services_relocation.py 的 REGISTERED_LINE_DELTAS 里"
-        "（那里按**非空行**算，所以登记的是 +89）。",
+        "同一条偏差也登记在测试侧的行数偏差表里（那里按**非空行**算，登记的是 +89）。",
     ),
     "services/agent/engine.py": (
         1,
-        "第 12 轮：读子进程文本输出的调用补 `errors=\"replace\"`。"
+        "读子进程文本输出的调用补 `errors=\"replace\"`。"
         "`subprocess.run(..., text=True)` 不指定 encoding 时用 "
         "`locale.getpreferredencoding(False)`，而项目自己的文档命令是 "
         "`python -X utf8 -m pytest` —— UTF-8 模式下子进程按 OEM 码页输出的中文会在 "
         "subprocess 的 reader 线程里抛 UnicodeDecodeError（实测 byte 0xd0）。"
         "补这个 kwarg 让那处调用多占一行。"
-        "**同族另一处 `services/agent/tools/system.py` 的 +1 登记在 "
-        "tests/test_agent_service.py 的 REGISTERED_LINE_DELTAS 里** —— "
-        "它不在这张表的文件清单里（本表只覆盖 `scripts/relocate_module.py::MOVES` 里的条目）。",
+        "**同族另一处 `services/agent/tools/system.py` 的 +1 登记在测试侧的"
+        "行数偏差表里** —— 它不在这张表的文件清单里（本表只覆盖 "
+        "`scripts/relocate_module.py::MOVES` 里的条目）。",
     ),
     "services/achievement_engine.py": (
         45,
-        "阶段 3 任务 3.1（缺陷 D-155）：每日签到的「连续 N 天」提示**一次都没显示过** —— "
+        "D-155：每日签到的「连续 N 天」提示**一次都没显示过** —— "
         "`checkin()` 返回的是 `update_progress()` 的成就条目（`_build_item` 的键是 "
         "`progress_current` / `progress_stage` 那一套），既没有 `success` 也没有 `streak`，"
         "而旧入口 `main.py:328-334` 恰恰按 `result.get(\"success\")` 判断要不要提示、"
@@ -537,11 +530,10 @@ REGISTERED_LINE_DELTAS: Dict[str, Tuple[int, str]] = {
         "`get_checkin_streak()`：它读的就是 `checkin()` 自己写的那一行 "
         "`achievement_state.checkin_streak`，于是「签到成功! 连续 N 天」终于有真实来源。"
         "总行数 +28（非空行 +24，多出的 4 行是函数之间的空行与 docstring 分段）。"
-        "3.21（2026-11-08）：QML 成就桥退出时要注销解锁回调，新增 "
+        "后续 QML 成就桥退出时要注销解锁回调，新增 "
         "`unregister_unlock_callback()`，并让 `_notify_unlock()` 先拷贝回调列表再遍历；"
         "总行再 +17（非空行再 +15，累计总行 +45 / 非空 +39）。"
-        "同一条偏差也登记在 tests/test_services_relocation.py 的 REGISTERED_LINE_DELTAS 里"
-        "（那里按**非空行**算，所以登记的是 +39）。",
+        "同一条偏差也登记在测试侧的行数偏差表里（那里按**非空行**算，登记的是 +39）。",
     ),
 }
 

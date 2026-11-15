@@ -93,7 +93,7 @@ def portable_preference() -> bool:
 
 
 def dpapi_available() -> bool:
-    """当前平台有没有 DPAPI（决定密钥能不能绑在本机）。"""
+    """当前平台有没有 DPAPI（决定密钥能不能绑在当前设备）。"""
     return _dpapi_available()
 
 
@@ -287,7 +287,7 @@ def _write_master_key(key_path: Path, raw: bytes, *, portable: bool) -> str:
     """按指定模式写主密钥，返回实际落盘的来源标记。
 
     ``portable=False`` 但平台没有 DPAPI 时只能存裸密钥 —— 返回 ``"keyfile"``
-    如实告诉调用方「没能绑到本机」，界面据此提示，而不是假装已经关掉了便携模式。
+    如实告诉调用方「没能绑到当前设备」，界面据此提示，而不是假装已经关掉了便携模式。
     """
     if portable:
         _atomic_write(key_path, PORTABLE_MAGIC + raw)
@@ -479,7 +479,7 @@ class CredentialVault:
             return "不可用"
 
     def key_usable(self) -> bool:
-        """主密钥在本机解得开吗。密钥还没生成也算「可用」（迟早会正常生成）。"""
+        """主密钥在当前设备解得开吗。密钥还没生成也算「可用」（迟早会正常生成）。"""
         if os.environ.get(MASTER_PASSWORD_ENV):
             return True
         if not paths.key_file().exists():
@@ -510,7 +510,7 @@ class CredentialVault:
         return raw[:4] == PORTABLE_MAGIC and len(raw) == KEY_BYTES + 4
 
     def dpapi_bound(self) -> bool:
-        """密钥此刻是不是由本机 DPAPI 绑着（拷走就解不开）。"""
+        """密钥此刻是不是由当前设备 DPAPI 绑着（拷走就解不开）。"""
         try:
             raw = paths.key_file().read_bytes()
         except OSError:

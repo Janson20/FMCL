@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "emoji -> 图标 的映射表（阶段 2 任务 2.10）。emoji 允许出现在本文件：它就是被记录的数据。emoji 段 = 该 emoji 在界面上被当图标用，必须映射到 qml/assets/icons/<icon>；exempt 段 = 不用换，reason 里写清为什么。逐条判定见 docs/refactor/14-emoji-inventory.md（由 poc/_inventory_emoji.py 生成）。kind 字段：emoji 段一律 ui；exempt 段写它真实的主导判定。新图标要同时在这里登记，否则 poc/_inventory_emoji.py --check 会红。",
+  "note": "emoji -> 图标 的映射表。emoji 允许出现在本文件：它就是被记录的数据。emoji 段 = 该 emoji 在界面上被当图标用，必须映射到 qml/assets/icons/<icon>；exempt 段 = 不用换，reason 里写清为什么。kind 字段：emoji 段一律 ui；exempt 段写它真实的主导判定。新图标要同时在这里登记，否则一致性检查会失败。",
   "emoji": {
     "❌": {"icon": "error.svg", "codepoint": "U+274C", "name": "CROSS MARK", "kind": "ui", "reason": "失败/错误状态记号（Toast、状态栏）。77 处里只有 5 处在界面，71 处在 services/agent/** 的工具返回值里——那是 tool_registry 解析的机器前缀，不换（见 exempt 说明与逐条表）"},
     "✅": {"icon": "success.svg", "codepoint": "U+2705", "name": "WHITE HEAVY CHECK MARK", "kind": "ui", "reason": "成功/完成状态记号（Toast、按钮、分类报告）。31 处里 6 处在界面，23 处同上属 Agent 工具返回值"},

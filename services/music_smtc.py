@@ -1,36 +1,23 @@
-"""Windows SMTC（系统媒体控制）集成（阶段 1 任务 1.4-A，形态 1：整体搬家）。
+"""Windows SMTC（系统媒体控制）集成。
 
 ## 为什么用隐藏的静音 MediaPlayer 当 SMTC 提供者
 
 winsdk 的 SystemMediaTransportControls.get_for_current_view() 只对 UWP
-CoreWindow 有效；FMCL 是 Win32 桌面程序，实测直接抛
-OSError: [WinError -2147023496] 无效的窗口句柄，_initialized 永远是假，
-元数据/媒体键/进度全是空操作。
+CoreWindow 有效；FMCL 是 Win32 桌面程序，调用会抛
+OSError: [WinError -2147023496] 无效的窗口句柄。
 
-桌面程序的正路是 ISystemMediaTransportControlsInterop::GetForWindow(hwnd)，
-但本仓库锁定的 winsdk==1.0.0b10 没有投影这个 interop 接口；为了一个接口
-再引一套 WinRT 运行时并不划算。可验证的替代是：创建一个隐藏、静音、循环的
-MediaPlayer，用它的 system_media_transport_controls 作为系统会话。实测
-Windows 11 26200 上：系统媒体面板能读到标题/歌手，媒体键能触发
-button_pressed，update_timeline_properties 能推进度。静音播放器只占一条
+桌面程序可以使用 ISystemMediaTransportControlsInterop::GetForWindow(hwnd)，
+但当前锁定的 winsdk 版本没有投影这个 interop 接口。替代方案是创建一个
+隐藏、静音、循环的 MediaPlayer，用它的 system_media_transport_controls
+作为系统会话。系统媒体面板可以读取标题与歌手，媒体键可触发
+button_pressed，update_timeline_properties 可推进度。静音播放器只占一条
 静音音频流，不参与 FMCL 的出声链路（出声仍由 QMediaPlayer 负责）。
 
-## 线程契约（搬走时原样保留，务必看清）
+## 线程契约
 
-类名里带 _main 后缀的方法假定自己在主线程上执行：所有公开入口先做
-self._parent.after(0, ...) 把活儿切回 Qt 主线程，然后才碰 winsdk 的 COM
-对象。_parent 由界面侧 set_parent(self) 注入（通常是主窗口），after
-由界面控件提供——本模块自己不起线程、不调 after，只"要求"调用方在主线程
-上调用它。媒体键回调来自 COM 线程，同样经 after 切回主线程。
-
-## 为什么 _winsdk_available / _winsdk_import_error 住在这里
-
-探测块只有一个（platform.system() == "windows" → try import winsdk），
-搬到这里之后它成为唯一真相；旧 Tk 的 music_audio 转码链已于 4.2 删除，
-QML 侧只通过 MusicBridge 使用本模块。
-
-公开名去掉了前导下划线（_SMTCController → SMTCController），
-旧 Tk 界面里的同名别名随 4.2 一起退役。
+公开入口由音乐桥在主线程调用；带 _main 后缀的方法假定自己在主线程执行。
+媒体键回调来自 COM 线程，通过桥提供的 after(0, ...) 切回主线程后再碰
+winsdk 的 COM 对象。本模块自己不起线程。
 """
 
 from __future__ import annotations
@@ -71,7 +58,7 @@ else:
     _winsdk_available = False
     _winsdk_import_error = "非 Windows 平台"
 
-#: MediaPlaybackStatus 的取值（不要再用旧实现的 4/5 魔法数：4 是 PAUSED）。
+#: MediaPlaybackStatus 的取值（4 是 PAUSED）。
 _STATUS_STOPPED = 2
 _STATUS_PLAYING = 3
 _STATUS_PAUSED = 4

@@ -1,6 +1,6 @@
 # 快速开始指南
 
-## 开发环境设置
+## 本地开发准备
 
 ### 1. 克隆仓库
 
@@ -13,14 +13,12 @@ cd FMCL
 
 #### Python 依赖
 ```bash
-# 使用 pip
-pip install -r requirements.txt
-
-# 或使用 uv (推荐)
+# 以 uv.lock 为准安装全部依赖
 uv sync
 ```
 
-> **Python 版本要求**：本项目仅支持 Python >= 3.10, < 3.12。pygame 在 Windows Python 3.12+ 上无可用二进制包。
+> **Python 版本要求**：本项目仅支持 Python >= 3.10, < 3.12，与锁文件中的 PySide6 6.7.3
+> 及其他依赖组合保持一致。不要用 `pip install` 直接修改项目虚拟环境。
 
 #### Node.js 依赖 (用于 Git hooks)
 ```bash
@@ -31,7 +29,7 @@ npm run prepare
 ### 3. 运行程序
 
 ```bash
-python main.py
+uv run python main.py
 ```
 
 ## 发布流程
@@ -74,11 +72,11 @@ git push origin v2.0.1
 ### 构建可执行文件
 
 ```bash
-# 安装 PyInstaller
-pip install pyinstaller
+# 安装构建依赖
+uv sync --group dev
 
 # 构建
-pyinstaller build.spec --noconfirm
+uv run pyinstaller build.spec --noconfirm
 ```
 
 构建产物位于 `dist/` 目录。
@@ -120,7 +118,7 @@ docker run -it --rm \
 
 ## 提交规范
 
-本项目使用约定式提交规范。请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)。
+本项目使用约定式提交规范。请参阅 [CONTRIBUTING.md](../CONTRIBUTING.md)。
 
 示例：
 ```bash
@@ -137,7 +135,7 @@ refactor: 重构启动器核心逻辑
 如果遇到 `ModuleNotFoundError`，请确保已安装所有依赖：
 
 ```bash
-pip install -r requirements.txt
+uv sync --reinstall
 ```
 
 ### 权限错误
@@ -157,6 +155,6 @@ Windows 可能会误报可执行文件为病毒。这是 PyInstaller 打包的�
 
 ## 获取帮助
 
-- 📖 [文档](README.md)
+- 📖 [文档](../README.md)
 - 🐛 [问题反馈](https://github.com/Janson20/FMCL/issues)
 - 💬 [讨论区](https://github.com/Janson20/FMCL/discussions)

@@ -1,4 +1,4 @@
-# 对话框组件（阶段 2 任务 2.13）
+# 对话框组件
 
 QML 侧的对话框宿主与 5 个弹窗组件，服务的是 Python 侧那个 `Dialogs` 上下文属性
 （`app/bridges/dialog_bridge.py`，也就是 `DialogHost` 协议的 QML 实现）。
@@ -9,14 +9,14 @@ QML 侧的对话框宿主与 5 个弹窗组件，服务的是 Python 侧那个 `
 |------|------|
 | `DialogHost.qml` | 宿主：接 `Dialogs.dialogRequested/dialogClosed/progressChanged/progressClosed`，按 kind 选组件、排队、回填答案；`Component.onCompleted/Destruction` 里做 `markReady()/markClosing()` 握手 |
 | `MessageDialog.qml` | `info` / `warning` / `error` 三合一（单个「确定」，关闭即回填 `fallback`） |
-| `ModReviewDialog.qml` | 待确认模组的**逐项选择**：每行一个 `FmCheckBox`（勾选 = 禁用）、「禁用 (N)」「模组管理」「关闭」；默认全不勾，`disableRequested(names)` 由页面交给 `ServerMods.disableMods`（阶段 3.12） |
+| `ModReviewDialog.qml` | 待确认模组的**逐项选择**：每行一个 `FmCheckBox`（勾选 = 禁用）、「禁用 (N)」「模组管理」「关闭」；默认全不勾，`disableRequested(names)` 由页面交给 `ServerMods.disableMods` |
 | `ConfirmDialog.qml` | `confirm`（确定 -> true，取消/Esc/关闭 -> **false**）；页面内直接用时可选 `modalScrim`（遮罩 + 拦截外部点击）、`cancelVisible: false`（只有一个「确定」）与 `confirmText` / `cancelText`（只换按钮文案，不改顺序与返回值） |
 | `TextInputDialog.qml` | `ask_text`（预填 + 全选、回车确认、Esc 取消、`password` 掩码） |
 | `ChoiceDialog.qml` | `choose`（选项即按钮，点了立即作答；`default` 决定主按钮） |
 | `ProgressDialog.qml` | `show_progress` / `close_progress` 的进度面板（确定进度走进度条、不确定走转圈、有 `on_cancel` 才有取消按钮） |
-| `GameCrashDialog.qml` | 游戏崩溃提示 + 崩溃诊断 + 导出崩溃 ZIP / 上传日志分享 + AI 分析 + 结果保存 TXT（3.10 补充、3.25 补齐；AI 结果用 `FmAgentMarkdown` 渲染，由壳层 `App.qml` 直接驱动，不走 DialogHost 队列） |
-| `ServerExitDialog.qml` | 服务器退出质量确认 + AI 分析（L-34；3.12 反馈从控制台页移到壳层）：任意页面可弹，`是`/`否（AI 分析日志）`，分析中 / 结果 / 失败同卡切换；由 `App.qml` 直接驱动，不走 DialogHost 队列 |
-| `../FmButton.qml` | 对话框按钮（**2.16 起换成官方件**：`import ".."` 之后直接用 `FmButton`；2.13 的临时件 `DialogButton.qml` 已删除） |
+| `GameCrashDialog.qml` | 游戏崩溃提示 + 崩溃诊断 + 导出崩溃 ZIP / 上传日志分享 + AI 分析 + 结果保存 TXT（AI 结果用 `FmAgentMarkdown` 渲染，由壳层 `App.qml` 直接驱动，不走 DialogHost 队列） |
+| `ServerExitDialog.qml` | 服务器退出质量确认 + AI 分析：任意页面可弹，`是`/`否（AI 分析日志）`，分析中 / 结果 / 失败同卡切换；由 `App.qml` 直接驱动，不走 DialogHost 队列 |
+| `../FmButton.qml` | 对话框按钮：`import ".."` 之后直接使用 `FmButton` |
 | `../ToastHost.qml` | 右下角 Toast 队列（新 toast 向上叠、y 递减、淡入淡出、超时消失） |
 
 ## 怎么挂进主窗口（2.12 的 `App.qml`）

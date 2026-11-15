@@ -115,7 +115,7 @@ make fix
 - 构建问题及解决方案
 - 运行时问题排查
 - GitHub Actions 问题
-- 开发环境配置
+- 开发工具配置
 - 常见错误处理
 
 ---
@@ -131,7 +131,7 @@ make fix
 
 **使用**:
 ```bash
-pip install -r requirements-dev.txt
+uv sync --group dev
 # 或
 make install-dev
 ```

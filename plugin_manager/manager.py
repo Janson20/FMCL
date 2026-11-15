@@ -92,7 +92,7 @@ class PluginManager:
         # 权限确认回调（由主 UI 设置，实现弹窗）
         self._perm_confirm_callback: Optional[Callable[[str, PluginPermission], bool]] = None
 
-        # UI 事件回调（阶段 3 任务 3.27，v2 插件页面用；由界面桥注入）
+        # UI 事件回调（v2 插件页面用；由界面桥注入）
         self._ui_event_callback: Optional[Callable[[str, str, Any], None]] = None
 
         # 插件状态持久化文件
@@ -124,7 +124,7 @@ class PluginManager:
         self._perm_confirm_callback = callback
 
     def set_ui_event_callback(self, callback: Callable[[str, str, Any], None]):
-        """设置 UI 事件回调（阶段 3 任务 3.27：v2 插件页面接收插件推送）。
+        """设置 UI 事件回调（v2 插件页面接收插件推送）。
 
         Args:
             callback: (plugin_id, event_name, payload) -> None。可能在**任意线程**
@@ -144,7 +144,7 @@ class PluginManager:
             logger.warning(f"插件 UI 事件投递失败 ({plugin_id}, {name}): {e}")
             return False
 
-    # ── UI 扩展（v2，阶段 3 任务 3.27） ──
+    # ── UI 扩展（v2） ──
 
     def has_legacy_ui(self, plugin_id: str) -> bool:
         """插件是否注册过 **v1（tkinter）** 的界面扩展钩子。
@@ -515,7 +515,7 @@ class PluginManager:
     def get_manifest(self, plugin_id: str) -> Optional[PluginManifest]:
         """取插件清单对象（含 `install_path` 这类不在 `to_dict()` 里的运行时字段）。
 
-        阶段 3 任务 3.27 的 v2 页面注册要用 `install_path` 校验 `qml_url` 是否
+        v2 页面注册要用 `install_path` 校验 `qml_url` 是否
         落在插件目录内；`get_all_plugin_meta()` 给的是字典，故意不含该字段。
         """
         return self._manifests.get(plugin_id)

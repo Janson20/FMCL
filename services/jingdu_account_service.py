@@ -1,14 +1,12 @@
-"""净读账号服务（阶段 3 任务 3.21 设置里的净读登录）。
+"""净读账号服务（设置里的净读登录）。
 
 只做三件事：登录换 Token、读取用户信息、把 Token/用户名写回配置。它不碰 Qt，
 不弹窗，不起线程；网络调用由调用方放到 TaskRunner 的 worker 里。
 
-旧实现在 ui/windows/launcher_settings.py:1254-1382：登录 POST
-/api/auth/login，用户信息 GET /api/user/info，Token 写 config.jdz_token，
-用户信息缓存在 config.jdz_user_info（不持久化），用户名加密写
-config.jdz_username。本服务保持同样的端点、请求头与缓存语义，但把 HTTP 错误
-归一成 JingduAccountError.kind，让 QML 能选一句可读文案，而不是把
-HTTP 401: {...} 原样丢给用户。
+端点：登录 POST /api/auth/login，用户信息 GET /api/user/info，Token 写
+config.jdz_token，用户信息缓存在 config.jdz_user_info（不持久化），用户名加密写
+config.jdz_username。HTTP 错误归一成 JingduAccountError.kind，让 QML 能选一句
+可读文案，而不是把 HTTP 401: {...} 原样丢给用户。
 """
 
 from __future__ import annotations

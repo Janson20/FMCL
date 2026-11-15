@@ -1,54 +1,30 @@
-"""成就库落盘 / 校验工具（任务 1.24 收口 D-113 两条的实现所在）。
+"""成就库落盘 / 校验工具。
 
-> 缺陷号更正（第 12 轮）：本模块与 `achievement_sync.py` 里的注释原先把
-> "`reset_cloud_db` 上传 WAL 空壳"写成 **D-112** —— 那是**执行者自己起的号**，
-> 而 `docs/refactor/07-known-defects.md` 里的 D-112 是另一个缺陷
-> （存档备份同秒互相覆盖，第 11 轮由写测试发现），这两条云同步故障在登记本里
-> 是 **D-113 ① ②**。登记本为准，注释已统一改成 D-113。
+## 职责
 
-## 为什么新逻辑放在这里，而不是直接写进 `achievement_sync.py`
+- 构造"结构完整"的空数据库字节（:func:`build_empty_db_bytes`）；
+- 校验数据库字节里确实有三张表（:func:`dump_db_bytes`）；
+- 记录最后同步时间（:func:`record_last_sync_time`）。
 
-`services/achievement_sync.py` 与 `services/achievement_engine.py` 是 1.11/1.12
-"整体搬运"进来的文件，两道机械闸门要求它们的**行数与 git 原文一致**：
-
-- ``scripts/relocate_module.py --check``（验收命令之一，脚本本身在禁改清单里）
-- ``tests/test_services_relocation.py::test_implementation_kept_the_original_line_count``
-  （测试文件也在禁改清单里）
-
-而 D-113 两条的修法必然要新增逻辑。取舍：把**新逻辑**集中放在本模块，
-那两个文件里只留**等行数**的调用点（改一行、还是那一行），并在行尾注明指向这里。
-于是"没丢内容"这两条闸门继续成立，而修复又是完整的、可测的。
-
-## D-113：`database is locked` —— 谁在持锁（实测）
+## SQLite 连接与锁
 
 ``with sqlite3.connect(path) as conn:`` 的上下文管理器**只提交/回滚事务**
-（``sqlite3.Connection.__exit__`` 不是资源管理器），**不关闭连接**。实测
-（``poc/_diag_lock_mechanism.py``，逐条输出都在那个脚本里）：
+（``sqlite3.Connection.__exit__`` 不是资源管理器），**不关闭连接**。连接对象
+进入引用环后要等循环 GC 才释放；它活着的时候：
 
-1. 一个"``with sqlite3.connect(...) as c`` + ``PRAGMA wal_checkpoint(TRUNCATE)``"
-   的 helper 返回之后，连接对象**仍然活着** —— 它进了引用环（``gc.get_objects()``
-   里能找到它），CPython 的引用计数回收不掉，只有循环 GC 才释放；
-2. 它活着的时候，Windows **不让删** ``-wal`` / ``-shm``（``WinError 32``），于是
-   ``_cleanup_wal_shm`` 的 ``except OSError: pass`` 把失败吞掉 —— 被整体替换过的
-   主库旁边留着一对**属于旧库**的 sidecar；
-3. 它活着的时候，另一个连接的写入直接被挡：``timeout=0`` 立刻
-   ``database is locked``；用默认 timeout 就等满 5 秒再抛。这正是
-   ``run_sync(..., engine=engine)`` 在 ``engine.set_last_sync_time()`` 上看到的
-   现象 —— 异常从 worker 线程里冒出去，界面那侧安排好的 ``after(0, ...)`` 再也
-   不会执行，同步按钮永久停在"同步中…"且禁用；
-4. ``gc.collect()`` 之后连接才被释放，同一次写入**立刻成功**（0.03 秒）。也就是说
-   这把锁的存活期取决于 GC 什么时候跑 —— "偶发、难查"的那类锁竞争。
+1. Windows **不让删** ``-wal`` / ``-shm``（``WinError 32``）；
+2. 另一个连接的写入会被挡：``timeout=0`` 立刻 ``database is locked``，
+   默认 timeout 则等满 5 秒再抛。
 
-修法：所有这类连接都显式关闭（那两个文件里用 ``contextlib.closing``，等行数改动），
-并且**checkpoint 之后立刻校验读出来的字节**。
+因此所有这类连接都显式关闭（用 ``contextlib.closing``），
+并且 **checkpoint 之后立刻校验读出来的字节**。
 
-## D-113 ②：`reset_cloud_db` 上传的是 WAL 空壳
+## WAL 与 `reset_cloud_db`
 
 引擎开的是 WAL 模式；``AchievementEngine(tmp_dir)`` 建完表之后表定义还在 ``-wal``
-里，主文件只有 **4096 字节**头部（实测 ``poc/_probe_wal_shell.py``）。旧实现直接
-``read_bytes()``，于是"重置云存档"上传的是一个**没有表的空壳**：云端下次下载它会
-在 ``_do_merge_db`` 里读不到表 → 合并失败 → 记"合并失败，仅上传本地数据"，
-**重置并不真的生效**（本地数据随后又被传回云端）。
+里，主文件只有 **4096 字节**头部。直接 ``read_bytes()`` 会把一个**没有表的空壳**
+上传，云端下次下载它会在 ``_do_merge_db`` 里读不到表 → 合并失败 →
+"重置云存档"并不真的生效（本地数据随后又被传回云端）。
 
 修法：先 checkpoint 把 ``-wal`` 并回主文件、显式关连接，再读字节，并**断言读出来的
 字节里真的有那三张表**；``dump_db_bytes`` 校验不过就返回 ``None``，调用方放弃上传

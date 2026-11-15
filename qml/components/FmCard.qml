@@ -1,4 +1,4 @@
-// FmCard.qml —— 卡片（阶段 2 任务 2.16）。
+// FmCard.qml —— 卡片。
 //
 // 什么时候用它：把一组相关内容框成一个视觉单元（"账号信息"、"启动设置"、"版本详情摘要"、
 //   三态区域），也让页面有分区感（14 个设计令牌里 `radiusLg` 与 `spacingLg` 就是给它的）。
@@ -81,7 +81,7 @@ Rectangle {
             id: foot
             objectName: "fmCardFooter"
             Layout.fillWidth: true
-            // **必须显式写 `Layout.fillHeight: false`**（阶段 3 任务 3.1 人工验收的缺陷 D-161）：
+            // **必须显式写 `Layout.fillHeight: false`**：
             // 在 ColumnLayout 里只给 `Layout.alignment: Qt.AlignRight`（只有水平分量）时，
             // Qt Quick Layouts 会认为**纵向没有对齐约束**，于是把它也当成"可拉伸项"，
             // 与 `fmCardBody`（fillHeight: true）**平分**多出来的高度。后果是：

@@ -1,4 +1,4 @@
-"""QML 桥接层 —— QML 侧访问 Python 的**唯一**入口（阶段 2 契约见 `docs/refactor/11`）。
+"""QML 桥接层 —— QML 侧访问 Python 的**唯一**入口。
 
 ## 边界
 

@@ -1,4 +1,4 @@
-// FmMusicQueueView.qml —— 播放队列（阶段 3.16）。
+// FmMusicQueueView.qml —— 播放队列。
 //
 // 数据源是 player.queueItems（QVariantList），每行可跳转 / 上移 / 下移 / 移除。
 

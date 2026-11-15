@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-"""回调键静态校验（阶段 1 任务 1.19）。
+"""回调键静态校验。
 
 背景：旧 Tk 界面通过 ``MinecraftLauncher.get_callbacks()`` 返回的
 ``dict[str, Callable]`` 与核心层通信，全程是**字符串键**，没有任何类型
 检查。键名写错（或核心层改名后界面没跟着改）在 Python 里不会报错，
-直到用户点到那个功能才失效。
+直到运行到对应功能才失效。
 
 本脚本要解决的**核心难点**是：什么才算"这个键不存在"。实测踩过两个坑，
 所以这里的判定规则是经过修正的，不是想当然：
@@ -49,11 +49,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CORE_FILE = REPO_ROOT / "launcher" / "core.py"
 
 # 消费方：界面代码从哪里读 callbacks。
-# **`services/` 必须在内**：阶段 1 把 UI 接线搬进服务层后，服务同样会读 callbacks；
+# **`services/` 必须在内**：服务层同样会读 callbacks；
 # 不同步扩大范围，那些键就会掉出校验（覆盖范围随重构静默缩水）。
 CONSUMER_ROOTS: Tuple[str, ...] = ("ui", "services", "app", "main.py")
 
-# 提供方：生产代码里可能注入回调键的地方（不含 tests/、poc/、third_party/）
+# 提供方：生产代码里可能注入回调键的地方（不含 tests/、third_party/ 与临时探针目录）
 INJECTOR_ROOTS: Tuple[str, ...] = ("ui", "services", "app", "launcher", "plugin_manager", "main.py", "api")
 
 SKIP_DIRS = {"__pycache__", ".venv", ".git", "build", "dist", "node_modules", "poc", "third_party"}

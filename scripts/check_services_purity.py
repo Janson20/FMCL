@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""分层纯净度静态检查（阶段 1 验收标准第 1 条，CI 固化入口）。
+"""分层纯净度静态检查。
 
 用法::
 
@@ -299,7 +299,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true", help="打印规则与扫描范围后退出")
     parser.add_argument("--list-known", action="store_true", help="打印已登记例外后退出")
     parser.add_argument("--show-ok", action="store_true", help="连通过的文件也打印")
-    parser.add_argument("--strict", action="store_true", help="已登记例外也算失败（阶段收口时用）")
+    parser.add_argument("--strict", action="store_true", help="严格模式：已登记例外也计为失败")
     args = parser.parse_args(argv)
 
     if args.list:
@@ -333,7 +333,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if unknown:
         print(f"分层检查失败：{checked} 个文件，{unknown} 处未登记违规，{known} 处已登记例外")
-        print("修复方向见 docs/refactor/03-phases.md 阶段 1 任务 1.3 / 1.16")
+        print("修复方向：把界面依赖移到 app/bridges/，服务层只保留业务逻辑。")
         return 1
     print(f"分层检查失败（--strict）：{checked} 个文件，{known} 处已登记例外未清除")
     return 1

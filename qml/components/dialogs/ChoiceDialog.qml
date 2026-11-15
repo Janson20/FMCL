@@ -7,14 +7,13 @@
 // 三态与边界（对齐旧实现 `ui/ports_tk.py:_do_choose`）：
 //   * 点某个选项**立即作答**（旧实现就是每个选项一个按钮 `command=_finish(option.value)`，
 //     没有单独的「确定」）；
-//   * `default` 对应的选项按主按钮渲染；没有 `default` 时第一个是主按钮（旧实现
-//     `primary = values.index(default) if default in values else 0`）；
-//   * `disabled=True` 的选项不可点（旧实现 `state="disabled"`）；
+//   * `default` 对应的选项按主按钮渲染；没有 `default` 时第一个是主按钮
+//     （`primary = values.index(default) if default in values else 0`）；
+//   * `disabled=True` 的选项不可点；
 //   * Esc / 右上角关闭 -> 兜底值（choose 的 fallback 是 None）。
 //
-// 与旧实现的**唯一差异**：选项从"一行按钮（500x170/200 的窗口）"改成会自动换行的
-// `Flow`。旧实现选项一多就会横向溢出窗口（阶段 0 记录过同类几何问题），这里换行只是
-// 为了不越界，选项内容与作答语义完全一致。
+// 选项用会自动换行的 `Flow` 排：选项一多时一行按钮会横向溢出窗口，
+// 换行只是为了不越界，选项内容与作答语义不受影响。
 
 import QtQuick
 import QtQuick.Controls

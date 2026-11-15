@@ -1,39 +1,31 @@
-"""资源服务 —— 「我的资源」（客户端）与「服务器资源」两个窗口里那些**本质是逻辑、
-只是恰好写在界面类里**的代码（阶段 1 任务 1.8-A）。
+"""资源服务 —— 「我的资源」（客户端）与「服务器资源」两个窗口背后的纯逻辑。
 
-来源文件：``ui/windows/resource_manager.py``（1950 行 / 51 方法）与
-``ui/windows/server_resource_manager.py``（871 行 / 27 方法）。
+## 边界
 
-## 切缝判据（只有一条）
-
-**这段代码是否 import GUI、或是否直接创建/销毁控件。** 是 → 留在界面；
-否 → 搬进本模块。界面效果一律通过调用方传进来的 sink
+本模块不 import GUI、不直接创建/销毁控件。界面效果一律通过调用方传进来的 sink
 （``on_progress`` / ``on_update`` / ``refresh``）或返回值完成；
 服务自身不 import 任何 GUI、不弹窗、不 ``after``、不写剪贴板。
 
-## 五条落地规则（与 ``services/agent_service.py`` 同一风格）
+## 落地规则
 
 1. **异常不翻译**：服务只做「文件系统 / 网络 / 纯计算」，成功返回结果，
-   失败**原样抛出**（``rename`` / ``copy2`` / ``rmtree`` 抛的还是原来那个异常）。
-   诊断日志与提示文案留在界面侧 —— 这样界面方法里那个 ``try/except`` 的
-   **边界与原文逐字相同**（原文 ``try`` 里同时包着文件操作、状态栏、列表刷新）。
+   失败**原样抛出**（``rename`` / ``copy2`` / ``rmtree`` 抛的仍是原异常）。
+   诊断日志与提示文案留在界面侧：界面方法里 ``try/except`` 的边界同时包着
+   文件操作、状态栏与列表刷新。
 2. **i18n 文案一律留界面**：本模块里**没有** ``_("...")``，也不 import ``ui.i18n``。
    少数必须在服务内部才能判定"为什么没做成"的地方（安装时的"已存在 / 格式不支持"）
    返回结构化结果 :class:`InstallResult`，由界面把 ``outcome`` 映射成文案 ——
    这样 ``scripts/check_i18n.py`` 仍能在界面文件里看到**字面量键**。
    反面做法（服务传字符串键、界面写 ``_(key)``）会让那些键从
-   「键存在性 / 占位符一致 / 调用点缺参」三项静态检查里**静默掉出去**，
-   正是该脚本 docstring 里点名的"覆盖范围随重构缩水"。
+   「键存在性 / 占位符一致 / 调用点缺参」三项静态检查里**静默掉出去**。
 3. **线程**：本模块**没有任何脱离调用的线程**。``ThreadPoolExecutor`` 只在一次
-   **同步调用内部**创建、并在同一次调用内 join 完（原实现就是这样，并发度
-   8 / 8 / 4 也照抄）；把这次同步调用丢到后台的那个 ``threading.Thread``、
-   以及 ``TaskRunner`` 缩略图池，仍然由界面起（原样）。
+   **同步调用内部**创建、并在同一次调用内 join 完（并发度 8 / 8 / 4）；
+   把同步调用丢到后台的 ``threading.Thread`` 以及 ``TaskRunner`` 缩略图池
+   由界面起。
 4. **界面状态不动**：``_page_cache`` / ``_scan_cache`` / ``_update_info`` /
    ``_thumb_generation`` / ``_thumb_inflight`` 这些**界面实例上的状态**留在界面，
    本模块只提供操作它们的纯函数（``claim_thumbnail`` / ``scan_cache_usable`` /
-   ``paginate`` …）—— 于是 ``poc/probe_thumbnail_pool.py`` 与
-   ``tests/test_thread_safety_fixes.py`` 里既有的"假窗口 + 真实方法"测试
-   一行都不用改，它们继续守着 D-92。
+   ``paginate`` …）。
 5. **两份实现不合并**：客户端与服务端的同名功能**约定不同**（见
    :func:`toggle_mod` 与 :func:`toggle_server_mod`、:func:`client_mod_list_text`
    与 :func:`server_mod_list_text`、:meth:`ResourceService.check_updates` 与
@@ -79,8 +71,7 @@ RESOURCE_EXTENSIONS: Dict[str, Set[str]] = {
     "shaderpacks": {".zip"},
 }
 
-#: 缩略图解压的并发上限（**D-92 守卫**：原实现"每个 zip 一个线程"，大型整合包会
-#: 瞬间上百；阶段 1.22 用有界池封到 4，抽服务时原样保住这个数）。
+#: 缩略图解压的并发上限：大型整合包可能瞬间产生上百个解压任务，用有界池封到 4。
 #: ``ui/windows/resource_manager.py`` 的 ``_THUMB_WORKERS`` 直接引用本常量。
 THUMB_WORKERS: int = 4
 
@@ -134,19 +125,11 @@ class InstallResult:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 成就触发（原两个模块级函数，逐字搬出；仅懒导入保留原路径）
+# 成就触发
 # ═══════════════════════════════════════════════════════════════════
 #
-# 记录现状、疑为缺陷（**不属于本轮范围，故不改**）：任务下发时提到"两个文件里
-# 各有一份 ``_trigger_ach``/``_check_ach``，行为可能不同" —— 实测
-# ``ui/windows/server_resource_manager.py`` **没有**任何模块级函数（AST 探针
-# ``poc/_verify_1_8a_resource.py`` 的 ``--facts`` 会打印这一点），
-# 所以只有一份，不存在"两份要不要合并"的问题。
-#
-# 懒导入刻意**保留原路径** ``achievement_engine``（根模块，现已是
-# ``services/achievement_engine`` 的别名 shim，``is`` 同一对象）：
-# ``services/agent_service.py`` 当初改指了 ``services.achievement_engine``，
-# 但两者等价，这里选"零改动"。
+# 懒导入使用根模块 ``achievement_engine``：它现为
+# ``services.achievement_engine`` 的别名 shim，两者 ``is`` 同一对象。
 
 
 def _trigger_ach(achievement_id: str, value: int = 1, trigger_type: str = "increment"):
@@ -172,24 +155,22 @@ def _check_ach(achievement_id: str, condition: bool):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 目录解析（原 ResourceManagerWindow._get_minecraft_dir / _has_mod_loader /
-#          _get_resource_dir，ServerResourceManagerWindow._get_mods_dir）
+# 目录解析
 # ═══════════════════════════════════════════════════════════════════
 
 
 def minecraft_dir(callbacks: Dict[str, Any]) -> Path:
-    """获取当前版本的 .minecraft 目录（原 ``ResourceManagerWindow._get_minecraft_dir``）。
+    """获取当前版本的 .minecraft 目录。
 
-    ``self.callbacks`` → 入参 ``callbacks``，其余逐字 —— **包括"没有回调时返回相对的
-    ``Path(".") / ".minecraft"``"这一条**（旧实现的原文就是这样，改动它等于顺手改了
-    旧行为）。
+    有 ``get_minecraft_dir`` 回调时用它，否则返回相对的
+    ``Path(".") / ".minecraft"``。
 
-    ⚠ 但那意味着"有回调"与"没回调"返回的路径**性质不同**（绝对 / 相对），
-    调用方不能假定它是绝对的。会话侧因此必须自己解析一次基准目录
-    （见 :attr:`ResourceSession.minecraft_dir`）并把绝对路径交给
+    ⚠ 两条路径的**性质不同**（绝对 / 相对），调用方不能假定它是绝对的。
+    会话侧因此必须自己解析一次基准目录（见
+    :attr:`ResourceSession.minecraft_dir`）并把绝对路径交给
     :meth:`ResourceService.resource_dir_in` —— 否则同一屏的"目录解析"与
-    "缓存比对"会拿到**两个不同的基准目录**（2026-10-07 验收实测：
-    版本隔离目录被拼到进程工作目录下的 ``.minecraft``，于是"自动新建文件夹"失效）。
+    "缓存比对"会拿到**两个不同的基准目录**，版本隔离目录被拼到进程工作目录下的
+    ``.minecraft``，于是"自动新建文件夹"失效。
     """
     if "get_minecraft_dir" in callbacks:
         return Path(callbacks["get_minecraft_dir"]())
@@ -199,8 +180,7 @@ def minecraft_dir(callbacks: Dict[str, Any]) -> Path:
 def has_mod_loader(version_id: str, mc_dir: Path) -> bool:
     """判断版本是否安装了模组加载器（需要版本隔离）。
 
-    原 ``ResourceManagerWindow._has_mod_loader``：``self._get_minecraft_dir()``
-    → 入参 ``mc_dir``，其余（含懒导入、依赖的 ``version_utils`` 函数）逐字。
+    依赖版本 JSON；读取失败或 JSON 损坏时由 ``version_utils`` 返回 ``False`。
     """
     from version_utils import has_mod_loader_from_json
 
@@ -210,16 +190,9 @@ def has_mod_loader(version_id: str, mc_dir: Path) -> bool:
 def resource_dir(version_id: str, mc_dir: Path, resource_type: str) -> Path:
     """获取指定资源类型的目录，仅模组加载器版本使用版本隔离目录。
 
-    原 ``ResourceManagerWindow._get_resource_dir``：三处 ``self.`` 换成入参。
-
-    ⚠ 原文**没有**任何副作用（不建目录）。``resource_type`` 不在
-    :data:`RESOURCE_FOLDERS` 里时抛 ``KeyError`` —— 与原文
-    ``RESOURCE_TYPES[resource_type]["folder"]`` 完全一样。这不是笔误，而是
-    **D-109 的根因**：旧 ``_check_full_house`` 曾拿 ``"datapacks"`` 来问，
-    于是它每次都抛、每次都被那层 ``except Exception: pass`` 吞掉，
-    导致成就 ``modder_full_house`` 从引入起就没触发过。
-    该缺陷已由任务下发者裁决并修正（见 :func:`check_full_house`），
-    这个 ``KeyError`` 语义本身**保持不变**（它只是"没有这个资源类型"）。
+    本函数**没有**任何副作用（不建目录）。``resource_type`` 不在
+    :data:`RESOURCE_FOLDERS` 里时抛 ``KeyError`` —— 它只表示"没有这个资源类型"
+    （例如 ``"datapacks"`` 不是本函数的合法入参）。
     """
     folder_name: str = RESOURCE_FOLDERS[resource_type]
 
@@ -245,14 +218,10 @@ VANILLA_RESOURCE_ORDER: Tuple[str, ...] = ("resourcepacks", "saves")
 
 
 def allowed_types(version_id: str, mc_dir: Path) -> List[str]:
-    """这个版本能用哪几类资源（阶段 3.6 用户裁决，2026-10-07）。
+    """这个版本能用哪几类资源。
 
     **规则**：装了模组加载器的版本 → 四类全给；没装的（原版）→ 只给
     ``resourcepacks`` 与 ``saves``（模组与光影对原版没有意义，页签不该摆在那里）。
-
-    ⚠ **这不是旧实现的行为**：旧窗口 `_build_ui` 无条件按 ``RESOURCE_TYPES`` 建四个
-    按钮，原版版本也能看到「模组 / 光影」两个空页签。本轮按用户裁决改成按加载器过滤
-    —— 对照表 L-55 记「行为变更」。
 
     ``version_id`` 为空串（看的是全局 ``.minecraft`` 目录）时四类全给：全局目录本来
     就可能有旧版本留下的 ``mods``。
@@ -352,10 +321,10 @@ def format_size(size: int) -> str:
 
 
 def dir_has_content(directory: Path) -> bool:
-    """目录是否非空（原 ``ResourceManagerWindow._dir_has_content``，逐字）。
+    """目录是否非空。
 
     ``any(directory.iterdir())`` 判的是"有没有条目"（``Path`` 恒为真），
-    隐藏文件也算内容 —— 与原文一致。
+    隐藏文件也算内容。目录不存在或读取失败返回 ``False``。
     """
     try:
         if not directory.exists():
@@ -366,28 +335,13 @@ def dir_has_content(directory: Path) -> bool:
 
 
 def check_full_house(mc_dir: Path) -> None:
-    """「全家福」成就检查。
+    """「全家福」成就检查：按 ``versions/`` 里装过的模组加载器盘点。
 
-    ⚠ **本函数不是逐字搬家**：它是 **D-109 的修正版接线**（唯一的语义改动）。
+    判定条件是「Forge / Fabric / NeoForge 各装过一个版本」
+    （``version_utils.has_all_mod_loaders``），与 ``mods/`` 里有多少模组无关。
 
-    原文（``ResourceManagerWindow._check_full_house``）的判定是"五种资源目录都非空"，
-    其中 ``self._get_resource_dir("datapacks")`` 必然 ``KeyError``
-    （``RESOURCE_TYPES`` 只有 4 个键），又被同一函数里的 ``except Exception: pass``
-    吞掉 → ``_check_ach("modder_full_house", ...)`` **从引入那次提交起就没执行过**。
-
-    该缺陷已由任务下发者**裁决并修好工具函数**（``version_utils.scan_installed_loaders``
-    / ``has_all_mod_loaders``，见 ``docs/refactor/07-known-defects.md`` 的 D-109 节、
-    ``docs/refactor/04-parity-matrix.md`` 的 L-Q5、``docs/refactor/09-phase1-execution-log.md``
-    §20.3）：按 4 种语言的成就文案「安装 Forge、Fabric、NeoForge 各一个版本」实现。
-    但**接线一直悬空** —— 它挂在 ``_check_full_house`` 上，而那个函数正是本轮搬进
-    本模块的对象。若这里仍"逐字保留现状"，等于把一条**已被裁决为要修**的缺陷
-    固化进服务层，并让新增回归测试
-    ``tests/test_achievement_wiring.py::test_d109_full_house_does_not_query_a_nonexistent_resource_folder``
-    失败。因此本轮补上这条接线（详见报告的「必要改动」与「偏差」两节）。
-
-    参数由原来的 ``(mods_metadata, version_id, mc_dir)`` 收敛为 ``mc_dir``：
-    新判定只看 ``versions/`` 里装过哪些加载器，与 ``mods/`` 里有多少模组无关。
-    ``try/except`` 照旧保留（成就系统坏了不该把界面拖下水）。
+    只读 ``mc_dir``，不建目录、不改文件。``try/except`` 保留：
+    成就系统坏了不该把界面拖下水。
     """
     try:
         from version_utils import has_all_mod_loaders
@@ -398,14 +352,11 @@ def check_full_house(mc_dir: Path) -> None:
 
 
 def open_resource_folder(path: Path) -> None:
-    """客户端「打开文件夹」：建目录 + ``os.startfile``（原 ``_open_folder``，逐字）。
+    """客户端「打开文件夹」：建目录 + ``os.startfile``。
 
-    **刻意不与服务端版合并**：原客户端实现只有 Windows 分支，在 macOS/Linux 上
-    ``os.startfile`` 不存在 → ``AttributeError`` → 被 ``_open_folder`` 的
-    ``except`` 兜住并提示"打开文件夹失败"。合并成平台分支会**顺手修掉**这个缺陷，
-    本轮只搬家，因此保留两份（另一份见 :func:`open_server_mods_folder`）。
-    **记录现状、疑为缺陷**：macOS/Linux 上客户端资源管理器的"打开文件夹"必然失败
-    （``Makefile`` 里有 ``build-dmg`` / ``build-deb`` 目标，所以这并非空想）。
+    Windows 专用：macOS/Linux 上 ``os.startfile`` 不存在，会抛 ``AttributeError``，
+    由调用方兜住并提示"打开文件夹失败"。因此与服务端版保留两份实现
+    （另一份见 :func:`open_server_mods_folder``）。
     """
     path.mkdir(parents=True, exist_ok=True)
     os.startfile(str(path))
@@ -1386,9 +1337,9 @@ class ResourceService(Service):
 
     @staticmethod
     def resource_dir_for(callbacks: Dict[str, Any], version_id: str, resource_type: str) -> Path:
-        """一次到位：``callbacks`` → ``.minecraft`` → 资源目录（旧界面的入口）。
+        """一次到位：``callbacks`` → ``.minecraft`` → 资源目录。
 
-        ⚠ 新界面（阶段 3.6 的会话）**不要用它** —— 它会自己再解析一次 ``.minecraft``，
+        ⚠ 会话层**不要用它** —— 它会自己再解析一次 ``.minecraft``，
         与 `ResourceSession.minecraft_dir` 可能算出不同的基准目录（见
         :meth:`resource_dir_in`）。会话走 :meth:`resource_dir_in`。
         """
@@ -1398,9 +1349,9 @@ class ResourceService(Service):
     def resource_dir_in(
         mc_dir: Path, version_id: str, resource_type: str, *, has_loader: bool
     ) -> Path:
-        """由**已经解析好的** ``.minecraft`` 与加载器判定拼出资源目录（阶段 3.6）。
+        """由**已经解析好的** ``.minecraft`` 与加载器判定拼出资源目录。
 
-        为什么要多这一个入口（2026-10-07 验收实测）：:meth:`resource_dir_for` 会**自己**
+        为什么要多这一个入口：:meth:`resource_dir_for` 会**自己**
         从 ``callbacks`` 再解析一次 ``.minecraft``，而"会话已经知道基准目录"这件事就丢了
         —— 当回调给的是相对 ``.minecraft``（核心未就绪的降级路径）而会话手里的
         ``config.minecraft_dir`` 是绝对路径时，两处会算出**不同的基准目录**：
@@ -1409,7 +1360,7 @@ class ResourceService(Service):
         于是"自动新建文件夹"看上去没做（见 :func:`minecraft_dir` 的说明）。
 
         本入口把判定拆开：基准目录与加载器判定由调用方（会话）给，本函数只负责拼路径
-        （纯函数、无副作用，与原 ``_get_resource_dir`` 的分支逐字一致）。
+        （纯函数、无副作用）。
         """
         folder_name = RESOURCE_FOLDERS[resource_type]
         if has_loader:
@@ -1465,14 +1416,13 @@ class ResourceService(Service):
 
     @staticmethod
     def extract_mods_metadata(mods_dir: Path, status_callback=None, cancel_event=None) -> List[Dict]:
-        """读取 ``mods/`` 下每个 jar 的元数据（原 ``_refresh_mod_list`` 里那两行）。
+        """读取 ``mods/`` 下每个 jar 的元数据。
 
         ``status_callback(done, total)`` 由调用方在 **worker 线程**里被回调 ——
         界面侧照原文那样 ``after(0, ...)`` 切回主线程。
 
-        ``cancel_event``（阶段 3.6 新增，可选）是 :class:`app.tasks.TaskContext`
-        的协作式取消事件；置位后提取会在条目边界停下并返回**已收集的部分**。
-        默认 ``None`` = 旧行为，旧调用点无需改动。
+        ``cancel_event``（可选）是 :class:`app.tasks.TaskContext` 的协作式取消事件；
+        置位后提取会在条目边界停下并返回**已收集的部分**。默认 ``None`` 表示不取消。
         """
         from modrinth import extract_all_mods_metadata
 
@@ -1482,11 +1432,11 @@ class ResourceService(Service):
 
     @staticmethod
     def trigger_achievements(mod_count: int, mc_dir: Path) -> None:
-        """模组列表加载完成后要触发的成就（原 ``_on_mod_metadata_loaded`` 那三行）。
+        """模组列表加载完成后要触发的成就。
 
-        搬进服务层的理由：这三条与"有多少模组""装过哪些加载器"绑定，都是业务
-        判定；界面侧只该说"刚加载完 N 个模组"。三类触发**互不影响**，单条失败
-        只记日志（旧实现里 ``_trigger_ach`` 自己吞异常，这里保持同样的容错边界）。
+        这三条与"有多少模组""装过哪些加载器"绑定，都是业务判定；界面侧只该说
+        "刚加载完 N 个模组"。三类触发**互不影响**，单条失败只记日志
+        （``_trigger_ach`` / ``_check_ach`` 自己吞异常）。
         """
         if mod_count <= 0:
             return
@@ -1503,12 +1453,11 @@ class ResourceService(Service):
         launcher: Any = None,
         tasks: Any = None,
     ) -> Any:
-        """造一个「我的资源」会话（阶段 3.6；见 ``services/resource_session.py``）。
+        """造一个「我的资源」会话（见 ``services/resource_session.py``）。
 
-        ``ResourceService`` 本身是**无状态**的薄委托集合（旧窗口一个实例只服务一个
-        版本，所以当年不需要会话对象）。QML 侧的页面是常驻的，需要"当前是哪个版本 /
-        哪个标签页 / 第几页"这一整套状态，于是把它单独放一个对象里 —— 服务仍然
-        不带状态，会话可以被随时丢掉重建。
+        ``ResourceService`` 本身是**无状态**的薄委托集合。QML 侧的页面是常驻的，
+        需要"当前是哪个版本 / 哪个标签页 / 第几页"这一整套状态，于是把它单独放一个
+        对象里 —— 服务仍然不带状态，会话可以被随时丢掉重建。
 
         **是实例方法不是 `@staticmethod`**：会话要拿着服务去调
         ``resource_dir_for`` / ``scan_resources`` / ``tasks``，所以它必须绑定到一个
@@ -1520,7 +1469,7 @@ class ResourceService(Service):
         #: 再退回 `Service.tasks` 属性。写成两个候选是因为 `ResourceService` 允许脱离
         #: 上下文单测（`self.tasks` 在那时会抛 `ServiceNotAvailable`），而"没拿到调度器"
         #: 会让会话的异步方法（模组元数据 / 更新检查 / 批量更新）静默失效 ——
-        #: 实测踩过：探针里 `bind()` 之后 `modCount` 永远是 0（阶段 3.6）。
+        #: 症状是 `bind()` 之后 `modCount` 永远是 0。
         tasks = tasks if tasks is not None else getattr(self._context, "tasks", None)
         if tasks is None:
             try:
@@ -1633,12 +1582,11 @@ class ResourceService(Service):
 
     @staticmethod
     def check_full_house(mc_dir: Path) -> None:
-        """「全家福」成就检查（D-109 修正版：按加载器盘点）。
+        """「全家福」成就检查（按加载器盘点）。
 
-        **记录现状已被修正**：原实现查 ``"datapacks"`` 目录必然 ``KeyError``，
-        成就从不触发；此处按任务下发者的 D-109 裁决改成
-        「Forge / Fabric / NeoForge 各装过一个版本」
-        （``version_utils.has_all_mod_loaders``）。详见模块级 :func:`check_full_house`。
+        判定条件是「Forge / Fabric / NeoForge 各装过一个版本」
+        （``version_utils.has_all_mod_loaders``）。详见模块级
+        :func:`check_full_house`。
         """
         check_full_house(mc_dir)
 

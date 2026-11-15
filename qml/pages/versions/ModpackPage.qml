@@ -1,13 +1,13 @@
-// ModpackPage.qml —— 整合包安装 / 开服（阶段 3 任务 3.8，对照表 L-53 / L-54）。
+// ModpackPage.qml —— 整合包安装 / 开服。
 //
-// 同一份界面承担客户端与服务器两种模式（用户裁决，见 `app/bridges/modpack_bridge.py`
+// 同一份界面承担客户端与服务器两种模式（见 `app/bridges/modpack_bridge.py`
 // 的文件头）：两者的文件选择、信息展示、可选组件、进度与结果完全同形，只有安装入口、
 // 服务器名与成功文案不同。模式由路由决定：
 //
-//   * `versions/modpack` → client（安装向导里的「安装整合包」入口，B-12）；
-//   * `servers/modpack`  → server（旧服务器页的「整合包开服」入口）。
+//   * `versions/modpack` → client（安装向导里的「安装整合包」入口）；
+//   * `servers/modpack`  → server（服务器页的「整合包开服」入口）。
 //
-// 浏览在独立页 `ModpackBrowserPage.qml`：它是旧实现那个模态子窗口的对应物，
+// 浏览在独立页 `ModpackBrowserPage.qml`：
 // 下载完成后把文件交给本页（桥里按模式暂存），本页再解析元数据。
 //
 // 纪律：颜色只来自 `Theme.*`（R8）、图标走 `FmIcon`（R2）、文案走 `Tr.map`（R3/R4）、

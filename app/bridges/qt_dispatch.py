@@ -2,8 +2,8 @@
 
 ## 为什么需要它
 
-阶段 1 的 `TaskRunner` 与 `AppContext` 都接受一个"主线程调度器"（
-`AppContext.set_scheduler` / `build_context(scheduler=...)`），旧 Tk 界面传的是
+`TaskRunner` 与 `AppContext` 都接受一个"主线程调度器"（
+`AppContext.set_scheduler` / `build_context(scheduler=...)`），Tk 界面传的是
 ``lambda fn: app.after(0, fn)``。QML 版必须提供语义等价的替代品：
 
 * **任意线程可调用**（`services/` 的 worker 会用它把结果送回主线程）；
@@ -17,9 +17,8 @@
 的跨线程推断：同线程 emit 时 AutoConnection 会变成直接调用（同步执行），语义就
 与 `after(0, ...)` 不一致了。显式 Queued 让"同线程也得排队"这件事变成确定的。
 
-**禁止用 `QMetaObject.invokeMethod`**：阶段 0 实测它在 PySide6 6.7.3 上遇到参数类型
-不匹配会**静默失败**（见 `docs/refactor/08-phase0-execution-log.md` 第 10.2 节）。
-信号槽没有这个问题。
+**禁止用 `QMetaObject.invokeMethod`**：它在 PySide6 上遇到参数类型
+不匹配会**静默失败**。信号槽没有这个问题。
 """
 
 from __future__ import annotations

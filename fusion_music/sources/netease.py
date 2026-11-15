@@ -3,7 +3,7 @@
 FMCL 只用到搜索、播放地址、歌词、歌单与登录；这里在不改动 vendored ``wy.py``
 的前提下，复用它的 eapi 加密通道补齐「发现页」需要的接口。
 
-**通道选择**：全部走 eapi。实测本机环境下 ``music.163.com/weapi/*`` 会被风控
+**通道选择**：全部走 eapi。部分网络环境下 ``music.163.com/weapi/*`` 会被风控
 拦截返回空响应（与 ``wy.py:1345-1346`` 的注释一致），而
 ``interface3.music.163.com/eapi/api/*`` 正常返回。
 
@@ -1031,7 +1031,7 @@ def _album_page_uncached(album_id: str, name: str, artist: str) -> Dict:
 # （``publishTime`` 与 ``subType``），所以要在这里合流。
 #
 # 以上都是实测（2026-09-19，eapi 通道）的结果。另有几件当时顺手试过的事值得记：
-# ``/api/song/wiki/{summary,detail,get}`` 一类路径在这台机器上全是 404（文档里
+# ``/api/song/wiki/{summary,detail,get}`` 一类路径可能返回 404（文档里
 # 那个 ``/song/wiki/summary`` 只是 ``block/page`` 的别名），weapi 域名照旧返回
 # 空响应，所以这条链路也走 eapi。
 

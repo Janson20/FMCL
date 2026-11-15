@@ -1,4 +1,4 @@
-// HomePage.qml —— 首页（阶段 3 任务 3.1；IA 见 `docs/refactor/02` 第 4.1 节）。
+// HomePage.qml —— 首页。
 //
 // 这一页承载什么（03 的 3.1 摘要 + 对照表 A/B 组）：
 //   * 当前账号卡片（B-16）+ 账号管理入口；
@@ -78,7 +78,7 @@ FmPage {
         anchors.fill: parent
         clip: true
         // 内容宽度跟随**可视宽度**（`FmScrollView` 默认不出横向滚动条）。
-        // 为什么必须显式写这两行（用户验收报的缺陷 D-161 的第二半）：
+        // 为什么必须显式写这两行：
         // 原来这里写的是 `ColumnLayout { width: parent.width }` —— `parent` 是滚动视图的
         // contentItem，它的宽度由内容决定，于是形成"内容宽 ← 内容宽"的循环，最后停在
         // 卡片的 implicitWidth（320），四张卡全挤在左边。Gallery 里用的是同一套写法。

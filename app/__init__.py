@@ -4,7 +4,7 @@
 
 - ``services/`` 放**业务逻辑**，每块逻辑各管一摊，互不知道界面。
 - ``app/`` 放**胶水**：服务定位器（``context``）、后台任务（``tasks``）、
-  UI 能力端口（``ports``）、事件总线（``events``）、启动装配（``bootstrap``，阶段 2）。
+  UI 能力端口（``ports``）、事件总线（``events``）、启动装配（``bootstrap``）。
 
 ``app/`` 可以 import 具体服务，服务反过来只能通过 ``AppContext`` 拿依赖。
 """

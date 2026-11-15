@@ -1,4 +1,4 @@
-"""壳层桥 —— QML 侧的 `Shell` 上下文属性（阶段 2 任务 2.12）。
+"""壳层桥 —— QML 侧的 `Shell` 上下文属性。
 
 ## 它是什么
 
@@ -72,7 +72,7 @@ class ShellBridge(QObject):
     taskCountChanged = Signal()
     #: 当前任务的确定进度 / 文本变了（A-10）。
     progressChanged = Signal()
-    #: 全局搜索请求（具体搜索是阶段 3 的事）。
+    #: 全局搜索请求（具体搜索由接收方实现）。
     searchRequested = Signal(str)
     #: 通知中心被要求切换（每次调用发一次，由浮层自己翻可见性）。
     notificationCenterToggled = Signal()
@@ -191,16 +191,14 @@ class ShellBridge(QObject):
     @Slot(str)
     @Slot(str, str)
     def setStatus(self, text: str, level: str = "info") -> None:  # noqa: N802
-        """设状态条文本（旧 `set_status` 语义：**10 秒后自动清空**，再次调用重新计时）。
+        """设状态条文本（**10 秒后自动清空**，再次调用重新计时）。
 
         空文本等价于清空。非法级别降级为 `info`（记 warning），不抛异常、不发失败信号
         —— 状态条是"提示"，它的参数写错不该变成一个需要用户处理的错误。
 
-        `loading` 是**旧界面的第五档**（`ui/app_handlers.py:1423-1438`：沙漏图标 +
-        次要色 + **不自动清空** —— 它表示"这件事还在做"，到点自动消失反而会让人以为
-        已经做完了）。阶段 3 任务 3.2 的用户实测把它翻了出来：3.1 的 `game_launching`
-        与新页面的"正在加载/正在删除/正在校验"都是这一档，早先只登记了四档，
-        于是每次都在日志里刷一条 `未知状态级别 'loading'`。
+        `loading` 是**第五档**（沙漏图标 + 次要色 + **不自动清空** —— 它表示"这件事还在做"，
+        到点自动消失反而会让人以为已经做完了）。`game_launching` 与"正在加载/正在删除/
+        正在校验"都是这一档，漏登记就会在日志里刷 `未知状态级别 'loading'`。
         """
         normalized = str(level or "info").strip().lower()
         if normalized not in STATUS_LEVELS:
@@ -268,7 +266,7 @@ class ShellBridge(QObject):
     def navItems(self) -> List[Dict[str, Any]]:  # noqa: N802
         """一级导航项 `[{id, title_key, icon, source}, …]`：内置 12 项 + 已登记的插件页。
 
-        做成槽（而不是属性）是任务书冻结的签名；代价是**槽不参与绑定跟踪**，
+        做成槽（而不是属性）是冻结的签名；代价是**槽不参与绑定跟踪**，
         所以 `Navigation.qml` 在 `Nav.pluginRouteAdded` 时显式重取一次。
         """
         nav = self._nav_obj()
@@ -277,7 +275,7 @@ class ShellBridge(QObject):
             return []
         return nav.nav_items()
 
-    # ─── 全局搜索与通知中心（阶段 3 接实现） ────────────────
+    # ─── 全局搜索与通知中心 ─────────────────────────────────
 
     @Slot(str)
     def globalSearch(self, query: str) -> None:  # noqa: N802
@@ -290,12 +288,11 @@ class ShellBridge(QObject):
 
     @Slot()
     def toggleNotificationCenter(self) -> None:  # noqa: N802
-        """切换通知中心（浮层由 2.13/2.15 的宿主实现，这里只发请求）。
+        """切换通知中心（浮层由对话框宿主实现，这里只发请求）。
 
-        **当前没有任何消费者**：QML 侧的浮层一直没做（阶段 2 的脚手架），所以顶栏那个
-        铃铛改成了"查看公告"入口（`requestNotice`）—— 用户 2026-10-06 实测报了
-        "打开公告的按钮点不了"，而铃铛当时点了确实什么都不发生。这个槽保留给以后的
-        通知中心浮层，不在 3.2 里删（它是有测试的公开 API）。
+        **当前没有任何消费者**：QML 侧的浮层一直没做，所以顶栏那个铃铛改成了
+        "查看公告"入口（`requestNotice`）—— 否则点了什么都不发生。这个槽保留给以后的
+        通知中心浮层，不要删（它是有测试的公开 API）。
         """
         self.notificationCenterToggled.emit()
 
@@ -331,8 +328,7 @@ class ShellBridge(QObject):
     def requestLanguage(self) -> None:  # noqa: N802
         """请求"切换界面语言"（顶栏地球图标的落点）。
 
-        2026-10-06 人工验收：用户只能靠**手改 `config.json`** 换语言 —— A-27 那个语言浮层
-        只在首次启动出现一次，而设置页要到 3.4 才有。这里补一个随时可用的入口：
+        语言浮层只在首次启动出现一次，没有这个入口就只能**手改 `config.json`** 换语言。
         壳层只发信号，浮层与"切完怎么落盘"仍在 `StartupDialogs.qml` + `Tr.setLanguage()`
         （一份实现，两个入口）。
         """

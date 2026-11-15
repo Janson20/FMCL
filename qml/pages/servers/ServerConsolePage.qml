@@ -1,4 +1,4 @@
-// ServerConsolePage.qml —— 服务器控制台（阶段 3 任务 3.10；对照表 L-21 ~ L-25 / L-34 / L-35）。
+// ServerConsolePage.qml —— 服务器控制台。
 //
 // 数据全部来自 Servers 桥：日志（按 version 隔离的增量 + 清屏游标）、运行状态、
 // 在线玩家、内存（每 2 秒采样一次，服务层用 psutil，不在主线程跑 tasklist）、

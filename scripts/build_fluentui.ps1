@@ -8,17 +8,17 @@
     只从 PROVENANCE.md 记录的 commit 编译出插件，并把产物的 SHA256 写入
     third_party/BUILD_PROVENANCE.md。
 
-    本脚本只被编写，尚未在本机执行过（Qt SDK 未安装）。首次使用前请先满足前置条件。
+    首次使用前请准备 Qt 6 SDK、CMake，以及 ninja 或 Visual Studio 的 C++ 工具链。
+    脚本会检查源码、Qt 模块与编译工具，并从 PATH 和常见安装位置查找命令。
 
     编码说明：本文件保存为 UTF-8 with BOM。Windows PowerShell 5.1 读取无 BOM 的
-    UTF-8 文件时会按系统 ANSI 代码页（本机为 GB2312）解码，导致中文字符串损坏，
-    甚至因字节序列吞掉引号而直接语法报错。请勿去掉 BOM。
+    UTF-8 文件时会按系统 ANSI 代码页解码，导致中文字符串损坏，甚至因字节序列
+    吞掉引号而直接语法报错。请勿去掉 BOM。
 
-    运行环境说明：本机只安装了 Windows PowerShell 5.1，没有 PowerShell 7（pwsh）。
-    示例统一用 powershell.exe；装了 PowerShell 7 之后换成 pwsh 亦可。
+    脚本最低要求 Windows PowerShell 5.1，也可在 PowerShell 7 下运行。
 
 .PARAMETER QtDir
-    Qt SDK 根目录，例如 C:\Qt\6.6.2\msvc2019_64。
+    Qt SDK 套件目录，例如 <Qt 安装根目录>/6.7.3/msvc2019_64。
     不传时取环境变量 QTDIR。两者都没有则报错并给出获取指引。
 
 .PARAMETER BuildType
@@ -38,7 +38,7 @@
     默认关，即编译共享库插件 fluentuiplugin。
 
 .EXAMPLE
-    $env:QTDIR = 'C:\Qt\6.6.2\msvc2019_64'
+    $env:QTDIR = '<Qt 安装根目录>/6.7.3/msvc2019_64'
     powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_fluentui.ps1
 
 .EXAMPLE
@@ -46,11 +46,10 @@
     powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_fluentui.ps1 -WhatIf
 
 .NOTES
-    本机已知环境事实（无需重复探测）：
-      git 2.55.0；CMake 4.2.3 位于 D:\Program Files\CMake\bin\cmake.exe；
-      ninja 未安装；MSVC BuildTools 位于
-      C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools（cl.exe 不在 PATH）；
-      Qt SDK 未安装；aqtinstall 3.3.0 可用；D 盘剩余约 49 GB。
+    需要 Qt 6 SDK（Core / Quick / Qml / Widgets / PrintSupport、Core5Compat、
+    ShaderTools）、CMake，以及 ninja 或 Visual Studio 的 C++ 工具链。
+    脚本会优先使用 PATH 中的 cmake 与 ninja；没有 ninja 时自动选择可用的
+    Visual Studio 生成器。
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -78,7 +77,7 @@ $StageDir       = Join-Path $ThirdPartyDir '_stage'
 $InstallDir     = Join-Path $ThirdPartyDir '_install'
 $PluginStageDir = Join-Path $InstallDir 'qml'
 $ProvenanceFile = Join-Path $ThirdPartyDir 'BUILD_PROVENANCE.md'
-$CMakeExe       = 'D:\Program Files\CMake\bin\cmake.exe'
+$CMakeExe       = $null
 
 # 上游 src/CMakeLists.txt 里 add_definitions(-DFLUENTUI_VERSION=1,7,7,0)
 $ExpectedPluginVersion = '1.7.7'
@@ -150,9 +149,55 @@ function Get-NativeLine {
     return ($out | Out-String).Trim()
 }
 
+<# 在 PATH 与常见安装位置查找 cmake。 #>
+function Find-CMake {
+    $cmd = Get-Command cmake -ErrorAction SilentlyContinue
+    if ($null -ne $cmd) { return $cmd.Source }
+    $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)
+    foreach ($root in $roots) {
+        if ([string]::IsNullOrWhiteSpace($root)) { continue }
+        $candidate = Join-Path $root 'CMake\bin\cmake.exe'
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    return $null
+}
+
+<# 查找 Visual Studio 的 vcvars64.bat；找不到时返回 $null。 #>
+function Find-VcVars {
+    $vsRoot = ${env:ProgramFiles(x86)}
+    if ([string]::IsNullOrWhiteSpace($vsRoot)) { return $null }
+    $vsWhere = Join-Path $vsRoot 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path -LiteralPath $vsWhere)) { return $null }
+    $install = Get-NativeLine -FilePath $vsWhere -Arguments @(
+        '-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+        '-property', 'installationPath'
+    )
+    if ([string]::IsNullOrWhiteSpace($install)) { return $null }
+    $vcvars = Join-Path $install.Trim() 'VC\Auxiliary\Build\vcvars64.bat'
+    if (Test-Path -LiteralPath $vcvars) { return $vcvars }
+    return $null
+}
+
+<# 从 cmake --help 中选择主版本号最高的 Visual Studio 生成器。 #>
+function Get-DefaultVisualStudioGenerator {
+    param([Parameter(Mandatory)][string] $CMakePath)
+    $help = Get-NativeLine -FilePath $CMakePath -Arguments @('--help')
+    $bestMajor = -1
+    $best = ''
+    foreach ($m in [regex]::Matches($help, '(?m)^\s*\*?\s*Visual Studio\s+(\d+)\s+(\d{4})')) {
+        $major = [int]$m.Groups[1].Value
+        if ($major -gt $bestMajor) {
+            $bestMajor = $major
+            $best = "Visual Studio $($m.Groups[1].Value) $($m.Groups[2].Value)"
+        }
+    }
+    if ($bestMajor -ge 0) { return $best }
+    return $null
+}
+
 <#
 .SYNOPSIS
-    macOS / Linux 构建指引（预留分支，本机未实现）。
+    macOS / Linux 构建指引（预留分支，Windows 脚本不实现）。
 #>
 function Show-PlatformGuidance {
     param([Parameter(Mandatory)][ValidateSet('macOS', 'Linux')][string] $Platform)
@@ -246,15 +291,17 @@ if ([string]::IsNullOrWhiteSpace($srcHead)) {
 }
 else { Write-Info "源码 HEAD = $srcHead" }
 
+if ([string]::IsNullOrWhiteSpace($CMakeExe)) {
+    $CMakeExe = Find-CMake
+}
+if ([string]::IsNullOrWhiteSpace($CMakeExe)) {
+    Fail -Message '未找到 cmake。' -Hint @(
+        '请把 cmake 加入 PATH，或通过环境变量 / 安装器把它放到标准位置。',
+        'Windows 可在 CMake 官网下载安装器；安装时勾选加入 PATH。'
+    )
+}
 if (-not (Test-Path -LiteralPath $CMakeExe)) {
-    $cm = Get-Command cmake -ErrorAction SilentlyContinue
-    if ($null -eq $cm) {
-        Fail -Message "未找到 cmake（预期路径 $CMakeExe）" -Hint @(
-            '本机 CMake 4.2.3 应位于 D:\Program Files\CMake\bin\cmake.exe。',
-            '若已移动，请修改本脚本顶部的 $CMakeExe，或把 cmake 加入 PATH。'
-        )
-    }
-    $CMakeExe = $cm.Source
+    Fail -Message "cmake 路径不存在：$CMakeExe" -Hint @('检查 PATH 中 cmake 的指向，或重新安装 CMake。')
 }
 $cmakeVersion = ((Get-NativeLine -FilePath $CMakeExe -Arguments @('--version')) -split "`r?`n")[0].Trim()
 Write-Ok "cmake: $cmakeVersion"
@@ -267,12 +314,12 @@ Write-Step '定位 Qt SDK'
 if ([string]::IsNullOrWhiteSpace($QtDir)) { $QtDir = $env:QTDIR }
 if ([string]::IsNullOrWhiteSpace($QtDir)) {
     Fail -Message '未设置 Qt SDK 路径。' -Hint @(
-        '请通过环境变量 QTDIR 或参数 -QtDir 指定 Qt SDK 根目录。',
-        '本机已安装的 Qt6 套件（2026-09-26 实测存在，可直接用）：',
-        "    `$env:QTDIR = 'D:\Qt\6.7.3\msvc2019_64'",
+        '请通过环境变量 QTDIR 或参数 -QtDir 指定 Qt SDK 套件目录。',
+        '例如：',
+        "    `$env:QTDIR = '<Qt 安装根目录>/6.7.3/msvc2019_64'",
         '',
-        '若需另装其他版本（aqtinstall 3.3.0 可用，uv 在 PATH 中）：',
-        '    uv tool run --from aqtinstall aqt install-qt windows desktop 6.6.2 win64_msvc2019_64 -m qt5compat qtshadertools',
+        '可用 uv 运行 aqtinstall 安装所需版本与模块：',
+        '    uv tool run --from aqtinstall aqt install-qt windows desktop 6.7.3 win64_msvc2019_64 -m qt5compat qtshadertools',
         '',
         '坑：不要把命令写成裸 aqt。PyPI 上名为 aqt 的包是 Anki 的同名工具，',
         '    不是 aqtinstall；裸 aqt 会解析到 anki 的包，报出与安装 Qt 无关的参数错误。',
@@ -291,7 +338,7 @@ if ([string]::IsNullOrWhiteSpace($QtDir)) {
 if (-not (Test-Path -LiteralPath $QtDir)) {
     Fail -Message "QTDIR 指向的目录不存在：$QtDir" -Hint @(
         '检查 QTDIR 拼写；它应指向具体套件目录（如 ...\6.6.2\msvc2019_64），',
-        '而不是 Qt 安装根目录（如 C:\Qt）或版本目录（如 C:\Qt\6.6.2）。'
+        '而不是 Qt 安装根目录或版本目录。'
     )
 }
 Write-Ok "QTDIR = $QtDir"
@@ -370,13 +417,18 @@ if ($null -ne $clCmd) {
 }
 else {
     Write-Warn 'cl.exe 不在 PATH 中。'
-    Write-Info '本机已知的 vcvars64.bat 路径：'
-    Write-Info '  C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat'
+    $vcvars = Find-VcVars
+    if ($null -ne $vcvars) {
+        Write-Info "找到 vcvars64.bat: $vcvars"
+    }
+    else {
+        Write-Info '未自动找到 vcvars64.bat。'
+    }
     Write-Info ''
-    Write-Info '需要先进入 MSVC 环境。注意 cmd 里 call 出来的环境变量不会自动继承到 PowerShell，'
-    Write-Info '所以要么在 PowerShell 里导入 vcvars 导出的变量，要么直接改用 Visual Studio 生成器'
+    Write-Info '需要先进入 MSVC 环境。cmd 里 call 出来的环境变量不会自动继承到 PowerShell，'
+    Write-Info '因此要么在 PowerShell 里导入 vcvars 导出的变量，要么改用 Visual Studio 生成器'
     Write-Info '（VS 生成器会自行定位 MSVC 工具链，不需要 vcvars64.bat）：'
-    Write-Info '    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_fluentui.ps1 -Generator "Visual Studio 18 2026"'
+    Write-Info '    powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_fluentui.ps1 -Generator "<Visual Studio 生成器名>"'
     Write-Info ''
     Write-Warn '若坚持用 Ninja，必须在已 call 过 vcvars64.bat 的 shell 中运行本脚本，'
     Write-Warn '否则 CMake 会报找不到 C/C++ 编译器。'
@@ -394,8 +446,15 @@ if ([string]::IsNullOrWhiteSpace($Generator)) {
         Write-Ok "检测到 ninja: $($ninjaCmd.Source)，使用 Ninja 生成器"
     }
     else {
-        $Generator = 'Visual Studio 18 2026'
-        Write-Warn 'ninja 未安装（本机已知事实），退回到 Visual Studio 生成器。'
+        $Generator = Get-DefaultVisualStudioGenerator -CMakePath $CMakeExe
+        if ([string]::IsNullOrWhiteSpace($Generator)) {
+            Fail -Message 'ninja 不可用，且没有找到可用的 Visual Studio 生成器。' -Hint @(
+                '安装 ninja：uv tool install ninja',
+                '或安装 Visual Studio 的 C++ 桌面开发工作负载，再用 -Generator 指定生成器。',
+                '可先用 cmake --help 查看当前环境可用的生成器名。'
+            )
+        }
+        Write-Warn 'ninja 不可用，使用 Visual Studio 生成器。'
         Write-Info '两个选择：'
         Write-Info '  A. 用 VS 生成器（本脚本默认）：不需要 ninja，也不需要手工 call vcvars64.bat。'
         Write-Info '     注意 VS 是多配置生成器：必须用 cmake --build --config 指定配置，'
@@ -403,16 +462,15 @@ if ([string]::IsNullOrWhiteSpace($Generator)) {
         Write-Info '  B. 先安装 ninja 以缩短构建时间（可选）：'
         Write-Info '     uv tool install ninja      或      winget install Ninja-build.Ninja'
         Write-Info '     装完重跑本脚本即可自动切到 Ninja。'
-        Write-Info '若本机 VS 主版本号不是 18，请用 -Generator 显式指定，'
-        Write-Info '可先用 cmake --help 查看可用的 Visual Studio 生成器名。'
+        Write-Info '若自动选择的版本不符合需要，可用 -Generator 显式指定。'
     }
 }
 else {
     Write-Info "使用指定的生成器: $Generator"
     if ($Generator -ieq 'Ninja' -and $null -eq $ninjaCmd) {
         Fail -Message '指定了 Ninja 生成器，但 PATH 中找不到 ninja。' -Hint @(
-            '本机 ninja 未安装。安装方式：uv tool install ninja',
-            '或不指定生成器，让脚本自动回退到 Visual Studio 生成器。'
+            '安装方式：uv tool install ninja',
+            '或不指定生成器，让脚本自动选择 Visual Studio 生成器。'
         )
     }
 }
@@ -488,8 +546,7 @@ if (-not $SkipInstall) {
 # ============================================================================
 # Visual Studio 生成器把 fluentuiplugin.dll 放在 _build/src/Release（或 Debug），
 # 而 QML 模块目录只拿到 qmldir/qmltypes 与 .lib/.exp。qmldir 里的 `plugin fluentuiplugin`
-# 找不到 DLL 时，QML 引擎在 import FluentUI 处直接失败，整个 App.qml 起不来；
-# CI 以前只校验 qmldir，所以这种残包能一路发到安装包。Linux 脚本已有同样的落位步骤。
+# 找不到 DLL 时，QML 引擎在 import FluentUI 处直接失败，整个 App.qml 起不来。
 if (-not $WhatIfPreference) {
     $QmlPluginDir = Join-Path $PluginStageDir 'FluentUI'
     if (-not (Test-Path -LiteralPath (Join-Path $QmlPluginDir 'qmldir'))) {
@@ -580,12 +637,10 @@ $lines.Add('')
 $lines.Add('| 项 | 值 |')
 $lines.Add('| --- | --- |')
 $lines.Add("| 生成时间 | $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz') |")
-$lines.Add("| 主机 | $([Environment]::MachineName) |")
-$lines.Add("| 操作系统 | $([Environment]::OSVersion.VersionString) |")
+$lines.Add('| 平台 | Windows |')
 $lines.Add('| 源码仓库 | https://github.com/zhuzichu520/FluentUI |')
 $lines.Add("| 源码 commit | ``$srcHead`` |")
 $lines.Add("| 预期插件版本 | $ExpectedPluginVersion |")
-$lines.Add("| Qt SDK | ``$QtDir`` |")
 $lines.Add("| Qt 版本 | $qtVersion |")
 $lines.Add("| CMake 生成器 | ``$Generator`` |")
 $lines.Add("| 构建类型 | ``$BuildType`` |")
@@ -593,10 +648,13 @@ $lines.Add("| CMake | $cmakeVersion |")
 $lines.Add("| 编译器 | $clVersion |")
 $lines.Add("| 静态库 | $(if ($BuildStaticLib) { 'ON' } else { 'OFF' }) |")
 $lines.Add('')
-$lines.Add('CMake 配置参数：')
+$lines.Add('CMake 配置参数（路径以仓库根与 Qt SDK 代替）：')
 $lines.Add('')
 $lines.Add('```')
-$lines.Add("$CMakeExe $($configureArgs -join ' ')")
+$lines.Add("cmake -S third_party/FluentUI -B third_party/_build -G `"$Generator`"")
+$lines.Add('      -DCMAKE_PREFIX_PATH=<Qt SDK> -DCMAKE_INSTALL_PREFIX=third_party/_install')
+$lines.Add('      -DFLUENTUI_QML_PLUGIN_DIRECTORY=third_party/_install/qml/FluentUI')
+$lines.Add("      -DFLUENTUI_BUILD_EXAMPLES=OFF -DFLUENTUI_BUILD_STATIC_LIB=$(if ($BuildStaticLib) { 'ON' } else { 'OFF' })")
 $lines.Add('```')
 $lines.Add('')
 $lines.Add("## 产物清单（共 $($manifest.Count) 个文件）")
@@ -607,7 +665,7 @@ foreach ($mf in $manifest) { $lines.Add("| ``$($mf.Path)`` | $($mf.Size) | ``$($
 $lines.Add('')
 $lines.Add('## 合规说明')
 $lines.Add('')
-$lines.Add('- 上述产物全部由本机从 pin 的 commit 编译产生，未下载任何上游预编译二进制。')
+$lines.Add('- 上述产物全部由本项目从 pin 的 commit 编译产生，未下载任何上游预编译二进制。')
 $lines.Add('- 上游 GitHub Releases 的资产均为演示程序安装包，本项目未使用其中任何文件。')
 $lines.Add('- 上游源码树 3rdparty/ 下签入的 OpenSSL 与 MinGW DLL 未参与构建、未被使用。')
 $lines.Add('- 分发时须随包附带两个 MIT 许可全文，见 third_party/PROVENANCE.md 第 5 节。')

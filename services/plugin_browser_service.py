@@ -1,12 +1,8 @@
-"""插件市场服务 —— 「插件市场浏览」窗口里那些**本质是逻辑、只是恰好写在界面类里**
-的代码（阶段 1 任务 1.8-B）。
+"""插件市场服务 —— 「插件市场浏览」背后的纯逻辑。
 
-来源文件：``ui/windows/plugin_browser.py``（686 行 / 25 个方法）。
+## 边界
 
-## 切缝判据（只有一条）
-
-**这段代码是否 import GUI、或是否直接创建/销毁控件。** 是 → 留在界面；
-否 → 搬进本模块。服务自身不 import 任何 GUI、不弹窗、不 ``after``、
+本模块不 import 任何 GUI、不直接创建/销毁控件、不弹窗、不 ``after``、
 不 import ``ui.*``、不 import ``ui.i18n``。
 
 ## 关于 ``plugin_manager/`` 与 ``market``
@@ -158,16 +154,16 @@ def install_plugin(
     - 授权/加载/启用的返回值**一律不看**（原文如此：只有
       ``install_from_file`` 的 ``ok`` 决定成败）。
 
-    记录现状、疑为缺陷：``load_plugin`` / ``enable_plugin`` 失败时界面仍报"安装成功"
-    （它们的 ``(ok, msg)`` 被丢弃），本轮只搬家不改行为。
+    注意：``load_plugin`` / ``enable_plugin`` 失败时界面仍报"安装成功"
+    （它们的 ``(ok, msg)`` 被丢弃），这是既有行为。
 
     ``progress_callback(stage, cur, tot)`` 由 ``market.download_plugin`` 在
     **调用线程**里回调；界面侧照原文自己 ``after(0, ...)`` 切回主线程。
 
-    ``grant_callback``（阶段 3 任务 3.27 新增，默认 None = 旧行为）：安装成功后
-    由调用方决定怎么授权。旧实现走 ``pm.grant_manifest_permissions``（高风险权限
-    不会自动授予，于是带 ``core.launch_hook`` 的插件装完启用会失败）；QML 界面
-    先用权限弹窗拿到用户批准，再传一个「逐项授权」的回调进来。
+    ``grant_callback``（默认 None = 不额外授权）：安装成功后由调用方决定怎么授权。
+    不传时走 ``pm.grant_manifest_permissions``（高风险权限不会自动授予，于是带
+    ``core.launch_hook`` 的插件装完启用会失败）；QML 界面先用权限弹窗拿到用户批准，
+    再传一个「逐项授权」的回调进来。
     """
     fmpl_path, error = market.download_plugin(pid, progress_callback=progress_callback)
 
@@ -228,15 +224,15 @@ def enable_installed_plugin(
     pid: str,
     before_enable: Optional[Callable[[str], None]] = None,
 ) -> Tuple[bool, str]:
-    """加载 + 启用已装插件（原 ``_enable_plugin`` 的 ``try/except`` 内核，逐字）。
+    """加载 + 启用已装插件。
 
-    ``load_plugin`` 或 ``enable_plugin`` 抛异常时**不向上冒**：原文在这里
+    ``load_plugin`` 或 ``enable_plugin`` 抛异常时**不向上冒**：这里
     ``except`` 住并转成 ``ok, msg = False, str(e)``（与安装路径不同），
-    因此本函数也照原文吞掉并返回，日志文案逐字保留。
+    因此本函数吞掉异常并返回。
 
-    ``before_enable``（阶段 3 任务 3.27 新增，默认 None = 旧行为）：启用前
-    由调用方补授权（QML 的权限弹窗已批准）。放在 try 外面 —— 授权失败时
-    该抛给调用方，而不是伪装成「启用失败」。
+    ``before_enable``（默认 None = 不补授权）：启用前由调用方补授权
+    （QML 的权限弹窗已批准）。放在 try 外面 —— 授权失败时该抛给调用方，
+    而不是伪装成「启用失败」。
     """
     if before_enable is not None:
         before_enable(pid)

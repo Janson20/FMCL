@@ -1,4 +1,4 @@
-// FmMusicPager.qml —— 在线搜索结果分页（阶段 3.17）。
+// FmMusicPager.qml —— 在线搜索结果分页。
 //
 // 与通用 FmPagination 的差别：在线搜索要「全量页码 + 横向滚动到当前页」，
 // 且页码是搜索请求的输入，组件只发 pageRequested(page)，不自己改 page。

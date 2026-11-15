@@ -1,12 +1,11 @@
-// FmRadio.qml —— 单选（阶段 2 任务 2.16）。
+// FmRadio.qml —— 单选。
 //
 // 什么时候用它：**一组互斥选项**且数量少（2~5 个）、选项文案短 —— 下载线程数、
 //   主题模式、启动方式。QtQuick.Controls 的互斥语义：**同一个父项**下的多个 FmRadio
 //   自动互斥（`autoExclusive` 默认 true），所以别把它们拆到不同的父项里；
 //   需要跨父项互斥就自己写 `checked` + `autoExclusive: false`（设置项回显那种场景）。
 // 什么时候不要用：需要点"保存"才生效的开关型设置（用 FmSwitch）；选项超过 5 个
-//   或文案很长（用 FmComboBox，横排单选会挤成一团）；多选（同族的复选框不在本任务范围，
-//   阶段 3 若需要再回 2.8 补件）。
+//   或文案很长（用 FmComboBox，横排单选会挤成一团）；多选（用复选框，另行补件）。
 
 import QtQuick
 import QtQuick.Controls

@@ -1,52 +1,23 @@
-"""「我的资源」页面的会话状态机（阶段 3 任务 3.6）。
+"""「我的资源」页面的会话状态机。
 
-## 为什么要有这个文件
+会话持有当前标签页、扫描缓存（按目录 mtime 复用）、搜索词、页码、模组元数据、
+更新检查结果与检查互斥标志，并负责"什么时候重置"的规则：换标签页要清搜索、
+重置页码；搜索要重置页码；模组标签页**永不**用扫描缓存。桥只负责把本对象的
+属性与操作暴露给 QML。
 
-旧窗口 ``ui/windows/resource_manager.py`` 里真正的业务不是"画控件"，而是**一串会话状态**：
-当前标签页、扫描缓存（按目录 mtime 复用）、搜索词、页码与**页缓存**、模组元数据的
-异步加载与进度、更新检查的结果字典、更新检查的互斥标志。这一坨状态与"什么时候重置"
-的规则（换标签页要清搜索、重置页码、清页缓存；搜索要重置页码；模组标签页**永不**用
-扫描缓存）如果照旧留在界面里，QML 侧就得用 JS 再实现一遍 —— 那等于把业务抄第二份。
+## 三条会话约定
 
-所以这里把"会话"整个搬进服务层：**桥只负责把本对象的属性念给 QML 听**。
-
-## 与旧实现的关系（逐条对照）
-
-============  ==========================================  ==============================
-旧窗口里的东西  本模块的落点                                  语义
-============  ==========================================  ==============================
-``_tab_var``   :attr:`ResourceSession.tab`                   同名四类型键
-``_scan_cache`` :attr:`ResourceSession._scan_cache`          ``rtype -> (items, mtime)``，逐字
-``_search_text`` :attr:`ResourceSession.search`              ``strip().lower()`` 在服务层
-``_current_page`` :attr:`ResourceSession.page`               1 基；换页只重算切片
-``_page_cache`` **不搬**                                      它是"缓存 CTk 控件对象"的
-                                                            加速手段（键 = 类型_页码，
-                                                            值是 widget 列表）—— QML 侧
-                                                            由 ListView 复用委托，没有
-                                                            对应的东西可缓存
-``_mod_metadata`` :attr:`ResourceSession._mod_metadata`      模组分支的扫描结果
-``_update_info`` :attr:`ResourceSession.updates`             更新检查结果 ``modid -> info``
-``_update_checking`` :attr:`ResourceSession.checking`        检查互斥
-============  ==========================================  ==============================
-
-## 三条"照抄别改"的旧约定
-
-1. **模组标签页不走扫描缓存**：旧 ``_refresh_current_list`` 一进 ``mods`` 分支就
-   ``_scan_cache.pop("mods")`` 并**立刻**去提元数据（异步），其余三类才比对 mtime。
-   本模块照抄：``mods`` 每次 ``refresh`` 都重扫 + 重提。
-2. **"目录不存在"与"目录空"现在是同一条路**：目录不存在就**建出来**再按空目录扫
-   （用户 2026-10-07 裁决，见 :meth:`ResourceSession._ensure_resource_dir`），
+1. **模组标签页不走扫描缓存**：``mods`` 每次 ``refresh`` 都丢弃该项缓存、重扫并
+   重新提元数据；其余三类才比对 mtime。
+2. **"目录不存在"与"目录空"是同一条路**：目录不存在就**建出来**再按空目录扫，
    所以两种情况的界面表现一致 —— 都是空态 + 「{label} 文件夹为空」。
-   旧实现把它分成 ``rm_folder_not_exist``（带路径）与 ``rm_folder_empty``（带类型名）
-   两种文案，而前者只在"用户从没打开过这个文件夹"时出现，属于别扭而非信息。
-3. **页码与总数的文案来自"过滤后的条数"**，不是后端 ``total_hits``（D-91/D-103 同型
-   缺陷在本窗口**不存在**，已逐处核对）。
+3. **页码与总数的文案来自"过滤后的条数"**，不是后端 ``total_hits``。
 
 ## 撤销（取消）
 
 ``load_mods`` / ``check_updates`` 这类长活走 ``self.tasks.submit``，
-取消由 :class:`app.tasks.TaskContext` 的协作式 ``cancel_event`` 负责 —— 与阶段 3.5
-的账号登录同一套。**没有**在服务里自己建线程。
+取消由 :class:`app.tasks.TaskContext` 的协作式 ``cancel_event`` 负责。
+服务层不自行创建线程。
 """
 
 from __future__ import annotations
@@ -125,7 +96,7 @@ def resolve_launcher(service: Any, context: Any = None) -> Any:
     才可用，而调用方（`ResourcesBridge.bind`）手里本来就有那个 context。只读
     `service.context` 的话，任何"服务还没注册就装配界面"的路径（含全部单测）
     都会静默拿到 ``None`` —— 症状是版本选择器空着、模组元数据一条都不出来，
-    而且**不报错**（阶段 3.6 实测踩过：探针里 `modCount` 永远是 0）。
+    而且**不报错**（否则模组列表一直为空，`modCount` 永远是 0）。
     """
     source = context
     if source is None and service is not None and getattr(service, "attached", False):
@@ -254,14 +225,10 @@ class ResourceSession:
     def set_version(self, version_id: str) -> None:
         """切换版本：换版本等于换一整套目录，**所有缓存作废**。
 
-        两处与旧实现**刻意不同**：
-
-        * 旧窗口一个实例只服务一个版本，缓存里没有版本这一维；这里有，所以换版本
-          必须整片作废（mtime 比对跨版本没有意义）。
-        * ``version_id`` 允许为空串 = **全局 ``.minecraft`` 目录**（用户 2026-10-07
-          裁决加的选择器选项，见 :meth:`resource_dir`）。
+        * 缓存含版本维度，换版本必须整片作废（mtime 比对跨版本没有意义）。
+        * ``version_id`` 允许为空串 = **全局 ``.minecraft`` 目录**（见 :meth:`resource_dir`）。
         * 换完之后如果**当前页签在这个版本里不合法**（原版版本没有"模组/光影"），
-          自动落到第一个合法页签 —— 否则会停在一个空列表上，用户以为"没资源"。
+          自动落到第一个合法页签 —— 否则会停在一个空列表上，看起来像"没资源"。
         """
         self._version_id = str(version_id or "").strip()
         self._scan_cache.clear()
@@ -289,10 +256,9 @@ class ResourceSession:
         return self._tab
 
     def set_tab(self, tab: str) -> None:
-        """换标签页：**清搜索、重置页码、清页缓存、清空列表**（旧 ``_switch_tab``）。
+        """换标签页：**清搜索、重置页码、清空列表**。
 
-        注意旧实现把 ``_search_entry.delete(0, "end")`` 也做了 —— 搜索框会被清空，
-        所以这里连 ``_search`` 一起清，界面上的输入框跟着这个值走。
+        搜索框也会被清空，所以这里连 ``_search`` 一起清，界面上的输入框跟着这个值走。
         """
         name = str(tab or "").strip()
         if name not in TAB_KEYS or name == self._tab:
@@ -333,7 +299,7 @@ class ResourceSession:
         page_items, self._page, self._pages = paginate(self._visible, self._page, self.page_size)
         result = self._result(page_items)
         if not self._visible:
-            # 空来源 vs 搜不到，是两个不同的文案（旧实现也是分开的）
+            # 空来源 vs 搜不到，是两个不同的文案
             if source:
                 result["status_key"] = "mod_search_no_results" if self._tab == "mods" else "rm_search_no_results"
             else:
@@ -384,7 +350,7 @@ class ResourceSession:
     def minecraft_dir(self) -> Path:
         """这一屏的基准目录（``.minecraft``）。**一定是绝对路径**。
 
-        为什么必须绝对（2026-10-07 第四次验收实测）：三条来源里
+        为什么必须绝对：三条来源里
         ``callbacks["get_minecraft_dir"]``（核心未就绪时的降级路径）给的是**相对**的
         ``.minecraft``，而 ``config.minecraft_dir`` 给的是绝对路径。基准目录若随来源
         变性质，同一屏里"资源目录解析"与"缓存比对"就会指向两个不同的 ``.minecraft``：
@@ -397,7 +363,7 @@ class ResourceSession:
         相对路径的处理顺序（**先判定再采信**，与
         ``resource_service.minecraft_dir`` 的"回调优先"保持一致）：
 
-        1. 回调给的路径归一成绝对后**确实存在** → 用它（旧行为，回调优先）；
+        1. 回调给的路径归一成绝对后**确实存在** → 用它（回调优先）；
         2. 否则退到 ``config.minecraft_dir``（核心没起来时它就是唯一权威的绝对路径）；
         3. 再否则退到服务层的兜底。
 
@@ -428,8 +394,7 @@ class ResourceSession:
     def resource_dir(self, resource_type: str = "") -> Path:
         """当前标签页（或指定类型）的资源目录。非法类型抛 ``KeyError``（照旧）。
 
-        **``version_id`` 为空串时就是这个文件夹的全局目录**（``.minecraft/<folder>``）——
-        也就是旧窗口从"原版版本"进来时看到的那一个。阶段 3.6 用户裁决（2026-10-07）：
+        **``version_id`` 为空串时就是这个文件夹的全局目录**（``.minecraft/<folder>``）。
         没选版本（选择器停在「全局 .minecraft」）时不该报"未指定游戏版本"，
         而是照旧读全局目录。
         """
@@ -441,7 +406,7 @@ class ResourceSession:
         #: `.minecraft`，与 `base` 可能算出不同结果（核心未就绪时回调给的是相对路径，
         #: 而 `self.minecraft_dir` 走 `config.minecraft_dir` 是绝对的），于是资源目录被
         #: 解析到进程工作目录下的 `.minecraft`：目录建错地方、而"建过没有"的判断又
-        #: 恰好为真，用户看到的就是"自动新建文件夹没做"（2026-10-07 验收实测）。
+        #: 恰好为真，表现为"自动新建文件夹没做"。
         return self._service.resource_dir_in(
             base,
             self._version_id,
@@ -460,17 +425,16 @@ class ResourceSession:
         return bool(self._service.has_mod_loader(self._version_id, self.minecraft_dir))
 
     def allowed_tabs(self) -> List[str]:
-        """这一屏允许显示哪几个页签（原版只给资源包与地图 —— 用户 2026-10-07 裁决）。"""
+        """这一屏允许显示哪几个页签（原版只给资源包与地图）。"""
         return list(self._service.allowed_types(self._version_id, self.minecraft_dir))
 
     # ─── 扫描 ───────────────────────────────────────────────
 
     def refresh(self, *, force: bool = False) -> dict:
-        """重扫当前标签页（旧 ``_refresh_current_list``）。
+        """重扫当前标签页。
 
         ``mods`` 分支**只完成"目录扫描"这一步**：元数据要走 :meth:`load_mods`
-        （异步）。这是与旧实现唯一的结构性差异 —— 旧实现是在同一个方法里
-        起线程再回来渲染，这里拆成"扫描（同步、快）"与"提取（异步、慢）"两步，
+        （异步）。扫描与提取必须拆成"扫描（同步、快）"与"提取（异步、慢）"两步，
         因为桥需要先知道"目录里有没有东西"才能决定显示空态还是加载态。
         """
         self._page = 1
@@ -481,14 +445,9 @@ class ResourceSession:
         return self._scan_plain(force=force)
 
     def _ensure_resource_dir(self, resource_dir: Path) -> None:
-        """资源目录不存在就建出来（用户 2026-10-07 裁决）。
+        """资源目录不存在就建出来。
 
-        旧实现里 ``mkdir`` 只出现在两处：``open_resource_folder``（点「打开文件夹」）与
-        ``install_resource``（装东西时）。**单纯打开资源管理器不建目录** —— 于是第一次进
-        一个还没有 ``resourcepacks`` 的版本，界面显示"文件夹不存在: <路径>"。
-        用户 2026-10-07 反馈后核对确认：这两类目录本来就是本页在管，建空目录没有副作用。
-
-        **建完继续按"空目录"走**（不回退成独立的错误状态）：空态文案因此落到
+        这两类目录本来就是本页在管，建空目录没有副作用。**建完继续按"空目录"走**（不回退成独立的错误状态）：空态文案因此落到
         「{label} 文件夹为空」那句 + 拖拽提示。``rm_folder_not_exist`` 在新界面上不会再
         出现，但键仍保留（服务层的目录解析仍可能给出一个建不出来的路径，例如只读盘）。
         """
@@ -510,9 +469,8 @@ class ResourceSession:
                 return self.repage()
 
         if not resource_dir.exists():
-            #: 目录不存在就建出来，然后**按空目录继续**（用户 2026-10-07 裁决）。
-            #: 旧实现只在"打开文件夹"与"安装文件"时 mkdir，单纯打开资源管理器不建 ——
-            #: 于是第一次进一个还没有 resourcepacks 的版本会看到"文件夹不存在: <路径>"。
+            #: 目录不存在就建出来，然后**按空目录继续** —— 空态文案与其他空目录一致，
+            #: 不会出现"文件夹不存在: <路径>"。
             self._ensure_resource_dir(resource_dir)
 
         try:
@@ -525,7 +483,7 @@ class ResourceSession:
         self._items = list(items)
         try:
             self._scan_cache[self._tab] = (list(items), resource_dir.stat().st_mtime)
-        except Exception:  # noqa: BLE001 - stat 失败只是这次不缓存（旧实现同样吞掉）
+        except Exception:  # noqa: BLE001 - stat 失败只是这次不缓存
             self._scan_cache.pop(self._tab, None)
 
         if not self._items:
@@ -548,7 +506,7 @@ class ResourceSession:
         self._mod_metadata = []
         if not self._items:
             return self._empty("mod_folder_empty", {})
-        # 目录里有东西：先给"正在读元数据"的加载态（旧实现的 `mod_loading_metadata`）
+        # 目录里有东西：先给"正在读元数据"的加载态（`mod_loading_metadata`）
         return self._result([], STATE_LOADING)
 
     @property
@@ -574,8 +532,8 @@ class ResourceSession:
     ) -> Any:
         """异步提取模组元数据；返回任务句柄（``wait()`` 可等）。
 
-        ``mods_dir`` 在**主线程**先算好再进任务 —— 旧实现的 ``_load_metadata`` 里
-        自己算目录，路径解析依赖回调，放线程里没有任何好处却多一处竞态。
+        ``mods_dir`` 在**主线程**先算好再进任务：路径解析依赖回调，
+        放线程里没有任何好处却多一处竞态。
 
         ``on_done`` / ``on_error`` 直接转给 ``TaskRunner.submit``（回调在**主线程**
         被调，见 ``app/tasks.py`` 的回调契约）—— 桥用它们把结果投递回 QML 侧。
@@ -592,7 +550,7 @@ class ResourceSession:
             #: 协作式取消事件）。不给的话 `TaskRunner` 不会把 context 传进来 ——
             #: 症状是任务根本没被提交（`fn(*args)` 少参数直接抛 TypeError，
             #: 而那个异常走的是 on_error，页面上表现为"模组列表永远空白、
-            #: 也没有任何提示"）。阶段 3.6 实测踩过。
+            #: 也没有任何提示"）。
             pass_context=True,
         )
 
@@ -730,9 +688,9 @@ class ResourceSession:
         return "mod_update_check_failed", {"error": error}
 
     def prepare_batch_update(self, modids: Sequence[str]) -> Tuple[Optional[Any], str]:
-        """批量更新的前置校验（旧 ``_batch_update_mods`` 开头）。
+        """批量更新的前置校验。
 
-        ⚠ 旧实现的判断是 ``not game_version or not mod_loader``（少了 ``mod_loader``
+        ⚠ 这里的判断是 ``not game_version or not mod_loader``（少了 ``mod_loader``
         就直接失败），检查更新那条只判了 ``game_version``。**这个不一致照抄**。
         """
         game_version, mod_loader = self._service.update_targets(self._version_id)
@@ -799,10 +757,9 @@ class ResourceSession:
         """把"当前页切片"包成一次结果。
 
         ``state`` 留空时按 ``_visible`` 推断（有内容 = ready，没内容 = empty）——
-        这是绝大多数情况。**要显式指定状态的调用方必须用这个参数**：本方法原先
-        无条件重算 ``_state``，把 `_scan_mods` 设好的 `loading` 覆盖成 `empty`
-        （阶段 3.6 实测踩到：模组页签永远进不了"正在读取模组信息…"，
-        连带元数据任务也没被起来，症状是"模组列表永远空白"）。
+        这是绝大多数情况。需要显式状态（如 `loading`）的调用方必须传这个参数，
+        否则会被推断覆盖，模组页签就进不了"正在读取模组信息…"，
+        连带元数据任务也不会被起来。
         """
         self._state = state or (STATE_READY if self._visible else STATE_EMPTY)
         status_key = "rm_list_count" if (self._visible and not state) else ""

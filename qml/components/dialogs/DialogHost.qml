@@ -19,11 +19,10 @@
 //
 // ## 为什么不开独立窗口
 //
-// 旧实现每个对话框都是 `ctk.CTkToplevel`（独立窗口 + `grab_set()`）。QML 版改成
-// 主窗口内的遮罩 + 卡片，理由有三条：阶段 0 实测过"悬浮窗不开 WS_EX_NOACTIVATE 会抢
-// 焦点"（契约决策 3），独立窗口要重复处理这套；对话框的定位要跟着主窗口（旧实现
-// `_centered_geometry` 也是优先相对父窗口居中）；测试里也能直接在同一个场景树里数委托，
-// 不用去翻 `QGuiApplication.topLevelWindows()`。
+// 每个对话框都是独立窗口时，要各自处理一套窗口语义。QML 版改成
+// 主窗口内的遮罩 + 卡片，理由有三条：独立窗口不开 `WS_EX_NOACTIVATE` 会抢
+// 焦点，每扇窗都得重复处理；对话框的定位要跟着主窗口（优先相对父窗口居中）；
+// 测试里也能直接在同一个场景树里数委托，不用去翻 `QGuiApplication.topLevelWindows()`。
 //
 // 用法（2.12 的 App.qml 里）：
 //     DialogHost { anchors.fill: parent; z: 100 }
@@ -43,7 +42,7 @@ Item {
     //: 当前进度快照（progressChanged 写入，progressClosed 清空）
     property var progressData: null
 
-    // ─── 壳层自己发起的确认框（阶段 3 任务 3.4） ─────────────
+    // ─── 壳层自己发起的确认框 ────────────────────────────────
     //
     // 用途：壳层要问一句"确定吗"，而**答案只在 QML 里用** —— 设置页的
     // "有未保存改动，确定要离开吗？"就是它（离开守卫由 `Nav` 发起，确认走这里）。
@@ -183,8 +182,8 @@ Item {
         id: scrim
         objectName: "dialogScrim"
         anchors.fill: parent
-        // 遮罩走派生令牌 `Theme.scrim`（黑 55% 透明）——返工 A 组加的它就是为了
-        // "同一个语义只有一处取值"：以前是 `bgDark` + 本地 `opacity: 0.55` 两个来源。
+        // 遮罩走派生令牌 `Theme.scrim`（黑 55% 透明）—— "同一个语义只有一处取值"，
+        // 不要写成 `bgDark` + 本地 `opacity: 0.55` 两个来源。
         color: Theme?.scrim ?? "transparent"
         visible: host.head !== null || host.progressData !== null || host.promptVisible
         z: 1

@@ -1,4 +1,4 @@
-// FmAgentMarkdown.qml —— AGENT 消息的 Markdown 渲染（阶段 3 任务 3.22）。
+// FmAgentMarkdown.qml —— AGENT 消息的 Markdown 渲染。
 //
 // 为什么不是 WebEngine：打包清单明确裁掉 Qt6WebEngineCore（单个 DLL 142 MB），
 // 所以这里用 Python 侧解析出的“块”逐块画。段落/标题用 QML RichText 子集；

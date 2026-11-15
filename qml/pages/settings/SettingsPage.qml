@@ -1,4 +1,4 @@
-// SettingsPage.qml —— 设置域（阶段 3 任务 3.4；IA 见 `docs/refactor/02` 第 4.12 节）。
+// SettingsPage.qml —— 设置域。
 //
 // ## 一、一页承载 9 条二级路由
 //
@@ -10,10 +10,9 @@
 // 分区清单**从 `Nav.routes()` 现取**（`parent === "settings"`），不写死在 QML 里 ——
 // 路由表加一条，这里就多一个分区，不会出现"路由进得去但导航里看不见"。
 //
-// 3.4 只做「启动器 / Java / 主题 / 日志 / 关于」五个分区（用户 2026-10-06 裁决 A）；
-// 账户在 3.5 落地；净读账号登录在 3.21 补进 AI 分区；插件分区仍按 D-174 留占位。
+// 分区：启动器 / Java / 主题 / 音乐 / 日志 / 关于 / 账户 / AI / 插件。
 //
-// ## 二、草稿范式（M-Q1 的 B1/B2/B6，用户 2026-10-06 裁决）
+// ## 二、草稿范式
 //
 // 控件改动**只进草稿**（`Settings.setField`）；底部动作条上的「保存」才写盘、
 // 「取消」丢弃并把预览还原成已保存值。主题/强调色/语言三项在改动瞬间**只改内存**
@@ -21,11 +20,11 @@
 // 效果，取消之后效果又退回去。带着未保存改动离开设置域时，由壳层的"离开守卫"
 // 提示一次（`qml/App.qml` 的 `onLeaveBlocked`；守卫登记在 `SettingsBridge` 里）。
 //
-// ## 三、写法纪律（3.2/3.3 踩过的坑，这里写死）
+// ## 三、写法纪律（踩过的坑，这里写死）
 //
 // 1. **绑定里不出现 `page.*`**：页面被销毁时（切走路由 → `StackView` 弹栈）绑定会再
-//    求值一次，而 id 作用域已经变成 null —— 3.2 报的是 `page.t()`、3.3 报的是
-//    `page.bridgeAvailable`，两次都是"TypeError 刷满日志"。所以：
+//    求值一次，而 id 作用域已经变成 null —— 报的是 `page.t()` / `page.bridgeAvailable`，
+//    表现为"TypeError 刷满日志"。所以：
 //    * **静态文案**用 `Tr?.map[…] ?? "键"` 直接绑（语言切换自动重算）；
 //    * **动态状态**（开关、下拉、滑块、列表、按钮可用性、计数）一律在函数里赋值，
 //      函数体第一行判活（`if (!page) return`）。
@@ -54,11 +53,11 @@ FmPage {
     readonly property bool live: (typeof Settings !== "undefined" && Settings) ? true : false
 
     //: 当前分区（`settings/theme` → `theme`；无子路径的 `settings` → `launcher`，
-    //: 与旧界面把启动器设置放在第一个标签页一致）。
+    //: 即把启动器设置排在第一个）。
     //:
-    //: **刻意不做成绑定**，原因是一次实测：`PageStack.pushFrame()` 是
+    //: **刻意不做成绑定**：`PageStack.pushFrame()` 是
     //: `createObject()` 之后再用 `StackView.push(item, {routeId: …})` 写属性的，
-    //: 那一刻 `routeIdChanged` 处理器**看得到新值**（探针日志 `[settings/theme→launcher]`），
+    //: 那一刻 `routeIdChanged` 处理器**看得到新值**，
     //: 而依赖它的绑定却还是旧值 —— 于是页面停在启动器分区、主题分区永远不加载。
     //: 所以这里由 `refreshUi()` 现算现赋（与"动态状态一律在函数里赋值"同一条纪律）。
     property string section: "launcher"
@@ -121,8 +120,8 @@ FmPage {
             if (String(route.parent) !== "settings")
                 continue
             //: `dev/gallery` 也挂在 `settings` 下（路由表注释写了：那是"进得去但不占
-            //: 一级导航位"的开发自查页）。它**不是**设置分区，这里必须排除 ——
-            //: 第一版没排，设置页左侧就多出一个"组件画廊"。
+            //: 一级导航位"的开发自查页）。它**不是**设置分区，这里必须排除，
+            //: 否则设置页左侧会多出一个"组件画廊"。
             if (String(route.id).indexOf("dev/") === 0)
                 continue
             byId[String(route.id)] = route
@@ -155,13 +154,12 @@ FmPage {
             return logSection
         if (name === "about")
             return aboutSection
-        //: 账户分区在阶段 3.5 落地（M-13 / M-26 ~ M-29）；AI 分区先有净读登录（3.21），
-        //: 模型/工具权限等 3.23 内容以后再加；插件分区仍是占位。
+        //: AI 分区目前只有净读登录，模型 / 工具权限等内容以后再加；插件分区仍是占位。
         if (name === "account")
             return accountSection
         if (name === "ai")
             return jingduSection
-        //: 插件分区（阶段 3 任务 3.27，M-23）：概况 + 打开管理器 / 市场。
+        //: 插件分区：概况 + 打开管理器 / 市场。
         if (name === "plugin")
             return pluginSection
         return placeholderSection
@@ -239,7 +237,7 @@ FmPage {
             Layout.fillHeight: true
 
             //: 卡片的默认内容落进卡片内部的 `ColumnLayout`，所以这里**不能用 anchors.fill**
-            //: （布局托管的项带锚点会被 Qt 判定为未定义行为，实测刷 8 条警告）。
+            //: （布局托管的项带锚点会被 Qt 判定为未定义行为，会刷 8 条警告）。
             ColumnLayout {
                 objectName: "settingsSectionList"
                 Layout.fillWidth: true
@@ -266,7 +264,7 @@ FmPage {
                     delegate: RowLayout {
                         id: sectionRow
                         Layout.fillWidth: true
-                        //: **必须卡住高度**：只给 `preferredHeight` 不够 —— 实测
+                        //: **必须卡住高度**：只给 `preferredHeight` 不够 —— 否则
                         //: `ColumnLayout` 会把多余高度分给第一行（选中项被拉到 215px，
                         //: 指示条跟着变成一根长杠）。`maximumHeight` 才是硬约束，
                         //: 高度取列表项自己的隐式高度，不写死数字。
@@ -356,8 +354,7 @@ FmPage {
                     }
                 }
 
-                //: 旧底部的「应用」按钮（M-24）—— 它其实是**重启启动器进程**。
-                //: 用户裁决 B5：保留按钮但改名「保存并重启」，且先落盘再重启。
+                //: 底部按钮「保存并重启」—— 它其实是**重启启动器进程**，顺序是先落盘再重启。
                 FmButton {
                     id: saveRestartButton
                     objectName: "settingsSaveRestartButton"
@@ -373,11 +370,9 @@ FmPage {
         }
     }
 
-    // ══ 分区一：启动器功能（M-01 / M-02 / M-06 / M-12）══════════
+    // ══ 分区一：启动器功能 ══════════════════════════════════════
     //
-    // 旧界面把这些放在第一个标签页（`launcher_settings.py:110-567`）。
-    // 语言（M-06）在本分区而不是独立分区：路由表没有 `settings/language`
-    // 这一条，而旧界面也把它放在 tab1（`launcher_settings.py:325-361`）。
+    // 语言在本分区而不是独立分区：路由表没有 `settings/language` 这一条。
 
     Component {
         id: launcherSection
@@ -561,9 +556,7 @@ FmPage {
 
                         Text {
                             Layout.fillWidth: true
-                            //: 旧实现这里放的是「重启启动器后生效」（`settings_restart_hint`）。
-                            //: M-Q2 已裁决"照实升级为热切换"，所以那句提示现在是**错的** ——
-                            //: 换成如实描述，这条差异登记在 `07-known-defects.md`。
+                            //: 语言切换是**热切换**，不要写「重启启动器后生效」这类提示。
                             text: Tr?.map["settings_language_hint"] ?? "settings_language_hint"
                             color: Theme?.textSecondary ?? "transparent"
                             font.pixelSize: Theme?.fontSizeSmall ?? 11
@@ -737,7 +730,7 @@ FmPage {
                                     Layout.fillWidth: true
                                     spacing: 0
 
-                                    //: 单选应用（旧实现的 `CTkRadioButton` + `_on_java_scan_select`）。
+                                    //: 单选应用（扫描到的 Java 列表）。
                                     //: 刻意关掉自动互斥：勾选状态由草稿里的 `java_custom_path` 决定
                                     //: （草稿是唯一真值来源），让 Qt 自己管会出现"点了 A 但草稿没变"。
                                     //: 绑定只读桥的属性（带 typeof 判空），不引用 `page.*`。
@@ -813,8 +806,8 @@ FmPage {
                 dynamicSwitch.checked = fields.dynamic_version_theme === true
             }
 
-            //: 应用自定义强调色（M-09）。空输入 = 清除（旧实现的判据：
-            //: 空串走 `settings_accent_cleared`，非法格式走 `settings_accent_invalid`）。
+            //: 应用自定义强调色。空输入 = 清除（空串走 `settings_accent_cleared`，
+            //: 非法格式走 `settings_accent_invalid`）。
             function applyAccent() {
                 if (!page || !page.live)
                     return
@@ -1050,7 +1043,7 @@ FmPage {
                     elide: Text.ElideMiddle
                 }
 
-                //: 日志面板（阶段 2 任务 2.18 交付的通用件）。
+                //: 日志面板（通用件）。
                 //: 行是靠 `Logs.linesAppended` 推过来的 —— 组件本身不读文件、不碰服务。
                 LogView {
                     id: logView
@@ -1105,12 +1098,11 @@ FmPage {
         }
     }
 
-    // ══ 分区五：关于（A-08 / J-01 / J-02 / J-03）════════════════
+    // ══ 分区五：关于 ════════════════════════════════════════════
     //
-    // 旧界面是一个独立 Toplevel（`ui/app_handlers.py:1487-1700`）：图标 + FMCL/Fusion
-    // Minecraft Launcher + 4 行系统信息 + 9 个鸣谢项目（各带"地址 / 许可证"两个外链）
-    // + 许可证一行 + 赞赏按钮 + 确定。这里换成设置域里的一条路由（02 §4.12 的 L2"关于"），
-    // 内容逐条保留；协议全文（J-01）复用 3.1 的 `legal_service` 渲染方式。
+    // 内容：图标 + 名称 + 系统信息 + 鸣谢项目（各带"地址 / 许可证"两个外链）
+    // + 许可证一行 + 赞赏按钮。它是设置域里的一条路由（L2「关于」）；
+    // 协议全文复用 `legal_service` 的渲染方式。
 
     Component {
         id: aboutSection
@@ -1292,11 +1284,10 @@ FmPage {
         }
     }
 
-    // ══ 分区六：音乐账号（阶段 3.18；旧设置里的网易云登录入口）══
+    // ══ 分区六：音乐账号 ════════════════════════════════════════
     //
-    // 用户反馈“登录入口要好找，或像旧版放设置里”：这里给设置域一条独立分区
-    // `settings/music`，路由标题复用 `settings_wy_login_title`。只负责登录态、
-    // 扫码入口、重新同步与退出；VIP 等级、续期、账号详情仍归 3.19。
+    // 设置域的一条独立分区 `settings/music`，路由标题复用 `settings_wy_login_title`。
+    // 只负责登录态、扫码入口、重新同步与退出；VIP 等级、续期、账号详情不在这里。
     // 账号与二维码逻辑全在 `Music.account`（AccountManager），本分区不碰凭据与网络。
 
     Component {
@@ -1595,35 +1586,30 @@ FmPage {
         }
     }
 
-    // ══ 分区七：账户（阶段 3 任务 3.5 落地；M-13 / M-26 ~ M-29）══
+    // ══ 分区七：账户 ════════════════════════════════════════════
     //
-    // 旧界面是一个**独立窗口**（`ui/windows/account_manager.py` 的 `AccountManagerWindow`，
-    // 580x650 的 `CTkToplevel` + `grab_set`）；新架构里它是 `settings/account` 这条路由的
-    // 内容，所以本分区**没有关闭按钮**（离开 = 点别的分区 / 面包屑返回），
-    // 标题与说明仍按旧窗口那两行文案保留。
+    // 它是 `settings/account` 这条路由的内容，所以本分区**没有关闭按钮**
+    // （离开 = 点别的分区 / 面包屑返回）。
     //
     // ## 三块内容
     //
-    // 1. **标题 + 说明 + 动作条**（旧 `account_manager.py:219-298`，同一批 i18n 键）；
-    //    「全部刷新 Token」是 3.5 按 A-25 补的（旧界面只在启动时静默刷一遍）；
-    // 2. **进度**：旧窗口登录期间只把三个按钮置灰，`_update_status()` 是个**空函数**
-    //    （`account_manager.py:589-590`），一个字都不显示；新界面给一句状态 + 进度 + 「取消」
-    //    （用户 2026-10-06 裁决"后台任务 + 进度 + 可取消"，取消口在 `launcher/account.py`）；
+    // 1. **标题 + 说明 + 动作条**：「全部刷新 Token」在启动时刷一遍之外随时可手动触发；
+    // 2. **进度**：状态一句话 + 进度 + 「取消」（取消口在 `launcher/account.py`）；
     // 3. **账号列表**：`ListView` + 每行一张卡片（类型徽标 / 名字 / 当前标记 / UUID / 三个按钮），
-    //    空列表走 `FmEmptyState`（旧实现是一行灰色文字 `_("account_no_accounts")`）。
+    //    空列表走 `FmEmptyState`。
     //
     // ## 状态从哪来
     //
     // 全部来自 `Accounts` 桥（`app/bridges/accounts_bridge.py`）—— 本分区**没有业务规则**：
     // 参数校验、重名判断、删除后的落盘、导入导出、取消，都在服务层。
     //
-    // ## 写法纪律（3.2~3.4 踩过的坑）
+    // ## 写法纪律（踩过的坑）
     //
     // * 绑定里只读 `Tr?.map[…]` 与本分区属性；动态状态（行、进度文案、值）一律在
     //   `refreshUi()` 里算好，函数第一行判活（`if (!section) return`）。
-    // * 不在绑定里调组件自己的 JS 函数（3.4 的 FmTag 教训）—— 类型徽标档位在
+    // * 不在绑定里调组件自己的 JS 函数（FmTag 的教训）—— 类型徽标档位在
     //   `refreshUi()` 里算成 `type_level`。
-    // * 确认框不传 JS 回调（D-183）：桥只发 `deleteRequested(id, name)` 这样的信号，
+    // * 确认框不传 JS 回调：桥只发 `deleteRequested(id, name)` 这样的信号，
     //   本分区据此填 `confirmRequest` 属性。
     // * 对话框是分区 `Item` 的子节点，靠 `visible` 开关；分区各有自己的 Item 作用域，
     //   id 不会与别的分区撞名，所以这里不需要 `Loader` 那层间接。
@@ -1658,11 +1644,11 @@ FmPage {
             //: 导出结果对话框要不要显示 + 导出到哪了
             property bool exportResultVisible: false
             property string exportPath: ""
-            //: 导出密码的**第 2 步**（再输一遍核对）标记 + 不一致时的错误文案（旧键的译文）
+            //: 导出密码的**第 2 步**（再输一遍核对）标记 + 不一致时的错误文案
             property bool exportConfirmStep: false
             property string exportPasswordError: ""
             //: **登录失败**的常驻提示（标题 + 原因）；标题非空就显示那条提示条。
-            //: 用户 2026-10-06 反馈"登录失败不要静默"：Toast 会自己消失、状态栏 10 秒就清，
+            //: **登录失败不要静默**：Toast 会自己消失、状态栏 10 秒就清，
             //: 而登录失败要等一两分钟才出结果 —— 回来时两条都没了，用户只看到"什么都没发生"。
             property string failureTitle: ""
             property string failureDetail: ""
@@ -1696,8 +1682,7 @@ FmPage {
                 }
             }
 
-            //: 类型徽标档位：旧窗口的配色表（`account_manager.py:339`）
-            //: microsoft=success / offline=warning / yggdrasil=accent
+            //: 类型徽标档位：microsoft=success / offline=warning / yggdrasil=accent
             function tagLevel(type) {
                 if (type === "microsoft")
                     return "success"
@@ -1748,8 +1733,7 @@ FmPage {
 
                 var message = String((progress && progress.message) ? progress.message : "")
                 if (message.length > 0) {
-                    //: 核心层的中文状态串**原样透出**（与 `16` §17.3 对 settings 那批硬编码中文
-                    //: 同一处置：不在这里二次包装，挂账阶段 4 统一收口 i18n）
+                    //: 核心层的中文状态串**原样透出**：不在这里二次包装，待统一收口 i18n。
                     section.progressText = message
                 } else {
                     var name = String((progress && progress.name) ? progress.name : "")
@@ -1820,7 +1804,7 @@ FmPage {
                     exportPasswordLoader.active = true
                 }
 
-                //: 导出第 2 步（再输一遍核对）—— 旧实现的第二个 `CTkInputDialog`
+                //: 导出第 2 步（再输一遍核对）
                 function onExportPasswordConfirmRequested() {
                     if (!section)
                         return
@@ -1857,17 +1841,15 @@ FmPage {
                     section.exportResultVisible = true
                 }
 
-                //: 一条提示。`title` 非空 = **常驻提示条**（登录失败那条：用户 2026-10-06
-                //: 反馈"登录失败不要静默"—— Toast 会自己消失、状态栏 10 秒就清，
-                //: 而登录失败往往要等一两分钟才出结果，回来时那两句都没了）。
+                //: 一条提示。`title` 非空 = **常驻提示条**（登录失败那条 —— Toast 会自己消失、
+                //: 状态栏 10 秒就清，而登录失败往往要等一两分钟才出结果，回来时那两句都没了）。
                 //: 其余情况仍是右下角 Toast（导入成功、重名提醒这类"顺手告知"）。
                 function onNoticeRequested(message, level, title) {
                     var text = String(message)
                     var kind = (String(level) === "error") ? "error" : "info"
                     if (String(title).length > 0) {
-                        //: 旧实现这里就是 `messagebox.showwarning(_("warning"), …)` —— 一个
-                        //: **看得见、不会自己消失**的提示；本分区用一条可关闭的 `FmInfoBar`
-                        //: 落地（QML 里没有"阻塞式弹窗"这种形态，详见 §二十一）。
+                        //: 需要一条**看得见、不会自己消失**的提示；本分区用一条可关闭的
+                        //: `FmInfoBar` 落地（QML 里没有"阻塞式弹窗"这种形态）。
                         section.failureTitle = String(title)
                         section.failureDetail = text
                         return
@@ -1916,9 +1898,8 @@ FmPage {
                             wrapMode: Text.WordWrap
                         }
 
-                        //: 动作条（旧窗口的按钮栏）。**配色差异**：旧窗口把微软那颗涂成
-                        //: `COLORS["success"]`、离线/外置用 `bg_light`；FmButton 只有 primary / danger
-                        //: 两档，所以微软用 primary（强调色）、另两个用次按钮（已记在对照表 M-26 备注）。
+                        //: 动作条。FmButton 只有 primary / danger 两档，
+                        //: 所以微软用 primary（强调色）、另两个用次按钮。
                         RowLayout {
                             objectName: "accountActionRow"
                             Layout.fillWidth: true
@@ -2010,13 +1991,11 @@ FmPage {
                     }
                 }
 
-                // ══ 二、登录失败的常驻提示（用户 2026-10-06 反馈"不要静默"）══
+                // ══ 二、登录失败的常驻提示（**不要静默**）══
                 //
-                // 旧实现是 `messagebox.showwarning(_("warning"), _("account_login_failed", type=…))`
-                // —— 一个**看得见、不会自己消失**的提示，正文只有"X 登录失败，请重试"。
-                // 新界面把它做成一条可关闭的 `FmInfoBar`（QML 里没有"阻塞式弹窗"这种形态），
-                // 并把**真实原因**（核心层最后一条错误，例如
-                // "认证失败: … Failed to resolve 'xsts.auth.xboxlive.com'"）放进正文 ——
+                // 一条可关闭的 `FmInfoBar`（QML 里没有"阻塞式弹窗"这种形态），正文是
+                // **真实原因**（核心层最后一条错误，例如
+                // "认证失败: … Failed to resolve 'xsts.auth.xboxlive.com'"）——
                 // 那句话才是用户判断"是网络问题还是账号没买游戏"的依据。
 
                 FmInfoBar {
@@ -2143,9 +2122,8 @@ FmPage {
                                     Layout.fillWidth: true
                                     spacing: Theme?.spacingMd ?? 12
 
-                                    //: 当前账号的强调色指示条。旧实现用更亮的卡片底色标当前项
-                                    //: （`account_manager.py:345` 的 `bg_light`），新界面改成
-                                    //: 「指示条 + 名字前 ★ + 「当前」标签」三重表达，避免同一屏两种卡片底色。
+                                    //: 当前账号的强调色指示条。用「指示条 + 名字前 ★ + 「当前」标签」
+                                    //: 三重表达，避免同一屏两种卡片底色。
                                     //: 顺带满足视觉回归"每个页面至少一个 `Theme.accent` 像素"这条判据。
                                     Rectangle {
                                         objectName: "accountCurrentIndicator"
@@ -2193,8 +2171,7 @@ FmPage {
                                         Text {
                                             objectName: "accountUuid-" + String(accountRow.row.id || "")
                                             Layout.fillWidth: true
-                                            //: 旧界面写死 `UUID: {acc.uuid[:20]}...`（`account_manager.py:394-399`），
-                                            //: 截断规则搬进桥的 `uuid_short`，这里只负责显示
+                                            //: 截断规则在桥的 `uuid_short` 里，这里只负责显示
                                             text: "UUID: " + String(accountRow.row.uuid_short || "-")
                                             color: Theme?.textSecondary ?? "transparent"
                                             font.pixelSize: Theme?.fontSizeSmall ?? 11
@@ -2222,7 +2199,7 @@ FmPage {
 
                                         FmButton {
                                             objectName: "accountRefreshToken-" + String(accountRow.row.id || "")
-                                            //: 只有微软账号能刷 Token（旧实现同：`account_manager.py:425`）
+                                            //: 只有微软账号能刷 Token
                                             visible: accountRow.row.is_microsoft === true
                                             primary: false
                                             Layout.preferredWidth: 90
@@ -2368,9 +2345,8 @@ FmPage {
         Component {
             id: exportPasswordComponent
 
-            //: 导出**两步问答**（旧实现 `account_manager.py:547-560` 的两个 `CTkInputDialog`）：
-            //: 第 1 步设密码、第 2 步再输一遍核对。两步共用这一个对话框实例 ——
-            //: 第 2 步只换提示语与标题（旧实现第二个框的标题也是同一个 `account_export_title`），
+            //: 导出**两步问答**：第 1 步设密码、第 2 步再输一遍核对。
+            //: 两步共用这一个对话框实例 —— 第 2 步只换提示语与标题，
             //: `PasswordDialog.onPromptChanged` 会在换步时清空上一格的输入。
             PasswordDialog {
                 objectName: "accountExportPasswordDialog"
@@ -2378,8 +2354,7 @@ FmPage {
                 prompt: section.exportConfirmStep
                         ? section.t("account_export_password_confirm")
                         : section.t("account_export_password_prompt")
-                //: 第 2 步的标题带一句"（再输一次）"，免得用户以为是同一个框卡住了
-                //: —— 旧实现是两个独立的框，靠新窗口区分。
+                //: 第 2 步的标题带一句"（再输一次）"，免得用户以为是同一个框卡住了。
                 password: true
                 errorText: section.exportPasswordError
                 onSubmitted: function (value) {
@@ -2436,7 +2411,7 @@ FmPage {
             }
         }
 
-        //: 导入文件（旧 `filedialog.askopenfilename`：`("FMCL Accounts", "*.fmcl_accounts")` + 全部文件）
+        //: 导入文件（过滤器：`*.fmcl_accounts` + 全部文件）
         FileDialog {
             id: importFileDialog
             objectName: "accountImportFileDialog"
@@ -2448,7 +2423,7 @@ FmPage {
             }
         }
 
-        //: 导出文件（旧 `filedialog.asksaveasfilename`，`defaultextension=".fmcl_accounts"`）
+        //: 导出文件（默认扩展名 `.fmcl_accounts`）
         FileDialog {
             id: exportFileDialog
             objectName: "accountExportFileDialog"
@@ -2469,14 +2444,9 @@ FmPage {
         }
     }
 
-    // ══ 分区八~九：AI / 插件（占位，随 3.22 / 3.23 迁）══
-    //
-    // 用户 2026-10-06 裁决 A：3.4 只做「启动器 / Java / 主题 / 日志 / 关于」。
-    // 这两块在旧界面里是同一个设置窗口的另外两个标签页（AI 模型 / 插件），
-    // 内容分别属于 3.22 / 3.23 —— 这里按 D-174 的先例给一个明确的占位，
-    // **不留白屏**（"这个页面还没做好"比"点了没反应"强得多）。
+    // ══ 分区八~九：AI / 插件 ════════════════════════════════════
 
-    // ══ 分区八：AI 模型 / 工具权限 / Skills / 语音 / 净读账号（3.23）══
+    // ══ 分区八：AI 模型 / 工具权限 / Skills / 语音 / 净读账号 ══
     Component {
         id: jingduSection
 
@@ -2485,7 +2455,7 @@ FmPage {
         }
     }
 
-    // ══ 分区九：插件（3.27，M-23）══
+    // ══ 分区九：插件 ════════════════════════════════════════════
     Component {
         id: pluginSection
 
@@ -2523,7 +2493,7 @@ FmPage {
         }
     }
 
-    //: Java 可执行文件选择器（旧 `_on_java_custom_browse` 的 `filedialog.askopenfilename`）
+    //: Java 可执行文件选择器
     FileDialog {
         id: javaDialog
         objectName: "settingsJavaDialog"

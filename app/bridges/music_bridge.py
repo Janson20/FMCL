@@ -1,4 +1,4 @@
-"""音乐桥（阶段 3.16）—— QML 上下文属性 ``Music``。
+"""音乐桥 —— QML 上下文属性 ``Music``。
 
 页面：``qml/pages/music/MusicPage.qml``
 后端：``fusion_music/``（从 tmp/FusionMusicPlayer 移植的播放核心）

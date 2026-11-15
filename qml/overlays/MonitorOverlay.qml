@@ -1,6 +1,7 @@
-// 性能监控悬浮窗 —— 阶段 2 任务 2.15。
+// 性能监控悬浮窗。
 //
-// 窗口语义全部照阶段 0 的实测配方（docs/refactor/08-phase0-execution-log.md 第 11/12 节）：
+// 窗口语义的全部要点：
+//
 //   1. 原生 Window + flags，**不用 FluWindow**（它不设 Frameless/StaysOnTop、会加 30px
 //      appBar，且只在 Windows 生效）；
 //   2. 实色背景 + `Window.opacity`，**不用** `color: "transparent"`（无合成器的 X11
@@ -173,7 +174,7 @@ Window {
                 moved = false
             }
 
-            // 增量累加（阶段 0 决策 4）：窗口移动后 Qt 会用新原点重算坐标，天然收敛
+            // 增量累加：窗口移动后 Qt 会用新原点重算坐标，天然收敛
             onPositionChanged: (mouse) => {
                 if (!pressed) {
                     return

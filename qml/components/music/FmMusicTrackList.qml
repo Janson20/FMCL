@@ -1,4 +1,4 @@
-// FmMusicTrackList.qml —— 所有歌曲列表共用的 ListView + 状态层（阶段 3.18 统一）。
+// FmMusicTrackList.qml —— 所有歌曲列表共用的 ListView + 状态层。
 //
 // 什么时候用它：发现/本地/歌单/队列/在线结果的曲目列表。
 // 什么时候不要用：歌单卡片网格、专辑封面墙、非曲目列表。

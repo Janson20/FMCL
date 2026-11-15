@@ -2,7 +2,7 @@
 
 为什么需要
 ----------
-实测（Python 3.14 + 本机）：``import requests`` 要 **0.4 秒**（它自己还要拉
+实测：``import requests`` 要 **0.4 秒**（它自己还要拉
 urllib3 / charset_normalizer / certifi / idna），而这份开销原先压在启动链上 ——
 ``app.bridges.*`` 与 ``app.core.models`` 一路 import 到 ``app.sources`` / ``app.core.cache``，
 于是用户在 Qt 还没起来时就先白等了这 0.4 秒。

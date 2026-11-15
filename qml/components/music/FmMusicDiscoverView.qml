@@ -1,4 +1,4 @@
-// FmMusicDiscoverView.qml —— 发现首页（阶段 3.17，对齐 FMP DiscoverPage）。
+// FmMusicDiscoverView.qml —— 发现首页（对齐 FMP DiscoverPage）。
 //
 // 推荐歌单 / 排行榜 / 最新音乐 / 每日推荐；点击歌单卡片打开详情覆盖层。
 // 数据来自 fusion_music.bridges.discover，不在 QML 里拼接口。

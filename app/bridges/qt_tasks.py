@@ -1,4 +1,4 @@
-"""QML 版任务调度桥（阶段 2 任务 2.4）。
+"""QML 版任务调度桥。
 
 ## 它做了什么、**没有**做什么
 
@@ -35,8 +35,8 @@ from app.tasks import TaskRunner
 
 logger = logging.getLogger("app.bridges.qt_tasks")
 
-#: 进度刷新间隔（毫秒）。旧 Tk 实现的轮询周期在 40~100ms 量级；
-#: 阶段 0 的富文本性能实测建议节流 80~120ms，这里取中间值。
+#: 进度刷新间隔（毫秒）。更短的轮询周期在 40~100ms 量级，
+#: 富文本性能实测建议节流 80~120ms，这里取中间值。
 DEFAULT_FLUSH_MS = 100
 
 
@@ -94,7 +94,7 @@ class QtTaskExecutor:
 class TaskBridge(QObject):
     """上下文属性 `Tasks` —— QML 侧查询/提交/取消后台任务的唯一入口。
 
-    QML 用法（阶段 3 的页面会这样写）::
+    QML 用法::
 
         Button { text: "…"; onClicked: Tasks.submit("install_version", {"version": v}) }
         ProgressBar { value: Tasks.progressFraction }
@@ -160,7 +160,7 @@ class TaskBridge(QObject):
 
     @property
     def runner(self) -> TaskRunner:
-        """底层 `TaskRunner`（测试与阶段 3 的页面会用到）。"""
+        """底层 `TaskRunner`（测试与页面会用到）。"""
         return self._runner
 
     @property

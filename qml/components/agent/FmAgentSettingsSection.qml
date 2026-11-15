@@ -1,4 +1,4 @@
-// FmAgentSettingsSection.qml —— 设置 → AI 模型（阶段 3 任务 3.23）。
+// FmAgentSettingsSection.qml —— 设置 → AI 模型。
 //
 // 五个页签：模型 / 工具权限 / Skills / 语音 / 净读账号。
 // 配置写入口在 Agent 桥；本件只做表单与列表展示。AI 配置与净读账号一样**立即生效**，

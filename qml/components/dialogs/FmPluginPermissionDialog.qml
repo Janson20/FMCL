@@ -1,4 +1,4 @@
-// FmPluginPermissionDialog.qml —— 插件权限确认 / 管理（阶段 3 任务 3.27）。
+// FmPluginPermissionDialog.qml —— 插件权限确认 / 管理。
 //
 // 旧实现是 ui/windows/plugin_permission_dialog.py（198 行 Tk Toplevel）：
 // 标题、副标题、按高/中/低风险分组的权限列表（每组带一句说明）、底部提示、

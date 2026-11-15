@@ -1,17 +1,17 @@
-"""事件桥（阶段 2.5）—— 把 ``app.events.EventBus`` 的键转成 Qt 信号。
+"""事件桥 —— 把 ``app.events.EventBus`` 的键转成 Qt 信号。
 
-QML 侧通过上下文属性 ``Events`` 使用（注册名由阶段 2 契约第四节冻结）::
+QML 侧通过上下文属性 ``Events`` 使用::
 
     Connections { target: Events; function onTaskFinished(p) { ... } }
     Connections { target: Events; function onEvent(name, payload) { ... } }
 
-## 事件键的核实结论（写代码时实测，不是猜的）
+## 事件键从哪来
 
 ``grep`` 全仓库 ``publish(`` 的结论：**当前没有任何生产代码 publish 过事件**。
 ``services/base.py:90`` 的 ``Service.publish`` 是唯一的生产发布入口，没有任何调用点；
 ``app/events.py`` 只有总线实现本身；用过的事件键只出现在测试里
 （``tests/test_services_foundation.py`` 的 ``thing.done`` / ``e`` / ``a`` 等）。
-所以本模块的键名**不是从服务里抄出来的**，而是由契约 5.4 要求的信号名反推出的键名，
+所以本模块的键名是由信号名反推出的键名，
 并把两种写法一起登记，避免"键名对不上 → 具名信号永远是死代码"这种静默失效：
 
 ===============  ==================  =====================
@@ -25,15 +25,15 @@ status.changed    statusChanged       statusChanged
 achievement.unlocked  achievementUnlocked  achievementUnlocked
 ===============  ==================  =====================
 
-阶段 3 的服务 publish 时请用点号式键（与仓库既有风格一致）；用别名同样能命中具名信号
+服务 publish 时请用点号式键（与仓库既有风格一致）；用别名同样能命中具名信号
 （两种写法都在构造时订阅了，见 ``WATCHED_BY_DEFAULT``）。
 
 ## 未具名事件为什么要 ``watch()``
 
-``EventBus`` 是**按 key 订阅**的，没有通配订阅（``app/events.py`` 已冻结，本任务不得
-修改）。桥没登记的键，事件根本到不了 Qt 这一侧。契约 5.4 的"任何未具名的事件也发
+``EventBus`` 是**按 key 订阅**的，没有通配订阅（``app/events.py`` 已冻结，不得
+修改）。桥没登记的键，事件根本到不了 Qt 这一侧。"任何未具名的事件也发
 出来"因此这样落地：构造时自动 watch 6 个具名键 + ``extra_events``，运行期还能
-``watch(name)`` 补登记。**阶段 3 加事件不用改桥** —— 装配处传 ``extra_events``，或调
+``watch(name)`` 补登记。**加事件不用改桥** —— 装配处传 ``extra_events``，或调
 ``Events.watch("新键")`` 即可，凡是没有具名信号的键一律从通用 ``event(name, payload)``
 出去。
 
@@ -49,7 +49,7 @@ handler；handler 立刻 ``emit``。Qt 的 ``AutoConnection`` 在"发送线程 !
 **前提**：接收者属于主线程且该线程有事件循环 —— 所以本对象**必须建在 Qt 主线程**，
 构造时会检查并 ``logger.error``（见 :meth:`EventBridge._check_owner_thread`）。
 
-实测（本机 Qt 6.7.3）：worker 线程 emit → 主线程 QObject 槽、主线程普通 Python 函数、
+在当前 Qt 版本下实测：worker 线程 emit → 主线程 QObject 槽、主线程普通 Python 函数、
 QML ``Connections`` 处理器，三者都只在主线程被调用；payload 里塞自定义 Python 对象
 也不会在排队搬运时丢失。证据见 ``tests/test_event_bridge.py``。
 
@@ -71,10 +71,10 @@ from app.events import EventBus
 
 logger = logging.getLogger(__name__)
 
-#: 契约第四节冻结的 QML 注册名（由 2.2 入口 ``setContextProperty`` 注册）。
+#: QML 注册名（由入口 ``setContextProperty`` 注册）。
 QML_NAME = "Events"
 
-#: 总线键 → 具名信号名。**唯一真相**：阶段 3 的服务 publish 前先看这张表。
+#: 总线键 → 具名信号名。**唯一真相**：服务 publish 前先看这张表。
 EVENT_SIGNAL_MAP: Dict[str, str] = {
     "task.started": "taskStarted",
     "task.finished": "taskFinished",
@@ -173,7 +173,7 @@ class EventBridge(QObject):
     toastRequested = Signal(dict)
     statusChanged = Signal(dict)
     achievementUnlocked = Signal(dict)
-    #: 通用兜底：任何**没有**具名信号的事件都从这里出去（阶段 3 加事件不用改桥）。
+    #: 通用兜底：任何**没有**具名信号的事件都从这里出去（加事件不用改桥）。
     event = Signal(str, dict)
     #: 订阅集合变化（watch / unwatch / detach），供诊断界面用。
     watchedChanged = Signal()
@@ -188,7 +188,7 @@ class EventBridge(QObject):
         Args:
             bus: 要包装的事件总线。``None`` 时取 ``AppContext.current().events``；
                 连上下文都没有就新建一条（记 warning）—— 生产路径**必须**显式传。
-            extra_events: 阶段 3 要额外收的键（没有具名信号，走通用 ``event``）。
+            extra_events: 要额外收的键（没有具名信号，走通用 ``event``）。
             parent: Qt 父对象。
         """
         super().__init__(parent)

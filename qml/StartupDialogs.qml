@@ -1,24 +1,19 @@
-// 启动期弹窗（阶段 2 任务 2.14）：用户协议 + AI 隐私同意（A-21）与公告展示（A-22）。
+// 启动期弹窗：用户协议 + AI 隐私同意与公告展示。
 //
 // 为什么单独一个文件而不是复用 2.13 的 `components/dialogs/`：这两个弹窗属于
 // **启动链条**（`Startup` 驱动），必须在主窗口还没显示、对话框宿主还没握手之前就能弹出来；
 // 而复用那套组件会让"启动流程"依赖"对话框基础设施已就绪"。归属分开更干净。
 //
-// 语义（对照表 A-21，逐条对齐旧实现）：
-//   * 两个勾选框**都勾上**才允许点「同意并继续」（旧实现是"勾选后方可确认"）；
+// 语义：
+//   * 两个勾选框**都勾上**才允许点「同意并继续」；
 //   * 同意后由 `Startup.confirmAgreement()` 写回 `config.terms_consent` 与
 //     `config.ai_privacy_consent` 并落盘；
 //   * 文案全部来自语言文件（`terms_*` / `ai_privacy_*` / `notice_*`），QML 里没有中文；
 //   * 公告关闭后由 `Startup.dismissNotice()` 继续"预下载"那一步。
 //
-// 留待阶段 3 的（已登记、不是遗漏）：`TERMS_OF_USE.md` **全文**的富文本渲染归
-// 3.26（关于 / 链接 / 协议）；这里显示的是语言文件里那段正式声明（与旧弹窗的正文一致）。
-//
-// 上面那句已经**作废**（用户 3.1 人工验收报的缺陷 D-162：旧弹窗显示的是
-// `TERMS_OF_USE.md` 全文 110 行，QML 版只显示了一句摘要 = 功能丢失）。现在协议区
-// 优先渲染 `Startup.termsText`（Markdown 全文，`Text.MarkdownText`），只有在读不到
-// 文件时才退回语言文件里的 `terms_content` 摘要 —— 与旧实现"读不到就给提示"等价。
-// AI 隐私声明仍单独一段（它是**另一份**同意，旧弹窗里由同一个勾选框覆盖）。
+// 协议区优先渲染 `Startup.termsText`（`TERMS_OF_USE.md` 的 Markdown 全文），
+// 只有在读不到文件时才退回语言文件里的 `terms_content` 摘要 —— 不能让用户只看到
+// 一句摘要。AI 隐私声明仍单独一段（它是**另一份**同意）。
 
 import QtQuick
 import QtQuick.Layouts
@@ -32,7 +27,7 @@ Item {
     property bool noticeOpen: false
     property string noticeText: ""
 
-    //: **首次启动选界面语言**（A-27，用户 2026-10-05 转达的网友需求）。
+    //: **首次启动选界面语言**。
     //: 它排在协议之前 —— 协议全文是按语言渲染的，先问语言再给条款才合理。
     //: 选中的语言先落进 `Tr`（`Tr.setLanguage` 自己会写 `config.language`），
     //: 再由 `Startup.chooseLanguage()` 记下"已选过"并继续链条。
@@ -84,7 +79,7 @@ Item {
 
     Connections {
         // `target: Startup` 在 `Startup` **完全没声明**时会抛 `ReferenceError`
-        // （实测：shell 的 QML 探针只提供 Theme/Tr/Nav 等，不提供 Startup）。
+        // （shell 的 QML 探针只提供 Theme/Tr/Nav 等，不提供 Startup）。
         // 所以用 `typeof` 判一下 —— 这与 `?.`/`??` 适用的情况不同。
         target: typeof Startup !== "undefined" ? Startup : null
 
@@ -103,8 +98,8 @@ Item {
 
     Connections {
         //: 顶栏那个地球图标（`Shell.requestLanguage()`）—— **同一个浮层**，第二个入口。
-        //: 2026-10-06 验收反馈：A-27 只在首次启动问一次，之后想换语言只能去手改
-        //: `config.json`；设置页要到 3.4 才有，这里先补一个随时可用的入口。
+        //: 语言浮层只在首次启动问一次；没有这个入口，之后想换语言只能去手改
+        //: `config.json`。
         target: typeof Shell !== "undefined" ? Shell : null
 
         function onLanguageRequested() {
@@ -185,7 +180,7 @@ Item {
 
     // ── 全屏遮罩 + 协议弹窗 ───────────────────────────────────────
     // 遮罩用派生令牌 `Theme.scrim`（黑 55% 透明），**不再是不透明的 bgDark** ——
-    // 返工 B 组实测：不透明遮罩会把整个界面盖死，启动完成后用户看到的是
+    // 不透明遮罩会把整个界面盖死，启动完成后用户看到的是
     // "一片纯色底 + 一个弹窗"，看不到背后的壳层，观感上像卡住了。
     // 卡片用 `Theme.overlayBg`（比 cardBg 再"浮"一层），遮罩变透明之后仍然分得清层次。
     Rectangle {
@@ -265,7 +260,7 @@ Item {
                     }
                 }
 
-                // 返工 C 组：勾选框换成 FmCheckBox（闸门 R9）。语义上本来就该是复选框 ——
+                // 勾选框用 FmCheckBox（R9 规则）。语义上就该是复选框 ——
                 // 这两个勾选**跟"同意并继续"一起生效**，而 FmSwitch 的定位是"立即生效"。
                 FmCheckBox {
                     id: termsChecked

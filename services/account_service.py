@@ -1,22 +1,6 @@
-"""账号与皮肤服务（阶段 3 任务 3.1 的读侧 + 3.5 的写侧）。
+"""账号与皮肤服务：读侧（当前账号、类型、管理入口、皮肤）与写侧（登录、刷新、导入导出）。
 
-## 范围
-
-3.1 的首页与侧边栏要的是**只读**的账号信息与皮肤操作，所以那一轮只落了读侧；
-3.5（账号管理页）在本文件上补齐**写侧**：
-
-| 对照表 | 能力 | 旧实现位置 |
-|--------|------|-----------|
-| B-16 | 当前账号（名称 / 类型）+ 管理入口的存在性判断 | `ui/app_base.py:925-947` |
-| B-17 | 皮肤尺寸校验 → 复制到 `.minecraft/skins/` → 写 `skin_path` → 移除 | `ui/app_base.py:972-1026` |
-| A-25 | 启动时批量刷新微软账号 Token（读侧那一半）+ 3.5 新增的「全部刷新」 | `main.py:103-113, 429` |
-| M-13 | 账号页的账号信息与入口 | `ui/windows/launcher_settings.py:574-616` |
-| M-26 | 添加账号：微软 / 离线 / 外置登录 | `ui/windows/account_manager.py:36-174` |
-| M-27 | 账号列表（类型、当前标记、UUID、空态） | `ui/windows/account_manager.py:303-421` |
-| M-28 | 设为当前 / 删除 / 刷新 Token | `ui/windows/account_manager.py:390-421, 473-495` |
-| M-29 | 导入 / 导出账号文件 | `ui/windows/account_manager.py:262-284, 497-560` |
-
-## 三条设计取舍（阶段 3.5）
+## 三条设计取舍
 
 1. **长任务只在这里起线程，界面永远不等**。微软登录（浏览器 OAuth）最长
    `OAUTH_TIMEOUT_SECONDS` 秒、外置登录一次 HTTP、批量刷新 N 次 HTTP —— 这些都是
@@ -26,16 +10,13 @@
    安全点生效（见 `launcher/account.py::_sleep_or_cancel`），本层只负责"建事件、传下去、
    把'已取消'如实回报"。取消**不算失败**：结果里的 `cancelled` 优先于 `ok`。
 3. **进度回调尽量少、每次都有意义**：核心层的中文状态串（`正在打开浏览器...`）**逐字**转出，
-   不做二次包装（与 `16` §17.3 对 `settings` 那批硬编码中文的处理一致：原样透出，
-   挂账阶段 4 统一收口 i18n）。
+   不做二次包装；i18n 尚未覆盖这些串，原样透出。
 
-## 为什么账号系统要单独包一层
+## 账号类型映射
 
-`launcher/account.py` 的 ``GlobalAccountSystem`` 是个全局单例
-（``init_account_system`` / ``get_account_system``），而且**界面侧还有一处历史坑**：
-旧代码在四个窗口里各写了一遍 `type_labels` 字典来把 ``AccountType`` 翻成 i18n 键
-（`ui/app_base.py:934-938` 是其中一份）。这里把"类型 → i18n 键"的映射**收口到一处**
-（``ACCOUNT_TYPE_KEYS``），界面只拿键、不自己拼。
+`launcher/account.py` 的 ``GlobalAccountSystem`` 是全局单例
+（``init_account_system`` / ``get_account_system``）。"类型 → i18n 键"的映射
+**收口到一处**（``ACCOUNT_TYPE_KEYS``），界面只拿键、不自己拼。
 """
 
 from __future__ import annotations
@@ -50,21 +31,21 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from services.base import Service
 
-#: 账号类型 → i18n 键。收口点见模块文档（旧实现散在四个窗口里）。
+#: 账号类型 → i18n 键。收口点见模块文档。
 ACCOUNT_TYPE_KEYS: Dict[str, str] = {
     "microsoft": "account_type_microsoft",
     "offline": "account_type_offline",
     "yggdrasil": "account_type_yggdrasil",
 }
 
-#: 允许的皮肤尺寸（旧 `ui/app_base.py:987`；**注意旧提示文案只提了两种**，
-#: 文案键 ``skin_size_invalid`` 逐字保留不动 —— 改文案是行为变更，要单独裁决）。
+#: 允许的皮肤尺寸。**提示文案只提了两种**，文案键 ``skin_size_invalid``
+#: 逐字保留不动 —— 改文案是行为变更。
 SKIN_SIZES: Tuple[Tuple[int, int], ...] = ((64, 64), (64, 32), (128, 128), (128, 64))
 
-#: 加账号的三种方式（`begin_login` 的 `kind`）。与旧窗口的三个按钮一一对应。
+#: 加账号的三种方式（`begin_login` 的 `kind`）。
 LOGIN_KINDS: Tuple[str, ...] = ("microsoft", "offline", "yggdrasil")
 
-#: 账号导出文件（旧 `account_manager.py:520` 的 `("FMCL Accounts", "*.fmcl_accounts")`）。
+#: 账号导出文件的后缀与过滤器。
 ACCOUNT_FILE_SUFFIX = ".fmcl_accounts"
 ACCOUNT_FILE_FILTER = "*.fmcl_accounts"
 
@@ -254,8 +235,7 @@ class AccountService(Service):
     def has_duplicate_name(self, name: str, kind: str) -> bool:
         """同名（且同类型）账号是否已存在 —— 只用于**提醒**，不拦截创建。
 
-        用户 2026-10-06 裁决：旧实现只校验非空，`accounts.json` 允许存同名两个，
-        所以迁移后也允许，仅多一句提示（属新增，已登记在对照表 M-26 备注）。
+        `accounts.json` 允许存同名两个，这里仅多一句提示。
         """
         wanted = str(name or "").strip()
         if not wanted:
@@ -349,13 +329,13 @@ class AccountService(Service):
         return ""
 
     def _run_login(self, kind: str, params: Dict[str, Any]) -> None:
-        """登录工作线程体。**绝不碰 Qt/QML**（迁移红线 3）。"""
+        """登录工作线程体。**绝不碰 Qt/QML**。"""
         result: Dict[str, Any] = {"ok": False, "kind": kind, "cancelled": False, "name": "", "reason": ""}
         try:
             #: `message_key` 是 **i18n 键**（界面翻成当前语言，免得进度条空着）；
             #: 之后核心层回调来的 `message` 是**已经成句的中文**，界面原样显示。
             #: 两者用**不同的字段**表达，界面就不会把键名当文案印出来
-            #: （2026-10-06 用户验收报的 `account_ms_verifying` 直接显示，就是这个坑）。
+            #: （否则 `account_ms_verifying` 会被当成文案直接显示）。
             self._emit(kind=kind, phase=PHASE_RUNNING, message="", message_key=self._status_key(kind),
                        current=0, total=1)
             account = self._call_login(kind, params)
@@ -369,9 +349,8 @@ class AccountService(Service):
                 result["id"] = snapshot["id"]
                 result["type"] = snapshot["type"]
                 if kind == "offline":
-                    # 阶段 1.23（D-110）：新建离线账号 == 给角色起名。
-                    # 旧界面把成就触发挂在窗口回调上（`ui/app_base.py:965`），
-                    # 这里挂在**服务**上 —— 任何界面（含将来的 CLI）建离线账号都会触发。
+                    # 新建离线账号 == 给角色起名。成就触发挂在**服务**上，
+                    # 任何界面（含将来的 CLI）建离线账号都会触发。
                     self._trigger_ach("personalize_rename")
         except Exception as e:  # noqa: BLE001 - 登录异常不该让线程带着栈崩掉
             self.log.error("%s 登录异常: %s", kind, e)
@@ -393,12 +372,11 @@ class AccountService(Service):
         """上一次登录失败的**真实原因**（核心层记的中文句子）；没有就返回空串。
 
         为什么要它：核心层失败时只 `logger.error(…)` 然后返回 `None`，界面只能显示
-        "微软登录失败，请重试" —— 用户 2026-10-06 实测报的就是这种情形（DNS 解析不了
-        `xsts.auth.xboxlive.com`，而**该表现等价于"这个微软账号没有买 Minecraft"**，
-        两种完全不同的处置却看到同一句话）。
+        "微软登录失败，请重试" —— 但 DNS 解析不了 `xsts.auth.xboxlive.com` 与
+        "这个微软账号没有买 Minecraft"**表现相同**，处置方式却完全不同。
 
         取法：核心层的 `MicrosoftLoginManager` 把最后一次失败原因存在 `last_error`
-        上（本轮新增），这里原样取出来 —— **不在这里判断、不改写**（界面负责显示）。
+        上，这里原样取出来 —— **不在这里判断、不改写**（界面负责显示）。
         """
         system = self.system
         if system is None:

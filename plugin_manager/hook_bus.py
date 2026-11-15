@@ -190,7 +190,7 @@ class HookBus:
     def has_handler(self, hook_point: HookPoint, plugin_id: str) -> bool:
         """某个插件是否在指定钩子点注册过处理器（**只看注册，不触发**）。
 
-        阶段 3 任务 3.27 用它判断旧插件有没有界面扩展：v1 的 UI 钩子回调里
+        用于判断旧插件有没有界面扩展：v1 的 UI 钩子回调里
         可能创建 tkinter 控件，在 QML 界面下**不能**为了"探测"去 emit 一遍。
         """
         with self._lock:
