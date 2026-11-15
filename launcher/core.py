@@ -27,6 +27,7 @@ from structured_logger import slog
 from validation import validate_server_ip, validate_server_port, validate_version_id
 from version_utils import (
     InstanceInfo,
+    find_version_json_in,
     has_mod_loader_from_json,
     parse_instance_from_json,
     parse_mc_version_from_dir,
@@ -788,20 +789,11 @@ class MinecraftLauncher:
         为什么必须收口到一处（缺陷 D-170）：`_read_instance_info()` 只认 1 与 3，
         `verify_installed_version()` 原来只认 2 —— 于是**同一个版本，列表里看得见、
         一校验就说"版本 JSON 不存在"。
+
+        纯查找逻辑在 :func:`version_utils.find_version_json_in`（整合包安装落盘也要用
+        同一套判据，放在这里就只能靠 import 核心类才拿得到）。
         """
-        versions_dir = self.config.get_versions_dir()
-        version_dir = versions_dir / version_id
-        for candidate in (version_dir / f"{version_id}.json", versions_dir / f"{version_id}.json"):
-            try:
-                if candidate.is_file():
-                    return candidate
-            except OSError:
-                continue
-        try:
-            json_files = sorted(version_dir.glob("*.json"))
-        except OSError:
-            return None
-        return json_files[0] if len(json_files) == 1 else None
+        return find_version_json_in(self.config.get_versions_dir(), version_id)
 
     def _find_version_jar(self, versions_dir: Path, version_id: str, client: dict) -> Optional[Path]:
         """找出主程序 jar 的实际路径。

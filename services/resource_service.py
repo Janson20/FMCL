@@ -944,19 +944,43 @@ def server_mod_list_text(
 # 界面侧两个 ``_show_update_dialog`` 读的键也各不相同 —— 所以不合并。
 
 
-def update_targets(version_id: str) -> Tuple[Optional[str], Optional[str]]:
-    """从版本 ID 解出 ``(game_version, mod_loader)``。
+def update_targets(version_id: str, mc_dir: Optional[Path] = None) -> Tuple[Optional[str], Optional[str]]:
+    """解出"这一屏在查哪个游戏版本 / 哪个加载器"—— ``(game_version, mod_loader)``。
 
     原两个 ``_check_mod_updates`` 开头那 4 行（懒导入 + 两个解析函数），逐字搬出。
     注意 ``mod_loader`` 过了一层 :func:`version_utils.resolve_search_loader`
     （把 ``legacyfabric`` 之类映射成 API 认识的名字），照抄。
+
+    **为什么要先读实例 JSON**（缺陷：自定义名称的实例）：原来这两项纯靠版本 ID 的正则
+    （``parse_mc_version_from_id`` 系列），实例一旦改名成 ``Fabulously Optimized`` 这种
+    自定义名称，两个解析器都空手而归 —— 检查更新报「无法确定游戏版本」、批量更新报
+    「无法确定游戏版本或加载器类型」，而版本列表/页签明明已经从**同一份 JSON** 认出了
+    Fabric + 26.2。现在优先级是：**JSON 说得出就信 JSON** → 才退回按名字猜。JSON 缺失
+    或损坏时退化路径与以前逐字一致（也正因如此，``mc_dir`` 不给时行为完全不变：单测与
+    "核心还没起来、拿不到绝对基准目录"的场景仍走名字匹配）。
+
+    Args:
+        version_id: 版本 ID（文件夹名；**允许是自定义名称**）
+        mc_dir: ``.minecraft`` 目录（**绝对路径**，会话负责解析）。给 ``None`` 时不读盘。
+
+    Returns:
+        ``(游戏版本, 加载器类型)``；解不出的一端是 ``None``。
     """
     from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
-    from version_utils import resolve_search_loader
+    from version_utils import instance_targets_from_json, resolve_search_loader
 
-    game_version = parse_game_version_from_version(version_id)
-    mod_loader = resolve_search_loader(parse_mod_loader_from_version(version_id))
-    return game_version, mod_loader
+    game_version: Optional[str] = None
+    mod_loader: Optional[str] = None
+    if mc_dir is not None and str(version_id or "").strip():
+        try:
+            game_version, mod_loader = instance_targets_from_json(version_id, str(mc_dir))
+        except Exception as e:  # noqa: BLE001 - 读盘失败退回名字匹配（原行为）
+            logger.warning("读取实例 JSON 失败 (%s): %s", version_id, e)
+    if not game_version:
+        game_version = parse_game_version_from_version(version_id)
+    if not mod_loader:
+        mod_loader = parse_mod_loader_from_version(version_id)
+    return game_version, resolve_search_loader(mod_loader)
 
 
 def updatable_mods(mods: Sequence[Dict]) -> List[Dict]:
@@ -1593,9 +1617,9 @@ class ResourceService(Service):
     # ─── 更新检测 / 批量更新 ────────────────────────────────
 
     @staticmethod
-    def update_targets(version_id: str) -> Tuple[Optional[str], Optional[str]]:
-        """``version_id`` → ``(game_version, mod_loader)``。"""
-        return update_targets(version_id)
+    def update_targets(version_id: str, mc_dir: Optional[Path] = None) -> Tuple[Optional[str], Optional[str]]:
+        """``version_id`` → ``(game_version, mod_loader)``（先读实例 JSON，见模块级同名函数）。"""
+        return update_targets(version_id, mc_dir)
 
     @staticmethod
     def updatable_mods(mods: Sequence[Dict]) -> List[Dict]:

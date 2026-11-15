@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from logzero import logger
 
+from launcher.modpack_instance import materialize_instance_version_json
 from structured_logger import slog
 
 
@@ -519,24 +520,15 @@ class MrpackMixin:
 
             if custom_instance:
                 #: 加载器安装器只会生成“加载器版本 ID”的目录/JSON；这里复制一份到
-                #: 用户指定的实例目录并改写 id，mods/config 已经在这个目录里了。
-                target_dir = Path(mp_dir)
-                source_dir = Path(mc_dir) / "versions" / launch_version
-                source_json = source_dir / f"{launch_version}.json"
-                if not source_json.is_file():
-                    raise RuntimeError(f"加载器版本 JSON 不存在: {source_json}")
-                version_data = json.loads(source_json.read_text(encoding="utf-8"))
-                version_data["id"] = target_version
-                source_jar = source_dir / f"{launch_version}.jar"
-                if source_jar.is_file():
-                    shutil.copy2(str(source_jar), str(target_dir / f"{target_version}.jar"))
-                    version_data["jar"] = f"{target_version}.jar"
-                (target_dir / f"{target_version}.json").write_text(
-                    json.dumps(version_data, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
-                source_icon = source_dir / "icon.png"
-                if source_icon.is_file():
-                    shutil.copy2(str(source_icon), str(target_dir / "icon.png"))
+                #: 用户指定的实例目录并改写 id（mods/config 已经在这个目录里了）。
+                #: ⚠ 落盘细节交给 `launcher/modpack_instance.py`：`jar` 是**版本 ID**
+                #: 而不是文件名 —— 旧实现写 `jar: <实例名>.jar`，classpath 会指到
+                #: `versions/<实例名>.jar/` 这个不存在的版本（还会在 versions/ 下留一个
+                #: 空壳目录，版本列表里多出一行 error）。
+                if materialize_instance_version_json(mc_dir, target_version, launch_version) is None:
+                    raise RuntimeError(
+                        f"无法为实例 {target_version} 生成版本 JSON（来源版本 {launch_version}）"
+                    )
                 logger.info(f"已创建自定义实例: {target_version}")
 
             self._mp_progress["phase"] = "done"

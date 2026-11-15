@@ -80,6 +80,9 @@ class FakeService:
         self.achievements: List[int] = []
         self.detail_calls: List[tuple] = []
         self.deps_calls: List[tuple] = []
+        #: `describe_version` 的每次调用（桥必须把 `.minecraft` 基准目录一起传进来，
+        #: 否则自定义名称的实例认不出游戏版本 —— 见 `_reset_context` 的说明）。
+        self.describe_calls: List[tuple] = []
         #: 让搜索可控：默认返回 N 条
         self.hits: List[Dict[str, Any]] = [hit(f"p{i}", f"Mod {i}") for i in range(25)]
         self.total = len(self.hits)
@@ -135,7 +138,8 @@ class FakeService:
         return self.install_result
 
     # ── 杂项 ──
-    def describe_version(self, version_id: str) -> Dict[str, Any]:
+    def describe_version(self, version_id: str, mc_dir: Any = None) -> Dict[str, Any]:
+        self.describe_calls.append((version_id, mc_dir))
         return {"game_version": "1.20.1", "loader": "fabric"}
 
     @staticmethod

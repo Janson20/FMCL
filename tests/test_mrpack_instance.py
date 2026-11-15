@@ -63,7 +63,14 @@ def test_install_mrpack_custom_name_creates_own_version(tmp_path, monkeypatch) -
     assert result == "My Pack"
     target = mc_dir / "versions" / "My Pack"
     assert (target / "My Pack.json").is_file()
-    assert (target / "My Pack.jar").is_file()
     data = json.loads((target / "My Pack.json").read_text(encoding="utf-8"))
     assert data["id"] == "My Pack"
-    assert data["jar"] == "My Pack.jar"
+    #: `jar` 是**版本 ID**（classpath 拼的是 versions/<jar>/<jar>.jar），不是文件名。
+    #: 旧实现写 `jar: "My Pack.jar"`，classpath 于是指到 `versions/My Pack.jar/` ——
+    #: 那个不存在的版本，同时还会在 versions/ 下留一个空壳目录（版本列表多一行 error）。
+    assert data["jar"] == "1.20.1", "jar 必须指向真实存在的版本，而不是一个带 .jar 后缀的假版本"
+    assert (mc_dir / "versions" / "1.20.1" / "1.20.1.jar").is_file(), "jar 指向的文件必须真的在"
+    assert not (mc_dir / "versions" / "My Pack.jar").exists(), "不许再产生幽灵版本目录"
+    #: 实例目录里的 jar 只在**来源目录那份不可用**时才复制；这里来源（原版 1.20.1）的
+    #: jar 就在原地，没必要再抄一份 20MB 到实例目录。
+    assert not (target / "My Pack.jar").exists()

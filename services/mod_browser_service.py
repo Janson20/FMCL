@@ -633,23 +633,38 @@ def version_dependency_preview(
     ]
 
 
-def describe_version(version_id: Optional[str]) -> Dict[str, Optional[str]]:
+def describe_version(version_id: Optional[str], mc_dir: Optional[Path] = None) -> Dict[str, Optional[str]]:
     """来源版本的游戏版本与加载器（旧窗口 ``__init__`` 里那两行 ``parse_*``）。
 
     空 ``version_id``（"全部版本"入口）→ 两个都 ``None``。
+
+    ⚠ **先读实例 JSON**（:func:`version_utils.instance_targets_from_json`）：用户把实例
+    改成自定义名称（如 ``Fabulously Optimized``）之后，按名字的两个解析器什么都拿不到
+    —— 症状是「资源浏览」的游戏版本筛选永远停在「全部版本」、详情页的版本列表也不按
+    目标版本筛（加载器还能从路由参数兜一下，所以只有版本空着，更难看出来）。JSON 读不
+    出来时才退回按名字猜；``mc_dir`` 不给时行为与以前完全一致。
     """
     if not version_id:
         return {"game_version": None, "loader": None}
     from modrinth import parse_game_version_from_version, parse_mod_loader_from_version
 
+    game_version: Optional[str] = None
+    loader: Optional[str] = None
+    if mc_dir is not None:
+        try:
+            from version_utils import instance_targets_from_json
+
+            game_version, loader = instance_targets_from_json(str(version_id), str(mc_dir))
+        except Exception as e:  # noqa: BLE001 - 读盘失败退回名字匹配（原行为）
+            logger.warning(f"读取实例 JSON 失败 ({version_id}): {e}")
     try:
-        return {
-            "game_version": parse_game_version_from_version(version_id),
-            "loader": parse_mod_loader_from_version(version_id),
-        }
+        if not game_version:
+            game_version = parse_game_version_from_version(version_id)
+        if not loader:
+            loader = parse_mod_loader_from_version(version_id)
     except Exception as e:  # noqa: BLE001 - 解析失败退化成"不筛"
         logger.warning(f"解析来源版本失败 ({version_id}): {e}")
-        return {"game_version": None, "loader": None}
+    return {"game_version": game_version, "loader": loader}
 
 
 def install_dir_for(mc_dir: Path, version_id: Optional[str], tab_key: str) -> Path:
@@ -1002,15 +1017,18 @@ class ModBrowserService(Service):
         return install_dir_for(mc_dir, version_id, tab_key)
 
     @staticmethod
-    def describe_version(version_id: Optional[str]) -> Dict[str, Optional[str]]:
+    def describe_version(version_id: Optional[str], mc_dir: Optional[Path] = None) -> Dict[str, Optional[str]]:
         """来源版本的游戏版本与加载器（筛选默认值 / 安装参数都靠它）。
 
         ⚠ 这个薄委托必须与模块级 :func:`describe_version` **同时存在**：类上漏加
         同名方法时，桥调 `self._service.describe_version(...)` 抛 `AttributeError`，
         被 `except` 吞成"解析失败" —— 症状是**游戏版本筛选永远是「全部版本」**
         （加载器还能从路由参数拿到，所以只有版本空着，更难看出来）。
+
+        ``mc_dir`` 给了就先读实例 JSON（自定义名称的实例才认得出游戏版本），
+        读不出来再退回按名字猜。
         """
-        return describe_version(version_id)
+        return describe_version(version_id, mc_dir)
 
     @staticmethod
     def trigger_achievements(installed_count: int) -> None:

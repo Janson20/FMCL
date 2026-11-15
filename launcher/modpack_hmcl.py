@@ -15,6 +15,8 @@ from typing import Dict, Optional, Tuple
 
 from logzero import logger
 
+from launcher.modpack_instance import materialize_instance_version_json
+
 
 class HMCLPackMixin:
     """HMCL 整合包安装 Mixin"""
@@ -111,7 +113,16 @@ class HMCLPackMixin:
                 self._mcllib.install.install_minecraft_version(mc_version, mc_dir, callback=cb)
             logger.info(f"Minecraft {mc_version} 安装完成")
 
-            # HMCL 格式通常不指定 mod loader，版本 ID 就是实例名
+            # ── 落一份实例自己的版本 JSON ──
+            # 没有它，这个实例在版本列表里是 error 态、启动时报"版本 JSON 不存在"、
+            # 「我的资源」也判不出加载器（只给资源包/地图并读全局 mods/）。
+            # HMCL 的 modpack.json 只声明 gameVersion（没有加载器字段），所以实例继承
+            # 原版版本：mods/ 里若真是加载器模组，仍需用户自己装对应加载器（格式限制）。
+            if materialize_instance_version_json(mc_dir, instance_name, mc_version):
+                self._set_status(f"已创建实例: {instance_name}")
+            else:
+                logger.warning(f"实例 {instance_name} 未能生成版本 JSON，启动与资源隔离将不可用")
+
             logger.info(f"HMCL 整合包安装完成: {instance_name}")
             return True, instance_name
 

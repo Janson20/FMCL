@@ -14,7 +14,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 # ══════════════════════════════════════════════════════════════════════
 # 实例信息数据结构（参考 PCL-CE: McInstanceInfo）
@@ -1376,6 +1376,52 @@ def has_mod_loader_from_json(version_id: str, minecraft_dir: str) -> bool:
     return info.has_loader
 
 
+#: :attr:`InstanceInfo.vanilla_name` 里"没有识别出游戏版本"的哨兵值。
+#: ``"Unknown"`` 是 ``parse_mc_version_from_json_full`` 的失败返回值，``"Old"`` /
+#: ``"pending"`` 是状态分类用的占位 —— 三者都**不是**可用于筛选的游戏版本号。
+_UNKNOWN_GAME_VERSIONS: Tuple[str, ...] = ("Unknown", "Old", "pending")
+
+
+def instance_targets_from_json(version_id: str, minecraft_dir: str) -> Tuple[Optional[str], Optional[str]]:
+    """从实例 JSON 读出 ``(游戏版本, 加载器类型)`` —— 与文件夹名无关。
+
+    为什么需要它：``parse_mc_version_from_id()`` / ``parse_mod_loader_from_version()``
+    **只看名字**。用户把实例改成自定义名称（如 ``Fabulously Optimized``）之后，这两个
+    解析器什么都拿不到，于是"我的资源 → 检查更新"报「无法确定游戏版本」、批量更新报
+    「无法确定游戏版本或加载器类型」—— 可版本列表明明已经从同一份 JSON 读出了
+    ``Fabric`` / ``26.2``。同一份事实，两套判定。
+
+    解析链与版本列表**完全一致**：:func:`_try_read_instance_json` →
+    :func:`parse_instance_from_json`（HMCL ``patches`` 合并、``inheritsFrom`` 继承链、
+    库坐标加载器检测），所以这里得出的加载器不会和界面上显示的分叉。
+
+    Args:
+        version_id: 版本 ID（文件夹名）
+        minecraft_dir: ``.minecraft`` 目录路径
+
+    Returns:
+        ``(游戏版本, 加载器类型)``。**JSON 读不出来**（目录/文件缺失、坏 JSON）时返回
+        ``(None, None)`` —— "我没有事实"，由调用方决定要不要退回按名字猜；JSON 读得出来
+        但实例没装加载器时第二项是 ``None``。
+
+    Note:
+        ``vanilla_name`` 会**再过一遍** :func:`parse_mc_version_from_id` 才算数。原因：
+        PCL 式多策略回退的第 6 条会从 ``libraries`` 里取 Forge / OptiFine 版本号，
+        拿到的可能是 ``47.4.10`` 这种**加载器版本**而不是游戏版本；用它去查 Modrinth
+        只会查出空结果。校验不过就当"没读到"，让调用方退回按名字猜 —— 那样至少与
+        改之前的行为一致，不会拿一个错的版本号去请求接口。
+    """
+    info = _try_read_instance_json(version_id, minecraft_dir)
+    if info is None:
+        return None, None
+
+    raw_version: Optional[str] = str(info.vanilla_name or "").strip() or None
+    if raw_version in _UNKNOWN_GAME_VERSIONS:
+        raw_version = None
+    game_version = parse_mc_version_from_id(raw_version) if raw_version else None
+    return game_version, info.loader_type
+
+
 def resolve_version_jar_path(version_id: str, minecraft_dir: str) -> Optional[str]:
     """解析版本 JAR 的实际路径
 
@@ -1401,21 +1447,11 @@ def resolve_version_jar_path(version_id: str, minecraft_dir: str) -> Optional[st
 
     while current_id and current_id not in checked and max_depth > 0:
         checked.add(current_id)
-        json_path = versions_dir / current_id / f"{current_id}.json"
-        if not json_path.exists():
-            # 尝试目录下唯一的 JSON
-            version_dir = versions_dir / current_id
-            if version_dir.exists():
-                try:
-                    json_files = list(version_dir.glob("*.json"))
-                    if len(json_files) == 1:
-                        json_path = json_files[0]
-                    else:
-                        break
-                except Exception:
-                    break
-            else:
-                break
+        #: 三种布局都认（顶层副本 / `{id}/{id}.json` / 第三方命名的 JSON），
+        #: 判据只有 :func:`find_version_json_in` 一份。
+        json_path = find_version_json_in(versions_dir, current_id)
+        if json_path is None:
+            break
 
         try:
             obj = json.loads(json_path.read_text(encoding="utf-8"))
@@ -1442,6 +1478,54 @@ def resolve_version_jar_path(version_id: str, minecraft_dir: str) -> Optional[st
     return str(jar_path) if jar_path.exists() else str(jar_path)
 
 
+def find_version_json_in(versions_dir: Union[str, Path], version_id: str) -> Optional[Path]:
+    """找出某个版本的 JSON 路径，**三种真实布局都认**。
+
+    仓库里同时存在三种装法，各自只出现在一种入口：
+
+    1. ``versions/{id}/{id}.json`` —— 官方安装器与 `install_version()` 写的布局；
+    2. ``versions/{id}.json`` —— 同上，安装器**同时**写的顶层副本
+       （`remove_version()` 两个都删，就是这个原因）；
+    3. ``versions/{id}/<别的名字>.json`` —— HMCL / 整合包安装之类第三方来源的实例。
+
+    为什么必须收口到一处（缺陷 D-170）：`_read_instance_info()` 只认 1 与 3，
+    `verify_installed_version()` 原来只认 2 —— 于是**同一个版本，列表里看得见、
+    一校验就说"版本 JSON 不存在"**。整合包安装落盘（``launcher/modpack_instance.py``）
+    与资源管理的加载器判定也走这里，否则又会分叉出第二套判据。
+
+    目录里有**多个** JSON 而没有一个叫 ``{id}.json`` 时返回 ``None``：那是"分不清"，
+    猜错比留空更糟（``tests/test_version_paths.py`` 的"混乱"用例钉住了这条）。
+
+    Args:
+        versions_dir: ``.minecraft/versions`` 目录
+        version_id: 版本 ID（文件夹名）
+
+    Returns:
+        JSON 的 :class:`~pathlib.Path`；找不到或无法确定时 ``None``。
+    """
+    folder = str(version_id or "").strip()
+    if not folder:
+        return None
+
+    try:
+        root = Path(versions_dir)
+    except TypeError:  # pragma: no cover - 纯防御：调用方传了不可转换的对象
+        return None
+
+    version_dir = root / folder
+    for candidate in (version_dir / f"{folder}.json", root / f"{folder}.json"):
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    try:
+        json_files = sorted(version_dir.glob("*.json"))
+    except OSError:
+        return None
+    return json_files[0] if len(json_files) == 1 else None
+
+
 def _try_read_instance_json(version_id: str, minecraft_dir: str) -> Optional[InstanceInfo]:
     """尝试读取并解析实例 JSON 文件
 
@@ -1455,21 +1539,9 @@ def _try_read_instance_json(version_id: str, minecraft_dir: str) -> Optional[Ins
     if not minecraft_dir or not version_id:
         return None
 
-    json_path = Path(minecraft_dir) / "versions" / version_id / f"{version_id}.json"
-    if not json_path.exists():
-        # 尝试查找目录下唯一的 JSON 文件
-        version_dir = Path(minecraft_dir) / "versions" / version_id
-        if version_dir.exists():
-            try:
-                json_files = list(version_dir.glob("*.json"))
-                if len(json_files) == 1:
-                    json_path = json_files[0]
-                else:
-                    return None
-            except Exception:
-                return None
-        else:
-            return None
+    json_path = find_version_json_in(Path(minecraft_dir) / "versions", version_id)
+    if json_path is None:
+        return None
 
     try:
         json_text = json_path.read_text(encoding="utf-8")

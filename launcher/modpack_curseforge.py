@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests as req
 from logzero import logger
 
+from launcher.modpack_instance import materialize_instance_version_json, resolve_instance_source
+
 DEFAULT_UA = "FMCL-CurseForge-Installer/1.0"
 
 
@@ -264,11 +266,18 @@ class CurseForgePackMixin:
                     self._cleanup(version_dir)
                     return False, f"{loader_type} 安装失败: {e}"
 
-            # ── 获取启动版本 ID ──
-            launch_version = self._get_cf_launch_version(instance_name, mc_version, loader_type, loader_version)
+            # ── 落一份实例自己的版本 JSON，并让实例自己当启动版本 ──
+            # 原来返回的是 `<实例名>-<加载器>-<版本>`：**磁盘上从来没有这个目录**，
+            # 而 mods/ 明明装在 versions/<实例名>/ 下 —— 装完既不能启动，资源管理也
+            # 认不出这个实例。现在启动版本就是实例名，JSON 从刚装好的加载器版本复制。
+            source_version = resolve_instance_source(mc_dir, mc_version, loader_type, loader_version)
+            if materialize_instance_version_json(mc_dir, instance_name, source_version):
+                self._set_status(f"已创建实例: {instance_name}")
+            else:
+                logger.warning(f"实例 {instance_name} 未能生成版本 JSON，启动与资源隔离将不可用")
 
-            logger.info(f"CurseForge 整合包安装完成: {instance_name} → {launch_version}")
-            return True, launch_version
+            logger.info(f"CurseForge 整合包安装完成: {instance_name}")
+            return True, instance_name
 
         except Exception as e:
             logger.error(f"CurseForge 整合包安装失败: {e}")
@@ -374,15 +383,6 @@ class CurseForgePackMixin:
         """检查 Minecraft 原版是否已安装"""
         version_json = os.path.join(self.minecraft_dir, "versions", mc_version, f"{mc_version}.json")
         return os.path.isfile(version_json)
-
-    def _get_cf_launch_version(
-        self, instance_name: str, mc_version: str, loader_type: Optional[str], loader_version: Optional[str]
-    ) -> str:
-        """生成启动版本 ID"""
-        parts = [instance_name]
-        if loader_type and loader_version:
-            parts.append(f"{loader_type}-{loader_version}")
-        return "-".join(parts)
 
     def _sanitize_name(self, name: str) -> str:
         """清理名称中的非法字符"""

@@ -634,8 +634,13 @@ class ResourceSession:
 
         返回 ``(句柄入参, 失败键)``：``失败键`` 非空表示**不该发起请求**，
         直接把它当状态栏文案；否则 ``句柄入参`` 是 ``(mods, game_version, mod_loader)``。
+
+        ⚠ **必须把基准目录带进判定**：游戏版本与加载器先读实例 JSON
+        （:func:`services.resource_service.update_targets`），自定义名称的实例（如
+        ``Fabulously Optimized``）才认得出是 Fabric 26.2；只按名字正则猜会让"检查更新"
+        报「无法确定游戏版本」，而版本列表里同一个实例明明有加载器。
         """
-        game_version, mod_loader = self._service.update_targets(self._version_id)
+        game_version, mod_loader = self._service.update_targets(self._version_id, self.minecraft_dir)
         if not game_version:
             return None, "mod_update_unknown_version"
         mods = self._service.updatable_mods(self._mod_metadata)
@@ -692,8 +697,11 @@ class ResourceSession:
 
         ⚠ 这里的判断是 ``not game_version or not mod_loader``（少了 ``mod_loader``
         就直接失败），检查更新那条只判了 ``game_version``。**这个不一致照抄**。
+
+        判定来源与 :meth:`prepare_update_check` 相同：实例 JSON 优先（自定义名称的实例
+        才认得出游戏版本与加载器），JSON 读不出来才退回按名字猜。
         """
-        game_version, mod_loader = self._service.update_targets(self._version_id)
+        game_version, mod_loader = self._service.update_targets(self._version_id, self.minecraft_dir)
         if not game_version or not mod_loader:
             return None, "mod_browser_unknown_loader"
         wanted = [str(m) for m in modids]

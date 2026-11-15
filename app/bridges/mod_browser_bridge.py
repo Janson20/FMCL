@@ -674,7 +674,7 @@ class ModBrowserBridge(QObject):
             self.detailChanged.emit()
             return
 
-        info = self._service.describe_version(self._version_id) if self._version_id else {}
+        info = self._service.describe_version(self._version_id, self._base_dir()) if self._version_id else {}
         game_version = info.get("game_version") if info else None
         loader = self._search_loader if self._detail["tab"] == TAB_MODS else None
 
@@ -701,7 +701,7 @@ class ModBrowserBridge(QObject):
         self.detailChanged.emit()
         source = str(self._detail["source"])
         project = str(self._detail["project"].get("project_id", ""))
-        info = self._service.describe_version(self._version_id) if self._version_id else {}
+        info = self._service.describe_version(self._version_id, self._base_dir()) if self._version_id else {}
         game_version = info.get("game_version") if info else None
         loader = self._search_loader if self._detail["tab"] == TAB_MODS else None
         selected = str(versionId)
@@ -793,12 +793,16 @@ class ModBrowserBridge(QObject):
         默认筛选值照旧窗口 `__init__` 的规则：游戏版本取来源版本的 MC 版本，
         加载器取来源版本的加载器（兼容映射后仍必须是下拉里的合法值，否则按"全部"）。
         路由**没给**版本时退到"最近使用 / 第一个已安装"（见 :meth:`_defaults_version`）。
+
+        取默认值时把 :meth:`_base_dir` 一起交给 `describe_version`：它会先读实例 JSON，
+        自定义名称的实例（如 ``Fabulously Optimized``）才认得出是 Fabric 26.2。只给版本 ID
+        的话，按名字的正则什么也拿不到 —— 游戏版本筛选会永远停在「全部版本」。
         """
         source = self._version_id or self._defaults_version()
         info: Dict[str, Any] = {}
         if self._service is not None and source:
             try:
-                info = self._service.describe_version(source) or {}
+                info = self._service.describe_version(source, self._base_dir()) or {}
             except Exception as e:  # noqa: BLE001 - 解析失败退化成"不筛"
                 logger.warning("解析来源版本失败: %s", e)
         self._default_game_version = info.get("game_version")

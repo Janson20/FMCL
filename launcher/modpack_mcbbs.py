@@ -16,6 +16,8 @@ from typing import Dict, List, Optional, Tuple
 
 from logzero import logger
 
+from launcher.modpack_instance import materialize_instance_version_json, resolve_instance_source
+
 
 class MCBBSPackMixin:
     """MCBBS 整合包安装 Mixin"""
@@ -196,6 +198,16 @@ class MCBBSPackMixin:
             # ── OptiFine（如果有） ──
             if "optifine" in addons:
                 logger.info(f"MCBBS 整合包含 OptiFine {addons['optifine']}，需手动安装")
+
+            # ── 落一份实例自己的版本 JSON ──
+            # 加载器装进了它自己的版本目录（id 由 minecraft_launcher_lib 决定，四种加载器
+            # 各不一样），这里按"游戏版本 + 加载器"反查那个目录，再把它的 JSON 复制成
+            # versions/<实例名>/<实例名>.json —— 实例从此既能启动、又能被资源管理识别。
+            source_version = resolve_instance_source(mc_dir, mc_version, loader_type, loader_version)
+            if materialize_instance_version_json(mc_dir, instance_name, source_version):
+                self._set_status(f"已创建实例: {instance_name}")
+            else:
+                logger.warning(f"实例 {instance_name} 未能生成版本 JSON，启动与资源隔离将不可用")
 
             # ── 保存自定义参数 ──
             if jvm_args:

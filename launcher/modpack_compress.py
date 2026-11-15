@@ -15,6 +15,8 @@ from typing import Dict, Optional, Tuple
 
 from logzero import logger
 
+from launcher.modpack_instance import materialize_instance_version_json
+
 
 class CompressPackMixin:
     """通用压缩包 & 带启动器压缩包安装 Mixin"""
@@ -160,6 +162,18 @@ class CompressPackMixin:
                             f.write(zf.read(name))
                     except Exception as e:
                         logger.warning(f"解压文件失败 {name}: {e}")
+
+            # ── 落一份实例自己的版本 JSON ──
+            # 压缩包里的 `.minecraft/` 是**整棵**解到实例目录下的，包自带的那份版本 JSON
+            # 落在 `versions/<实例名>/versions/<包内版本>/<包内版本>.json`。用它的内容再
+            # 写一份 `versions/<实例名>/<实例名>.json`：否则这个实例在版本列表里是 error
+            # 态、启动时报"版本 JSON 不存在"、「我的资源」也判不出加载器。
+            # 包内 JSON 若声明了 inheritsFrom，父版本仍需用户自己装（这里不偷偷下载）。
+            pack_json = Path(version_dir) / "versions" / detected_mc_version / f"{detected_mc_version}.json"
+            if materialize_instance_version_json(mc_dir, instance_name, detected_mc_version, source_json=pack_json):
+                self._set_status(f"已创建实例: {instance_name}")
+            else:
+                logger.warning(f"实例 {instance_name} 未能生成版本 JSON，启动与资源隔离将不可用")
 
             logger.info(f"通用压缩包安装完成: {instance_name}")
             return True, instance_name
