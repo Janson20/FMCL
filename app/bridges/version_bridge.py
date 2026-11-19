@@ -220,6 +220,23 @@ class VersionsBridge(QObject):
         self._submit(self._service.load())
 
     @Slot()
+    def onGameDirChanged(self) -> None:  # noqa: N802
+        """切换游戏目录后清掉选中项并强制重扫（旧目录的版本 id 在新目录无意义）。"""
+        self._current_id = ""
+        self._detail = {}
+        self._rows = []
+        self._visible = []
+        self.selectionChanged.emit()
+        self.versionsChanged.emit()
+        self._set_load_state(STATE_LOADING, "")
+        if self._service is not None:
+            # 让**切换前**发出的扫描结果作废；否则旧目录的列表可能晚到并覆盖新结果。
+            invalidate = getattr(self._service, "invalidate_scan_results", None)
+            if callable(invalidate):
+                invalidate()
+        self.refresh()
+
+    @Slot()
     def refresh(self) -> None:  # noqa: N802
         """刷新按钮：强制失效核心的实例缓存再扫（A-04）。"""
         if self._service is None:

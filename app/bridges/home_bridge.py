@@ -324,6 +324,11 @@ class HomeBridge(QObject):
     # ─── 槽 ─────────────────────────────────────────────────
 
     @Slot()
+    def onGameDirChanged(self) -> None:  # noqa: N802
+        """当前游戏目录切换后重取首页数据（最近版本按目录隔离）。"""
+        self.refresh()
+
+    @Slot()
     def refresh(self) -> None:  # noqa: N802
         """重取账号 / 皮肤 / 最近版本 / 成就摘要（见模块文档第 3 条）。"""
         self._refresh_account()

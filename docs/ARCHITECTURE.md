@@ -213,7 +213,7 @@ App.qml
 
 `services/` 按领域拆分，主要包括：
 
-- 版本与安装：`version_service`、`install_service`、`game_service`、`bedrock_service`；
+- 版本与安装：`version_service`、`install_service`、`game_service`、`game_dir_service`、`bedrock_service`；
 - 资源与整合包：`resource_service`、`mod_browser_service`、`modpack_service`、`browse_common`；
 - 服务器：`server_service`、`server_config_service`、`server_session`、`server_mods_session`；
 - 联机与备份：`online_service`、`backup_manager`、`backup_session`；

@@ -43,6 +43,21 @@ FluAppBar {
     // 三个系统按钮各 40px —— 右侧内容区必须让开这段宽度（参考项目的算法一致）
     readonly property int systemButtonsWidth: 120
 
+    //: 把下拉的选中项对回 GameDirs.activeId（用户选择后、列表刷新后都调）。
+    function syncGameDirCombo() {
+        if (typeof GameDirs === "undefined" || !GameDirs)
+            return
+        var items = GameDirs.dirChoices
+        var active = String(GameDirs.activeId || "")
+        for (var i = 0; i < items.length; i++) {
+            if (String(items[i].id) === active) {
+                gameDirCombo.currentIndex = i
+                return
+            }
+        }
+        gameDirCombo.currentIndex = -1
+    }
+
     // 内置那一行（图标 + 标题）关掉：应用内容自己画，避免"标题重复两遍"
     titleVisible: false
     showDark: false
@@ -50,7 +65,7 @@ FluAppBar {
 
     // 顶栏上用到的可交互项，供 `App.qml` 登记进 FluFrameless 的命中测试白名单。
     // **顺序无关**，但必须齐全：漏一个，那个按钮就点不动（见文件头）。
-    readonly property var interactiveItems: [backButton, agentQuickVoice, searchField,
+    readonly property var interactiveItems: [backButton, gameDirCombo, agentQuickVoice, searchField,
                                             monitorButton, notifyButton, languageButton, accountButton]
 
     RowLayout {
@@ -80,6 +95,30 @@ FluAppBar {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.leftMargin: Theme?.spacingXs ?? 0
+        }
+
+        //: 全局游戏目录选择器（多 .minecraft）。窄窗口隐藏，管理入口在设置 -> 游戏目录。
+        //: 不用 currentIndex 绑定：ComboBox 的用户选择会打断绑定，这里由
+        //: syncGameDirCombo() 在 dirsChanged / activeChanged / 用户选择后统一复位。
+        FmComboBox {
+            id: gameDirCombo
+            objectName: "globalGameDirCombo"
+            Layout.preferredWidth: 180
+            Layout.preferredHeight: 30
+            visible: (typeof GameDirs !== "undefined" && GameDirs)
+                     ? (GameDirs.available && GameDirs.dirChoices.length > 0 && bar.width >= 1100) : false
+            model: (typeof GameDirs !== "undefined" && GameDirs) ? GameDirs.dirChoices : []
+            textRole: "name"
+            valueRole: "id"
+            popupMaxHeight: 260
+            onActivated: {
+                if (typeof GameDirs !== "undefined" && GameDirs) {
+                    GameDirs.activate(String(currentValue))
+                    bar.syncGameDirCombo()
+                }
+            }
+            onModelChanged: bar.syncGameDirCombo()
+            Component.onCompleted: bar.syncGameDirCombo()
         }
 
         FmToolButton {
@@ -177,6 +216,25 @@ FluAppBar {
                 if (Nav)
                     Nav.push("settings/account")
             }
+        }
+    }
+
+    Connections {
+        target: (typeof GameDirs !== "undefined" && GameDirs) ? GameDirs : null
+
+        function onDirsChanged() {
+            if (bar)
+                bar.syncGameDirCombo()
+        }
+
+        function onActiveChanged() {
+            if (bar)
+                bar.syncGameDirCombo()
+        }
+
+        function onStatusMessage(text, level) {
+            if (typeof Shell !== "undefined" && Shell)
+                Shell.setStatus(text, level)
         }
     }
 

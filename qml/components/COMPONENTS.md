@@ -209,6 +209,7 @@ R5 的解析器把文档里 **任何被单反引号包住的大驼峰词**都当
 | 组件 | 用途 | 关键属性 |
 |------|------|----------|
 | `FmJingduAccountSection` | 设置 AI 分区的净读账号：未登录表单、登录中/失败提示、登录后的用户名/UUID/等级/签名/AI 积分、刷新与退出 | 无外部属性；读 Jingdu 桥的 `available` `loggedIn` `username` `busy` `errorText` `userInfo`，动作走 `Jingdu.login/logout/refreshInfo` |
+| `FmGameDirSection` | 设置 → 游戏目录：内置与自定义 .minecraft 目录列表、添加/重命名/移除、切换与打开目录 | 无（读 GameDirs 桥的 `available` `dirs` `activeId`；动作走 `GameDirs.add/rename/remove/activate`） |
 
 > 登录是**即时动作**，不属于设置草稿；因此本区块不受底部「保存/取消」影响。
 

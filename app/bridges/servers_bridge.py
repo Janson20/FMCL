@@ -401,6 +401,11 @@ class ServersBridge(QObject):
             self._session.load_available()
 
     @Slot()
+    def onGameDirChanged(self) -> None:  # noqa: N802
+        """切换游戏目录后重读服务器列表（服务器根目录是 .minecraft/server）。"""
+        self.refresh()
+
+    @Slot()
     def refresh(self) -> None:
         if self._session is None or self._closing:
             return

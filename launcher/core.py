@@ -177,7 +177,6 @@ class MinecraftLauncher:
 
     def __init__(self, config: Config):
         self.config = config
-        self.minecraft_dir = str(config.minecraft_dir)
 
         logger.info("MinecraftLauncher.__init__: 1. 正在导入 minecraft_launcher_lib...")
         import minecraft_launcher_lib
@@ -230,6 +229,25 @@ class MinecraftLauncher:
         if saved_theme:
             engine.apply_theme(saved_theme, config.accent_color)
         logger.info("MinecraftLauncher.__init__: 9. 初始化完成")
+
+    @property
+    def minecraft_dir(self) -> str:
+        """当前 .minecraft 目录。
+
+        **不要缓存成实例属性**：多目录支持要求切换后立即生效，核心层所有拼路径的
+        代码都读这一处；缓存副本会让"切换成功但版本列表还是旧目录"这种问题出现。
+        """
+        return str(self.config.minecraft_dir)
+
+    def reset_game_dir_caches(self) -> None:
+        """切换游戏目录后清掉与目录绑定的内存缓存。
+
+        实例缓存按 versions 目录名做键、Java 扫描缓存按目录内容算结果；
+        不清的话切到另一个目录后会读到上一个目录的版本元数据。
+        """
+        self.invalidate_instance_cache()
+        self._java_scan_cache = None
+        self._java_scan_cache_time = 0.0
 
     def set_account_system(self, account_system):
         self._account_system = account_system

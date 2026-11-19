@@ -131,6 +131,9 @@ class VersionService(Service):
         self._lock = threading.RLock()
         #: 装完待选中的版本 id（`note_installed()` 写、`consume_pending_selection()` 取）
         self._pending_select = ""
+        #: 扫描代际：切换游戏目录会触发新一轮扫描，旧一轮的回调必须被丢弃，
+        #: 否则"旧目录的版本列表"可能在新目录扫描之后到达，把界面改回去。
+        self._scan_generation = 0
         #: 下一次扫描完成后是否要重算安装类成就（只有 note_installed 置位）。
         #: 不能每次扫描都算：用户重置本地成就后，下一次普通刷新会把它们立刻解锁回来。
         self._pending_ach_install = False
@@ -169,14 +172,26 @@ class VersionService(Service):
         手动删了版本目录，靠目录集合比对本来也能发现，但"我点了刷新"应当无条件重读）。
         """
         self._emit_status("version_loading_installed", "loading", {})
+        with self._lock:
+            generation = self._scan_generation
         return self.tasks.submit(
             self._scan_sync,
             bool(force),
+            generation,
             name="version.load",
-            on_error=lambda e: self._scan_done([], str(e)),
+            on_error=lambda e, g=generation: self._scan_done([], str(e), g),
         )
 
-    def _scan_sync(self, force: bool) -> List[Dict[str, Any]]:
+    def invalidate_scan_results(self) -> None:
+        """让**当前在飞**的扫描结果全部作废（切换游戏目录时由桥调用）。
+
+        与"每次 load 都自增代际"不同：同一目录下并发两次加载仍应各自回调
+        （旧行为），只有目录切换这种"旧结果必然属于别的目录"的场景才需要丢弃。
+        """
+        with self._lock:
+            self._scan_generation += 1
+
+    def _scan_sync(self, force: bool, generation: Optional[int] = None) -> List[Dict[str, Any]]:
         launcher = self._resolve_launcher()
         if launcher is None:
             # 核心还没注册（启动链条没跑完）或整个坏掉 —— **降级为按目录名列举**。
@@ -187,7 +202,7 @@ class VersionService(Service):
             # 那时元数据就齐了。
             self.log.warning("启动器核心不可用，改为按目录名列举版本")
             rows = self._scan_folders()
-            self._scan_done(rows, "")
+            self._scan_done(rows, "", generation)
             return rows
         if force:
             try:
@@ -197,10 +212,10 @@ class VersionService(Service):
         try:
             infos = launcher.get_installed_versions()
         except Exception as e:  # noqa: BLE001
-            self._scan_done([], str(e))
+            self._scan_done([], str(e), generation)
             return []
         rows = [row_from_info(info) for info in infos or []]
-        self._scan_done(rows, "")
+        self._scan_done(rows, "", generation)
         return rows
 
     def _scan_folders(self) -> List[Dict[str, Any]]:
@@ -226,8 +241,16 @@ class VersionService(Service):
             })
         return rows
 
-    def _scan_done(self, rows: List[Dict[str, Any]], error: str) -> None:
+    def _scan_done(self, rows: List[Dict[str, Any]], error: str, generation: Optional[int] = None) -> None:
         with self._lock:
+            # None 是"直接调用"（测试/旧调用）的兼容档；只有显式代际才丢弃。
+            if generation is not None and generation != self._scan_generation:
+                self.log.debug(
+                    "丢弃过期版本扫描结果 (gen=%s, current=%s)",
+                    generation,
+                    self._scan_generation,
+                )
+                return
             self._rows = list(rows)
         if error:
             self._emit_status("version_load_failed", "error", {"error": error})

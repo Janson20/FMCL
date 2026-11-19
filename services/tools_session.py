@@ -154,10 +154,30 @@ class ToolsSession:
 
     @property
     def quiz_path(self) -> Path:
+        """问答题库路径。
+
+        题库是**启动器数据**，不是某个游戏目录的一部分：多 .minecraft 目录下如果
+        继续用 minecraft_dir 的父目录，切换目录会把题库/进度搬到别的盘。
+        优先用 base_dir，拿不到时才退回旧的"minecraft 父目录"以保持兼容。
+        """
+        base_dir = self._config_value("base_dir", None)
         minecraft_dir = self._config_value("minecraft_dir", None)
+        candidate = Path(base_dir) / "quiz.json" if base_dir else Path.cwd() / "quiz.json"
+        try:
+            if candidate.exists():
+                return candidate
+        except OSError:
+            pass
+        # 旧版把题库放在 minecraft_dir 的父目录（默认安装下与 base_dir 相同；
+        # Linux 从 ~/.minecraft 切到 ~/.fmcl 时会不同）。旧文件存在就继续用它。
         if minecraft_dir:
-            return Path(minecraft_dir).parent / "quiz.json"
-        return Path.cwd() / "quiz.json"
+            legacy = Path(minecraft_dir).parent / "quiz.json"
+            try:
+                if legacy.exists():
+                    return legacy
+            except OSError:
+                pass
+        return candidate
 
     def quiz_token(self) -> str:
         return str(self._config_value("jdz_token", "") or "").strip()

@@ -7,7 +7,7 @@
 
 ## 它验证什么（对着 3.4 的验收条目逐条来）
 
-1. **入口与分区**：一级导航点「设置」→ 路由 `settings` → 左侧 9 个分区（从路由表现取），
+1. **入口与分区**：一级导航点「设置」→ 路由 `settings` → 左侧 10 个分区（从路由表现取），
    右侧默认落在「启动器功能」；
 2. **草稿语义（M-Q1 的 B1/B2）**：改开关/滑块/下拉 → `Settings.dirty` 变真、
    **核心层的 setter 一次都没被调**（这就是"没写盘"的可验判据）；切换分区再切回来，
@@ -533,7 +533,7 @@ check("设置页加载出来了", item("settingsPage") is not None, "objectName=
 check("左侧分区导航在工作", item("settingsSectionNav") is not None)
 sections = items_named("settingsSectionItem")
 REPORT["section_count"] = len(sections)
-check("分区数为 9（路由表里 parent=settings 的全部）", len(sections) == 9, str(len(sections)))
+check("分区数为 10（路由表里 parent=settings 的全部）", len(sections) == 10, str(len(sections)))
 check("默认落在启动器分区", item("settingsLauncherSection") is not None,
       str([node.property("text") for node in sections]))
 check("底部动作条存在", item("settingsActionBar") is not None)

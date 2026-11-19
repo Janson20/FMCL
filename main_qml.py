@@ -58,6 +58,7 @@ CONTEXT_BRIDGES: Tuple[Tuple[str, str, str], ...] = (
     ("Install", "app.bridges.install_bridge", "InstallBridge"),
     # 设置域：草稿、主题、Java、语言（Settings）；日志（Logs）；关于（About）。
     ("Settings", "app.bridges.settings_bridge", "SettingsBridge"),
+    ("GameDirs", "app.bridges.game_dir_bridge", "GameDirBridge"),
     ("Logs", "app.bridges.log_bridge", "LogBridge"),
     ("About", "app.bridges.about_bridge", "AboutBridge"),
     # 账号页：登录、切换、删除、刷新、导入导出。

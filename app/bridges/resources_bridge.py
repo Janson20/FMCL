@@ -156,6 +156,8 @@ class ResourcesBridge(QObject):
         #: **进页面之后有没有真的扫过一遍**（见 `activate` 的说明）：
         #: `bind()` 只解析版本不扫描，所以第一次 `activate` 必须扫。
         self._scanned_once = False
+        #: 路由带进来的版本（切换游戏目录后按同一条路由重新解析；空串 = 走兜底链）
+        self._route_version = ""
         #: 上一次取消是"例行作废"还是"用户按的取消"（见 `cancel_metadata`）。
         self._suppress_fallback = False
 
@@ -555,6 +557,7 @@ class ResourcesBridge(QObject):
             self._publish(force_scan=True)
             return
         requested = str(routeVersion or "").strip()
+        self._route_version = requested
         if requested and requested != self._version:
             self._select_version(requested, scan=True)
             return
@@ -614,6 +617,21 @@ class ResourcesBridge(QObject):
             return
         self._apply_result(self._session.goto(page))
         self._start_thumbnails()
+
+    @Slot()
+    def onGameDirChanged(self) -> None:  # noqa: N802
+        """切换游戏目录后按原路由重新解析版本并重扫。
+
+        不保留当前选中的版本 id：同名版本可能在新目录里不存在，继续用会让页面
+        停在"什么都没有"的空态。这里把 `_scanned_once` 复位，让 `activate` 走
+        "路由版本 → 最近使用 → 第一个已安装"的兜底链。
+        """
+        if self._session is None:
+            return
+        self._scanned_once = False
+        self._version = VERSION_GLOBAL
+        self._session.set_version(VERSION_GLOBAL)
+        self.activate(self._route_version)
 
     @Slot()
     def refresh(self) -> None:  # noqa: N802

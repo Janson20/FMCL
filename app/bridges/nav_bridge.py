@@ -231,6 +231,8 @@ _ROUTE_TABLE: Tuple[Tuple[str, str, str, str, str, str], ...] = (
     # ── 设置 ───────────────────────────────────────────────────
     ("settings", "settings", "settings-gear", "", "pages/settings/SettingsPage.qml", ""),
     ("settings/launcher", "settings_tab_launcher", "rocket", "settings", "pages/settings/SettingsPage.qml", ""),
+    ("settings/dirs", "settings_game_dirs_title", "folder", "settings", "pages/settings/SettingsPage.qml",
+     "settings_game_dirs_desc"),
     ("settings/account", "account_manager_title", "account", "settings", "pages/settings/SettingsPage.qml",
      "account_manager_desc"),
     ("settings/java", "settings_java_title", "bolt", "settings", "pages/settings/SettingsPage.qml", ""),

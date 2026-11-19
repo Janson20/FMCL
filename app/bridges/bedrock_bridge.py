@@ -378,6 +378,12 @@ class BedrockBridge(QObject):
         self._sync()
 
     @Slot()
+    def onGameDirChanged(self) -> None:  # noqa: N802
+        """切换游戏目录后重读已安装基岩版（.minecraft/bedrock_versions）。"""
+        self._detail_name = ""
+        self.refresh()
+
+    @Slot()
     def refresh(self) -> None:
         session = self._ensure_ready()
         if session is None:

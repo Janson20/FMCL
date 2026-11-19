@@ -2,6 +2,7 @@
 
 import os
 import platform
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -139,6 +140,66 @@ def _migrate_user_data_if_needed(src: Path, dst: Path) -> bool:
     return bool(migrated)
 
 
+# ─── 多 .minecraft 目录 ──────────────────────────────────────
+#
+# 数据模型（只持久化用户添加的部分与"当前选中项"）：
+#   * 内置目录由 base_dir 与平台规则**每次启动现算**，不写进 config.json ——
+#     程序移动到别的目录后，内置目录会自动跟着走，不会留下一份过期路径；
+#   * 自定义目录必须由用户命名，不可重命名/删除内置目录；
+#   * "当前目录"由 id 指向，真正给全仓使用的仍是 config.minecraft_dir
+#     （切换时同步更新，所有旧代码无需感知多目录）。
+
+#: 目录种类（持久化值，改名等于改数据格式）
+GAME_DIR_KIND_INSTALL = "install"
+GAME_DIR_KIND_OFFICIAL = "official"
+GAME_DIR_KIND_CUSTOM = "custom"
+
+#: 两个内置目录的稳定 id（自定义目录用 custom-<hex>）
+GAME_DIR_ID_INSTALL = "builtin-install"
+GAME_DIR_ID_OFFICIAL = "builtin-official"
+
+#: 自定义目录名称的最大字符数（服务层校验，防止列表被一行超长文本撑坏）
+GAME_DIR_NAME_MAX = 64
+
+#: 内置目录的显示名 i18n 键（自定义目录直接使用用户输入的名字）
+GAME_DIR_BUILTIN_NAME_KEYS = {
+    GAME_DIR_KIND_INSTALL: "game_dir_builtin_install",
+    GAME_DIR_KIND_OFFICIAL: "game_dir_builtin_official",
+}
+
+
+def get_official_minecraft_dir() -> Path:
+    """官方启动器的 .minecraft 目录（与 Mojang 启动器保持一致）。
+
+    * Windows: %APPDATA%\\.minecraft（注意是 Roaming，不是 Local）
+    * macOS:   ~/Library/Application Support/minecraft
+    * Linux:   ~/.minecraft
+    """
+    system = platform.system().lower()
+    if system == "windows":
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base / ".minecraft"
+    if system == "darwin":
+        return Path.home() / "Library" / "Application Support" / "minecraft"
+    return Path.home() / ".minecraft"
+
+
+def normalize_game_dir_path(path: Any) -> Path:
+    """把用户输入/配置里的路径归一成绝对路径（不要求存在）。
+
+    支持 ~ 与环境变量：用户在 QML 里手打 %APPDATA% 或 ~/mc 都应当能用。
+    """
+    text = os.path.expandvars(os.path.expanduser(str(path or "").strip()))
+    return Path(os.path.abspath(text))
+
+
+def _game_dir_path_key(path: Any) -> str:
+    """目录去重键：Windows 大小写不敏感，其他平台保持原样。"""
+    text = os.path.normpath(str(normalize_game_dir_path(path)))
+    return os.path.normcase(text)
+
+
 def _get_platform_paths():
     """
     根据操作系统返回平台特定的路径配置
@@ -241,6 +302,19 @@ class Config:
         # 设置密钥存储目录
         set_key_dir(self.base_dir)
 
+        # ── 多 .minecraft 目录 ──
+        # 自定义目录由用户添加并命名；内置目录由 base_dir / 平台规则现算，不落盘。
+        # 这些字段必须在 _load_config() 之前初始化：配置读取只填数据，不做解析。
+        self.custom_game_dirs: list = []
+        #: 旧配置没有这个键时按平台给默认值（Windows/macOS 保持旧的"程序目录"行为，
+        #: Linux 旧版用的就是 ~/.minecraft，因此默认选官方目录）。
+        self.current_game_dir_id: str = (
+            GAME_DIR_ID_OFFICIAL if platform.system().lower() == "linux" else GAME_DIR_ID_INSTALL
+        )
+        #: 每个游戏目录各自记住"最近启动的版本"（切目录时首页不会串版本）
+        self._last_launched_versions: Dict[str, str] = {}
+        self._legacy_last_launched_version: str = ""
+
         # 下载配置
         self.download_threads = 4
         self.chunk_size = 8192
@@ -336,6 +410,7 @@ class Config:
 
         # 从配置文件加载
         self._load_config()
+        self._init_game_dirs()
 
     @property
     def jdz_username(self) -> Optional[str]:
@@ -352,6 +427,213 @@ class Config:
     @jdz_user_info.setter
     def jdz_user_info(self, value: Optional[dict]) -> None:
         self._jdz_user_info = value
+
+    # ─── 多 .minecraft 目录 ──────────────────────────────────
+
+    @staticmethod
+    def _default_game_dir_id() -> str:
+        """没有已保存选择时的默认目录 id（保持各平台旧行为）。"""
+        if platform.system().lower() == "linux":
+            return GAME_DIR_ID_OFFICIAL
+        return GAME_DIR_ID_INSTALL
+
+    def _builtin_game_dirs(self) -> list:
+        """两个内置目录（每次现算，不落盘）。"""
+        return [
+            {
+                "id": GAME_DIR_ID_INSTALL,
+                "kind": GAME_DIR_KIND_INSTALL,
+                "name": "",
+                "path": str(self.base_dir / ".minecraft"),
+            },
+            {
+                "id": GAME_DIR_ID_OFFICIAL,
+                "kind": GAME_DIR_KIND_OFFICIAL,
+                "name": "",
+                "path": str(get_official_minecraft_dir()),
+            },
+        ]
+
+    def _sanitize_custom_game_dirs(self, raw: Any) -> list:
+        """把 config.json 里的自定义目录清洗成内部结构。
+
+        坏数据（缺 id/name/path、路径重复、id 与内置目录冲突）一律跳过或补 id，
+        不让一份手工改坏的配置把启动流程拖垮。
+        """
+        if not isinstance(raw, (list, tuple)):
+            return []
+        seen_ids = {GAME_DIR_ID_INSTALL, GAME_DIR_ID_OFFICIAL}
+        seen_paths = {_game_dir_path_key(item["path"]) for item in self._builtin_game_dirs()}
+        result: list = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()[:GAME_DIR_NAME_MAX]
+            path_text = str(item.get("path") or "").strip()
+            if not name or not path_text or "\x00" in path_text:
+                continue
+            try:
+                path = normalize_game_dir_path(path_text)
+            except (OSError, ValueError):
+                continue
+            path_key = _game_dir_path_key(path)
+            if path_key in seen_paths:
+                continue
+            dir_id = str(item.get("id") or "").strip()
+            if not dir_id or dir_id in seen_ids:
+                dir_id = f"custom-{uuid.uuid4().hex}"
+            seen_ids.add(dir_id)
+            seen_paths.add(path_key)
+            result.append(
+                {
+                    "id": dir_id,
+                    "kind": GAME_DIR_KIND_CUSTOM,
+                    "name": name,
+                    "path": str(path),
+                }
+            )
+        return result
+
+    def _init_game_dirs(self) -> None:
+        """在配置读完之后解析目录列表与当前目录。
+
+        顺序很重要：_load_config() 只负责把原始数据塞进 custom_game_dirs /
+        current_game_dir_id，这里才做归一化并同步 minecraft_dir。
+        """
+        self.custom_game_dirs = self._sanitize_custom_game_dirs(self.custom_game_dirs)
+        known_ids = {item["id"] for item in self._builtin_game_dirs()}
+        known_ids.update(item["id"] for item in self.custom_game_dirs)
+        if self.current_game_dir_id not in known_ids:
+            logger.warning(
+                "配置里的当前游戏目录 %r 不可用，回退到默认目录",
+                self.current_game_dir_id,
+            )
+            self.current_game_dir_id = self._default_game_dir_id()
+        self.minecraft_dir = Path(self.current_game_dir()["path"])
+        if self._legacy_last_launched_version and not self._last_launched_versions:
+            self._last_launched_versions[self.current_game_dir_id] = self._legacy_last_launched_version
+        self._legacy_last_launched_version = ""
+
+    def all_game_dirs(self) -> list:
+        """内置 + 自定义目录的只读快照（供界面/服务列举）。
+
+        每项含 id/kind/name/path/active/exists；内置目录的 name 为空串，
+        显示名走 GAME_DIR_BUILTIN_NAME_KEYS 的 i18n 键。
+        """
+        result: list = []
+        for entry in self._builtin_game_dirs() + [dict(item) for item in self.custom_game_dirs]:
+            item = dict(entry)
+            item["active"] = item["id"] == self.current_game_dir_id
+            try:
+                item["exists"] = Path(item["path"]).is_dir()
+            except (OSError, ValueError):
+                item["exists"] = False
+            result.append(item)
+        return result
+
+    def find_game_dir(self, dir_id: str) -> Optional[dict]:
+        """按 id 找目录（返回副本；找不到返回 None）。"""
+        wanted = str(dir_id or "").strip()
+        if not wanted:
+            return None
+        for entry in self._builtin_game_dirs() + [dict(item) for item in self.custom_game_dirs]:
+            if entry["id"] == wanted:
+                item = dict(entry)
+                item["active"] = item["id"] == self.current_game_dir_id
+                return item
+        return None
+
+    def current_game_dir(self) -> dict:
+        """当前选中的目录（永远返回一项；配置异常时回退默认目录）。"""
+        for entry in self._builtin_game_dirs() + [dict(item) for item in self.custom_game_dirs]:
+            if entry["id"] == self.current_game_dir_id:
+                return dict(entry)
+        fallback_id = self._default_game_dir_id()
+        for entry in self._builtin_game_dirs():
+            if entry["id"] == fallback_id:
+                return dict(entry)
+        return dict(self._builtin_game_dirs()[0])
+
+    def set_current_game_dir(self, dir_id: str) -> dict:
+        """切换当前目录并同步 minecraft_dir（不负责落盘，由调用方决定）。"""
+        target = self.find_game_dir(dir_id)
+        if target is None:
+            raise KeyError(f"未知的游戏目录 id: {dir_id!r}")
+        self.current_game_dir_id = target["id"]
+        self.minecraft_dir = Path(target["path"])
+        logger.info("当前游戏目录已切换为 %s (%s)", target.get("name") or target["id"], self.minecraft_dir)
+        return target
+
+    def add_custom_game_dir(self, name: str, path: Any) -> dict:
+        """添加一个自定义目录（调用方负责名称/路径的业务校验与落盘）。"""
+        clean_name = str(name or "").strip()
+        path_text = str(path or "").strip()
+        if not clean_name:
+            raise ValueError("name_required")
+        if len(clean_name) > GAME_DIR_NAME_MAX:
+            raise ValueError("name_too_long")
+        if not path_text:
+            raise ValueError("path_required")
+        normalized = normalize_game_dir_path(path_text)
+        path_key = _game_dir_path_key(normalized)
+        for entry in self._builtin_game_dirs() + [dict(item) for item in self.custom_game_dirs]:
+            if _game_dir_path_key(entry["path"]) == path_key:
+                raise ValueError("path_duplicate")
+        item = {
+            "id": f"custom-{uuid.uuid4().hex}",
+            "kind": GAME_DIR_KIND_CUSTOM,
+            "name": clean_name,
+            "path": str(normalized),
+        }
+        self.custom_game_dirs.append(item)
+        return dict(item)
+
+    def rename_custom_game_dir(self, dir_id: str, name: str) -> dict:
+        """重命名自定义目录（内置目录不可改名）。"""
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            raise ValueError("name_required")
+        if len(clean_name) > GAME_DIR_NAME_MAX:
+            raise ValueError("name_too_long")
+        for item in self.custom_game_dirs:
+            if item["id"] == str(dir_id or "").strip():
+                item["name"] = clean_name
+                return dict(item)
+        raise KeyError(f"自定义游戏目录不存在或不可重命名: {dir_id!r}")
+
+    def remove_custom_game_dir(self, dir_id: str) -> str:
+        """移除自定义目录（只移除列表项，磁盘文件不动）。
+
+        Returns:
+            移除后实际选中的目录 id（移除的正好是当前目录时会切回默认目录）。
+        """
+        wanted = str(dir_id or "").strip()
+        if wanted not in {item["id"] for item in self.custom_game_dirs}:
+            raise KeyError(f"自定义游戏目录不存在或不可删除: {dir_id!r}")
+        self.custom_game_dirs = [item for item in self.custom_game_dirs if item["id"] != wanted]
+        self._last_launched_versions.pop(wanted, None)
+        if self.current_game_dir_id == wanted:
+            self.set_current_game_dir(self._default_game_dir_id())
+        return self.current_game_dir_id
+
+    # ─── 最近启动版本（按目录隔离）───────────────────────────
+
+    @property
+    def last_launched_version(self) -> str:
+        """当前游戏目录下最近启动成功的版本 id。
+
+        以前这个字段是全局的：切换目录后首页会显示另一个目录里的版本，
+        点启动必然失败。现在按目录保存，旧配置里的全局值在首次启动时迁到当前目录。
+        """
+        return self._last_launched_versions.get(self.current_game_dir_id, "")
+
+    @last_launched_version.setter
+    def last_launched_version(self, value: Optional[str]) -> None:
+        text = str(value or "").strip()
+        if text:
+            self._last_launched_versions[self.current_game_dir_id] = text
+        else:
+            self._last_launched_versions.pop(self.current_game_dir_id, None)
 
     @classmethod
     def set_error_callback(cls, callback):
@@ -462,6 +744,20 @@ class Config:
                     self.wy_cookie = decrypt_token(stored)
                 else:
                     self.wy_cookie = None
+            # ── 多 .minecraft 目录 ──
+            if "custom_game_dirs" in data:
+                self.custom_game_dirs = data["custom_game_dirs"]
+            if "current_game_dir_id" in data:
+                self.current_game_dir_id = str(data["current_game_dir_id"] or "").strip()
+            if "last_launched_versions" in data and isinstance(data["last_launched_versions"], dict):
+                self._last_launched_versions = {
+                    str(key): str(value)
+                    for key, value in data["last_launched_versions"].items()
+                    if str(key).strip() and str(value).strip()
+                }
+            #: 旧版本只记了一个全局的"最近使用版本"；先留着，等目录解析完再迁到当前目录
+            if "last_launched_version" in data:
+                self._legacy_last_launched_version = str(data["last_launched_version"] or "").strip()
 
             logger.info(
                 f"配置已加载: 镜像源={'启用' if self.mirror_enabled else '禁用'}, 启动后最小化={'启用' if self.minimize_on_game_launch else '禁用'}, 自动检查更新={'启用' if self.auto_check_update else '禁用'}, 玩家名={self.player_name}, 语言={self.language}"
@@ -509,6 +805,12 @@ class Config:
                 "overlay_geometry": self.overlay_geometry,
                 "music_baike_original_enabled": self.music_baike_original_enabled,
                 "wy_cookie": encrypt_token(self.wy_cookie) if self.wy_cookie else None,
+                "custom_game_dirs": [
+                    {"id": item["id"], "name": item["name"], "path": item["path"]}
+                    for item in self.custom_game_dirs
+                ],
+                "current_game_dir_id": self.current_game_dir_id,
+                "last_launched_versions": dict(self._last_launched_versions),
             }
             content = _json_dumps(data, indent=2, ensure_ascii=False)
             # 原子写入：先写临时文件，再重命名，防止写入过程中崩溃导致配置文件损坏
@@ -529,8 +831,19 @@ class Config:
             Config._notify_error("配置保存失败", f"无法保存配置文件:\n{e}")
 
     def ensure_directories(self) -> None:
-        """确保必要的目录存在（失败时记录日志并重新抛出）"""
-        for d in (self.minecraft_dir, self.base_dir, self.config_file.parent, self.log_file.parent):
+        """确保必要的目录存在（失败时记录日志并重新抛出）。
+
+        自定义游戏目录**不会**在这里被凭空创建：它可能是移动硬盘/网络盘，
+        离线时 mkdir 会安静地造出一个空目录，比直接报"目录不存在"更难排查。
+        内置目录不受影响（安装目录与官方目录本来就该由启动器负责创建）。
+        """
+        targets = [self.base_dir, self.config_file.parent, self.log_file.parent]
+        active = self.current_game_dir()
+        if active.get("kind") != GAME_DIR_KIND_CUSTOM or self.minecraft_dir.exists():
+            targets.insert(0, self.minecraft_dir)
+        else:
+            logger.warning("自定义游戏目录不存在，跳过创建: %s", self.minecraft_dir)
+        for d in targets:
             try:
                 d.mkdir(parents=True, exist_ok=True)
             except (PermissionError, OSError) as e:

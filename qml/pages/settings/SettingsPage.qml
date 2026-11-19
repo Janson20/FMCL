@@ -1,16 +1,16 @@
 // SettingsPage.qml —— 设置域。
 //
-// ## 一、一页承载 9 条二级路由
+// ## 一、一页承载 10 条二级路由
 //
-// 路由表（`app/bridges/nav_bridge.py`）把设置拆成 9 条二级路由，全部指向本文件
-//（另有 `settings` 根路由，等同 `settings/launcher`）：`settings/launcher`、
+// 路由表（`app/bridges/nav_bridge.py`）把设置拆成 10 条二级路由，全部指向本文件
+//（另有 `settings` 根路由，等同 `settings/launcher`）：`settings/launcher`、`settings/dirs`、
 // `settings/java`、`settings/theme`、`settings/music`、`settings/log`、`settings/about`、
 // `settings/account`、`settings/ai`、`settings/plugin`。
 // 本文件按 `routeId` 切左侧分区导航 + 右侧内容（`Loader`），**一屏一个分区**。
 // 分区清单**从 `Nav.routes()` 现取**（`parent === "settings"`），不写死在 QML 里 ——
 // 路由表加一条，这里就多一个分区，不会出现"路由进得去但导航里看不见"。
 //
-// 分区：启动器 / Java / 主题 / 音乐 / 日志 / 关于 / 账户 / AI / 插件。
+// 分区：启动器 / 游戏目录 / Java / 主题 / 音乐 / 日志 / 关于 / 账户 / AI / 插件。
 //
 // ## 二、草稿范式
 //
@@ -62,10 +62,10 @@ FmPage {
     //: 所以这里由 `refreshUi()` 现算现赋（与"动态状态一律在函数里赋值"同一条纪律）。
     property string section: "launcher"
 
-    //: 显示顺序：先做好的五个分区在上，三个占位分区在下 —— 打开设置先看到能用的东西。
-    //: 清单之外的 id 追加在末尾（路由表加新分区时不会漏，只是排在后面）。
-    readonly property var sectionOrder: ["launcher", "java", "theme", "music", "log", "about",
-                                          "account", "ai", "plugin"]
+    //: 显示顺序：按常用程度排列（启动器与游戏目录在前），清单之外的 id 追加在末尾 ——
+    //: 路由表加新分区时不会漏，只是排在后面。
+    readonly property var sectionOrder: ["launcher", "dirs", "java", "theme", "music", "log",
+                                          "about", "account", "ai", "plugin"]
 
     // ── 页面状态（全部在 `refreshUi()` 里赋值）────────────────
     property var sections: []
@@ -144,6 +144,8 @@ FmPage {
     function componentFor(name) {
         if (name === "launcher")
             return launcherSection
+        if (name === "dirs")
+            return gameDirSection
         if (name === "java")
             return javaSection
         if (name === "theme")
@@ -317,9 +319,12 @@ FmPage {
             }
 
             // ── 底部动作条（B1：整域一份草稿，所以每个分区都看得见它）──
+            // 例外：游戏目录是**即时动作**（添加/切换/删除立刻生效），不进入草稿。
+            // 在那一分区继续显示「保存/取消」会让用户以为可以撤销切换，因此隐藏。
             RowLayout {
                 objectName: "settingsActionBar"
                 Layout.fillWidth: true
+                visible: page.section !== "dirs"
                 spacing: Theme?.spacingSm ?? 8
 
                 FmTag {
@@ -579,7 +584,18 @@ FmPage {
         }
     }
 
-    // ══ 分区二：Java 运行时（M-03 / M-04 / M-05）═══════════════
+    // ══ 分区二：游戏目录（多 .minecraft）══════════════════════
+    //
+    // 目录的增删改与切换都是**立即生效**的动作，不进入设置草稿：
+    // 草稿的「取消」语义是"丢弃未保存的改动"，而目录切换一旦改了内存里的当前目录，
+    // 再取消也回不到旧状态（各页面已按新目录刷新）。所以这一分区独立于动作条。
+
+    Component {
+        id: gameDirSection
+        FmGameDirSection {}
+    }
+
+    // ══ 分区三：Java 运行时（M-03 / M-04 / M-05）═══════════════
 
     Component {
         id: javaSection
@@ -784,7 +800,7 @@ FmPage {
         }
     }
 
-    // ══ 分区三：主题（M-07 ~ M-11）══════════════════════════════
+    // ══ 分区四：主题（M-07 ~ M-11）══════════════════════════════
 
     Component {
         id: themeSection
@@ -963,7 +979,7 @@ FmPage {
         }
     }
 
-    // ══ 分区四：日志（A-13 / A-18；03 章的 3.4 摘要要求"查看与导出"）══
+    // ══ 分区五：日志（A-13 / A-18；03 章的 3.4 摘要要求"查看与导出"）══
 
     Component {
         id: logSection
@@ -1098,7 +1114,7 @@ FmPage {
         }
     }
 
-    // ══ 分区五：关于 ════════════════════════════════════════════
+    // ══ 分区六：关于 ════════════════════════════════════════════
     //
     // 内容：图标 + 名称 + 系统信息 + 鸣谢项目（各带"地址 / 许可证"两个外链）
     // + 许可证一行 + 赞赏按钮。它是设置域里的一条路由（L2「关于」）；
@@ -1284,7 +1300,7 @@ FmPage {
         }
     }
 
-    // ══ 分区六：音乐账号 ════════════════════════════════════════
+    // ══ 分区七：音乐账号 ════════════════════════════════════════
     //
     // 设置域的一条独立分区 `settings/music`，路由标题复用 `settings_wy_login_title`。
     // 只负责登录态、扫码入口、重新同步与退出；VIP 等级、续期、账号详情不在这里。
@@ -1586,7 +1602,7 @@ FmPage {
         }
     }
 
-    // ══ 分区七：账户 ════════════════════════════════════════════
+    // ══ 分区八：账户 ════════════════════════════════════════════
     //
     // 它是 `settings/account` 这条路由的内容，所以本分区**没有关闭按钮**
     // （离开 = 点别的分区 / 面包屑返回）。
@@ -2444,9 +2460,9 @@ FmPage {
         }
     }
 
-    // ══ 分区八~九：AI / 插件 ════════════════════════════════════
+    // ══ 分区九~十：AI / 插件 ════════════════════════════════════
 
-    // ══ 分区八：AI 模型 / 工具权限 / Skills / 语音 / 净读账号 ══
+    // ══ 分区九：AI 模型 / 工具权限 / Skills / 语音 / 净读账号 ══
     Component {
         id: jingduSection
 
@@ -2455,7 +2471,7 @@ FmPage {
         }
     }
 
-    // ══ 分区九：插件 ════════════════════════════════════════════
+    // ══ 分区十：插件 ════════════════════════════════════════════
     Component {
         id: pluginSection
 

@@ -519,6 +519,13 @@ class ModBrowserBridge(QObject):
         self._reset_context(str(routeLoader or ""))
 
     @Slot()
+    def onGameDirChanged(self) -> None:  # noqa: N802
+        """切换游戏目录后清掉版本候选与筛选状态（旧目录的版本可能不存在）。"""
+        self._versions_loaded = False
+        if self._service is not None:
+            self._reset_context(self._source_loader)
+
+    @Slot()
     def loadVersionChoices(self) -> None:  # noqa: N802
         """后台加载游戏版本候选（旧 `_load_version_options`；失败就是空列表）。"""
         if self._versions_loaded or self._tasks is None or self._service is None:

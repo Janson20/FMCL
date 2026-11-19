@@ -263,6 +263,13 @@ class BackupBridge(QObject):
             self._sync()
 
     @Slot()
+    def onGameDirChanged(self) -> None:  # noqa: N802
+        """切换游戏目录后重扫存档（存档目录跟着 .minecraft 走）。"""
+        self._worlds_loaded = False
+        self._selected_world = ""
+        self.refresh()
+
+    @Slot()
     def refresh(self) -> None:
         if self._session is None or self._busy:
             return

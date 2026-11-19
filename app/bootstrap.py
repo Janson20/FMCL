@@ -39,6 +39,7 @@ SERVICE_FACTORIES: Tuple[Tuple[str, str], ...] = (
     ("bedrock", "services.bedrock_service:BedrockService"),
     ("crash", "services.crash_service:CrashService"),
     ("game", "services.game_service:GameService"),
+    ("game_dir", "services.game_dir_service:GameDirService"),
     ("install", "services.install_service:InstallService"),
     ("log", "services.log_service:LogService"),
     ("mod_browser", "services.mod_browser_service:ModBrowserService"),

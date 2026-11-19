@@ -117,6 +117,7 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "app.bridges.install_bridge",
     # 设置、日志、关于
     "app.bridges.settings_bridge",
+    "app.bridges.game_dir_bridge",
     "app.bridges.log_bridge",
     "app.bridges.about_bridge",
     # 账号、资源、在线资源浏览
@@ -154,6 +155,7 @@ QML_DYNAMIC_IMPORTS: Tuple[str, ...] = (
     "services.bedrock_service",
     "services.crash_service",
     "services.game_service",
+    "services.game_dir_service",
     "services.install_service",
     "services.jingdu_account_service",
     "services.links_service",

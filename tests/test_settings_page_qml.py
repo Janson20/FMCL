@@ -37,7 +37,7 @@ _REPORT: Dict[str, Any] = {}
 
 
 def probe() -> Dict[str, Any]:
-    """跑一次子进程探针并缓存（一个会话只跑一次，约 30 秒：9 个分区各走一遍）。"""
+    """跑一次子进程探针并缓存（一个会话只跑一次，约 30 秒：10 个分区各走一遍）。"""
     if _REPORT:
         return _REPORT
     completed = subprocess.run(
@@ -103,12 +103,13 @@ def test_settings_route_opens_the_page() -> None:
     assert report["route_after"] == "settings"
 
 
-def test_section_nav_lists_nine_sections() -> None:
-    """分区清单从路由表现取（`parent === "settings"`）：9 条，且**不含** `dev/gallery`。
+def test_section_nav_lists_all_sections() -> None:
+    """分区清单从路由表现取（`parent === "settings"`）：10 条，且**不含** `dev/gallery`。
 
-    3.18 新增「网易云音乐账号」后从 8 条变为 9 条；这是用户要求的登录入口迁移。
+    3.18 新增「网易云音乐账号」后从 8 条变为 9 条；多 .minecraft 目录支持又新增
+    「游戏目录」，因此现在是 10 条。条目数跟着路由表走，不写死在页面里。
     """
-    assert probe()["section_count"] == 9, "少了或多了一个分区"
+    assert probe()["section_count"] == 10, "少了或多了一个分区"
 
 
 def test_default_section_is_launcher() -> None:
